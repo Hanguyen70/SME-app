@@ -3742,7 +3742,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.12.92';
+const APP_VERSION='3.12.96';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -17329,6 +17329,7 @@ function _payVarList(){
 function defaultPayProfiles(){
   return {
     office: {
+      salaryBasis:'MONTHLY',
       label:'Lương Văn phòng (sheet SME)',
       standardDays: 21,              // A4
       gtgcSelf: 15500000,            // giảm trừ bản thân
@@ -17355,6 +17356,7 @@ function defaultPayProfiles(){
       ]
     },
     crew: {
+      salaryBasis:'MONTHLY',
       label:'Lương Đội tàu (sheet Đội tàu)',
       standardDays: 31,              // D5
       gtgcSelf: 15500000, gtgcDependent: 6200000,
@@ -17380,6 +17382,7 @@ function defaultPayProfiles(){
        cho trần BHTN/BHXH). Thuế TNCN + BHXH GIỮ NGUYÊN như crew.
        Đối chiếu bảng lương chức danh T6/2026: 17 mã NTP (Afalina/Katran). */
     crew_khoan: {
+      salaryBasis:'DAILY',
       label:'Lương Đội tàu — KHOÁN (trả theo ngày làm việc)',
       standardDays: 31,
       gtgcSelf: 15500000, gtgcDependent: 6200000,
@@ -17396,6 +17399,7 @@ function defaultPayProfiles(){
       ]
     },
     project: {
+      salaryBasis:'PROJECT',
       label:'Lương Chuyên gia / Dự án (USD)',
       ccy:'USD',
       hoursPerDay: 8,            // H = rate ngày / 8
@@ -19848,6 +19852,21 @@ const PAYROLL_HEALTH_CHECKS=[
         if(String(cur.effectiveFrom||'')>nxt) items.push(_phItem({checkId:'n1_profile_gap', empId, field:'effective', sourceId:cur.id,
           current:'hở '+nxt+' → '+cur.effectiveFrom, expected:'liền mạch trong thời gian làm việc', source:'salaryProfiles', openTarget:{type:'salaryProfile',id:empId}}));
       } }); return items; } },
+{ id:'n1_salarybasis_odd', group:'N1', severity:'YELLOW', blocking:[], needs:[],
+  label:'Đơn vị tính trả lương (salaryBasis) không hợp lệ trên Profile',
+  run(ctx){ const items=[];
+    /* v3.12.96: profile persist cũ KHÔNG có key → coi là hợp lệ (đường đọc tự default).
+       CHỈ cảnh báo khi key CÓ mà giá trị NẰM NGOÀI danh mục. */
+    try{
+      const profs=(PayrollService.profiles&&PayrollService.profiles())||{};
+      Object.keys(profs).forEach(k=>{
+        const p=profs[k]||{}; if(p.salaryBasis==null) return;
+        const v=String(p.salaryBasis).toUpperCase();
+        if(SALARY_BASIS_VALUES.indexOf(v)<0) items.push(_phItem({checkId:'n1_salarybasis_odd', empId:'', sourceId:k, field:'salaryBasis',
+          current:v, expected:SALARY_BASIS_VALUES.join(' | '), source:'payrollEngine.profiles', openTarget:{type:'payEngine',id:k}}));
+      });
+    }catch(e){}
+    return items; } },
 { id:'n1_salarytype_odd', group:'N1', severity:'YELLOW', blocking:[], needs:[],
   label:'Loại lương (salaryType) không xác định trên thẻ',
   run(ctx){ const items=[];
@@ -22550,8 +22569,10 @@ function _paySpBuildDiff(p){
 function payPullSalaryProfiles(periodId){
   const p=payPeriodById(periodId); if(!p) return;
   if(payStatusIdx(p.status)>=payStatusIdx('approved')){ toast('Kỳ đã duyệt/khóa','warn'); return; }
-  if(p.profile!=='office' && p.profile!=='crew'){
-    toast(p.profile==='tech'?'Kỳ Kỹ thuật: thẻ lương chưa có mức ngày — nhập mức tay (bổ sung thẻ tech ở đợt sau)':'Kỳ chuyên gia: mức từ import O&M, không dùng thẻ','warn'); return;
+  /* v3.12.94 GĐ3: MỞ cho 'tech' — thẻ lương nay có techSeaRate/techOfficeRate/techDockRate
+     qua Salary Grade, nên kéo được như office/crew. Chuyên gia vẫn dùng import O&M. */
+  if(p.profile!=='office' && p.profile!=='crew' && p.profile!=='tech' && p.profile!=='crew_khoan'){
+    toast('Kỳ chuyên gia: mức từ import O&M, không dùng thẻ','warn'); return;
   }
   const items=_paySpBuildDiff(p);
   window._pspCache={periodId, items};
@@ -22644,10 +22665,100 @@ function payPeriodComputeAll(id){
   toast('Đã tính '+cnt+' NV','good');
 }
 function payPeriodLock(id){ payPreCloseOpen(id); }   /* v3.12.13: khóa đi qua Pre-close */
+/* ════════════════════════════════════════════════════════════════════════
+   v3.12.93 — GĐ3 BƯỚC 1: SNAPSHOT THAM SỐ KỲ LƯƠNG (chỉ ĐỌC engine, KHÔNG sửa)
+   Mục đích: kỳ đã khóa giữ NGUYÊN bộ tham số lúc tính, để sửa cấu hình lương
+   về sau KHÔNG làm đổi kết quả lịch sử.
+   Rollback: xoá p._profSnapshot → về nguyên trạng, không mất gì.
+   ════════════════════════════════════════════════════════════════════════ */
+function _paySnapshotBuild(p){
+  if(!p) return null;
+  var prof=null;
+  try{
+    /* _payProfForPeriod đã ghi đè standardDays theo kỳ (v3.12.86) — chụp ĐÚNG bản dùng để tính */
+    prof=(typeof _payProfForPeriod==='function')
+      ? _payProfForPeriod(p.profile, p)
+      : ((typeof PayrollService!=='undefined'&&PayrollService.profileByKey)?PayrollService.profileByKey(p.profile):null);
+  }catch(e){}
+  if(!prof){ try{ prof=defaultPayProfiles()[p.profile]; }catch(e){} }
+  if(!prof) return null;
+  return {
+    _v: 1,
+    takenAt: new Date().toISOString(),
+    takenBy: (typeof actorName==='function')?actorName():'',
+    period: p.period||'',
+    profileKey: p.profile||'',
+    appVersion: (typeof APP_VERSION!=='undefined'?APP_VERSION:''),
+    /* bản sao SÂU của tham số — JSON để cắt mọi tham chiếu sống */
+    prof: JSON.parse(JSON.stringify(prof))
+  };
+}
+/* Ghi snapshot nếu CHƯA có. KHÔNG bao giờ ghi đè bản đã chụp. */
+function _paySnapshotEnsure(p, force){
+  if(!p) return false;
+  if(p._profSnapshot && !force) return false;
+  var s=_paySnapshotBuild(p);
+  if(!s) return false;
+  p._profSnapshot=s;
+  try{ touchRecord(p); }catch(e){}
+  return true;
+}
+/* Backfill cho MỌI kỳ đã khóa/đã qua khóa nhưng chưa có snapshot. Chạy được nhiều lần (idempotent). */
+function paySnapshotBackfill(){
+  var list=(S.payPeriods||[]);
+  var lockedIdx=(typeof payStatusIdx==='function')?payStatusIdx('locked'):5;
+  var can=[], done=0, skip=0;
+  list.forEach(function(p){
+    var idx=(typeof payStatusIdx==='function')?payStatusIdx(p.status):0;
+    if(idx<lockedIdx) return;              // chưa tới mức khóa → bỏ qua
+    if(p._profSnapshot){ skip++; return; }  // đã có → KHÔNG đụng
+    can.push(p);
+  });
+  if(!can.length){
+    console.log('✅ Không có kỳ nào cần backfill (đã có snapshot: '+skip+')');
+    return {added:0, existed:skip};
+  }
+  can.forEach(function(p){ if(_paySnapshotEnsure(p)) done++; });
+  try{ saveState(); }catch(e){}
+  console.log('✅ Đã chụp snapshot cho '+done+' kỳ (bỏ qua '+skip+' kỳ đã có).');
+  try{ logAuditEvent('pay_snapshot_backfill',{added:done, existed:skip,
+    actor:(typeof actorName==='function')?actorName():''}); }catch(e){}
+  return {added:done, existed:skip};
+}
+/* Gỡ snapshot — dùng để ROLLBACK bước 1 */
+function paySnapshotRollback(){
+  if(!confirm('Gỡ TOÀN BỘ snapshot tham số kỳ lương?\n\nDữ liệu kỳ lương (inputs/result) KHÔNG bị ảnh hưởng.')) return;
+  var n=0;
+  (S.payPeriods||[]).forEach(function(p){
+    if(p._profSnapshot){ delete p._profSnapshot; try{ touchRecord(p); }catch(e){} n++; }
+  });
+  try{ saveState(); }catch(e){}
+  console.log('↩ Đã gỡ snapshot của '+n+' kỳ.');
+  return n;
+}
+/* Báo cáo tình trạng snapshot */
+function paySnapshotReport(){
+  var lockedIdx=(typeof payStatusIdx==='function')?payStatusIdx('locked'):5;
+  var rows=(S.payPeriods||[]).map(function(p){
+    var idx=(typeof payStatusIdx==='function')?payStatusIdx(p.status):0;
+    return {'Kỳ':p.period||'', 'Nhóm':p.profile||'', 'Trạng thái':p.status||'',
+      'Số dòng':(p.rows||[]).length,
+      'Cần snapshot': idx>=lockedIdx ? 'CÓ' : '—',
+      'Đã có snapshot': p._profSnapshot ? ('✓ '+String(p._profSnapshot.takenAt||'').slice(0,10)) : '—',
+      'standardDays': p._profSnapshot ? (p._profSnapshot.prof||{}).standardDays : ''};
+  });
+  console.table(rows);
+  var thieu=rows.filter(function(r){ return r['Cần snapshot']==='CÓ' && r['Đã có snapshot']==='—'; });
+  console.log(thieu.length ? ('⚠ Còn '+thieu.length+' kỳ đã khóa CHƯA có snapshot → chạy paySnapshotBackfill()')
+                           : '✅ Mọi kỳ đã khóa đều có snapshot.');
+  return rows;
+}
 function _payPeriodLockCore(id){
   const p=payPeriodById(id); if(!p) return;
   if(p.status!=='approved'){ toast('Cần duyệt kỳ trước khi khóa','warn'); return; }
   if(!confirm('Khóa kỳ lương '+p.period+'? Sau khi khóa không sửa được (trừ khi Admin mở khóa).')) return;
+  /* v3.12.93 GĐ3-B1: chụp tham số TRƯỚC khi khóa — bảo vệ dữ liệu lịch sử */
+  try{ _paySnapshotEnsure(p); }catch(e){ console.warn('[snapshot]', e&&e.message); }
   p.status='locked'; p.lockedBy=(CURRENT_USER&&CURRENT_USER.name)||'admin'; p.lockedAt=new Date().toISOString();
   _payAudit(p,'lock','Khóa kỳ lương');
   saveState(); openPayPeriodDetail(id); toast('Đã khóa kỳ lương','good');
@@ -74818,12 +74929,208 @@ const _SP_ALLOW_LABEL = {
   allow_thamNien:'PC thâm niên', allow_khac:'PC khác'
 };
 /* Build inp mức cho engine từ thẻ (R1: prefill kỳ lương khi flag bật) */
+/* ═══════════════════════════════════════════════════════════════════════════
+   v3.12.94 — GĐ3: TẦNG SALARY GRADE (mức tiền)
+   Salary Profile = QUY TẮC tính (payrollEngine.profiles) — không chứa tiền.
+   Salary Grade   = MỨC TIỀN theo bậc — thuộc MỘT Profile, đại diện mức lương
+                    chứ KHÔNG đại diện chức danh. Nhiều chức danh cùng mức tiền
+                    dùng CHUNG một Grade → đổi chính sách chỉ sửa 1 Grade.
+   KPI KHÔNG nằm trong Grade (là input kỳ lương, đổi theo tháng — Sếp chốt).
+   ═══════════════════════════════════════════════════════════════════════════ */
+/* ═══ v3.12.95 — ROLLBACK PLAN: TẮT SALARY GRADE KHÔNG CẦN ĐỔI DỮ LIỆU ═══
+   FLAG_SALARY_GRADE = false → _spResolve BỎ QUA Grade và Override, đọc THẲNG
+   v.data như trước GĐ3. Dữ liệu Grade + gradeId + overrides VẪN CÒN NGUYÊN
+   trong state, không phải rollback migration, bật lại là chạy tiếp.
+     · Tắt per máy   : localStorage.setItem('flag_salary_grade','0'); location.reload();
+     · Bật lại       : localStorage.removeItem('flag_salary_grade'); location.reload();
+     · Tắt tức thời  : sgRollback()   (không cần reload, có hiệu lực ngay)
+     · Bật tức thời  : sgRollbackOff()
+     · Tắt toàn cục  : deploy lại với mặc định false ở dòng dưới. */
+const FLAG_SALARY_GRADE = (function(){
+  try{ return localStorage.getItem('flag_salary_grade')!=='0'; }catch(e){ return true; }
+})();
+let _SG_RUNTIME_OFF = false;                     /* cờ tắt tức thời trong phiên */
+function _sgEnabled(){ return FLAG_SALARY_GRADE && !_SG_RUNTIME_OFF; }
+function sgRollback(){
+  _SG_RUNTIME_OFF = true;
+  try{ localStorage.setItem('flag_salary_grade','0'); }catch(e){}
+  console.log('%c↩ ĐÃ TẮT Salary Grade — đọc thẳng v.data như trước GĐ3.','color:#E37400;font-weight:700');
+  console.log('   Dữ liệu Grade/gradeId/overrides VẪN NGUYÊN, không mất gì.');
+  console.log('   Bật lại: sgRollbackOff()');
+  try{ renderAll(); }catch(e){}
+  return true;
+}
+function sgRollbackOff(){
+  _SG_RUNTIME_OFF = false;
+  try{ localStorage.removeItem('flag_salary_grade'); }catch(e){}
+  console.log('%c✅ ĐÃ BẬT LẠI Salary Grade.','color:#188038;font-weight:700');
+  try{ renderAll(); }catch(e){}
+  return true;
+}
+function sgStatus(){
+  var on=_sgEnabled();
+  console.log('Salary Grade:', on?'ĐANG BẬT':'ĐANG TẮT (đọc data cũ)');
+  console.log('  FLAG_SALARY_GRADE =', FLAG_SALARY_GRADE, '· runtime off =', _SG_RUNTIME_OFF);
+  console.log('  Số Grade trong state:', (S.salaryGrades||[]).length);
+  console.log('  Số thẻ đã gán Grade :', (S.salaryProfiles||[]).filter(function(v){return v&&v.gradeId;}).length);
+  return on;
+}
+/* ═══ v3.12.96 — salaryBasis: ĐƠN VỊ TÍNH TRẢ LƯƠNG của Salary Profile ═══
+   Điểm mở cho hình thức trả lương tương lai. CHỈ mô tả quy tắc (thuộc Profile),
+   KHÔNG phải tiền (Grade) — và KHÔNG trùng vai salaryType (NET/GROSS giữ nguyên).
+   Engine hiện tại KHÔNG đọc trường này — thêm để chuẩn hóa dữ liệu, không đổi tính toán. */
+const SALARY_BASIS_VALUES = ['MONTHLY','DAILY','CONTRACT','PROJECT'];
+const SALARY_BASIS_DEFAULT = {
+  office:'MONTHLY', tech:'MONTHLY', crew:'MONTHLY',
+  crew_khoan:'DAILY',            /* khoán: chỉ hưởng theo ngày làm việc (Sếp chốt 3.12.91) */
+  project:'PROJECT', expat:'MONTHLY',
+  expert:'DAILY', expert_om:'DAILY'   /* chuyên gia: đơn giá USD/ngày (xác minh 3.12.87) */
+};
+/* Đường đọc CÓ DEFAULT — S.payrollEngine.profiles đã persist nên profile cũ
+   KHÔNG có key này; không tin key sẵn có, luôn fallback theo profileKey. */
+function payBasisOf(profileKey){
+  try{
+    var p=(typeof PayrollService!=='undefined'&&PayrollService.profileByKey)?PayrollService.profileByKey(profileKey):null;
+    var v=p&&p.salaryBasis?String(p.salaryBasis).toUpperCase():'';
+    if(SALARY_BASIS_VALUES.indexOf(v)>=0) return v;
+  }catch(e){}
+  return SALARY_BASIS_DEFAULT[profileKey]||'MONTHLY';
+}
+const SG_MONEY_FIELDS = [
+  'netBase','bhxhBase',
+  'crewSeaRate','crewDpRate',
+  'techSeaRate','techOfficeRate','techDockRate',
+  'expertUsdPerDay','expertAllowDays','expertLiving',
+  'allow_trachNhiem','allow_duAn'
+];
+const SG_PREFIX = { office:'OFF', tech:'TECH', crew:'CREW', crew_khoan:'KHOAN',
+                    expert:'EXP', expert_om:'EXP', project:'PRJ', expat:'EXPAT' };
+
+function salaryGrades(){ return S.salaryGrades || (S.salaryGrades=[]); }
+function salaryGradeById(id){
+  if(!id) return null;
+  return salaryGrades().find(function(g){ return g && g.id===id && !g._deleted; }) || null;
+}
+function salaryGradeByCode(code){
+  if(!code) return null;
+  return salaryGrades().find(function(g){ return g && g.code===code && !g._deleted; }) || null;
+}
+/* Khoá nhận dạng Grade = profileKey + toàn bộ giá trị tiền (đã chuẩn hoá).
+   Dùng để CHỐNG TẠO TRÙNG: cùng profile + cùng bộ tiền → tái dùng Grade cũ. */
+function _sgKey(profileKey, money){
+  var m = money || {};
+  return String(profileKey||'') + '|' +
+    SG_MONEY_FIELDS.map(function(f){ return String(Math.round((+m[f]||0)*100)/100); }).join('|');
+}
+function _sgNextCode(profileKey){
+  var pre = SG_PREFIX[profileKey] || String(profileKey||'GEN').toUpperCase();
+  var n = 0;
+  salaryGrades().forEach(function(g){
+    if(!g || g._deleted) return;
+    var mth = String(g.code||'').match(new RegExp('^'+pre+'-G(\\d+)$'));
+    if(mth){ var v=+mth[1]; if(v>n) n=v; }
+  });
+  return pre + '-G' + String(n+1).padStart(2,'0');
+}
+/* Tạo Grade — TÁI DÙNG nếu đã có Grade cùng profile + cùng bộ tiền (không tạo trùng). */
+function salaryGradeEnsure(profileKey, money, label){
+  if(!profileKey) return null;
+  var m = {};
+  SG_MONEY_FIELDS.forEach(function(f){ m[f] = +(money||{})[f] || 0; });
+  var key = _sgKey(profileKey, m);
+  var found = salaryGrades().find(function(g){
+    return g && !g._deleted && _sgKey(g.profileKey, g.money)===key;
+  });
+  if(found) return found;
+  var g = {
+    id: 'sg_' + Date.now() + '_' + Math.random().toString(36).slice(2,6),
+    code: _sgNextCode(profileKey),
+    profileKey: profileKey,
+    label: label || '',
+    effectiveFrom: '', effectiveTo: '',
+    money: m,
+    createdBy: (typeof actorName==='function')?actorName():'',
+    createdAt: new Date().toISOString()
+  };
+  try{ touchRecord(g); }catch(e){}
+  salaryGrades().push(g);
+  return g;
+}
+/* Grade còn được dùng không (để cảnh báo trước khi xoá) */
+function salaryGradeUsage(gradeId){
+  return (S.salaryProfiles||[]).filter(function(v){
+    return v && !v._deleted && v.gradeId===gradeId;
+  }).length;
+}
+
+/* ───────────────────────────────────────────────────────────────────────────
+   ĐỌC THAM SỐ HỢP NHẤT — thứ tự ưu tiên (Sếp chốt):
+     1. Override  (v.data[field] khi field nằm trong v.overrides)
+     2. Grade     (grade.money[field])
+     3. data cũ   (v.data[field]) — TƯƠNG THÍCH NGƯỢC 100% với thẻ chưa gán Grade
+   Trả 0 nếu không nguồn nào có.
+   ─────────────────────────────────────────────────────────────────────────── */
+function _spResolve(v, field){
+  if(!v) return 0;
+  var d = v.data || {};
+  /* v3.12.95 ROLLBACK: tắt Grade → đọc THẲNG data như trước GĐ3 (không đụng dữ liệu) */
+  if(!_sgEnabled()) return +d[field]||0;
+  var ov = v.overrides;
+  if(Array.isArray(ov) && ov.indexOf(field)>=0 && d[field]!=null) return +d[field]||0;
+  var g = v.gradeId ? salaryGradeById(v.gradeId) : null;
+  if(g && g.money && g.money[field]!=null && (+g.money[field]||0)!==0) return +g.money[field]||0;
+  if(d[field]!=null) return +d[field]||0;
+  return 0;
+}
+/* Nguồn thật của một trường — phục vụ hiển thị "Override" cho HR */
+function spFieldSource(v, field){
+  if(!v) return 'none';
+  var d=v.data||{}, ov=v.overrides;
+  if(!_sgEnabled()) return (d[field]!=null)?'legacy':'none';
+  if(Array.isArray(ov) && ov.indexOf(field)>=0 && d[field]!=null) return 'override';
+  var g=v.gradeId?salaryGradeById(v.gradeId):null;
+  if(g && g.money && g.money[field]!=null && (+g.money[field]||0)!==0) return 'grade';
+  if(d[field]!=null) return 'legacy';
+  return 'none';
+}
+/* ĐIỂM MỞ cho giai đoạn sau (chưa dùng — chưa có dữ liệu kỳ lương thật):
+   khi kỳ lương đã khoá có p._profSnapshot, tầng đọc sẽ ưu tiên snapshot.
+   Thiết kế sẵn để bổ sung KHÔNG phải refactor kiến trúc. */
+function _spSnapshotHook(period){ return (period && period._profSnapshot) ? period._profSnapshot : null; }
+
 function salaryProfileBuildInp(empId, period){
   const v=salaryProfileAt(empId, period); if(!v) return null;
   const d=v.data||{};
-  /* v3.12.91: crew_khoan dùng CÙNG bộ input với crew (khác nhau ở PROFILE, không ở input) */
-  if(v.engine==='crew'||v.engine==='crew_khoan') return {N:+d.netBase||0, O:+d.crewSeaRate||0, T:+d.crewDpRate||0, F:+d.dependents||0, _bhxhBase:+d.bhxhBase||0, _v:v};
-  return {G:+d.netBase||0, H:0, K:+d.allow_kpi||0, F:+d.dependents||0, I:+d.allow_trachNhiem||0, J:+d.allow_duAn||0, _bhxhBase:+d.bhxhBase||0, _v:v};
+  /* v3.12.94 GĐ3: mọi giá trị tiền đọc qua _spResolve (Override → Grade → data cũ).
+     dependents / isUnionMember là DỮ LIỆU CÁ NHÂN — đọc từ hồ sơ NV trước, thẻ lương sau
+     (đường đọc tương thích, chưa di chuyển dữ liệu — làm ở giai đoạn Migration). */
+  const R=f=>_spResolve(v,f);
+  const _emp=(_sgEnabled() && typeof HRService!=='undefined'&&HRService.employees)
+    ? HRService.employees().find(x=>x&&x.id===empId) : null;
+  const F=(_emp && _emp.dependents!=null) ? (+_emp.dependents||0) : (+d.dependents||0);
+
+  /* ĐỘI TÀU — crew & crew_khoan: cùng bộ input, khác PROFILE (v3.12.91) */
+  if(v.engine==='crew'||v.engine==='crew_khoan')
+    return {N:R('netBase'), O:R('crewSeaRate'), T:R('crewDpRate'), F:F,
+            _bhxhBase:R('bhxhBase'), _v:v};
+
+  /* KỸ THUẬT — engine payComputeTech ĐÃ CÓ SẴN Office/Sea/Dock Day:
+       H = mức biển/ngày · I = mức VP/ngày · J = mức dock/ngày (trống → engine tự I×1.5)
+       G = lương đóng BHXH · F = người phụ thuộc
+     GĐ3 CHỈ nối nguồn dữ liệu — KHÔNG sửa một ký tự nào trong payComputeTech. */
+  if(v.engine==='tech' && _sgEnabled()){
+    const _sea=R('techSeaRate'), _off=R('techOfficeRate'), _dock=R('techDockRate');
+    const o={ G:R('bhxhBase'), F:F, _bhxhBase:R('bhxhBase'), _v:v };
+    if(_sea)  o.H=_sea;
+    if(_off)  o.I=_off;
+    if(_dock) o.J=_dock;      /* để TRỐNG khi Grade không có → engine giữ nguyên auto I×1.5 */
+    o.P=R('allow_duAn');
+    return o;
+  }
+
+  /* VĂN PHÒNG (và các engine còn lại) — giữ NGUYÊN ánh xạ cũ */
+  return {G:R('netBase'), H:0, K:+d.allow_kpi||0, F:F,
+          I:R('allow_trachNhiem'), J:R('allow_duAn'), _bhxhBase:R('bhxhBase'), _v:v};
 }
 /* v3.12.92 (Sếp): XUẤT EXCEL CÓ CHỌN MỤC — thay vì xuất cứng 1 kiểu.
    Mục 'Cảnh báo HĐLĐ' lấy đúng danh sách đang cảnh báo trên màn hình (≤60 ngày). */
