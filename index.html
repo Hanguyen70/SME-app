@@ -3742,7 +3742,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.12.98';
+const APP_VERSION='3.12.99';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -74731,14 +74731,20 @@ function openSalaryLedger(){
       if(_slIsUsd(cur)){ usdDailyFund += amount; usdCount++; }
       else { vndFund += amount; vndCount++; }
     }
-    // lịch sử điều chỉnh
+    // lịch sử điều chỉnh — v3.12.99: thống kê CHỈ tính BUSINESS_CHANGE (thiết kế versionType)
     const hist=[];
+    let lastBizEff='';
     for(let i=1;i<list.length;i++){
       const a=_spFixedTotal(list[i-1]), b=_spFixedTotal(list[i]);
-      hist.push({eff:list[i].effectiveFrom, before:a, after:b, delta:b-a, pct:a>0?(b-a)/a*100:0, by:list[i].createdBy||'', reason:list[i].reason||''});
-      if(list[i].effectiveFrom.slice(0,4)===year){ raisedThisYear++; raiseVal+=(b-a); if(a>0){ raisePctSum+=(b-a)/a*100; raiseN++; } }
+      const vt=spVersionType(list[i]);
+      hist.push({eff:list[i].effectiveFrom, before:a, after:b, delta:b-a, pct:a>0?(b-a)/a*100:0, by:list[i].createdBy||'', reason:list[i].reason||'', vt:vt});
+      if(vt==='BUSINESS_CHANGE'){
+        if(list[i].effectiveFrom.slice(0,4)===year){ raisedThisYear++; raiseVal+=(b-a); if(a>0){ raisePctSum+=(b-a)/a*100; raiseN++; } }
+        lastBizEff=list[i].effectiveFrom;
+      }
     }
-    const lastEff=list.length?list[list.length-1].effectiveFrom:'';
+    /* monthsSince: mốc = lần THAY ĐỔI LƯƠNG THẬT gần nhất; chưa có thì mốc vào hệ thống (bản đầu) */
+    const lastEff=lastBizEff || (list.length?list[0].effectiveFrom:'');
     const monthsSince=lastEff?((+nowPer.slice(0,4)-+lastEff.slice(0,4))*12+(+nowPer.slice(5,7)-+lastEff.slice(5,7))):999;
     if(cur && monthsSince>=10) dueRaise.push({e, monthsSince, tot});
     if(e.contractEndDate){ const dd=Math.round((new Date(e.contractEndDate)-new Date())/86400000); if(dd>=0&&dd<=60) expiring.push({e,dd}); }
@@ -74759,10 +74765,13 @@ function openSalaryLedger(){
   /* v3.12.87: bình quân VND CHỈ chia cho số NV nhóm VND (không lấy tổng nhân sự) */
   const vndAvg = vndCount ? Math.round(vndFund/vndCount) : 0;
   const byDept={}, raisesByYear={};
+  /* v3.12.99: phân loại toàn bộ phiên bản để dashboard nói thật */
+  const vtCnt={BUSINESS_CHANGE:0, DATA_IMPORT:0, MIGRATION:0, SYSTEM_FIX:0};
+  (S.salaryProfiles||[]).forEach(v=>{ if(v&&!v._deleted){ vtCnt[spVersionType(v)]=(vtCnt[spVersionType(v)]||0)+1; } });
   emps.forEach(e=>{ if(e.status==='inactive')return; const c=salaryProfileAt(e.id,nowPer); if(!c)return; const _cd=hrDeptCanon(e.dept||''); const k=_cd?hrDeptLabel(_cd):'—';
     /* v3.12.87: chuyên gia quy đổi USD/ngày → VND/tháng (×22 ngày ×tỷ giá) CHỈ để so sánh trên biểu đồ */
     byDept[k]=(byDept[k]||0)+_slFixedVnd(c, _spFixedTotal(c), slFx); });
-  (S.salaryProfiles||[]).forEach(v=>{ if(v.version>1){ const y=v.effectiveFrom.slice(0,4); raisesByYear[y]=(raisesByYear[y]||0)+1; } });
+  (S.salaryProfiles||[]).forEach(v=>{ if(v && !v._deleted && v.version>1 && spVersionType(v)==='BUSINESS_CHANGE'){ const y=v.effectiveFrom.slice(0,4); raisesByYear[y]=(raisesByYear[y]||0)+1; } });
   const bar=(obj,fmtV)=>{ const ks=Object.keys(obj); const mx=Math.max(1,...ks.map(k=>obj[k]));
     return ks.sort((a,b)=>obj[b]-obj[a]).map(k=>`<div style="display:flex;align-items:center;gap:6px;font-size:10.5px;margin:2px 0"><span style="width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(k)}</span><div style="flex:1;background:var(--rule);border-radius:3px"><div style="width:${Math.round(obj[k]/mx*100)}%;background:var(--accent);height:9px;border-radius:3px"></div></div><span style="font-family:var(--font-mono);width:92px;text-align:right">${fmtV(obj[k])}</span></div>`).join(''); };
   const kpi=(l,v,c)=>`<div style="flex:1;min-width:130px;background:var(--paper-2);border:1px solid var(--rule);border-radius:8px;padding:8px 10px"><div style="font-size:9px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)">${l}</div><div style="font-family:var(--font-mono);font-weight:700;font-size:15px;color:${c||'var(--ink)'}">${v}</div></div>`;
@@ -74772,7 +74781,8 @@ function openSalaryLedger(){
     const _xUsd=_slIsUsd(x.cur);
     const _xTech=_slIsTechDaily(x.cur);   /* v3.12.98 */
     const _hm=v=>{ const n=Number(v)||0; if(_xUsd) return n.toLocaleString('en-US',{maximumFractionDigits:2})+' USD/ngày'; if(_xTech) return fmtFull(n,'VND'); return fmtFull(n,'VND'); };
-    const histHtml=x.hist.slice().reverse().map(h=>`<div style="font-size:10.5px;font-family:var(--font-mono)">${h.eff}: ${_hm(h.before)} → <b>${_hm(h.after)}</b> <span style="color:${h.delta>=0?'var(--good)':'var(--bad)'}">(${h.delta>=0?'+':''}${_hm(h.delta)} · ${h.pct.toFixed(1)}%)</span> · ${esc(h.by)} · ${esc(h.reason)}</div>`).join('')||'<span style="font-size:10px;color:var(--muted)">chưa điều chỉnh</span>';
+    const _vtb=vt=> vt==='BUSINESS_CHANGE' ? '' : `<span style="font-size:8.5px;border:1px solid var(--rule);border-radius:3px;padding:0 3px;color:var(--muted);margin-right:3px" title="Không tính vào thống kê tăng lương">${_SP_VT_LABEL[vt]||vt}</span>`;
+    const histHtml=x.hist.slice().reverse().map(h=>`<div style="font-size:10.5px;font-family:var(--font-mono)">${_vtb(h.vt)}${h.eff}: ${_hm(h.before)} → <b>${_hm(h.after)}</b> <span style="color:${h.delta>=0?'var(--good)':'var(--bad)'}">(${h.delta>=0?'+':''}${_hm(h.delta)} · ${h.pct.toFixed(1)}%)</span> · ${esc(h.by)} · ${esc(h.reason)}</div>`).join('')||'<span style="font-size:10px;color:var(--muted)">chưa điều chỉnh</span>';
     return `<tr style="border-top:1px solid var(--rule)">
       <td style="padding:6px 8px;font-size:12px"><a href="javascript:void(0)" onclick="openSalaryProfileCard('${e.id}')" style="font-weight:600;color:var(--accent)">${esc(e.fullName)}</a><br><span style="font-family:var(--font-mono);font-size:10px;color:var(--muted)">${esc(e.smartId||'')}</span></td>
       <td style="padding:6px 8px;font-size:11px">${esc((function(){const _c=hrDeptCanon(e.dept||'');return _c?hrDeptLabel(_c):(e.dept||'—');})())}<br><span style="color:var(--muted)">${esc(e.title||'')}</span></td>
@@ -74820,7 +74830,8 @@ function openSalaryLedger(){
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px">
       <div style="border:1px solid var(--rule);border-radius:8px;padding:8px 10px"><div style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:4px">Phân bố quỹ lương theo phòng ban</div><div style="font-size:9px;color:var(--muted);margin-bottom:3px">Chuyên gia được quy đổi theo ${_SL_STD_DAYS} ngày/tháng · tỷ giá 1 USD = ${Number(slFx).toLocaleString('vi-VN')} VND</div>${bar(byDept,v=>fmt(v,'VND'))}</div>
-      <div style="border:1px solid var(--rule);border-radius:8px;padding:8px 10px"><div style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:4px">Số lượt tăng lương theo năm</div>${bar(raisesByYear,v=>v+' lượt')}
+      <div style="border:1px solid var(--rule);border-radius:8px;padding:8px 10px"><div style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:4px">Số lượt tăng lương theo năm</div>${bar(raisesByYear,v=>v+' lượt')||'<span style="font-size:10px;color:var(--muted)">chưa có thay đổi lương nào</span>'}
+        <div style="font-size:10px;color:var(--muted);margin-top:6px;font-family:var(--font-mono)">Tổng lịch sử: ${vtCnt.BUSINESS_CHANGE+vtCnt.DATA_IMPORT+vtCnt.MIGRATION+vtCnt.SYSTEM_FIX} phiên bản — ${vtCnt.BUSINESS_CHANGE} thay đổi lương · ${vtCnt.DATA_IMPORT} import · ${vtCnt.MIGRATION} migration · ${vtCnt.SYSTEM_FIX} sửa dữ liệu</div>
         <div style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted);margin:8px 0 4px">⏰ Sắp đến kỳ xét tăng (≥10 tháng)</div>
         ${dueRaise.sort((a,b)=>b.monthsSince-a.monthsSince).slice(0,6).map(x=>`<div style="font-size:10.5px">• <a href="javascript:void(0)" onclick="openSalaryProfileCard('${x.e.id}')">${esc(x.e.fullName)}</a> — ${x.monthsSince} tháng</div>`).join('')||'<span style="font-size:10px;color:var(--muted)">không có</span>'}
         ${expiring.length?('<div style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--bad);margin:8px 0 4px">⚠ HĐ sắp hết hạn (≤60 ngày)</div>'+expiring.map(x=>`<div style="font-size:10.5px">• ${esc(x.e.fullName)} — còn ${x.dd} ngày</div>`).join('')):''}
@@ -74886,6 +74897,10 @@ function salaryProfileAddVersion(empId, payload){
     version:list.length+1, effectiveFrom:eff, effectiveTo:'',
     engine:payload.engine||'office', data:Object.assign({}, payload.data||{}),
     reason:payload.reason||'', source:payload.source||'manual',
+    /* v3.12.99: loại phiên bản — form tay mặc định là thay đổi nghiệp vụ; script kỹ thuật truyền versionType riêng */
+    versionType:(SP_VERSION_TYPES.indexOf(String(payload.versionType||'').toUpperCase())>=0)
+      ? String(payload.versionType).toUpperCase()
+      : ((payload.source||'manual')==='manual' ? 'BUSINESS_CHANGE' : 'SYSTEM_FIX'),
     createdBy:actorName(), createdAt:new Date().toISOString() };
   touchRecord(v);
   // đóng effectiveTo bản liền trước (tháng trước eff) — KHÔNG ghi đè nội dung bản cũ
@@ -74927,6 +74942,24 @@ function salaryProfileDeleteVersion(vid){
    PC trách nhiệm và PC KPI VẪN thuộc lương NET cố định — giữ như bảng cũ.
    Lý do nghiệp vụ: PC dự án chỉ phát sinh khi công ty CÓ dự án + KTT/Admin xác nhận;
    còn PC trách nhiệm và KPI là khoản thường xuyên trong cơ cấu lương NET. */
+/* ═══ v3.12.99 — PHÂN LOẠI PHIÊN BẢN THẺ LƯƠNG (Sếp thiết kế) ═══
+   versionType là QUY TẮC NGHIỆP VỤ, không phụ thuộc tên kỹ thuật của source.
+   Mọi thống kê quản trị CHỈ tính BUSINESS_CHANGE; lịch sử giữ nguyên vẹn. */
+const SP_VERSION_TYPES = ['BUSINESS_CHANGE','DATA_IMPORT','MIGRATION','SYSTEM_FIX'];
+function spVersionType(v){
+  if(!v) return 'BUSINESS_CHANGE';
+  var t=String(v.versionType||'').toUpperCase();
+  if(SP_VERSION_TYPES.indexOf(t)>=0) return t;
+  /* Suy luận cho bản CŨ chưa gán (fallback — migrate một lần bằng script M8 sẽ ghi cứng):
+     đây là suy luận tương thích ngược, KHÔNG phải quy tắc lâu dài. */
+  var s=String(v.source||'');
+  if(s==='import') return 'DATA_IMPORT';
+  if(s==='GD4-M7a') return 'SYSTEM_FIX';
+  if(s.indexOf('GD4-')===0) return 'MIGRATION';
+  if((+v.version||0)===1) return 'DATA_IMPORT';
+  return 'BUSINESS_CHANGE';
+}
+const _SP_VT_LABEL={BUSINESS_CHANGE:'Thay đổi lương', DATA_IMPORT:'Import', MIGRATION:'Migration', SYSTEM_FIX:'Sửa dữ liệu'};
 const _SP_FIXED_ALLOW = ['allow_trachNhiem','allow_kpi','allow_thamNien','allow_khac'];
 const _SP_VAR_ALLOW   = ['allow_duAn'];   // CHỈ PC dự án — không thường xuyên
 function _spFixedTotal(v){
