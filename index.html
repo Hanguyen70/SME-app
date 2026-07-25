@@ -3742,7 +3742,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.12.96';
+const APP_VERSION='3.12.97';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -6807,7 +6807,7 @@ const ALL_DATA_FIELDS=[
   'transactions',
   'cashFunds','cashTxns',
   'departments','vendors','expenseTypes','revenueTypes',
-  'salaryFund','taxes','salaryProfiles','payExtras','omImports','payrollBankBatches','siEvents','hrRequests','employeeTaxYearProfile','employeeTaxIncomeSources','employeeTaxYearSnapshots','taxYearFinalizations','taxRules','hrTaxAttrs','hrEmploymentAssignments','insuranceEnrollments',  /* v3.11.95 GĐ2 — sẽ chuyển sang domain data_payroll khi RC-R1 */
+  'salaryFund','taxes','salaryProfiles','salaryGrades','payExtras',  /* v3.12.97 FIX: salaryGrades PHẢI sync — GĐ4-M1 tạo 54 Grade xong bị mergeStateByFields drop vì thiếu trong ALL_DATA_FIELDS (đúng bài học v3.07.05 ngay dưới) */'omImports','payrollBankBatches','siEvents','hrRequests','employeeTaxYearProfile','employeeTaxIncomeSources','employeeTaxYearSnapshots','taxYearFinalizations','taxRules','hrTaxAttrs','hrEmploymentAssignments','insuranceEnrollments',  /* v3.11.95 GĐ2 — sẽ chuyển sang domain data_payroll khi RC-R1 */
   'hrEmployees','hrHistory','hrAttendance','payrollConfig','payrollEngine','payrollPeriods',  // v3.07.05 FIX: HRM + tham số lương — TRƯỚC ĐÂY KHÔNG SYNC → import xong sync là mất sạch
   'positions',  // v3.08.05: Position Management (PAF) — định biên theo vị trí
   'payChangeRequests','bodNotifs',  // v3.07.95: yêu cầu thay đổi cấu hình lương (4 mắt) + thông báo BOD — PHẢI sync
