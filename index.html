@@ -3742,7 +3742,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.12.97';
+const APP_VERSION='3.12.98';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -74689,10 +74689,20 @@ function _slIsUsd(cur){
   const eng = cur.engine || '';
   return eng === 'expert_om' || eng === 'expert';
 }
+/* v3.12.98: nhóm Kỹ thuật — lương theo NGÀY (mức VP/biển/dock), không có thu nhập cố định tháng.
+   Nhận diện qua engine, đúng tiền lệ _slIsUsd 3.12.87. */
+function _slIsTechDaily(cur){ return !!cur && cur.engine==='tech'; }
+/* Mức VP/ngày của thẻ tech — đọc qua _spResolve để ăn Grade (Override → Grade → data). */
+function _slTechOfficeRate(cur){
+  try{ return (typeof _spResolve==='function') ? (+_spResolve(cur,'techOfficeRate')||0) : (+((cur.data||{}).techOfficeRate)||0); }
+  catch(e){ return +((cur.data||{}).techOfficeRate)||0; }
+}
 /* Quy đổi VỀ VND để so sánh trên BIỂU ĐỒ. USD/ngày → ×22 ngày ×tỷ giá. */
 function _slFixedVnd(cur, tot, rate){
   const amount = Number(tot) || 0;
   const fx = Number(rate) || 0;
+  /* v3.12.98: tech quy đổi mức VP/ngày × 22 + phụ cấp cố định (tot đã gồm KPI nếu có — Sếp chốt) */
+  if(_slIsTechDaily(cur)) return _slTechOfficeRate(cur) * _SL_STD_DAYS + amount;
   return _slIsUsd(cur) ? amount * _SL_STD_DAYS * fx : amount;
 }
 function openSalaryLedger(){
@@ -74760,7 +74770,8 @@ function openSalaryLedger(){
     const e=x.e;
     /* v3.12.87: lịch sử theo NGUYÊN TỆ — chuyên gia USD/ngày, còn lại VND/tháng. KHÔNG quy đổi. */
     const _xUsd=_slIsUsd(x.cur);
-    const _hm=v=>{ const n=Number(v)||0; return _xUsd ? (n.toLocaleString('en-US',{maximumFractionDigits:2})+' USD/ngày') : fmtFull(n,'VND'); };
+    const _xTech=_slIsTechDaily(x.cur);   /* v3.12.98 */
+    const _hm=v=>{ const n=Number(v)||0; if(_xUsd) return n.toLocaleString('en-US',{maximumFractionDigits:2})+' USD/ngày'; if(_xTech) return fmtFull(n,'VND'); return fmtFull(n,'VND'); };
     const histHtml=x.hist.slice().reverse().map(h=>`<div style="font-size:10.5px;font-family:var(--font-mono)">${h.eff}: ${_hm(h.before)} → <b>${_hm(h.after)}</b> <span style="color:${h.delta>=0?'var(--good)':'var(--bad)'}">(${h.delta>=0?'+':''}${_hm(h.delta)} · ${h.pct.toFixed(1)}%)</span> · ${esc(h.by)} · ${esc(h.reason)}</div>`).join('')||'<span style="font-size:10px;color:var(--muted)">chưa điều chỉnh</span>';
     return `<tr style="border-top:1px solid var(--rule)">
       <td style="padding:6px 8px;font-size:12px"><a href="javascript:void(0)" onclick="openSalaryProfileCard('${e.id}')" style="font-weight:600;color:var(--accent)">${esc(e.fullName)}</a><br><span style="font-family:var(--font-mono);font-size:10px;color:var(--muted)">${esc(e.smartId||'')}</span></td>
@@ -74773,6 +74784,13 @@ function openSalaryLedger(){
           const _vnd=_slFixedVnd(x.cur,_t,slFx);
           return '<b>'+_t.toLocaleString('en-US',{maximumFractionDigits:2})+' USD/ngày</b>'
             +'<br><span style="font-size:9.5px;color:var(--muted)">≈ '+fmtFull(_vnd,'VND')+'/tháng · '+_SL_STD_DAYS+' ngày · tỷ giá '+Number(slFx).toLocaleString('vi-VN')+'</span>';
+        }
+        if(_slIsTechDaily(x.cur)){
+          const _or=_slTechOfficeRate(x.cur);
+          const _vnd=_slFixedVnd(x.cur,_t,slFx);
+          return '<b>'+fmtFull(_or,'VND')+'/ngày VP</b>'
+            +'<br><span style="font-size:9.5px;color:var(--muted)">≈ '+fmtFull(_vnd,'VND')+'/tháng · '+_SL_STD_DAYS+' ngày'+(_t?(' · gồm PC/KPI '+fmtFull(_t,'VND')):'')+'</span>'
+            +'<br><span style="font-size:10px;color:var(--muted)">BH '+fmtFull(+(x.cur.data.bhxhBase)||0,'VND')+'</span>';
         }
         const _sub=(x.cur.engine==='crew')?'MLCB · VND/tháng':'VND/tháng';
         return '<b>'+fmtFull(_t,'VND')+'</b>'
