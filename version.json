@@ -1,6 +1,6 @@
 {
-  "version": "3.13.03",
+  "version": "3.13.04",
   "released": "2026-07-25",
   "stage": "Production Pilot · Perm V2 GĐ0 shadow — 0 hành vi đổi",
-  "notes": "v3.13.03 — GĐ0 Perm V2 (như 3.13.02) + FIX nguồn dữ liệu permAudit: đọc getAuthConfig().users (danh sách user nằm trong config mã hóa, không phải S.appUsers — phát hiện trên máy Sếp permAudit ra 0 user) + scope tàu nhận assignedVesselIds (trường thật của user, thấy từ UI quản trị). Bump số hiệu vì 3.13.02 md5 cũ đã tải về máy — một số hiệu một md5."
+  "notes": "v3.13.04 — Tinh chỉnh công cụ nghiệm thu GĐ0 theo kết quả chạy thật 15 user: (1) phân loại A/B/C/D theo BAO PHỦ CỜ (bảng COVER 20 cờ) thay vì đếm số cờ — UYEN/HANG (canCheckAcc+canConfirmPayment) được ACCOUNTANT bao phủ trọn nên là A, hết đánh D oan; (2) phát hiện đúng ca B-THIẾU-QUYỀN: cờ không được role mới bao phủ (THUY canManageUsers ngoài CHIEF_ACC) hiện rõ tên cờ mất; (3) permRoleFull: cờ canManageUsers ở role thường sinh đề xuất addon MANAGE_USERS? (dấu hỏi = chờ Sếp duyệt từng người theo mục 9 nghiệm thu — addon không tự cấp); (4) cột Tàu rút gọn hiển thị số lượng. Engine matrix KHÔNG đổi; shadow-check không đổi; 0 hành vi app đổi."
 }

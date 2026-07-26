@@ -3742,7 +3742,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.13.03';
+const APP_VERSION='3.13.04';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -73757,6 +73757,14 @@ function permRoleOfUser(u){
   if(u.isDeptHead){ out.role='STAFF'; out.why='trưởng BP bỏ theo mô hình'; out.ambiguous=true; return out; }
   return out;
 }
+/* Cờ phụ → addon (đề xuất — mục 9 nghiệm thu: cấp thật phải Sếp duyệt từng người) */
+function permRoleFull(u){
+  var out=permRoleOfUser(u);
+  if(u && u.canManageUsers && out.role!=='ADMIN' && out.addons.indexOf('MANAGE_USERS')<0){
+    out.addons=out.addons.concat(['MANAGE_USERS?']);   /* dấu ? = chờ duyệt */
+  }
+  return out;
+}
 /* Engine — nguồn sự thật duy nhất */
 function pv2ScopeOf(user, domain, cap){
   var r=permRoleOfUser(user);
@@ -73878,19 +73886,47 @@ function _pv2Users(){
 window.permAudit=function(){
   var users=_pv2Users();
   if(!users.length){ console.warn('Không đọc được danh sách user — chạy trên máy ADMIN đã đăng nhập'); }
+  /* Cờ cũ được role mới BAO PHỦ khi hàm trả true */
+  var COVER={
+    canApproveL1:function(r){return r.role==='CHIEF_ACC'||r.role==='ADMIN';},
+    canApproveL2:function(r){return r.role==='ADMIN';},
+    canCheckAcc:function(r){return ['ACCOUNTANT','CHIEF_ACC','ADMIN'].indexOf(r.role)>=0;},
+    isPayrollAcc:function(r){return ['ACCOUNTANT','CHIEF_ACC','ADMIN'].indexOf(r.role)>=0;},
+    canConfirmPayment:function(r){return ['ACCOUNTANT','CHIEF_ACC','ADMIN'].indexOf(r.role)>=0;},
+    canApproveFund:function(r){return ['CHIEF_ACC','ADMIN'].indexOf(r.role)>=0;},
+    canSignOwnerReport:function(r){return ['CHIEF_ACC','ADMIN'].indexOf(r.role)>=0;},
+    canManageUsers:function(r){return r.role==='ADMIN'||r.addons.join(',').indexOf('MANAGE_USERS')>=0;},
+    isIT:function(r){return r.role==='ADMIN'||r.addons.join(',').indexOf('MANAGE_USERS')>=0;},
+    canSignHr:function(r){return ['HR_STAFF','HR_PAYROLL','ADMIN'].indexOf(r.role)>=0;},
+    isHR:function(r){return ['HR_STAFF','HR_PAYROLL','ADMIN'].indexOf(r.role)>=0;},
+    isNVNS:function(r){return r.role==='HR_PAYROLL';},
+    isVesselAccount:function(r){return r.role==='VESSEL_ACCOUNT'||r.role==='ADMIN';},
+    isCaptain:function(r){return r.role==='VESSEL_ACCOUNT'||r.role==='ADMIN';},
+    isWarehouse:function(r){return r.role==='WAREHOUSE'||r.role==='ADMIN';},
+    isCentralWarehouse:function(r){return r.role==='WAREHOUSE'||r.role==='ADMIN';},
+    isViewer:function(r){return r.role==='VIEWER'||r.role==='ADMIN';},
+    canViewPayroll:function(r){return ['ACCOUNTANT','CHIEF_ACC','HR_PAYROLL','ADMIN'].indexOf(r.role)>=0;},
+    isBOD:function(){return false;}, isCEO:function(){return false;},   /* giảm chủ đích → C */
+    isDeptHead:function(){return false;}
+  };
   var rows=[], stats={}, manual=[];
   users.forEach(function(u){
     if(!u||u._deleted) return;
     var flags=_PV2_FLAGS.filter(function(f){ return !!u[f]; });
-    var r=permRoleOfUser(u);
-    var grade = r.ambiguous ? 'D-mơ hồ' : (flags.length<=1 ? 'A-tự động' : 'D-tổ hợp nhiều cờ');
-    if(u.isBOD||u.isCEO) grade='C-giảm quyền (BOD→VIEWER)';
-    if(grade!=='A-tự động') manual.push(u.name);
+    var r=permRoleFull(u);
+    var mất=flags.filter(function(f){ return COVER[f] && !COVER[f](r); });
+    var grade;
+    if(u.isBOD||u.isCEO) grade='C-giảm quyền chủ đích (BOD→VIEWER)';
+    else if(r.ambiguous) grade='D-mơ hồ';
+    else if(r.addons.join(',').indexOf('?')>=0) grade='D-chờ duyệt addon';
+    else if(mất.length) grade='B-THIẾU QUYỀN: '+mất.join(',');
+    else grade='A-tự động';
+    if(grade!=='A-tự động') manual.push(u.name+' ['+grade.slice(0,1)+']');
     stats[r.role]=(stats[r.role]||0)+1;
-    rows.push({ 'Tên':u.name||'', 'Chức danh':u.title||u.chucVu||'', 'Cờ cũ':flags.join(',')||'(không)',
-      'Role mới':r.role, 'Addon':(r.addons||[]).join(',')||'', 'Tàu':(u.allowedVessels||u.assignedVesselIds||[]).join(',')||'',
-      'Sections':(u.viewerSections||[]).join(',')||'', 'Active':u.disabled?'✗':'✓',
-      'Phân loại':grade, 'Căn cứ':r.why });
+    rows.push({ 'Tên':u.name||'', 'Cờ cũ':flags.join(',')||'(không)',
+      'Role mới':r.role, 'Addon':(r.addons||[]).join(',')||'',
+      'Tàu':((u.allowedVessels||u.assignedVesselIds||[]).length||'')&&((u.allowedVessels||u.assignedVesselIds||[]).length+' tàu'),
+      'Active':u.disabled?'✗':'✓', 'Phân loại':grade, 'Căn cứ':r.why });
   });
   console.log('%c═══ PERM AUDIT — NGHIỆM THU MỤC 1-3 ═══','font-weight:700');
   console.table(rows);
@@ -73902,7 +73938,7 @@ window.permAudit=function(){
 window.permAuditData=function(){
   var users=_pv2Users();
   return users.filter(function(u){return u&&!u._deleted;}).map(function(u){
-    var r=permRoleOfUser(u);
+    var r=permRoleFull(u);
     return { name:u.name, flags:_PV2_FLAGS.filter(function(f){return !!u[f];}),
       newRole:r.role, addons:r.addons, ambiguous:r.ambiguous, why:r.why,
       vessels:u.allowedVessels||u.assignedVesselIds||[], sections:u.viewerSections||[], disabled:!!u.disabled };
