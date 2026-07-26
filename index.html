@@ -3742,7 +3742,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.13.04';
+const APP_VERSION='3.13.06';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -6807,7 +6807,9 @@ const ALL_DATA_FIELDS=[
   'transactions',
   'cashFunds','cashTxns',
   'departments','vendors','expenseTypes','revenueTypes',
-  'salaryFund','taxes','salaryProfiles','salaryGrades','payExtras',  /* v3.12.97 FIX: salaryGrades PHẢI sync — GĐ4-M1 tạo 54 Grade xong bị mergeStateByFields drop vì thiếu trong ALL_DATA_FIELDS (đúng bài học v3.07.05 ngay dưới) */'omImports','payrollBankBatches','siEvents','hrRequests','employeeTaxYearProfile','employeeTaxIncomeSources','employeeTaxYearSnapshots','taxYearFinalizations','taxRules','hrTaxAttrs','hrEmploymentAssignments','insuranceEnrollments',  /* v3.11.95 GĐ2 — sẽ chuyển sang domain data_payroll khi RC-R1 */
+  'salaryFund','taxes','salaryProfiles','salaryGrades','payExtras',
+  /* v3.13.06 PAYROLL P1 — 8 store METADATA-ONLY (chi tiết ở IDB partition + Drive, không vào state) */
+  'payrollPeriods','pfAttendanceImports','pfPayrollRuns','pfAccChecks','pfApprovals','pfBankFiles','pfDecisions','pfAudit',  /* v3.12.97 FIX: salaryGrades PHẢI sync — GĐ4-M1 tạo 54 Grade xong bị mergeStateByFields drop vì thiếu trong ALL_DATA_FIELDS (đúng bài học v3.07.05 ngay dưới) */'omImports','payrollBankBatches','siEvents','hrRequests','employeeTaxYearProfile','employeeTaxIncomeSources','employeeTaxYearSnapshots','taxYearFinalizations','taxRules','hrTaxAttrs','hrEmploymentAssignments','insuranceEnrollments',  /* v3.11.95 GĐ2 — sẽ chuyển sang domain data_payroll khi RC-R1 */
   'hrEmployees','hrHistory','hrAttendance','payrollConfig','payrollEngine','payrollPeriods',  // v3.07.05 FIX: HRM + tham số lương — TRƯỚC ĐÂY KHÔNG SYNC → import xong sync là mất sạch
   'positions',  // v3.08.05: Position Management (PAF) — định biên theo vị trí
   'payChangeRequests','bodNotifs',  // v3.07.95: yêu cầu thay đổi cấu hình lương (4 mắt) + thông báo BOD — PHẢI sync
@@ -73945,6 +73947,191 @@ window.permAuditData=function(){
   });
 };
 
+
+/* ═══════════════════════════════════════════════════════════════════
+ * PAYROLL MODULE — P1 (v3.13.06) — thiết kế v1.1 Sếp duyệt 26/07/2026
+ * P1 = FX foundation + PayrollDataStore (3 tầng) + commit protocol +
+ *      schema metadata + khung + bảng tổng hợp tháng.
+ * KHÔNG đụng 5 engine · KHÔNG nghiệp vụ tính lương · FLAG_PAYROLL_MODULE admin-first.
+ * ═══════════════════════════════════════════════════════════════════ */
+window.FLAG_PAYROLL_MODULE=(localStorage.getItem('flag_payroll_module')==='1');
+
+/* ── ENGINE ALIAS (audit 26/07): 8 nhãn thẻ → 5 hàm engine. KHÔNG suy currency từ engine. */
+const PF_ENGINE_ALIAS={ office:'office', crew:'crew', crew_khoan:'crew', tech:'tech',
+  project:'expert', expert:'expert', expert_om:'expert', expat:'expat' };
+
+/* ── CURRENCY & FX FOUNDATION (điều kiện 1-5) ─────────────────────── */
+const PF_CCY={ VND:{minor:1,name:'đồng'}, USD:{minor:100,name:'cent'} };   /* mở rộng được */
+const PF_ENTITY_POLICY={ SMEJSC:{functionalCurrency:'VND'} };              /* không hard-code toàn hệ */
+function pfToMinor(amount, ccy){        /* số nguyên amountMinor — không float chính thức */
+  var m=(PF_CCY[ccy]||PF_CCY.VND).minor;
+  return Math.round((Number(amount)||0)*m);
+}
+function pfFromMinor(minor, ccy){ var m=(PF_CCY[ccy]||PF_CCY.VND).minor; return (Number(minor)||0)/m; }
+function pfAddMinor(a, b, ccyA, ccyB){  /* CẤM cộng khác loại tiền */
+  if(ccyA!==ccyB) throw new Error('PF_CCY_MIX: '+ccyA+'+'+ccyB);
+  return (Number(a)||0)+(Number(b)||0);
+}
+function pfFxSnapshot(pairs, source, approvedBy){  /* bất biến per Run — Run cũ KHÔNG đọc S.fxRate */
+  return { pairs:(pairs||[]).map(function(p){return {from:p.from,to:p.to,
+    rateMinorPerMinor:String(p.rate), asOf:p.asOf||new Date().toISOString().slice(0,10)};}),
+    source:source||'manual', approvedBy:approvedBy||'', frozenAt:new Date().toISOString() };
+}
+function pfTotalsByCcy(rows){  /* totals tách byPaymentCurrency (điều kiện 3) */
+  var by={};
+  (rows||[]).forEach(function(r){
+    var c=r.paymentCurrency||'VND';
+    by[c]=(by[c]||0)+(Number(r.takeHomeMinor)||0);
+  });
+  return by;
+}
+function pfConvertMinor(minor, from, to, fxSnapshot, rounding){
+  if(from===to) return Number(minor)||0;
+  var p=(fxSnapshot&&fxSnapshot.pairs||[]).find(function(x){return x.from===from&&x.to===to;});
+  if(!p) throw new Error('PF_FX_MISSING: '+from+'→'+to);
+  var v=(Number(minor)||0)*Number(p.rateMinorPerMinor);
+  return rounding==='floor'?Math.floor(v):rounding==='ceil'?Math.ceil(v):Math.round(v);
+}
+/* Canonical (điều kiện 5): normalize sort-key + GỒM currency, fx, rounding → SHA-256 */
+function pfNormalize(o){
+  if(o===undefined) return null;
+  if(o===null||typeof o!=='object') return o;
+  if(Array.isArray(o)) return o.map(pfNormalize);
+  var ks=Object.keys(o).filter(function(k){return k.charAt(0)!=='_'&&o[k]!==undefined;}).sort();
+  var r={}; ks.forEach(function(k){ r[k]=pfNormalize(o[k]); }); return r;
+}
+async function pfSha256(obj){
+  var s=(typeof obj==='string')?obj:JSON.stringify(pfNormalize(obj));
+  return await sha256Hex(s);
+}
+async function pfResultHash(results, fxSnapshot, rounding){
+  return await pfSha256({results:results, fx:fxSnapshot||null, rounding:rounding||'round', v:1});
+}
+
+/* ── PAYROLL DATA STORE — 3 tầng + COMMIT PROTOCOL (điều kiện Sếp) ── */
+/* Drive = canonical; IDB = cache vận hành per máy; state = metadata.  */
+const PayrollDrive={
+  /* Backend GAS cần action pfsave/pfload (đoạn Code.gs kèm P1). Chưa có → DEFERRED, retry sau. */
+  available:null,
+  async save(ref, jsonStr){
+    try{
+      var cfg=getAuthConfig(); if(!cfg||!cfg.scriptUrl) return {ok:false, deferred:true};
+      var res=await fetch(cfg.scriptUrl+'?action=pfsave&ref='+encodeURIComponent(ref),
+        {method:'POST', body:jsonStr});
+      var j=await res.json().catch(function(){return {};});
+      if(j&&j.ok){ PayrollDrive.available=true; return {ok:true, sha:j.sha||''}; }
+      return {ok:false, deferred:(j&&j.error==='unknown_action')||res.status===404};
+    }catch(e){ return {ok:false, deferred:true}; }
+  },
+  async load(ref){
+    try{
+      var cfg=getAuthConfig(); if(!cfg||!cfg.scriptUrl) return null;
+      var res=await fetch(cfg.scriptUrl+'?action=pfload&ref='+encodeURIComponent(ref));
+      var j=await res.json().catch(function(){return null;});
+      return (j&&j.ok)?j.data:null;
+    }catch(e){ return null; }
+  }
+};
+const PayrollDataStore={
+  _key:function(ref){ return 'payroll_'+ref; },
+  /* COMMIT: PREPARING → IDB → Drive → verify SHA-256 → READY | FAILED. Idempotent theo operationId. */
+  async commit(ref, dataObj, meta){
+    var op=(meta&&meta.operationId)||('pf_'+Date.now()+'_'+Math.random().toString(36).slice(2,8));
+    var rec={ ref:ref, operationId:op, status:'PREPARING', sha256:'', storageStatus:'NONE',
+              startedAt:new Date().toISOString() };
+    try{
+      var json=JSON.stringify(pfNormalize(dataObj));
+      rec.sha256=await pfSha256(json);
+      /* B1: IDB (retry 2 lần) */
+      var wrote=false;
+      for(var i=0;i<2&&!wrote;i++){
+        try{ await IDBBackend.set(this._key(ref), {op:op, sha:rec.sha256, json:json}); wrote=true; }
+        catch(e){ if(i===1) throw e; }
+      }
+      rec.storageStatus='IDB_ONLY';
+      /* B2: Drive (canonical) */
+      var dr=await PayrollDrive.save(ref, json);
+      if(dr.ok){
+        /* B3: verify — sha backend phải khớp local */
+        if(dr.sha && dr.sha!==rec.sha256){ rec.status='FAILED'; rec.error='SHA_MISMATCH'; return rec; }
+        rec.storageStatus='DRIVE_SYNCED';
+      } else if(dr.deferred){
+        rec.storageStatus='IDB_ONLY_DRIVE_PENDING';   /* backend chưa nâng cấp — retry nền */
+      } else { rec.status='FAILED'; rec.error='DRIVE_ERROR'; return rec; }
+      rec.status='READY'; rec.doneAt=new Date().toISOString();
+      return rec;
+    }catch(e){ rec.status='FAILED'; rec.error=String(e&&e.message||e); return rec; }
+  },
+  /* LOAD lazy: IDB → miss thì Drive → verify sha → tự chữa IDB (recovery) */
+  async load(ref, expectSha){
+    try{
+      var c=await IDBBackend.get(this._key(ref));
+      if(c&&c.json&&(!expectSha||c.sha===expectSha)) return JSON.parse(c.json);
+    }catch(e){}
+    var d=await PayrollDrive.load(ref);
+    if(d!=null){
+      var json=(typeof d==='string')?d:JSON.stringify(d);
+      var sha=await pfSha256(json);
+      if(expectSha&&sha!==expectSha) return null;                 /* canonical không khớp → chặn */
+      try{ await IDBBackend.set(this._key(ref), {op:'recover', sha:sha, json:json}); }catch(e){}
+      return JSON.parse(json);
+    }
+    return null;
+  },
+  async retryDrivePending(metaList){   /* chạy nền: đẩy nốt các bản IDB_ONLY_DRIVE_PENDING */
+    var n=0;
+    for(const m of (metaList||[])){
+      if(m.storageStatus!=='IDB_ONLY_DRIVE_PENDING') continue;
+      var c=await IDBBackend.get(this._key(m.dataRef)).catch(function(){return null;});
+      if(!c||!c.json) continue;
+      var dr=await PayrollDrive.save(m.dataRef, c.json);
+      if(dr.ok){ m.storageStatus='DRIVE_SYNCED'; try{touchRecord(m);}catch(e){}; n++; }
+    }
+    return n;
+  }
+};
+
+/* ── SCHEMA INIT + TỔNG HỢP THÁNG (điều kiện #8 thiết kế) ─────────── */
+const PF_PAYGROUPS=['OFFICE','CREW','TECH','DRILL','EXPERT','EXPAT'];
+const PF_REQUIRED_PAYGROUPS={ SMEJSC:['OFFICE','CREW','TECH','DRILL','EXPERT'] };
+function pfEnsureStores(){
+  ['payrollPeriods','pfAttendanceImports','pfPayrollRuns','pfAccChecks','pfApprovals',
+   'pfBankFiles','pfDecisions','pfAudit'].forEach(function(k){ if(!Array.isArray(S[k])) S[k]=[]; });
+}
+function pfPeriodKey(month, entityId, payGroup){ return month+'|'+entityId+'|'+payGroup; }
+function pfMonthBoard(month, entityId){
+  pfEnsureStores();
+  var req=PF_REQUIRED_PAYGROUPS[entityId]||PF_PAYGROUPS;
+  var rows=req.map(function(g){
+    var p=(S.payrollPeriods||[]).find(function(x){ return x&&!x._deleted&&x.periodKey===pfPeriodKey(month,entityId,g); });
+    return { payGroup:g, status:p?(p.status||'DRAFT'):'(chưa mở)',
+      noActivity:p&&p.status==='NO_ACTIVITY', reason:p&&p.noActivityReason||'' };
+  });
+  var closed=rows.every(function(r){ return r.status==='LOCKED'||r.status==='NO_ACTIVITY'; });
+  return { month:month, entityId:entityId, rows:rows, monthClosed:closed };
+}
+window.pfOpenBoard=function(month, entityId){
+  if(!FLAG_PAYROLL_MODULE){ toast('Payroll module chưa bật (flag_payroll_module)'); return; }
+  if(!(typeof isAdmin==='function'&&isAdmin())){ toast('P1: admin-first'); return; }
+  var b=pfMonthBoard(month||new Date().toISOString().slice(0,7), entityId||'SMEJSC');
+  console.log('═══ PAYROLL — Tổng hợp tháng '+b.month+' · '+b.entityId+' ═══');
+  console.table(b.rows);
+  console.log('THÁNG '+(b.monthClosed?'✅ CLOSED':'⏳ CHƯA ĐÓNG')+' (đóng ⇔ mọi nhóm bắt buộc LOCKED/NO_ACTIVITY)');
+  return b;
+};
+/* Rule Currency/FX — ĐĂNG KÝ TRƯỚC, chưa kích hoạt (điều kiện 7) */
+const PF_FX_RULES=[
+  {ruleId:'FX001', stage:3, severity:'RED', blocks:['ACC_CONFIRM','APPROVE','LOCK'], active:false,
+   desc:'Run thiếu fxSnapshot khi có paymentCurrency khác functionalCurrency'},
+  {ruleId:'FX002', stage:3, severity:'RED', blocks:['ACC_CONFIRM','APPROVE','LOCK'], active:false,
+   desc:'totals cộng lẫn loại tiền (thiếu byPaymentCurrency)'},
+  {ruleId:'FX003', stage:4, severity:'RED', blocks:['BANK_GENERATE'], active:false,
+   desc:'Bank file chứa nhiều loại tiền hoặc thiếu debitAccountId cùng currency'},
+  {ruleId:'FX004', stage:3, severity:'YELLOW', blocks:[], active:false,
+   desc:'Tỷ giá fxSnapshot lệch >2% so tỷ giá hệ thống hiện tại'}
+];
+console.log('[Payroll P1] FX foundation + DataStore sẵn sàng · pfOpenBoard() để xem tổng hợp tháng');
+
 /* Clear page content for tabs user can't access — prevents F12 DOM inspection leaks */
 function clearForbiddenPages(){
   if(CURRENT_ROLE!=='user' || !CURRENT_USER) return;
@@ -75089,11 +75276,11 @@ function openSalaryLedger(){
       </div>
     </div>
     <div style="display:grid;grid-template-columns:repeat(5,1fr) auto;gap:6px;align-items:end;margin-bottom:6px">
-      <div class="field" style="margin:0"><label style="font-size:9px">Phòng ban</label><select id="sl-f-dept" onchange="openSalaryLedger()" style="width:100%"><option value="">Tất cả</option>${depts.map(dp=>`<option value="${esc(dp.code)}" ${fDept===dp.code?'selected':''}>${esc(dp.label)}</option>`).join('')}</select></div>
-      <div class="field" style="margin:0"><label style="font-size:9px">Chức vụ</label><input id="sl-f-title" value="${esc(fTitle)}" style="width:100%" onchange="openSalaryLedger()"></div>
-      <div class="field" style="margin:0"><label style="font-size:9px">Tìm NV</label><input id="sl-f-q" value="${esc(fQ)}" style="width:100%" onchange="openSalaryLedger()"></div>
-      <div class="field" style="margin:0"><label style="font-size:9px">Lương từ ≥</label><input id="sl-f-min" type="number" value="${fMin||''}" style="width:100%" onchange="openSalaryLedger()"></div>
-      <div class="field" style="margin:0"><label style="font-size:9px">Tìm nhanh</label><select id="sl-f-quick" onchange="openSalaryLedger()" style="width:100%">
+      <div class="field" style="margin:0"><label style="font-size:9px">Phòng ban</label><select id="sl-f-dept" onchange="openSalaryLedger()" style="width:100%;height:32px;box-sizing:border-box"><option value="">Tất cả</option>${depts.map(dp=>`<option value="${esc(dp.code)}" ${fDept===dp.code?'selected':''}>${esc(dp.label)}</option>`).join('')}</select></div>
+      <div class="field" style="margin:0"><label style="font-size:9px">Chức vụ</label><input id="sl-f-title" value="${esc(fTitle)}" style="width:100%;height:32px;box-sizing:border-box" onchange="openSalaryLedger()"></div>
+      <div class="field" style="margin:0"><label style="font-size:9px">Tìm NV</label><input id="sl-f-q" value="${esc(fQ)}" style="width:100%;height:32px;box-sizing:border-box" onchange="openSalaryLedger()"></div>
+      <div class="field" style="margin:0"><label style="font-size:9px">Lương từ ≥</label><input id="sl-f-min" type="number" value="${fMin||''}" style="width:100%;height:32px;box-sizing:border-box" onchange="openSalaryLedger()"></div>
+      <div class="field" style="margin:0"><label style="font-size:9px">Tìm nhanh</label><select id="sl-f-quick" onchange="openSalaryLedger()" style="width:100%;height:32px;box-sizing:border-box">
         <option value="">—</option>
         <option value="due" ${fQuick==='due'?'selected':''}>Đến kỳ xét tăng (≥10th)</option>
         <option value="stale" ${fQuick==='stale'?'selected':''}>Lâu chưa tăng (≥18th)</option>
