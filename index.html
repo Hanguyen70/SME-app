@@ -3742,7 +3742,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.13.02';
+const APP_VERSION='3.13.03';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -73786,7 +73786,7 @@ function pv2RecordInScope(u, scope, rec){
     var me=(typeof actorName==='function')?actorName():(u.name||'');
     return (rec.createdBy===me)||(rec.enteredBy===me)||(rec.empId&&u.empId&&rec.empId===u.empId);
   }
-  if(scope==='VESSEL'){ var vs=u.allowedVessels||u.assignedVessels||[]; return !rec.vesselId || vs.indexOf(rec.vesselId)>=0; }
+  if(scope==='VESSEL'){ var vs=u.allowedVessels||u.assignedVessels||u.assignedVesselIds||[]; return !rec.vesselId || vs.indexOf(rec.vesselId)>=0; }
   if(scope==='FUND'){ var fs=u.assignedFunds||[]; return !rec.fundId || fs.indexOf(rec.fundId)>=0; }
   if(scope==='ASSIGNED'){ var rp=u.assignedReports||u.viewerSections||[]; return !rec.reportKey || rp.indexOf(rec.reportKey)>=0; }
   return false;
@@ -73871,9 +73871,13 @@ const _PV2_FLAGS=['isBOD','isCEO','canApproveL1','canApproveL2','canCheckAcc','i
   'canConfirmPayment','canSignHr','canManageUsers','isIT','isVesselAccount','isCaptain',
   'isWarehouse','isCentralWarehouse','isNVNS','isHR','isViewer','isDeptHead','canViewPayroll',
   'canSignOwnerReport','canApproveFund'];
+function _pv2Users(){
+  try{ var c=(typeof getAuthConfig==='function')?getAuthConfig():null;
+       return (c&&Array.isArray(c.users))?c.users:[]; }catch(e){ return []; }
+}
 window.permAudit=function(){
-  var users=(S&&S.appUsers)||[];
-  if(!users.length){ console.warn('S.appUsers rỗng — chạy khi đăng nhập admin'); }
+  var users=_pv2Users();
+  if(!users.length){ console.warn('Không đọc được danh sách user — chạy trên máy ADMIN đã đăng nhập'); }
   var rows=[], stats={}, manual=[];
   users.forEach(function(u){
     if(!u||u._deleted) return;
@@ -73884,7 +73888,7 @@ window.permAudit=function(){
     if(grade!=='A-tự động') manual.push(u.name);
     stats[r.role]=(stats[r.role]||0)+1;
     rows.push({ 'Tên':u.name||'', 'Chức danh':u.title||u.chucVu||'', 'Cờ cũ':flags.join(',')||'(không)',
-      'Role mới':r.role, 'Addon':(r.addons||[]).join(',')||'', 'Tàu':(u.allowedVessels||[]).join(',')||'',
+      'Role mới':r.role, 'Addon':(r.addons||[]).join(',')||'', 'Tàu':(u.allowedVessels||u.assignedVesselIds||[]).join(',')||'',
       'Sections':(u.viewerSections||[]).join(',')||'', 'Active':u.disabled?'✗':'✓',
       'Phân loại':grade, 'Căn cứ':r.why });
   });
@@ -73896,12 +73900,12 @@ window.permAudit=function(){
   return {users:rows.length, stats:stats, manual:manual.length};
 };
 window.permAuditData=function(){
-  var users=(S&&S.appUsers)||[]; 
+  var users=_pv2Users();
   return users.filter(function(u){return u&&!u._deleted;}).map(function(u){
     var r=permRoleOfUser(u);
     return { name:u.name, flags:_PV2_FLAGS.filter(function(f){return !!u[f];}),
       newRole:r.role, addons:r.addons, ambiguous:r.ambiguous, why:r.why,
-      vessels:u.allowedVessels||[], sections:u.viewerSections||[], disabled:!!u.disabled };
+      vessels:u.allowedVessels||u.assignedVesselIds||[], sections:u.viewerSections||[], disabled:!!u.disabled };
   });
 };
 
