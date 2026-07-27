@@ -3733,7 +3733,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.13.40';
+const APP_VERSION='3.13.43';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -18808,7 +18808,7 @@ function _bankBatchBuild(p, emps){
     const amt=Math.round(payRowFinalTakeHome(r));
     const e=byId[r.empId]||{};
     if(amt<=0){ excluded.push({name:r.name, reason:'Số tiền '+amt.toLocaleString('vi-VN')+' ≤ 0'}); return; }
-    const acc=String(e.bankAccNo||'').trim();
+    const acc=pfBankInfo(e).acc;   /* v3.13.42: helper chuẩn + fallback field cũ */
     if(!acc){ excluded.push({name:r.name, reason:'Thiếu số TK — nhận tiền mặt/bổ sung hồ sơ'}); return; }
     let warn='';
     if(accSeen[acc]){ warn='TRÙNG TK với '+accSeen[acc]; warnings.push(r.name+' trùng số TK với '+accSeen[acc]); }
@@ -23177,7 +23177,7 @@ function payExportBankFile(id){
   (p.rows||[]).forEach(r=>{
     const th=payRowFinalTakeHome(r); if(!th) return;
     const e=empById[r.empId]||{};
-    const acc=e.bankAccNo||'', bank=e.bankName||'', owner=e.bankAccName||e.fullName||r.name||'';
+    const _b=pfBankInfo(e), acc=_b.acc, bank=_b.bank, owner=_b.owner||e.fullName||r.name||'';   /* v3.13.42: helper chuẩn */
     if(!acc) missing.push(r.name||r.smartId||'?');
     stt++; totalAmt+=th;
     aoa.push([stt, r.name||'', acc, bank, owner, Math.round(th*100)/100, `Luong T${p.period} ${r.name||''}`.trim()]);
@@ -75229,6 +75229,16 @@ window.pfacOpen=async function(month,ent,g,tab,empSel){
 };
 
 
+/* v3.13.42 (Sếp: "lấy đầy đủ thông tin ngân hàng để tính lương") — HELPER BANK CHUẨN DUY NHẤT.
+   Hồ sơ NV lưu bankAccNo/bankName/bankAccName/bankBranch; R104 cũ đọc SAI field
+   (bankAccount/bankNo/stk — không tồn tại trong schema) → NV đủ TK vẫn báo thiếu
+   + chặn BANK_GENERATE. Mọi nơi đọc bank phải qua helper này (kèm fallback tên cũ
+   phòng data nhập tay từ trước). */
+function pfBankInfo(e){ e=e||{};
+  return { acc:String(e.bankAccNo||e.bankAccount||e.bankNo||e.stk||'').trim(),
+           bank:String(e.bankName||'').trim(),
+           owner:String(e.bankAccName||'').trim(),
+           branch:String(e.bankBranch||'').trim() }; }
 /* ── READINESS REGISTRY (dùng chung — scope period/global) — S1/S2 lõi P2 ── */
 window.PAYROLL_RULES=[
  {ruleId:'R101',stage:1,scope:'both',severity:'RED',blocks:['COMPUTE','APPROVE','LOCK'],
@@ -75243,7 +75253,7 @@ window.PAYROLL_RULES=[
       if(r.code!=='UNCLASSIFIED') return;
       var k=r.positionId||'__NOPOS__'; (byPos[k]=byPos[k]||[]).push(e); });
     return Object.keys(byPos).map(function(k){ var l=byPos[k];
-      var pName=k==='__NOPOS__'?'(NV chưa gán chức vụ)':(((typeof pafById==='function'&&pafById(k))||{}).name||k);
+      var pName=k==='__NOPOS__'?'(NV chưa gán chức vụ)':(function(){var p=(typeof pafById==='function'&&pafById(k))||{};return p.positionName||p.jobTitle||p.name||k;})();
       return pfRR('R102',1,'YELLOW',l[0].id,'Chức vụ "'+pName+'" chưa ánh xạ Grade quản trị — '+l.length+' NV (không chặn lương)',
         '(chưa mapping)','1 mapping chức vụ→Grade','positionGradeMappings',[],{type:'position',id:k}); }); }},
  {ruleId:'R103',stage:1,scope:'both',severity:'YELLOW',blocks:[],
@@ -75251,9 +75261,12 @@ window.PAYROLL_RULES=[
   fn:function(ctx){ return ctx.emps.filter(function(e){return !(e.taxCode||e.mst);}).map(function(e){
     return pfRR('R103',1,'YELLOW',e.id,'Thiếu MST cá nhân (ảnh hưởng quyết toán thuế, không chặn lương)','(rỗng)','MST 10-13 số','hrEmployees',[],{type:'hr_employee',id:e.id});});}},
  {ruleId:'R104',stage:1,scope:'both',severity:'YELLOW',blocks:['BANK_GENERATE'],
-  desc:'Thiếu tài khoản ngân hàng',
-  fn:function(ctx){ return ctx.emps.filter(function(e){return !(e.bankAccount||e.bankNo||e.stk);}).map(function(e){
-    return pfRR('R104',1,'YELLOW',e.id,'Thiếu tài khoản ngân hàng','(rỗng)','Số TK','hrEmployees',['BANK_GENERATE'],{type:'hr_employee',id:e.id});});}},
+  desc:'Thiếu thông tin ngân hàng (số TK bắt buộc; tên NH/chủ TK khuyến nghị)',   /* v3.13.42: FIX đọc SAI field bankAccount/bankNo/stk → NV đủ TK vẫn báo thiếu */
+  fn:function(ctx){ var out=[]; ctx.emps.forEach(function(e){ var b=pfBankInfo(e);
+    if(!b.acc){ out.push(pfRR('R104',1,'YELLOW',e.id,'Thiếu SỐ TÀI KHOẢN ngân hàng (chặn tạo file bank — nhận tiền mặt hoặc bổ sung hồ sơ)','(rỗng)','Số TK','hrEmployees',['BANK_GENERATE'],{type:'hr_employee',id:e.id})); return; }
+    var miss=[]; if(!b.bank) miss.push('tên ngân hàng'); if(!b.owner) miss.push('chủ tài khoản');
+    if(miss.length) out.push(pfRR('R104',1,'INFO',e.id,'TK '+b.acc+' thiếu '+miss.join(' + ')+' (file bank vẫn tạo được, nên bổ sung để CK chính xác)','(thiếu)',miss.join(', '),'hrEmployees',[],{type:'hr_employee',id:e.id}));
+  }); return out; }},
  {ruleId:'R105',stage:2,scope:'both',severity:'YELLOW',blocks:[],
   desc:'NV trong BCC không có assignment hiệu lực tại đơn vị của kỳ (GĐ-A: cảnh báo — chỉ BLOCK sau audit GĐ-B 100%, bật flag_r105_blocking)',
   fn:function(ctx){
@@ -75442,10 +75455,19 @@ window.pfOpenUI=async function(month,ent,g){
     if(rid==='R105' && e) return {fn:"window._allocF={ent:'',g:'',status:'active',warn:'',q:'"+String(e.smartId||'').replace(/'/g,'')+"'};closeModal();hrmAllocOpen()", t:'màn Phân bổ đơn vị'};
     if(rid==='R102') return {fn:"closeModal();gradeAdminOpen()", t:'Chức vụ–Grade'};   /* v3.13.40 §10: R102 audit theo chức vụ → mở danh mục mapping */
     if((rid==='R101'||rid.indexOf('PH:n1_')===0) && r.employeeId) return {fn:"closeModal();openSalaryProfileCard('"+r.employeeId+"',{m:'"+month+"',e:'"+ent+"',g:'"+g+"'})", t:'Thẻ lương'}; /* v3.13.36: nhớ kỳ Payroll để quay về */
+    if(rid==='R201'||rid==='R202'||rid==='R203') return {fn:"pfImportAttendance('"+month+"','"+ent+"','"+g+"')", t:'Import BCC — sửa dòng chấm công rồi nhập lại'};   /* v3.13.41: sửa tại chỗ */
     if(e) return {fn:"hrmViewEmployee('"+r.employeeId+"')", t:'hồ sơ NV'};
     return null;
   };
-  var rows=rd.results.slice(0,40).map(function(r){
+  /* v3.13.41 (Sếp: "17 thẻ đỏ là gì? Cần hiện để xem"): trước đây slice(0,40) theo THỨ TỰ RULE
+     — vàng R102/R103 chiếm hết top-40, ĐỎ (R201-203/PH…) bị đẩy ra ngoài phần hiển thị.
+     Nay: sort ĐỎ lên đầu + chip lọc theo mức; lọc thì hiện tối đa 200 dòng của mức đó. */
+  var _sevOrd={RED:0,YELLOW:1,INFO:2};
+  var _sevF=window._pfRdSev||'';
+  var _rdList=rd.results.slice().sort(function(a,b){return (_sevOrd[a.severity]!=null?_sevOrd[a.severity]:3)-(_sevOrd[b.severity]!=null?_sevOrd[b.severity]:3);});
+  if(_sevF) _rdList=_rdList.filter(function(r){return r.severity===_sevF;});
+  var _rdCap=_sevF?200:40;
+  var rows=_rdList.slice(0,_rdCap).map(function(r){
     var _e=_empBy[r.employeeId];
     var nvCell=_e ? (esc(_e.smartId||'')+' · '+esc(_e.fullName||'')) : esc(String(r.employeeId||''));
     var fx=_fixOf(r,_e);
@@ -75480,9 +75502,14 @@ window.pfOpenUI=async function(month,ent,g){
    +(p&&p.status==='PAID'?' <button class="btn" onclick="pfLockPeriod(\''+month+'\',\''+ent+'\',\''+g+'\').then(function(){pfOpenUI(\''+month+'\',\''+ent+'\',\''+g+'\')})">🔒 Khóa kỳ</button>':'')
    +(p&&p.status==='LOCKED'?' <button class="btn-ghost" onclick="var r=prompt(\'Lý do MỞ LẠI kỳ đã khóa?\');if(r){pfReopenPeriod(\''+month+'\',\''+ent+'\',\''+g+'\',r);pfOpenUI(\''+month+'\',\''+ent+'\',\''+g+'\')}">🔓 Mở lại</button>':'')
    +' <button class="btn-ghost" onclick="pfOpenUI(\''+month+'\',\''+ent+'\',\''+g+'\')">🚦 Kiểm tra lại</button></div>'
-   +'<div style="font-size:11px;margin:4px 0">🚦 READINESS S1+S2: <b style="color:var(--bad)">🔴 '+rd.summary.red+'</b> · <b style="color:#E37400">🟡 '+rd.summary.yellow+'</b> · ℹ '+rd.summary.info+' <span style="color:var(--muted)">(computed — không lưu state)</span></div>'
+   +'<div style="font-size:11px;margin:4px 0">🚦 READINESS S1+S2: '
+   +'<a href="javascript:void(0)" onclick="window._pfRdSev=(window._pfRdSev===\'RED\'?\'\':\'RED\');pfOpenUI(\''+month+'\',\''+ent+'\',\''+g+'\')" style="font-weight:700;color:var(--bad);text-decoration:'+(_sevF==='RED'?'underline':'none')+'" title="Bấm để chỉ hiện dòng ĐỎ">🔴 '+rd.summary.red+'</a> · '
+   +'<a href="javascript:void(0)" onclick="window._pfRdSev=(window._pfRdSev===\'YELLOW\'?\'\':\'YELLOW\');pfOpenUI(\''+month+'\',\''+ent+'\',\''+g+'\')" style="font-weight:700;color:#E37400;text-decoration:'+(_sevF==='YELLOW'?'underline':'none')+'" title="Bấm để chỉ hiện dòng VÀNG">🟡 '+rd.summary.yellow+'</a> · '
+   +'<a href="javascript:void(0)" onclick="window._pfRdSev=(window._pfRdSev===\'INFO\'?\'\':\'INFO\');pfOpenUI(\''+month+'\',\''+ent+'\',\''+g+'\')" style="color:var(--muted);text-decoration:'+(_sevF==='INFO'?'underline':'none')+'" title="Bấm để chỉ hiện dòng INFO">ℹ '+rd.summary.info+'</a>'
+   +(_sevF?' <a href="javascript:void(0)" onclick="window._pfRdSev=\'\';pfOpenUI(\''+month+'\',\''+ent+'\',\''+g+'\')" style="font-size:10px">✕ bỏ lọc '+_sevF+'</a>':'')
+   +' <span style="color:var(--muted)">(computed — không lưu state · đỏ xếp trên · bấm số để lọc · bấm dòng có ✎ để sửa tại chỗ)</span></div>'
    +'<table class="tbl" style="font-size:10.5px"><tr><th>Mức</th><th>Rule</th><th>NV</th><th>Thông báo</th><th>Chặn</th></tr>'+(rows||'<tr><td colspan="5">✅ sạch</td></tr>')+'</table>'
-   +(rd.results.length>40?'<div style="font-size:10px;color:var(--muted)">… và '+(rd.results.length-40)+' dòng nữa</div>':'')
+   +(_rdList.length>_rdCap?'<div style="font-size:10px;color:var(--muted)">… và '+(_rdList.length-_rdCap)+' dòng nữa — bấm chip 🔴/🟡/ℹ ở trên để lọc theo mức</div>':'')
    +'</div>';
   openModal('⚙️ Payroll — '+month+' · '+ent, html, '<button class="btn-ghost" onclick="closeModal()">Đóng</button>');
 };
@@ -76343,6 +76370,13 @@ function openSalaryProfileCard(empId, _ret){
       ${v.reason?`<div style="font-size:11px;color:var(--warn)">${esc(v.reason)}</div>`:''}
       <div style="font-size:12px;font-family:var(--font-mono);margin-top:3px">NET cố định: <b>${fmtFull(_spFixedTotal(v), (v.data&&v.data.ccy)||'VND')}</b>${_spVarTotal(v)?` <span class="ds-t-sub" title="Đơn giá PC không thường xuyên — chỉ tính khi có ngày công/dự án/KPI">+ ${fmtFull(_spVarTotal(v),(v.data&&v.data.ccy)||'VND')} (không TX)</span>`:''} · Lương BH: ${fmtFull(+(v.data&&v.data.bhxhBase)||0,(v.data&&v.data.ccy)||'VND')} · NPT: ${+(v.data&&v.data.dependents)||0}</div>
       <div style="font-size:11px;margin-top:2px">🏷 Grade quản trị: <b style="font-family:var(--font-mono)">${(typeof resolveEmployeeGrade==='function')?esc(resolveEmployeeGrade(empId).code):'—'}</b> <span style="color:var(--muted);font-size:10px">(tự theo chức vụ — không ảnh hưởng tiền)</span>${canE?` <a href="javascript:void(0)" onclick="gradeOverrideForm('${empId}')" style="font-size:10px">⚙ override</a>`:''}</div>
+      <div style="font-size:11px;margin-top:2px">🏦 ${(function(){var b=pfBankInfo(e);
+        if(!b.acc) return '<span style="color:#c0392b;font-weight:600">THIẾU SỐ TK ngân hàng — không vào được file bank</span>';
+        return 'STK <b style="font-family:var(--font-mono)">'+esc(b.acc)+'</b>'
+          +(b.bank?' · '+esc(b.bank):' · <span style="color:#E37400">thiếu tên NH</span>')
+          +(b.owner?' · '+esc(b.owner):' · <span style="color:#E37400">thiếu chủ TK</span>')
+          +(b.branch?' <span style="color:var(--muted);font-size:10px">('+esc(b.branch)+')</span>':'');
+      })()} <a href="javascript:void(0)" onclick="hrmViewEmployee('${empId}')" style="font-size:10px">✎ hồ sơ</a> <span style="color:var(--muted);font-size:10px">(nguồn: hồ sơ NV — dùng khi tính lương &amp; file bank)</span></div>
       ${(canE&&!lockUse)?`<button class="btn-ghost" style="font-size:10px;padding:1px 8px;margin-top:3px" onclick="salaryProfileDeleteVersion('${v.id}')">✕ Xóa (tạo nhầm)</button>`:''}
     </div>`;
   }).join('')||'<div style="color:var(--muted);font-size:12px">Chưa có phiên bản nào — bấm ＋ Tạo phiên bản.</div>';
@@ -76568,7 +76602,7 @@ window.gradeAdminOpen=function(detailCode){
       +b.emps.slice().sort(function(x,y){return y.net-x.net;}).map(function(x){
         var pos=(x.e.positionId&&pafById(x.e.positionId))||null;
         return '<tr'+(outIds[x.e.id]?' style="background:rgba(224,49,49,.06)"':'')+'><td>'+esc(x.e.smartId||'')+' · '+esc(x.e.fullName||'')+(outIds[x.e.id]?' <span title="Lệch khỏi khoảng phổ biến (IQR)" style="color:#c0392b">⚠</span>':'')+'</td>'
-          +'<td style="font-size:10.5px">'+esc((pos&&(pos.name||pos.title))||x.e.title||'—')+'</td>'
+          +'<td style="font-size:10.5px">'+esc((pos&&(pos.positionName||pos.jobTitle))||x.e.title||'—')+'</td>'
           +'<td style="font-family:var(--font-mono)">'+_gaMoney(x.net)+'</td><td style="font-family:var(--font-mono)">'+_gaMoney(x.bh)+'</td>'
           +'<td style="font-size:10px">'+(x.src==='override'?'⚙ override':x.src==='position'?'chức vụ':'—')+'</td>'
           +'<td>'+(canE?'<a href="javascript:void(0)" onclick="gradeOverrideForm(\''+x.e.id+'\')" style="font-size:10px">⚙</a>':'')+'</td></tr>';}).join('')
@@ -76583,8 +76617,8 @@ window.gradeAdminOpen=function(detailCode){
           +'<td>'+((b.outliers||[]).length||'—')+'</td></tr>';}).join('')
       +'</table>';
     /* danh mục Chức vụ–Grade (§8: ánh xạ mỗi chức vụ 1 lần) */
-    var poss=pafList().filter(function(p){return p&&!p._deleted&&p.active!==false;})
-      .slice().sort(function(a,b){return String(a.name||a.title||'').localeCompare(String(b.name||b.title||''),'vi');});
+    var poss=pafList().filter(function(p){return p&&!p._deleted&&p.status!=='inactive';})   /* v3.13.43: đúng schema PAF (status, positionName) */
+      .slice().sort(function(a,b){return String(a.positionName||a.jobTitle||'').localeCompare(String(b.positionName||b.jobTitle||''),'vi');});
     var codeOpts=(S.salaryGrades||[]).filter(function(x){return x&&!x._deleted&&x.active!==false;}).map(function(x){return x.code;}).sort();
     body+='<div style="font-weight:600;font-size:11px;margin:10px 0 4px">🗺 DANH MỤC CHỨC VỤ → GRADE (mapping theo positionId — tên chỉ hiển thị)</div>'
       +'<table class="tbl" style="font-size:11px"><tr><th>Chức vụ</th><th>Số NV</th><th>Grade quản trị</th></tr>'
@@ -76592,7 +76626,7 @@ window.gradeAdminOpen=function(detailCode){
         var m=pgMappings().filter(function(x){return x&&x.positionId===p.id&&_pgActiveAt(x,d);})
           .sort(function(a,b){return String(b.effectiveFrom||'').localeCompare(String(a.effectiveFrom||''));})[0];
         var curC=m?m.gradeCode:'', hc=pafCurrentHeadcount(p.id);
-        return '<tr'+(!curC&&hc?' style="background:rgba(227,116,0,.07)"':'')+'><td>'+esc(p.name||p.title||p.id)+'</td><td>'+hc+'</td><td>'
+        return '<tr'+(!curC&&hc?' style="background:rgba(227,116,0,.07)"':'')+'><td>'+esc(p.positionName||p.jobTitle||p.pafCode||p.id)+'<span style="color:var(--muted);font-size:9px"> '+esc(p.pafCode||'')+'</span></td><td>'+hc+'</td><td>'
           +(canE?('<select onchange="pgMapPick(\''+p.id+'\',this.value)" style="font-size:11px;max-width:220px"><option value="">(chưa phân loại)</option>'
             +codeOpts.map(function(c){return '<option '+(c===curC?'selected':'')+'>'+esc(c)+'</option>';}).join('')
             +'<option value="__NEW__">➕ tạo Grade mới…</option></select>')
@@ -76600,15 +76634,55 @@ window.gradeAdminOpen=function(detailCode){
           +'</td></tr>';}).join('')
       +'</table>';
   }
+  /* v3.13.43 (từ ảnh Sếp: danh mục TRỐNG, 179 UNCLASSIFIED) — cty chưa dùng danh mục chức vụ,
+     NV chỉ có CHỨC DANH chữ (e.title). Spec §4: "tên hỗ trợ migration ban đầu" → bảng gom theo
+     chức danh + nút tạo chức vụ + gán positionId hàng loạt. Sau migration mapping hoạt động bình thường. */
+  if(!detailCode){
+    var _noPos=HRService.employees().filter(function(e){return e&&!e._deleted&&e.status!=='inactive'&&!e.positionId;});
+    if(_noPos.length){
+      var byTitle={};
+      _noPos.forEach(function(e){ var t=String(e.title||'').trim(); var k=t.toLowerCase()||'__blank__';
+        (byTitle[k]=byTitle[k]||{title:t||'(chưa có chức danh)',emps:[]}).emps.push(e); });
+      window._pgTitleList=Object.keys(byTitle).sort().map(function(k){return byTitle[k];});
+      body+='<div style="font-weight:600;font-size:11px;margin:10px 0 4px;color:#E37400">🧭 MIGRATION: '+_noPos.length+' NV chưa có chức vụ trong danh mục — gom theo CHỨC DANH trên hồ sơ</div>'
+        +'<div style="font-size:10.5px;color:var(--muted);margin-bottom:4px">Bấm ➕ để tạo chức vụ vào danh mục + gán cho toàn bộ NV cùng chức danh (1 lần/chức danh). Sau đó chọn Grade ở bảng trên.</div>'
+        +'<table class="tbl" style="font-size:11px"><tr><th>Chức danh (hồ sơ NV)</th><th>Số NV</th><th></th></tr>'
+        +window._pgTitleList.map(function(t,i){
+          return '<tr><td>'+esc(t.title)+'</td><td>'+t.emps.length+'</td><td>'
+            +(canE&&t.title!=='(chưa có chức danh)'?'<button class="btn-ghost" style="font-size:10px" onclick="pgTitleMigrate('+i+')">➕ Tạo chức vụ + gán '+t.emps.length+' NV</button>':'<span style="color:var(--muted);font-size:10px">'+(t.title==='(chưa có chức danh)'?'bổ sung chức danh trong hồ sơ':'')+'</span>')
+            +'</td></tr>';}).join('')
+        +'</table>';
+    }
+  }
   var note='<div style="font-size:10.5px;color:var(--muted);margin-top:8px;border-top:1px solid var(--rule);padding-top:6px">Số liệu thống kê lấy từ Thẻ lương thực tế. Grade không thay đổi lương, BHXH hoặc thuế. Grade tự phân loại theo chức vụ (mapping) — override chỉ dùng cho ngoại lệ quản trị. Tiền trên grade cũ đã DEPRECATED, engine/thống kê không đọc.</div>';
   openModal('🏷 Grade quản trị — phân loại & thống kê',
     '<div style="max-height:75vh;overflow:auto;font-size:12px">'
+    +'<div style="font-size:10.5px;background:var(--paper-2);border:1px solid var(--rule);border-radius:8px;padding:6px 10px;margin-bottom:8px"><b>Mục đích:</b> phân loại nhân sự theo chức vụ để SO SÁNH mức lương thực tế, THỐNG KÊ phân bố và rà soát công bằng nội bộ — số liệu lấy từ Thẻ lương. Grade KHÔNG ảnh hưởng tính lương/BHXH/thuế. Lối vào: 📒 Sổ lương · màn 🏢 Phân bổ · cảnh báo R102.</div>'
     +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">'
     +'<div style="flex:1;min-width:110px;background:var(--paper-2);border:1px solid var(--rule);border-radius:8px;padding:8px 10px"><div style="font-size:9px;color:var(--muted)">GRADE ĐANG DÙNG</div><div style="font-family:var(--font-mono);font-weight:700;font-size:16px">'+(codes.length-(stats.UNCLASSIFIED?1:0))+'</div></div>'
     +'<div style="flex:1;min-width:110px;background:var(--paper-2);border:1px solid var(--rule);border-radius:8px;padding:8px 10px"><div style="font-size:9px;color:var(--muted)">CHƯA PHÂN LOẠI</div><div style="font-family:var(--font-mono);font-weight:700;font-size:16px;color:'+(uncls?'#E37400':'var(--good)')+'">'+uncls+'</div></div>'
     +'</div>'+body+note+'</div>',
     '<button class="btn-ghost" onclick="gradeMoneyImpactOpen()">📋 Hồ sơ từng bị Grade ảnh hưởng tiền</button>'
     +'<button class="btn-ghost" onclick="closeModal()">Đóng</button>');
+};
+window.pgTitleMigrate=function(idx){
+  if(!hrAllocCanEdit_()){ toast('Chỉ HR/Admin','bad'); return; }
+  var t=(window._pgTitleList||[])[idx]; if(!t||!t.title){ gradeAdminOpen(); return; }
+  var key=t.title.trim().toLowerCase();
+  var emps=HRService.employees().filter(function(e){return e&&!e._deleted&&e.status!=='inactive'&&!e.positionId&&String(e.title||'').trim().toLowerCase()===key;});
+  if(!emps.length){ toast('Không còn NV nào thiếu chức vụ với chức danh này','warn'); gradeAdminOpen(); return; }
+  if(!confirm('Tạo chức vụ "'+t.title+'" trong danh mục (nếu chưa có) + gán cho '+emps.length+' NV cùng chức danh?\n(Ghi positionHistory từng NV — có audit)')) return;
+  var who=(CURRENT_USER&&CURRENT_USER.name)||'', at=new Date().toISOString(), d=at.slice(0,10);
+  var p=pafList().find(function(x){return x&&!x._deleted&&String(x.positionName||'').trim().toLowerCase()===key;});
+  if(!p){ p={id:'pos_'+Date.now().toString(36)+Math.random().toString(36).slice(2,5),
+    pafCode:'POS-'+String(pafList().length+1).padStart(3,'0'), positionName:t.title, jobTitle:t.title,
+    dept:'', requiredHeadcount:emps.length, status:'active', createdAt:at, createdBy:who, source:'grade-title-migration'};
+    pafList().push(p); }
+  emps.forEach(function(e){ e.positionId=p.id;
+    (e.positionHistory=e.positionHistory||[]).push({positionId:p.id, pafCode:p.pafCode, fromDate:d, toDate:'',
+      approvedBy:who, reason:'Migration Grade: tạo từ chức danh hồ sơ', at:at}); });
+  try{ logAuditEvent('grade_title_migrate',{title:t.title, positionId:p.id, count:emps.length}); }catch(e){}
+  saveState(); toast('➕ '+p.pafCode+' "'+t.title+'" — đã gán '+emps.length+' NV','good'); gradeAdminOpen();
 };
 window.pgMapPick=function(positionId, val){
   if(val==='__NEW__'){
@@ -76961,7 +77035,7 @@ function openSalaryLedger(){
         <th style="padding:5px 8px;text-align:left">Lịch sử điều chỉnh (đủ mọi lần)</th><th style="padding:5px 8px">Từ lần tăng cuối</th></tr></thead>
       <tbody>${trs||'<tr><td colspan="6" style="padding:14px;text-align:center;color:var(--muted)">Không có dữ liệu khớp bộ lọc</td></tr>'}</tbody></table>`;
   openModal('📒 Sổ theo dõi lương nhân sự — báo cáo quản trị', body,
-    `<button class="btn-ghost" onclick="closeModal()">Đóng</button>`);
+    `<button class="btn-ghost" onclick="gradeAdminOpen()" title="Phân loại quản trị theo chức vụ + thống kê min/trung vị/bq/max từ Thẻ lương — không ảnh hưởng tính lương">🏷 Grade & thống kê</button><button class="btn-ghost" onclick="closeModal()">Đóng</button>`);
   try{ if(typeof setModalWide==='function') setModalWide(true); }catch(e){}
 }
 /* v3.12.92: điểm vào chức năng Đối chiếu Thẻ lương ↔ file HR (GĐ1 — chỉ đọc).
