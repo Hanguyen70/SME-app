@@ -3744,7 +3744,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.13.18';
+const APP_VERSION='3.13.19';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -74943,13 +74943,24 @@ async function pfRunReadiness(month,ent,g){   /* COMPUTED-ONLY — không ghi st
   if(!(typeof pfCanViewBoard_!=='function'||pfCanViewBoard_())&&!hasPfWrite_()){ return {results:[],ctxHash:'',summary:{red:0,yellow:0,info:0},denied:true}; }   /* P7-SEC */
   var p=pfPeriod(month,ent,g);
   var emps=HRService.employees().filter(function(e){return e&&!e._deleted&&e.status!=='inactive';});
+  /* GĐ-A §1 (27/7): kỳ thuộc đơn vị nào chỉ quét NV đơn vị đó (assignment hiệu lực trong tháng).
+     Store assignment RỖNG (GĐ-B chưa gán) → giữ toàn bộ như cũ — migration-friendly. */
+  var empsAll=emps.slice();   /* nhận diện MSNV toàn công ty — NV gán nhầm đơn vị KHÔNG thành 'mã lạ' R201 (giữ đúng chốt: R105 cảnh báo mềm) */
+  (function(){
+    var asgs=S.hrEmploymentAssignments||[]; if(!asgs.length) return;
+    var co=(typeof pfCompanyOfEnt==='function')?pfCompanyOfEnt(ent):null; if(!co) return;
+    var mS=month+'-01', mE=month+'-31';
+    var ok={}; asgs.forEach(function(a){ if(a && a.companyId===co.id && a.status!=='ended'
+      && String(a.effectiveFrom||'')<=mE && (!a.effectiveTo||String(a.effectiveTo)>=mS)) ok[a.empId]=1; });
+    emps=emps.filter(function(e){ return ok[e.id]; });
+  })();
   /* lọc theo payGroup qua engine alias nhóm — P2 tối giản: CREW={crew,crew_khoan}, OFFICE={office}, TECH/DRILL={tech}, EXPERT={project,expert,expert_om}, EXPAT={expat} */
   var G2E={OFFICE:['office'],CREW:['crew','crew_khoan'],TECH:['tech'],DRILL:['tech'],EXPERT:['project','expert','expert_om'],EXPAT:['expat']};
   var profOf=function(id){ try{ var v=salaryProfileAt(id, month); if(!v) return null;
       var ok=(G2E[g]||[]).indexOf(v.engine)>=0; return ok?v:null; }catch(e){ return null; } };
   emps=emps.filter(function(e){ return profOf(e.id) || (G2E[g]||[]).length===0 ? true : true; });
   var empsG=emps.filter(function(e){ return !!profOf(e.id); });
-  var byMs={}; emps.forEach(function(e){ byMs[String(e.smartId||'').trim()]=e; });
+  var byMs={}; empsAll.forEach(function(e){ byMs[String(e.smartId||'').trim()]=e; });   /* 3.13.19: từ TOÀN BỘ NV */
   var att=null;
   if(p&&p.activeAttendanceImportId){
     var meta=(S.pfAttendanceImports||[]).find(function(m){return m.id===p.activeAttendanceImportId;});
@@ -74993,9 +75004,13 @@ window.pfOpenUI=async function(month,ent,g){
   var b=pfMonthBoard(month,ent);
   var p=pfPeriod(month,ent,g);
   var rd=await pfRunReadiness(month,ent,g);
+  var _empBy={}; HRService.employees().forEach(function(e){ if(e) _empBy[e.id]=e; });
   var rows=rd.results.slice(0,40).map(function(r){
-    return '<tr><td style="color:'+(r.severity==='RED'?'var(--bad)':(r.severity==='YELLOW'?'#E37400':'var(--muted)'))+';font-weight:700">'+r.severity+(r.accepted?' ✓':'')+'</td>'+
-      '<td>'+r.ruleId+'</td><td>'+esc(String(r.employeeId||''))+'</td><td>'+esc(r.message)+'</td><td style="font-size:9px">'+(r.blocks||[]).join(',')+'</td></tr>';
+    var _e=_empBy[r.employeeId];
+    var nvCell=_e ? (esc(_e.smartId||'')+' · '+esc(_e.fullName||'')) : esc(String(r.employeeId||''));
+    var click=_e ? ' style="cursor:pointer" title="Click: xem/sửa hồ sơ NV" onclick="hrmViewEmployee(\''+r.employeeId+'\')"' : '';
+    return '<tr'+click+'><td style="color:'+(r.severity==='RED'?'var(--bad)':(r.severity==='YELLOW'?'#E37400':'var(--muted)'))+';font-weight:700">'+r.severity+(r.accepted?' ✓':'')+'</td>'+
+      '<td>'+r.ruleId+'</td><td>'+nvCell+'</td><td>'+esc(r.message)+'</td><td style="font-size:9px">'+(r.blocks||[]).join(',')+'</td></tr>';
   }).join('');
   var board=b.rows.map(function(r){
     return '<tr'+(r.payGroup===g?' style="background:var(--paper-2)"':'')+'><td><a href="javascript:void(0)" onclick="pfOpenUI(\''+month+'\',\''+ent+'\',\''+r.payGroup+'\')">'+r.payGroup+'</a></td><td>'+esc(r.status)+'</td></tr>';

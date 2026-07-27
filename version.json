@@ -1,5 +1,5 @@
 {
-  "version": "3.13.18",
-  "swVersion": "v3.13.18",
-  "notes": "3 tinh chinh theo phan hoi test may admin: (1) Toolbar HRM dong nhat btn-ghost (De xuat NS het vien/size rieng). (2) Hang filter So luong thang hang: label block margin 3px line-height 1, nut Doi chieu height 32 cung baseline. (3) SCC fix expert: them alias expert_om vao USD-engines (het false RED SC05); SCC_REQUIRED dung ten field legacy that expert_usdPerDay; SC17 voi engine ho expert (project/expert/expert_om/expat) gop 1 dong REVIEW noi dung ban chat — buildInp pf-module CHUA noi engine chuyen gia, luong chuyen gia hien tinh theo he legacy, du lieu the DUNG giu nguyen (khong bao per-field gay hieu lam bo truong); drawer chi tiet co ghi chu. FINDING ghi nhan: nhom EXPERT/EXPAT chua san sang tinh trong pf-module (buildInp thieu nhanh) — parallel run T1-T5 lam CREW/OFFICE/TECH truoc, noi EXPERT la GD rieng trinh Sep. Test SCC 20/20 + FULL 71/71 PASS, 6/6 engine SAME."
+  "version": "3.13.19",
+  "swVersion": "v3.13.19",
+  "notes": "Bang READINESS trong modal Payroll: cot NV hien 'MA · HO TEN' thay empId ky hieu; click dong NV → mo ho so (hrmViewEmployee, xem/sua/cap nhat, ton trong quyen ho so hien hanh). Dong thoi fix finding tu anh test: readiness truoc quet TOAN BO nhan su cho moi ky (ky STERLING bao 9 do/90 vang cua ca cong ty me — vo nghia) → gio loc NV theo hrEmploymentAssignments hieu luc tai don vi cua ky trong thang (GD-A §1); store assignment con RONG → giu quet toan bo nhu cu, khong chan ai (migration-friendly, GD-B gan xong se tu hep). Phep PH:global (suc khoe toan he) van quet toan cuc co chu dich. Test FULL 73/73 + P3 12/12 + SCC 20/20 PASS, 6/6 engine SAME."
 }
