@@ -1,5 +1,5 @@
 {
-  "version": "3.13.28",
-  "swVersion": "v3.13.28",
-  "notes": "HRM UI GON (y/c Sep): (1) BO 2 dropdown loc '— Tat ca nhom —' + 'Dang lam viec' khoi thanh cong cu Danh sach — chi giu o tim kiem; danh sach LUON hien du: DANG LAM VIEC (mo, nhom theo phong ban) + DA NGHI (nhom gap cuoi, bam mo/gap) — khong mat chuc nang xem nguoi nghi. (2) CHUYEN '⚓ Dieu dong tau' va '📋 De xuat NS' tu hang tab chinh VAO thanh cong cu ben trong DANH SACH — hang tab chinh gon con: Dashboard | Danh sach | Cham cong | Dinh bien (PAF) | So luong | Kiem tra du lieu | Phan bo don vi | Payroll | ✦ Cap nhat NS. Nut Dieu dong tau giu id hrm-tab-crew de logic an theo quyen (_seeAll) van ap dung; moi tham chieu cu deu co guard null. Test render active+DA NGHI PASS + FULL 79/79 + SCC 23/23 + GDB 16/16, engine SAME."
+  "version": "3.13.29",
+  "swVersion": "v3.13.29",
+  "notes": "HRM UI GON tiep (y/c Sep): chuyen not '✦ Cap nhat nhan su' + '🏢 Phan bo don vi' tu hang tab chinh VAO thanh cong cu ben trong DANH SACH — gom het thao tac nhan su ve 1 noi. Thu tu thanh cong cu Danh sach: [tim kiem] ✦ Cap nhat nhan su · 🏢 Phan bo don vi · ⚓ Dieu dong tau · 📋 De xuat NS · 🔍 Kiem tra du lieu · 📊 Xuat Excel. Hang tab chinh con: Dashboard | Danh sach | Cham cong | Dinh bien (PAF) | So luong | Kiem tra du lieu | Payroll. Nut giu id hrm-btn-add — logic an theo quyen van ap dung. FULL 79/79 + GDB 16/16, engine SAME."
 }

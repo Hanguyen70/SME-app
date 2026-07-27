@@ -3596,9 +3596,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
         <button class="btn-ghost" id="hrm-tab-paf" onclick="openPositionManager()" title="Quản lý định biên theo vị trí (PAF)">🧩 Định biên (PAF)</button>
         <button class="btn-ghost" id="hrm-btn-ledger" onclick="if(typeof FLAG_SALARY_PROFILE!=='undefined'&&FLAG_SALARY_PROFILE){openSalaryLedger()}else{toast('Tính năng Thẻ lương chưa bật (flag_salary_profile)','warn')}" title="Sổ theo dõi lương nhân sự — báo cáo quản trị từ Thẻ lương">📒 Sổ lương</button>
         <button class="btn-ghost" id="hrm-btn-scc" onclick="sccOpen()" title="Kiểm tra dữ liệu Thẻ lương — chỉ đọc, không sửa gì">🔎 Kiểm tra dữ liệu</button>
-          <button class="btn-ghost" onclick="hrmAllocOpen()" title="Phân bổ nhân sự theo đơn vị (GĐ-B)">🏢 Phân bổ đơn vị</button>
         <button class="btn-ghost" id="hrm-btn-payroll" onclick="if(window.FLAG_PAYROLL_MODULE&&typeof isAdmin==='function'&&isAdmin()){pfOpenUI()}else{toast('Payroll P2: admin-first (flag_payroll_module)','warn')}" title="Module Payroll — quy trình lương tháng (P2)">⚙️ Payroll</button>
-        <button class="btn-primary" id="hrm-btn-add" onclick="hrmUpdateMenu()">✦ Cập nhật nhân sự</button>
       </div>
     </div>
 
@@ -3615,6 +3613,8 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
     <div id="hrm-view-list" style="display:none">
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
         <input type="text" id="hrm-search" placeholder="🔍 Tìm tên / Smart-ID / chức danh…" oninput="hrmRenderList()" style="padding:7px 12px;border:1px solid var(--rule);border-radius:8px;font-size:13px;width:220px">
+        <button class="btn-primary" id="hrm-btn-add" style="font-size:13px" onclick="hrmUpdateMenu()">✦ Cập nhật nhân sự</button>
+        <button class="btn-ghost" style="font-size:13px" onclick="hrmAllocOpen()" title="Phân bổ nhân sự theo đơn vị (GĐ-B)">🏢 Phân bổ đơn vị</button>
         <button class="btn-ghost" id="hrm-tab-crew" style="font-size:13px" onclick="hrmSwitchView('crew')" title="Điều động thuyền viên theo tàu">⚓ Điều động tàu</button>
         <button class="btn-ghost" style="font-size:13px" onclick="hrReqOpen()" title="Đề xuất nhân sự: gia hạn HĐ / điều chuyển / nghỉ việc — duyệt rồi mới thi hành">📋 Đề xuất NS</button>
         <button class="btn-sec" style="font-size:13px" onclick="hrmDiagTypes()" title="Kiểm tra số lượng NV theo nhóm (chẩn đoán)">🔍 Kiểm tra dữ liệu</button>
@@ -3733,7 +3733,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.13.28';
+const APP_VERSION='3.13.29';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
