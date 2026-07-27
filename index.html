@@ -3733,7 +3733,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.13.33';
+const APP_VERSION='3.13.35';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -76344,6 +76344,60 @@ function openSalaryProfileCard(empId){
     `<button class="btn-ghost" onclick="closeModal()">Đóng</button>
      ${canE?`<button class="btn-primary" onclick="salaryProfileNewVersionForm('${empId}')">＋ Tạo phiên bản mới</button>`:''}`);
 }
+/* ═══ v3.13.35: BẢNG CHỌN GRADE (Sếp yêu cầu) — thay dropdown mù bằng TOÀN BẢNG:
+   mỗi grade 1 hàng, cột = các trường tiền tương đương thẻ lương (chỉ hiện cột có
+   ít nhất 1 grade ≠0) + chức danh đang dùng + số thẻ. Click hàng để chọn.
+   FIX LỌC (audit cùng bản): (a) match nhóm theo SG_PREFIX[profileKey] thay vì
+   code.indexOf(pfx) — trước đây EXPAT-G01 bị nhận nhầm vào nhóm EXP của engine
+   chuyên gia (prefix 'EXP' là tiền tố của 'EXPAT'); (b) sort numeric — tránh
+   G100 xếp trước G2 khi vượt 2 chữ số. Mặc định LỌC ĐÚNG NHÓM engine của thẻ,
+   checkbox "hiện cả nhóm khác" để không bao giờ lọc sót. Thuần đọc. */
+function _sgGroupOf(g){
+  if(!g) return '';
+  if(g.profileKey&&SG_PREFIX[g.profileKey]) return SG_PREFIX[g.profileKey];
+  var c=String(g.code||''); var i=c.indexOf('-G');
+  return i>0?c.slice(0,i):'';
+}
+function sgGradePickerHtml(engine, curGid, showAll){
+  var pfx=SG_PREFIX[engine]||'';
+  var all=(salaryGrades()||[]).filter(function(g){return g&&!g._deleted;});
+  var list=all.filter(function(g){ return showAll || !pfx || _sgGroupOf(g)===pfx; });
+  list.sort(function(a,b){
+    var am=_sgGroupOf(a)===pfx?0:1, bm=_sgGroupOf(b)===pfx?0:1;
+    return am-bm || String(a.code||'').localeCompare(String(b.code||''),undefined,{numeric:true});
+  });
+  var cols=SG_MONEY_FIELDS.filter(function(f){ return list.some(function(g){return g.money&&(+g.money[f]||0)!==0;}); });
+  var th='<th style="text-align:left;padding:4px 6px;white-space:nowrap">Mã</th>'
+        +'<th style="text-align:left;padding:4px 6px">Chức danh đang dùng</th>'
+        +'<th style="text-align:right;padding:4px 6px;white-space:nowrap">Thẻ</th>'
+        +cols.map(function(f){return '<th style="text-align:right;padding:4px 6px;white-space:nowrap">'+esc(SG_FIELD_LABELS[f]||f)+'</th>';}).join('');
+  function row(gid, cells, isMatch, hl){
+    return '<tr id="sgrow-'+esc(gid||'none')+'" onclick="sgGradePick(\''+ (gid||'') +'\')" style="cursor:pointer;'+(hl?'background:var(--accent-soft,rgba(80,120,255,.15));':'')+(isMatch?'':'opacity:.55;')+'border-bottom:1px solid var(--rule)">'+cells+'</tr>';
+  }
+  var body=row('', '<td style="padding:4px 6px" colspan="'+(3+cols.length)+'">(bỏ gán — thẻ đọc thẳng data legacy)</td>', true, !curGid);
+  body+=list.map(function(g){
+    var isMatch=!pfx||_sgGroupOf(g)===pfx;
+    var ts=sgGradeTitles(g.id);
+    var tsTxt=ts.length?esc(ts[0].t)+(ts[0].c>1?' ×'+ts[0].c:'')+(ts.length>1?' +'+(ts.length-1):''):'<span style="color:var(--muted)">—</span>';
+    var cells='<td style="padding:4px 6px;white-space:nowrap"><b>'+esc(g.code||'')+'</b>'+(isMatch?'':' <span title="khác nhóm engine">⚠</span>')+'</td>'
+      +'<td style="padding:4px 6px">'+tsTxt+'</td>'
+      +'<td style="padding:4px 6px;text-align:right">'+salaryGradeUsage(g.id)+'</td>'
+      +cols.map(function(f){ var n=+(g.money&&g.money[f])||0;
+          return '<td style="padding:4px 6px;text-align:right;font-family:var(--font-mono)">'+(n?_sgFmtVal(f,n):'<span style="color:var(--muted)">—</span>')+'</td>'; }).join('');
+    return row(g.id, cells, isMatch, curGid===g.id);
+  }).join('');
+  return '<div style="max-height:340px;overflow:auto;border:1px solid var(--rule);border-radius:6px">'
+    +'<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="position:sticky;top:0;background:var(--card,#fff);border-bottom:1px solid var(--rule);font-size:11px;color:var(--muted)">'+th+'</tr></thead>'
+    +'<tbody>'+body+'</tbody></table></div>';
+}
+function sgGradePickRender(){
+  var c=window._SG_PICKCTX||{}; var el=document.getElementById('ag-grade-table');
+  if(el) el.innerHTML=sgGradePickerHtml(c.engine, ((document.getElementById('ag-grade')||{}).value)||'', !!((document.getElementById('ag-showall')||{}).checked));
+}
+function sgGradePick(gid){
+  var inp=document.getElementById('ag-grade'); if(inp) inp.value=gid||'';
+  sgGradePickRender();
+}
 /* v3.13.27: GÁN GRADE cho phiên bản thẻ — trước đây KHÔNG có nơi nào trong UI ghi gradeId
    (thẻ có Grade là do migration cũ) → thẻ import/tạo tay đều trống → R102 RED hàng loạt.
    Chỉ cho gán khi phiên bản CHƯA dùng cho kỳ lương ĐÃ KHÓA (guard sẵn có). Audit updatedBy/At. */
@@ -76353,18 +76407,18 @@ function salaryProfileAssignGrade(versionId){
   if(!v){ toast('Không tìm thấy phiên bản','bad'); return; }
   if(_spVersionUsedByLockedPeriod(v)){ toast('Phiên bản đã dùng cho kỳ lương ĐÃ KHÓA — bất biến, tạo phiên bản mới để đổi Grade','bad'); return; }
   var pfx=(typeof SG_PREFIX!=='undefined'&&SG_PREFIX[v.engine])||'';
-  var gs=(salaryGrades()||[]).filter(function(x){return x&&!x._deleted;})
-    .sort(function(a,b){ var am=pfx&&String(a.code||'').indexOf(pfx)===0?0:1, bm=pfx&&String(b.code||'').indexOf(pfx)===0?0:1;
-      return am-bm || String(a.code||'').localeCompare(String(b.code||'')); });
+  var gs=(salaryGrades()||[]).filter(function(x){return x&&!x._deleted;});
   if(!gs.length){ toast('Danh mục Grade trống — tạo Grade trước (Danh mục lương)','warn'); return; }
-  var opts='<option value="">(bỏ gán)</option>'+gs.map(function(x){
-    var match=pfx&&String(x.code||'').indexOf(pfx)===0;
-    var sum=sgGradeSummary(x); /* v3.13.33: tóm tắt tiền chính ngay trên option */
-    return '<option value="'+x.id+'" '+(v.gradeId===x.id?'selected':'')+'>'+esc(x.code||'')+(x.name?' · '+esc(x.name):'')+(x.label?' · '+esc(x.label):'')+(sum?' — '+sum:'')+(match?'':' ⚠khác nhóm')+'</option>'; }).join('');
+  /* v3.13.35: TOÀN BẢNG cột tương đương thẻ lương thay dropdown; lọc đúng nhóm engine,
+     checkbox mở rộng để không lọc sót. Chọn = click hàng → hidden #ag-grade (Save giữ nguyên). */
+  window._SG_PICKCTX={engine:v.engine||''};
   openModal('🏷 Gán Grade — V'+v.version+' ('+esc(v.engine||'')+')',
-    '<div style="font-size:12px"><div style="margin-bottom:6px;color:var(--muted)">Engine <b>'+esc(v.engine||'?')+'</b> → Grade nhóm <b>'+(pfx||'?')+'*</b> đứng đầu danh sách. Grade là phân loại/mức chuẩn; tiền trên thẻ vẫn ưu tiên theo cấu hình hiện hành.</div>'
-    +'<select id="ag-grade" style="width:100%" onchange="document.getElementById(\'ag-grade-detail\').innerHTML=sgGradeDetailHtml(this.value)">'+opts+'</select>'
-    +'<div id="ag-grade-detail">'+sgGradeDetailHtml(v.gradeId||'')+'</div></div>',
+    '<div style="font-size:12px"><div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:6px">'
+    +'<span style="color:var(--muted)">Engine <b>'+esc(v.engine||'?')+'</b> → lọc nhóm <b>'+(pfx||'tất cả')+'</b>. Click hàng để chọn.</span>'
+    +'<label style="white-space:nowrap;color:var(--muted)"><input type="checkbox" id="ag-showall" onchange="sgGradePickRender()"> hiện cả nhóm khác ⚠</label></div>'
+    +'<input type="hidden" id="ag-grade" value="'+esc(v.gradeId||'')+'">'
+    +'<div id="ag-grade-table">'+sgGradePickerHtml(v.engine||'', v.gradeId||'', false)+'</div>'
+    +'<div style="color:var(--muted);margin-top:5px;font-size:11px">Ưu tiên đọc: Override trên thẻ → Grade → data cũ trên thẻ. Trường = 0 trong Grade bị bỏ qua (fallback xuống thẻ).</div></div>',
     '<button class="btn-ghost" onclick="closeModal();openSalaryProfileCard(\''+v.empId+'\')">← Quay lại</button>'
     +'<button class="btn-primary" onclick="salaryProfileAssignGradeSave(\''+versionId+'\')">💾 Lưu</button>');
 }
@@ -76395,7 +76449,7 @@ function salaryProfileNewVersionForm(empId){
       ${((S.companies||[]).length>1)?`<div class="field"><label>Pháp nhân trả *</label><select id="sp-company">${(S.companies||[]).map(c=>`<option value="${c.id}" ${cur&&cur.companyId===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select></div>`:''}
       <div class="field"><label>Engine</label><select id="sp-engine"><option value="office" ${(!cur||cur.engine==='office')?'selected':''}>Văn phòng</option><option value="tech" ${cur&&cur.engine==='tech'?'selected':''}>Kỹ thuật</option><option value="crew" ${cur&&cur.engine==='crew'?'selected':''}>Đội tàu</option><option value="crew_khoan" ${cur&&cur.engine==='crew_khoan'?'selected':''}>Đội tàu — Khoán (trả theo ngày làm)</option></select></div>
       <div class="field"><label>Loại lương</label><select id="sp-type"><option value="NET" selected>NET</option><option value="GROSS">GROSS</option></select></div>
-      <div class="field"><label>Grade (bậc lương) <span style="font-weight:400;text-transform:none;color:var(--muted)">— khớp nhóm: OFF/TECH/CREW/KHOAN/EXP…</span></label><select id="sp-grade" style="width:100%" onchange="document.getElementById('sp-grade-detail').innerHTML=sgGradeDetailHtml(this.value)"><option value="">(chưa gán)</option>${(typeof salaryGrades==='function'?salaryGrades():[]).filter(x=>x&&!x._deleted).slice().sort((a,b)=>String(a.code||'').localeCompare(String(b.code||''))).map(x=>{const _s=sgGradeSummary(x);return `<option value="${x.id}" ${cur&&cur.gradeId===x.id?'selected':''}>${esc(x.code||'')}${x.name?' · '+esc(x.name):''}${x.label?' · '+esc(x.label):''}${_s?' — '+_s:''}</option>`;}).join('')}</select><div id="sp-grade-detail">${sgGradeDetailHtml((cur&&cur.gradeId)||'')}</div></div>
+      <div class="field"><label>Grade (bậc lương) <span style="font-weight:400;text-transform:none;color:var(--muted)">— khớp nhóm: OFF/TECH/CREW/KHOAN/EXP…</span></label><select id="sp-grade" style="width:100%" onchange="document.getElementById('sp-grade-detail').innerHTML=sgGradeDetailHtml(this.value)"><option value="">(chưa gán)</option>${(typeof salaryGrades==='function'?salaryGrades():[]).filter(x=>x&&!x._deleted).slice().sort((a,b)=>String(a.code||'').localeCompare(String(b.code||''))).map(x=>{const _s=sgGradeSummary(x);const _t=sgGradeTitleShort(x);return `<option value="${x.id}" ${cur&&cur.gradeId===x.id?'selected':''}>${esc(x.code||'')}${_t?' · '+esc(_t):''}${_s?' — '+_s:''}</option>`;}).join('')}</select><div id="sp-grade-detail">${sgGradeDetailHtml((cur&&cur.gradeId)||'')}</div></div>
       <div class="field"><label>Lương cơ bản NET</label><input type="number" id="sp-net" value="${val('netBase')}" step="any"></div>
       <div class="field"><label>PC trách nhiệm</label><input type="number" id="sp-a1" value="${val('allow_trachNhiem')}" step="any"></div>
       <div class="field"><label>PC dự án</label><input type="number" id="sp-a2" value="${val('allow_duAn')}" step="any"></div>
@@ -76895,6 +76949,38 @@ const SG_FIELD_LABELS = {
   expertUsdPerDay:'Đơn giá USD/ngày', expertAllowDays:'Ngày trợ cấp mặc định', expertLiving:'Trợ cấp sinh hoạt USD/ngày',
   allow_trachNhiem:'PC trách nhiệm', allow_duAn:'PC dự án'
 };
+/* v3.13.34: label migration "N người" là số NV LÚC MIGRATE (stale, vô mục đích) — BỎ hiển thị.
+   Thay bằng: CHỨC DANH đang dùng grade (suy từ thẻ active gán gradeId → hồ sơ NV)
+   + LOẠI LƯƠNG theo profileKey. Thuần đọc. */
+const SG_PROFILE_LABELS = { office:'Văn phòng (lương tháng)', tech:'Kỹ thuật (theo ngày)',
+  crew:'Đội tàu (theo công)', crew_khoan:'Khoán (trả theo ngày làm)',
+  expert:'Chuyên gia (USD/ngày)', expert_om:'Chuyên gia O&M (USD/ngày)',
+  project:'Dự án (USD/giờ)', expat:'Expat' };
+/* Chức danh các NV đang gán grade — [{t,c}] sort giảm dần theo số người (distinct empId) */
+function sgGradeTitles(gradeId){
+  var seen={};
+  (S.salaryProfiles||[]).forEach(function(v){
+    if(!v||v._deleted||v.gradeId!==gradeId||!v.empId||seen[v.empId]) return;
+    seen[v.empId]=true;
+  });
+  var cnt={};
+  Object.keys(seen).forEach(function(empId){
+    var e=(typeof hrmEmpById==='function')?hrmEmpById(empId):null; if(!e) return;
+    var t=e.title||e.position||'';
+    if(!t&&e.positionId&&typeof pafById==='function'){ var p=pafById(e.positionId); t=(p&&(p.name||p.title))||''; }
+    t=String(t||'(chưa rõ chức danh)').trim()||'(chưa rõ chức danh)';
+    cnt[t]=(cnt[t]||0)+1;
+  });
+  return Object.keys(cnt).map(function(t){return {t:t,c:cnt[t]};})
+    .sort(function(a,b){return b.c-a.c||a.t.localeCompare(b.t);});
+}
+/* Chuỗi ngắn cho option: chức danh phổ biến nhất (+n nếu nhiều loại); chưa ai dùng → loại lương */
+function sgGradeTitleShort(g){
+  if(!g) return '';
+  var ts=sgGradeTitles(g.id);
+  if(ts.length) return ts[0].t+(ts.length>1?' +'+(ts.length-1):'');
+  return SG_PROFILE_LABELS[g.profileKey]||String(g.profileKey||'');
+}
 function _sgFmtVal(f, v){
   var n=+v||0;
   if(f==='expertAllowDays') return String(n)+' ngày';
@@ -76916,8 +77002,13 @@ function sgGradeDetailHtml(gid){
   var rows = SG_MONEY_FIELDS.filter(function(f){ return g.money && (+g.money[f]||0)!==0; })
     .map(function(f){ return '<div style="display:flex;justify-content:space-between;font-size:12px;padding:1px 0"><span style="color:var(--muted)">'+esc(SG_FIELD_LABELS[f]||f)+'</span><b style="font-family:var(--font-mono)">'+_sgFmtVal(f, g.money[f])+'</b></div>'; }).join('');
   var use = salaryGradeUsage(g.id);
+  var ts=sgGradeTitles(g.id); /* v3.13.34 */
+  var tsTxt=ts.length?ts.slice(0,4).map(function(x){return esc(x.t)+(x.c>1?' ×'+x.c:'');}).join(' · ')+(ts.length>4?' · +'+(ts.length-4)+' khác':''):'chưa thẻ nào dùng';
   return '<div style="border:1px solid var(--rule);border-radius:6px;padding:8px;margin-top:6px;font-size:12px">'
-    + '<div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:4px"><b>'+esc(g.code||'')+(g.label?' · '+esc(g.label):'')+'</b><span style="color:var(--muted);white-space:nowrap">'+esc(g.profileKey||'')+' · đang dùng: '+use+' thẻ</span></div>'
+    + '<div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:4px"><b>'+esc(g.code||'')+'</b><span style="color:var(--muted);white-space:nowrap">đang dùng: '+use+' thẻ</span></div>'
+    + '<div style="display:flex;justify-content:space-between;font-size:12px;padding:1px 0"><span style="color:var(--muted)">Loại lương</span><b>'+esc(SG_PROFILE_LABELS[g.profileKey]||g.profileKey||'?')+'</b></div>'
+    + '<div style="display:flex;justify-content:space-between;gap:10px;font-size:12px;padding:1px 0"><span style="color:var(--muted);white-space:nowrap">Chức danh đang dùng</span><b style="text-align:right">'+tsTxt+'</b></div>'
+    + '<div style="border-top:1px dashed var(--rule);margin:4px 0"></div>'
     + (rows || '<div style="color:var(--muted)">Grade không có trường tiền nào ≠ 0 — engine fallback data trên thẻ.</div>')
     + '<div style="color:var(--muted);margin-top:5px;font-size:11px">Ưu tiên đọc: Override trên thẻ → Grade → data cũ trên thẻ. Trường = 0 trong Grade bị bỏ qua (fallback xuống thẻ).</div></div>';
 }
