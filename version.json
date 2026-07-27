@@ -1,5 +1,5 @@
 {
-  "version": "3.13.24",
-  "swVersion": "v3.13.24",
-  "notes": "HRM CHAM CONG — nut 🔒 KHOA / 🔓 MO ky cong: trang thai locked co san trong data nhung THIEU UI chuyen (cau Lay cong tu HRM yeu cau ban khoa ma HR khong co cach khoa). Nut 🔒 Khoa hien tren ky draft (canh 👁 Xem): confirm → status=locked + lockedBy/At + audit; ky da khoa hien 🔓 Mo (confirm, khong anh huong ky luong da lay cong — immutable phia Payroll). Quyen: HR (canSignHr/isNVNS) hoac Admin. Test VM lock/unlock/gate PASS + FULL 79/79, engine SAME."
+  "version": "3.13.25",
+  "swVersion": "v3.13.25",
+  "notes": "READINESS CLICK-DE-SUA: moi dong loi 🔴/🟡 trong bang readiness (modal Payroll) click mo dung NOI SUA theo rule — R105 (thieu assignment) → man 🏢 Phan bo don vi LOC SAN dung NV do; R101/R102 (thieu the/Grade) + PH:n1_* (lich su the) → The luong; R103/R104/R201-R204 + PH khac → ho so NV; dong khong co ho so (NV la trong BCC) khong click. Dau ✎ cuoi thong bao danh dau dong click duoc. Voi 71 dong R105 vang tren anh: click 1 dong → man Phan bo loc dung NV → them assignment (hoac dung ⚡ Gan SMEJSC hang loat xu ly ca 174 nguoi mot phat — bang 3.13.23). Test map 5/5 + FULL 79/79 + GDB 16/16, engine SAME."
 }

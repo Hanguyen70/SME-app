@@ -3745,7 +3745,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.13.24';
+const APP_VERSION='3.13.25';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -75332,12 +75332,23 @@ window.pfOpenUI=async function(month,ent,g){
   var p=pfPeriod(month,ent,g);
   var rd=await pfRunReadiness(month,ent,g);
   var _empBy={}; HRService.employees().forEach(function(e){ if(e) _empBy[e.id]=e; });
+  /* v3.13.25: click dòng lỗi → mở đúng NƠI SỬA theo rule:
+     R105 (thiếu assignment) → màn Phân bổ đơn vị lọc sẵn NV; R101/R102 (thẻ lương/Grade) → Thẻ lương;
+     PH:n1_* (lịch sử thẻ) → Thẻ lương; còn lại (R103/R104/R201..R204, PH khác) → hồ sơ NV. */
+  var _fixOf=function(r, e){
+    var rid=String(r.ruleId||'');
+    if(rid==='R105' && e) return {fn:"window._allocF={ent:'',g:'',status:'active',warn:'',q:'"+String(e.smartId||'').replace(/'/g,'')+"'};closeModal();hrmAllocOpen()", t:'màn Phân bổ đơn vị'};
+    if((rid==='R101'||rid==='R102'||rid.indexOf('PH:n1_')===0) && r.employeeId) return {fn:"closeModal();openSalaryProfileCard('"+r.employeeId+"')", t:'Thẻ lương'};
+    if(e) return {fn:"hrmViewEmployee('"+r.employeeId+"')", t:'hồ sơ NV'};
+    return null;
+  };
   var rows=rd.results.slice(0,40).map(function(r){
     var _e=_empBy[r.employeeId];
     var nvCell=_e ? (esc(_e.smartId||'')+' · '+esc(_e.fullName||'')) : esc(String(r.employeeId||''));
-    var click=_e ? ' style="cursor:pointer" title="Click: xem/sửa hồ sơ NV" onclick="hrmViewEmployee(\''+r.employeeId+'\')"' : '';
+    var fx=_fixOf(r,_e);
+    var click=fx ? ' style="cursor:pointer" title="Click: mở '+fx.t+' để sửa" onclick="'+fx.fn+'"' : '';
     return '<tr'+click+'><td style="color:'+(r.severity==='RED'?'var(--bad)':(r.severity==='YELLOW'?'#E37400':'var(--muted)'))+';font-weight:700">'+r.severity+(r.accepted?' ✓':'')+'</td>'+
-      '<td>'+r.ruleId+'</td><td>'+nvCell+'</td><td>'+esc(r.message)+'</td><td style="font-size:9px">'+(r.blocks||[]).join(',')+'</td></tr>';
+      '<td>'+r.ruleId+'</td><td>'+nvCell+'</td><td>'+esc(r.message)+(fx?' <span style="color:var(--accent)">✎</span>':'')+'</td><td style="font-size:9px">'+(r.blocks||[]).join(',')+'</td></tr>';
   }).join('');
   var board=b.rows.map(function(r){
     return '<tr'+(r.payGroup===g?' style="background:var(--paper-2)"':'')+'><td><a href="javascript:void(0)" onclick="pfOpenUI(\''+month+'\',\''+ent+'\',\''+r.payGroup+'\')">'+r.payGroup+'</a></td><td>'+esc(r.status)+'</td></tr>';
