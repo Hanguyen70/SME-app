@@ -3733,7 +3733,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.13.43';
+const APP_VERSION='3.13.45';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -20907,6 +20907,22 @@ function asgAdd(o, opts){
   var dup=(S.hrEmploymentAssignments||[]).find(function(x){ return x && !x._deleted && x.status!=='ended'
     && x.empId===rec.empId && x.companyId===rec.companyId && String(x.effectiveFrom||'')===String(rec.effectiveFrom||''); });
   if(dup){ if(!(opts&&opts.quiet)) toast('⚠ Đã có assignment y hệt (chống trùng) — không tạo thêm','warn'); return dup; }
+  /* v3.13.44 CHẶN TÁI PHÁT CHỒNG (gốc lỗi chuyển pháp nhân SMEJSC→STER): còn bản ACTIVE cùng pháp nhân
+     chồng thời gian với bản mới → hỏi tự KẾT THÚC bản cũ = từ mới − 1 (end+new chuẩn); từ chối → không tạo. */
+  if(!(opts&&opts.force)){
+    var lap=(S.hrEmploymentAssignments||[]).find(function(x){ return x && !x._deleted && x.status!=='ended'
+      && x.empId===rec.empId && x.companyId===rec.companyId
+      && String(rec.effectiveFrom||'')<=(x.effectiveTo||'9999-12-31'); });
+    if(lap){
+      var _d=new Date(String(rec.effectiveFrom)+'T00:00:00Z'); _d.setUTCDate(_d.getUTCDate()-1);
+      var _to=_d.toISOString().slice(0,10);
+      if(typeof confirm==='function' && confirm('NV đang có quan hệ hiệu lực tại pháp nhân này (từ '+(lap.effectiveFrom||'?')+' → '+(lap.effectiveTo||'∞')+').\nKẾT THÚC bản cũ ('+_to+') và tạo bản mới từ '+rec.effectiveFrom+'?')){
+        lap.effectiveTo=_to; lap.status='ended';
+        (lap.auditTrail=lap.auditTrail||[]).push({at:at, by:who, act:'auto_end_on_new', note:'end '+_to+' — bản mới từ '+rec.effectiveFrom});
+        try{touchRecord(lap);}catch(e){}   /* v3.13.45: thắng merge */
+      } else { toast('Không tạo — tránh chồng thời gian cùng pháp nhân','warn'); return null; }
+    }
+  }
   (S.hrEmploymentAssignments=S.hrEmploymentAssignments||[]).push(rec);
   if(!(opts&&opts.noSave)) saveState();   /* v3.13.26: bulk (backfill) save 1 lần cuối — 174×saveState = treo UI ~1 phút */
   return rec;
@@ -20916,6 +20932,7 @@ function asgEnd(id, endDate){
   const who=(CURRENT_USER&&CURRENT_USER.name)||'', at=new Date().toISOString();
   a.effectiveTo=endDate||at.slice(0,10); a.status='ended';
   (a.auditTrail=a.auditTrail||[]).push({at,by:who,act:'end',note:a.effectiveTo});
+  try{touchRecord(a);}catch(e){}   /* v3.13.45: BẮT BUỘC — merge cùng ID chọn bản updatedAt mới hơn, hòa thì CLOUD thắng → không touch là bị sync hoàn tác */
   saveState();
 }
 function enrAdd(o){
@@ -21125,30 +21142,61 @@ window.hrmAllocDedupe=function(){
     });
     plan.push({keep:l[0], drop:l.slice(1)});
   });
-  if(!plan.length){ toast('✓ Không có assignment trùng','good'); return; }
+  /* v3.13.44 (b): CHỒNG cùng pháp nhân khác ngày hiệu lực — bản cũ ∞/muộn hơn ngày bắt đầu bản mới
+     → kế hoạch KẾT THÚC bản cũ = từ_bản_mới − 1 ngày (đúng thao tác chuyển pháp nhân chuẩn end+new). */
+  var dropIds={}; plan.forEach(function(p){ p.drop.forEach(function(a){ dropIds[a.id]=1; }); });
+  var day=function(s,n){ var d=new Date(s+'T00:00:00Z'); d.setUTCDate(d.getUTCDate()+n); return d.toISOString().slice(0,10); };
+  var by2={}, endPlan=[];
+  (S.hrEmploymentAssignments||[]).forEach(function(a){
+    if(!a||a._deleted||dropIds[a.id]) return;
+    var k=a.empId+'|'+a.companyId; (by2[k]=by2[k]||[]).push(a);
+  });
+  Object.keys(by2).forEach(function(k){
+    var l=by2[k].slice().sort(function(x,y){return String(x.effectiveFrom||'').localeCompare(String(y.effectiveFrom||''));});
+    for(var i=1;i<l.length;i++){ var p=l[i-1], c=l[i];
+      if(String(c.effectiveFrom||'')<=(p.effectiveTo||'9999-12-31'))
+        endPlan.push({a:p, to:day(c.effectiveFrom,-1), vs:c.effectiveFrom});
+    }
+  });
+  if(!plan.length && !endPlan.length){ toast('✓ Dây thời gian sạch — không trùng, không chồng','good'); return; }
   var total=plan.reduce(function(s,p){return s+p.drop.length;},0);
-  var h='<div style="font-size:12px"><div style="margin-bottom:6px">Phát hiện <b>'+plan.length+'</b> nhóm trùng (cùng NV + đơn vị + ngày hiệu lực) — sẽ dọn <b>'+total+'</b> bản thừa (tombstone + audit), GIỮ bản có Nhóm lương / tạo sớm nhất. Không đụng lịch sử đã kết thúc.</div>'
+  var h='<div style="font-size:12px"><div style="margin-bottom:6px">Trùng y hệt: <b>'+plan.length+'</b> nhóm → dọn <b>'+total+'</b> bản thừa (tombstone + audit, GIỮ bản có Nhóm lương/tạo sớm nhất). Chồng thời gian cùng pháp nhân: <b>'+endPlan.length+'</b> bản cũ sẽ ĐƯỢC KẾT THÚC = ngày bắt đầu bản mới − 1 (đúng chuẩn chuyển end+new).</div>'
     +'<div style="max-height:45vh;overflow:auto"><table class="tbl" style="font-size:11px"><tr><th>NV</th><th>Hiệu lực</th><th>GIỮ (nhóm)</th><th>Bỏ</th></tr>'
     +plan.map(function(p){ var e=byId[p.keep.empId]||{};
       return '<tr><td>'+esc(e.smartId||p.keep.empId)+' · '+esc(e.fullName||'?')+'</td><td style="font-family:var(--font-mono)">'+esc(p.keep.effectiveFrom||'?')+'</td><td>'+esc(p.keep.payrollGroup||'(trống)')+'</td><td style="color:#c0392b">'+p.drop.length+' bản</td></tr>'; }).join('')
-    +'</table></div></div>';
-  openModal('🧹 Dọn assignment trùng — xem trước', h,
+    +'</table></div>'
+    +(endPlan.length?('<div style="font-weight:600;font-size:11px;margin:8px 0 4px">⏹ SẼ KẾT THÚC (chồng cùng pháp nhân)</div>'
+      +'<div style="max-height:25vh;overflow:auto"><table class="tbl" style="font-size:11px"><tr><th>NV</th><th>Đơn vị</th><th>Từ</th><th>→ Đến (mới)</th><th>Nhường bản từ</th></tr>'
+      +endPlan.map(function(x){ var e=byId[x.a.empId]||{};
+        return '<tr><td>'+esc(e.smartId||x.a.empId)+' · '+esc(e.fullName||'?')+'</td><td style="font-size:10px">'+esc(companyName(x.a.companyId))+'</td><td style="font-family:var(--font-mono)">'+esc(x.a.effectiveFrom||'?')+'</td><td style="font-family:var(--font-mono);color:#E37400">'+x.to+'</td><td style="font-family:var(--font-mono)">'+x.vs+'</td></tr>'; }).join('')
+      +'</table></div>'):'')
+    +'</div>';
+  openModal('🧹 Dọn trùng & vá dây thời gian — xem trước', h,
     '<button class="btn-ghost" onclick="hrmAllocOpen()">← Hủy</button>'
-    +'<button class="btn-primary" onclick="hrmAllocDedupeGo()">✓ Dọn '+total+' bản trùng</button>');
-  window._allocDD=plan;
+    +'<button class="btn-primary" onclick="hrmAllocDedupeGo()">✓ Thực hiện ('+total+' dọn · '+endPlan.length+' kết thúc)</button>');
+  window._allocDD=plan; window._allocDE=endPlan;
 };
 window.hrmAllocDedupeGo=function(){
   if(!hrAllocCanEdit_()){ toast('Chỉ HR/Admin','bad'); return; }
-  var plan=window._allocDD||[]; window._allocDD=null;   /* tiêu đồng bộ — chống double-click */
-  if(!plan.length){ hrmAllocOpen(); return; }
-  var who=(CURRENT_USER&&CURRENT_USER.name)||'', at=new Date().toISOString(), n=0;
+  var plan=window._allocDD||[], endPlan=window._allocDE||[]; window._allocDD=null; window._allocDE=null;   /* tiêu đồng bộ — chống double-click */
+  if(!plan.length && !endPlan.length){ hrmAllocOpen(); return; }
+  var who=(CURRENT_USER&&CURRENT_USER.name)||'', at=new Date().toISOString(), n=0, nEnd=0;
   plan.forEach(function(p){ p.drop.forEach(function(a){
     if(!a||a._deleted) return;   /* idempotent */
     a._deleted=true; a.status='ended';
+    if(!a.effectiveTo) a.effectiveTo=a.effectiveFrom;   /* v3.13.44: tombstone hết ∞ — không còn lọt phép nào */
     (a.auditTrail=a.auditTrail||[]).push({at:at, by:who, act:'dedupe', note:'trùng với '+p.keep.id});
+    try{touchRecord(a);}catch(e){}   /* v3.13.45: thắng merge */
     n++;
   }); });
-  try{ logAuditEvent('hr_alloc_dedupe',{count:n}); }catch(e){}
+  endPlan.forEach(function(x){ var a=x.a;
+    if(!a||a._deleted||String(a.effectiveTo||'')===x.to) return;   /* idempotent */
+    a.effectiveTo=x.to; a.status='ended';
+    (a.auditTrail=a.auditTrail||[]).push({at:at, by:who, act:'fix_overlap', note:'kết thúc '+x.to+' — nhường bản từ '+x.vs});
+    try{touchRecord(a);}catch(e){}   /* v3.13.45: thắng merge */
+    nEnd++;
+  });
+  try{ logAuditEvent('hr_alloc_dedupe',{count:n, ended:nEnd}); }catch(e){}
   try{ touchRecord&&plan.forEach(function(p){p.drop.forEach(function(a){try{touchRecord(a);}catch(e){}});}); }catch(e){}
   saveState();
   toast('🧹 Đã dọn '+n+' assignment trùng','good'); hrmAllocOpen();
@@ -21180,7 +21228,8 @@ window.hrmAllocSyncGroupGo=function(){
   window._allocSG=null;   /* v3.13.37: tiêu đồng bộ — chống double-click chạy 2 lần */
   var n=0;
   list.forEach(function(x){ x.a.payrollGroup=x.to;
-    (x.a.auditTrail=x.a.auditTrail||[]).push({at:new Date().toISOString(), by:(CURRENT_USER&&CURRENT_USER.name)||'', act:'fix_group', note:x.from+'→'+x.to}); n++; });
+    (x.a.auditTrail=x.a.auditTrail||[]).push({at:new Date().toISOString(), by:(CURRENT_USER&&CURRENT_USER.name)||'', act:'fix_group', note:x.from+'→'+x.to});
+    try{touchRecord(x.a);}catch(e){}   /* v3.13.45: thắng merge */ n++; });
   try{ logAuditEvent('hr_alloc_sync_group',{count:n}); }catch(e){}
   saveState();
   toast('🔁 Đã đồng bộ '+n+' assignment','good'); hrmAllocOpen();
@@ -21403,7 +21452,8 @@ PAYROLL_HEALTH_CHECKS.push(
 { id:'n1_asg_gap_overlap', group:'N1', severity:'RED', blocking:['compute','approve','lock'], needs:[],
   label:'Assignment thiếu hoặc CHỒNG thời gian (đa pháp nhân)',
   run(ctx){ const items=[];
-    const by={}; (S.hrEmploymentAssignments||[]).forEach(a=>{ ((by[a.empId]=by[a.empId]||{})[a.companyId]=by[a.empId][a.companyId]||[]).push(a); });
+    const by={}; (S.hrEmploymentAssignments||[]).forEach(a=>{ if(!a||a._deleted) return;   /* v3.13.44: bản tombstone (Dọn trùng) KHÔNG vào phép — trước đây bị đếm → đỏ giả vĩnh viễn */
+      ((by[a.empId]=by[a.empId]||{})[a.companyId]=by[a.empId][a.companyId]||[]).push(a); });
     Object.keys(by).forEach(empId=>Object.keys(by[empId]).forEach(co=>{
       const l=by[empId][co].slice().sort((a,b)=>String(a.effectiveFrom).localeCompare(String(b.effectiveFrom)));
       for(let i=1;i<l.length;i++){ const prev=l[i-1], cur=l[i];
@@ -75293,9 +75343,13 @@ window.PAYROLL_RULES=[
   desc:'Chấm công: trùng dòng cùng mã',
   fn:function(ctx){ var seen={},out=[];(ctx.att||[]).forEach(function(r){ if(seen[r.smartId]){out.push(pfRR('R202',2,'RED',r.smartId,'Trùng dòng chấm công '+r.smartId,'2+ dòng','1 dòng','attendance',['COMPUTE'],{type:'attendance_row',id:r.smartId}));} seen[r.smartId]=1;});return out;}},
  {ruleId:'R203',stage:2,scope:'period',severity:'RED',blocks:['COMPUTE'],
-  desc:'Tổng ngày công bất hợp lý (>31 hoặc âm)',
-  fn:function(ctx){ return (ctx.att||[]).map(function(r){var t=0;Object.keys(r.days||{}).forEach(function(k){t+=+r.days[k]||0;});
-    if(t>31||t<0) return pfRR('R203',2,'RED',r.smartId,'Tổng công='+t,String(t),'0..31','attendance',['COMPUTE'],{type:'attendance_row',id:r.smartId});
+  desc:'Tổng NGÀY công bất hợp lý (>31 hoặc âm) — chỉ cộng cột NGÀY, không cộng giờ OT',
+  /* v3.13.44 (Sếp: "BCC khác số payroll"): trước cộng MỌI cột days kể cả GIỜ tăng ca (OT15/OT2/OT3)
+     và cột đơn vị mơ hồ (D1 Dock-OT) → 22 ngày + 11 giờ = "33" ĐỎ GIẢ chặn COMPUTE cả kỳ,
+     dù engine tính đúng (office chỉ đọc M=N+P+NL+N1). Nay loại cột GIỜ/thông số khỏi tổng ngày. */
+  fn:function(ctx){ var HRS={OT15:1,OT2:1,OT3:1,OT12:1,NORMAL:1,D1:1,ALLOW_DAYS:1,BASIC_DAY:1,BASIC_HR:1,NET_USD:1,ALLOW_RATE:1};
+    return (ctx.att||[]).map(function(r){var t=0;Object.keys(r.days||{}).forEach(function(k){ if(HRS[k]) return; t+=+r.days[k]||0;});
+    if(t>31||t<0) return pfRR('R203',2,'RED',r.smartId,'Tổng NGÀY công='+t+' (đã loại giờ OT)',String(t),'0..31','attendance',['COMPUTE'],{type:'attendance_row',id:r.smartId});
     return null;}).filter(Boolean);}},
  {ruleId:'R204',stage:2,scope:'period',severity:'YELLOW',blocks:[],
   desc:'NV active có thẻ nhưng KHÔNG có dòng công (nghỉ?)',
@@ -75454,6 +75508,7 @@ window.pfOpenUI=async function(month,ent,g){
     var rid=String(r.ruleId||'');
     if(rid==='R105' && e) return {fn:"window._allocF={ent:'',g:'',status:'active',warn:'',q:'"+String(e.smartId||'').replace(/'/g,'')+"'};closeModal();hrmAllocOpen()", t:'màn Phân bổ đơn vị'};
     if(rid==='R102') return {fn:"closeModal();gradeAdminOpen()", t:'Chức vụ–Grade'};   /* v3.13.40 §10: R102 audit theo chức vụ → mở danh mục mapping */
+    if((rid==='PH:n1_asg_gap_overlap'||rid==='PH:n1_period_vs_asg') && e) return {fn:"window._allocF={ent:'',g:'',status:'all',warn:'',q:'"+String(e.smartId||'').replace(/'/g,'')+"'};closeModal();hrmAllocOpen()", t:'màn Phân bổ (lỗi assignment sửa ở đây)'};   /* v3.13.44: trước trỏ nhầm Thẻ lương */
     if((rid==='R101'||rid.indexOf('PH:n1_')===0) && r.employeeId) return {fn:"closeModal();openSalaryProfileCard('"+r.employeeId+"',{m:'"+month+"',e:'"+ent+"',g:'"+g+"'})", t:'Thẻ lương'}; /* v3.13.36: nhớ kỳ Payroll để quay về */
     if(rid==='R201'||rid==='R202'||rid==='R203') return {fn:"pfImportAttendance('"+month+"','"+ent+"','"+g+"')", t:'Import BCC — sửa dòng chấm công rồi nhập lại'};   /* v3.13.41: sửa tại chỗ */
     if(e) return {fn:"hrmViewEmployee('"+r.employeeId+"')", t:'hồ sơ NV'};
@@ -76495,7 +76550,7 @@ function gradeMetaEnsure(code,label){
 function pgMapSet(positionId, gradeCode){
   if(!hrAllocCanEdit_()){ toast('Chỉ HR/Admin','bad'); return; }
   var who=(CURRENT_USER&&CURRENT_USER.name)||'', at=new Date().toISOString(), d=at.slice(0,10);
-  pgMappings().forEach(function(m){ if(m&&m.positionId===positionId&&_pgActiveAt(m,d)){ m.active=false; m.effectiveTo=d; } });
+  pgMappings().forEach(function(m){ if(m&&m.positionId===positionId&&_pgActiveAt(m,d)){ m.active=false; m.effectiveTo=d; try{touchRecord(m);}catch(e){} } });
   if(gradeCode){ pgMappings().push({id:'pgm_'+Date.now().toString(36)+Math.random().toString(36).slice(2,5),
     positionId:positionId, gradeCode:String(gradeCode).toUpperCase(), effectiveFrom:d, effectiveTo:'', active:true,
     createdAt:at, createdBy:who}); }
@@ -76585,6 +76640,7 @@ function gradeOverrideEnd(id, empId){
   if(!hrAllocCanEdit_()){ toast('Chỉ HR/Admin','bad'); return; }
   var o=gradeOverrides().find(function(x){return x&&x.id===id;}); if(!o) return;
   o.effectiveTo=new Date().toISOString().slice(0,10); o.active=false;
+  try{touchRecord(o);}catch(e){}   /* v3.13.45: thắng merge */
   saveState(); toast('⏹ Đã kết thúc override','good'); gradeOverrideForm(empId);
 }
 /* MÀN QUẢN TRỊ GRADE (§7 §8 §10): thống kê + danh mục Chức vụ–Grade */
@@ -76680,7 +76736,8 @@ window.pgTitleMigrate=function(idx){
     pafList().push(p); }
   emps.forEach(function(e){ e.positionId=p.id;
     (e.positionHistory=e.positionHistory||[]).push({positionId:p.id, pafCode:p.pafCode, fromDate:d, toDate:'',
-      approvedBy:who, reason:'Migration Grade: tạo từ chức danh hồ sơ', at:at}); });
+      approvedBy:who, reason:'Migration Grade: tạo từ chức danh hồ sơ', at:at});
+    try{touchRecord(e);}catch(err){} });   /* v3.13.45: thắng merge */
   try{ logAuditEvent('grade_title_migrate',{title:t.title, positionId:p.id, count:emps.length}); }catch(e){}
   saveState(); toast('➕ '+p.pafCode+' "'+t.title+'" — đã gán '+emps.length+' NV','good'); gradeAdminOpen();
 };
