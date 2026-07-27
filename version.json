@@ -1,5 +1,5 @@
 {
-  "version": "3.13.22",
-  "swVersion": "v3.13.22",
-  "notes": "GD-B — Man hinh PHAN BO NHAN SU THEO DON VI (HRM → nut 🏢 Phan bo don vi): quan ly hrEmploymentAssignments, khong nhan ban ho so. (1) Dashboard KPI click-loc: active tong + per don vi (SMEJSC/POND/PONVT/STERLING) + chua co assignment + thieu The luong + chong thoi gian + nghi con payroll + thieu TK bank. (2) Bang + filter don vi/nhom/trang thai/tim kiem. (3) ➕ Them phan bo: case A chon NV co san; case B tao nguoi PAYROLL_ONLY (ho so toi thieu, tim trung theo ma/MST/CCCD/ten+DOB/bank truoc khi tao — khong am tham tao trung). (4) Sua: doi don vi/nhom/ngay hieu luc = ket thuc ban cu ngay lien truoc + tao ban moi (append-only, giu lich su); sua co CC/PL/noi lam = tai cho + auditTrail; canh bao khi giao cat ky dang tinh/da kiem. (5) Trang thai Salary Profile per assignment + click mo The luong. (6) Audit 8 phep B1-B7 computed PENDING_REVIEW. (7) Ho so PAYROLL_ONLY an khoi danh sach HRM chinh (hrmVisibleEmps filter) nhung hien o man Phan bo + Payroll. (8) pf loc assignment them dieu kien payrollEnabled=true (pfRunReadiness + R105). Test GDB 12/12 + FULL 79/79 + SCC 23/23 + P3 12/12 + P2b 9/9 + P7SEC 4/4, 6/6 engine SAME."
+  "version": "3.13.24",
+  "swVersion": "v3.13.24",
+  "notes": "HRM CHAM CONG — nut 🔒 KHOA / 🔓 MO ky cong: trang thai locked co san trong data nhung THIEU UI chuyen (cau Lay cong tu HRM yeu cau ban khoa ma HR khong co cach khoa). Nut 🔒 Khoa hien tren ky draft (canh 👁 Xem): confirm → status=locked + lockedBy/At + audit; ky da khoa hien 🔓 Mo (confirm, khong anh huong ky luong da lay cong — immutable phia Payroll). Quyen: HR (canSignHr/isNVNS) hoac Admin. Test VM lock/unlock/gate PASS + FULL 79/79, engine SAME."
 }

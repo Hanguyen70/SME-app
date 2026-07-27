@@ -3745,7 +3745,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.13.22';
+const APP_VERSION='3.13.24';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -21054,6 +21054,7 @@ window.hrmAllocOpen=function(){
     +'<input placeholder="mã/tên" value="'+esc(st.q)+'" onchange="window._allocF.q=this.value;hrmAllocOpen()" style="width:130px">'
     +(st.warn?'<button class="btn-ghost" style="font-size:11px" onclick="window._allocF.warn=\'\';hrmAllocOpen()">✕ bỏ lọc cảnh báo '+st.warn+'</button>':'')
     +(hrAllocCanEdit_()?'<button class="btn" style="margin-left:auto" onclick="hrmAllocForm(null,null)">➕ Thêm phân bổ</button>':'')
+    +(hrAllocCanEdit_()&&kNoAsg>0?'<button class="btn-sec" onclick="hrmAllocBackfill()" title="Gán hàng loạt NV chưa có assignment vào đơn vị mẹ SMEJSC — có preview + xác nhận">⚡ Gán SMEJSC hàng loạt ('+kNoAsg+')</button>':'')
     +'</div>';
   openModal('🏢 Phân bổ nhân sự theo đơn vị',
     '<div style="max-height:75vh;overflow:auto">'+kpis+filters+body
@@ -21067,6 +21068,47 @@ window.hrmAllocEnd=function(id){
   if(!d) return;
   asgEnd(id, d);
   toast('⏹ Đã kết thúc assignment','good'); hrmAllocOpen();
+};
+/* GĐ-B backfill: 178 NV mẹ là nhân sự SMEJSC lịch sử — tạo tay từng người vô lý.
+   TƯỜNG MINH: preview đầy đủ + confirm + auditTrail act:'backfill'. payrollGroup suy từ ENGINE thẻ lương
+   hiệu lực (office→OFFICE, crew→CREW, tech*→TECH, expert/expert_om→EXPERT, expat→EXPAT); không thẻ → để trống HR bổ sung.
+   effectiveFrom = ngày vào làm (e.startDate) nếu có, fallback 2026-01-01. */
+window.hrmAllocBackfill=function(){
+  if(!hrAllocCanEdit_()){ toast('Chỉ HR/Admin','bad'); return; }
+  var co=pfCompanyOfEnt('SMEJSC'); if(!co){ toast('Danh mục thiếu công ty mẹ','bad'); return; }
+  var nowD=new Date().toISOString().slice(0,10), nowPer=nowD.slice(0,7);
+  var has={}; (S.hrEmploymentAssignments||[]).forEach(function(a){ if(a&&a.status!=='ended') has[a.empId]=1; });
+  var G={office:'OFFICE', crew:'CREW', crew_khoan:'CREW', tech:'TECH', 'tech-daily':'TECH', 'tech_daily':'TECH', drill:'DRILL', project:'EXPERT', expert:'EXPERT', expert_om:'EXPERT', expat:'EXPAT'};
+  var list=HRService.employees().filter(function(e){ return e&&!e._deleted&&e.status!=='inactive'&&!has[e.id]; })
+    .map(function(e){ var v=salaryProfileAt(e.id, nowPer);
+      return {e:e, g:(v&&G[v.engine])||'', from:(e.startDate&&/^\d{4}-\d{2}-\d{2}$/.test(e.startDate))?e.startDate:'2026-01-01'}; });
+  if(!list.length){ toast('Không còn NV nào thiếu assignment','good'); return; }
+  var noG=list.filter(function(x){return !x.g;}).length;
+  var h='<div style="font-size:12px"><div style="margin-bottom:6px">Sẽ tạo <b>'+list.length+'</b> assignment <b>SMEJSC</b> (đơn vị mẹ) cho NV active chưa có assignment. Nhóm lương suy từ engine Thẻ lương hiệu lực'+(noG?' — <b style="color:#E37400">'+noG+' NV chưa có thẻ → nhóm để trống, HR bổ sung sau</b>':'')+'. CC/PL bật, ngày hiệu lực = ngày vào làm.</div>'
+    +'<div style="max-height:45vh;overflow:auto"><table class="tbl" style="font-size:11px"><tr><th>NV</th><th>Nhóm</th><th>Hiệu lực từ</th></tr>'
+    +list.map(function(x){ return '<tr><td>'+esc(x.e.smartId||'')+' · '+esc(x.e.fullName||'')+'</td><td>'+(x.g||'<span style="color:#E37400">(trống)</span>')+'</td><td style="font-family:var(--font-mono)">'+x.from+'</td></tr>'; }).join('')
+    +'</table></div></div>';
+  openModal('⚡ Gán SMEJSC hàng loạt — xem trước', h,
+    '<button class="btn-ghost" onclick="hrmAllocOpen()">← Hủy</button>'
+    +'<button class="btn-primary" onclick="hrmAllocBackfillGo()">✓ Xác nhận tạo '+list.length+' assignment</button>');
+  window._allocBF=list;
+};
+window.hrmAllocBackfillGo=function(){
+  if(!hrAllocCanEdit_()){ toast('Chỉ HR/Admin','bad'); return; }
+  var list=window._allocBF||[]; if(!list.length){ hrmAllocOpen(); return; }
+  var co=pfCompanyOfEnt('SMEJSC');
+  var n=0;
+  list.forEach(function(x){
+    var r=asgAdd({ empId:x.e.id, companyId:co.id, payrollGroup:x.g, workLocation:x.e.dept||'',
+      attendanceEnabled:true, payrollEnabled:true, isPrimaryEmployment:true, isPrimaryIncome:true,
+      effectiveFrom:x.from, status:'active', reason:'backfill SMEJSC (GĐ-B)' });
+    if(r){ (r.auditTrail=r.auditTrail||[]).push({at:new Date().toISOString(), by:(CURRENT_USER&&CURRENT_USER.name)||'', act:'backfill'}); n++; }
+  });
+  try{ logAuditEvent('hr_alloc_backfill',{count:n, ent:'SMEJSC'}); }catch(e){}
+  saveState();
+  window._allocBF=null;
+  toast('⚡ Đã tạo '+n+' assignment SMEJSC','good');
+  hrmAllocOpen();
 };
 window.hrmAllocForm=function(asgId, empId){
   if(!hrAllocCanEdit_()){ toast('Chỉ HR/Admin','bad'); return; }
@@ -79057,7 +79099,9 @@ function hrmAttRender(){
       <td style="padding:8px">${lockChip}</td>
       <td style="padding:8px;text-align:right;white-space:nowrap">
         <button class="btn-ghost" style="padding:3px 8px;font-size:13px" onclick="hrmAttView('${a.id}')">👁 Xem</button>
-        ${a.status!=='locked'?`<button class="btn-ghost" style="padding:3px 8px;font-size:13px;color:var(--bad)" onclick="hrmAttDelete('${a.id}')">🗑</button>`:''}
+        ${a.status!=='locked'
+          ?`<button class="btn-sec" style="padding:3px 8px;font-size:13px" onclick="hrmAttLock('${a.id}')" title="Khóa kỳ công (đã ký/chốt) — điều kiện để Payroll 📥 Lấy công từ HRM">🔒 Khóa</button><button class="btn-ghost" style="padding:3px 8px;font-size:13px;color:var(--bad)" onclick="hrmAttDelete('${a.id}')">🗑</button>`
+          :`<button class="btn-ghost" style="padding:3px 8px;font-size:13px" onclick="hrmAttUnlock('${a.id}')" title="Mở khóa (chỉ HR/Admin)">🔓 Mở</button>`}
       </td></tr>`;
   }).join('');
   box.innerHTML=`<h3 style="font-size:13px;margin:0 0 8px">Các kỳ chấm công đã lưu</h3>
@@ -79091,6 +79135,26 @@ function hrmAttDelete(id){
   saveState();
   toast('Đã xóa kỳ chấm công','good');
   hrmAttRender();
+}
+/* v3.13.24: KHÓA/MỞ kỳ công — trạng thái locked có sẵn nhưng thiếu UI chuyển. Khóa = công đã ký/chốt,
+   là điều kiện Payroll 📥 Lấy công từ HRM. Quyền: HR (canSignHr/isNVNS) hoặc Admin. */
+function hrmAttLock(id){
+  if(!(isAdmin()||(CURRENT_USER&&(CURRENT_USER.canSignHr||CURRENT_USER.isNVNS)))){ toast('Chỉ HR/Admin được khóa kỳ công','bad'); return; }
+  const a=HRService.attendance().find(x=>x.id===id); if(!a) return;
+  if(!confirm('KHÓA kỳ công '+a.period+' ('+((HRM_BCC_PROFILES[a.profile]||{}).label||a.profile)+') — '+(a.rows||[]).length+' NV?\n\nSau khi khóa: không sửa/xóa/ghi đè; Payroll lấy công được từ bản này.')) return;
+  a.status='locked'; a.lockedBy=(CURRENT_USER&&CURRENT_USER.name)||''; a.lockedAt=new Date().toISOString();
+  try{touchRecord(a);}catch(e){}
+  try{ logAuditEvent('hrm_att_lock',{period:a.period,profile:a.profile}); }catch(e){}
+  saveState(); toast('🔒 Đã khóa kỳ công '+a.period,'good'); hrmAttRender();
+}
+function hrmAttUnlock(id){
+  if(!(isAdmin()||(CURRENT_USER&&(CURRENT_USER.canSignHr||CURRENT_USER.isNVNS)))){ toast('Chỉ HR/Admin','bad'); return; }
+  const a=HRService.attendance().find(x=>x.id===id); if(!a) return;
+  if(!confirm('MỞ KHÓA kỳ công '+a.period+'? Bản công sẽ sửa/ghi đè được lại. Kỳ lương đã lấy công từ bản này KHÔNG bị đổi (immutable phía Payroll).')) return;
+  a.status='draft'; a.unlockedBy=(CURRENT_USER&&CURRENT_USER.name)||''; a.unlockedAt=new Date().toISOString();
+  try{touchRecord(a);}catch(e){}
+  try{ logAuditEvent('hrm_att_unlock',{period:a.period,profile:a.profile}); }catch(e){}
+  saveState(); toast('🔓 Đã mở khóa '+a.period,'good'); hrmAttRender();
 }
 
 
