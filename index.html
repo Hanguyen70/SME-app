@@ -3593,7 +3593,6 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
         <button class="btn-ghost" id="hrm-tab-list" onclick="hrmSwitchView('list')">📋 Danh sách</button>
         <button class="btn-ghost" id="hrm-tab-att" onclick="hrmSwitchView('att')">🗓️ Chấm công</button>
         <input type="file" id="hrm-import-file" accept=".xlsx,.xls" style="display:none" onchange="hrmImportEmployees(this)">
-        <button class="btn-ghost" id="hrm-tab-paf" onclick="openPositionManager()" title="Quản lý định biên theo vị trí (PAF)">🧩 Định biên (PAF)</button>
         <button class="btn-ghost" id="hrm-btn-ledger" onclick="if(typeof FLAG_SALARY_PROFILE!=='undefined'&&FLAG_SALARY_PROFILE){openSalaryLedger()}else{toast('Tính năng Thẻ lương chưa bật (flag_salary_profile)','warn')}" title="Sổ theo dõi lương nhân sự — báo cáo quản trị từ Thẻ lương">📒 Sổ lương</button>
         <button class="btn-ghost" id="hrm-btn-scc" onclick="sccOpen()" title="Kiểm tra dữ liệu Thẻ lương — chỉ đọc, không sửa gì">🔎 Kiểm tra dữ liệu</button>
         <button class="btn-ghost" id="hrm-btn-payroll" onclick="if(window.FLAG_PAYROLL_MODULE&&typeof isAdmin==='function'&&isAdmin()){pfOpenUI()}else{toast('Payroll P2: admin-first (flag_payroll_module)','warn')}" title="Module Payroll — quy trình lương tháng (P2)">⚙️ Payroll</button>
@@ -3616,6 +3615,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
         <button class="btn-primary" id="hrm-btn-add" style="font-size:13px" onclick="hrmUpdateMenu()">✦ Cập nhật nhân sự</button>
         <button class="btn-ghost" style="font-size:13px" onclick="hrmAllocOpen()" title="Phân bổ nhân sự theo đơn vị (GĐ-B)">🏢 Phân bổ đơn vị</button>
         <button class="btn-ghost" id="hrm-tab-crew" style="font-size:13px" onclick="hrmSwitchView('crew')" title="Điều động thuyền viên theo tàu">⚓ Điều động tàu</button>
+        <button class="btn-ghost" id="hrm-tab-paf" style="font-size:13px" onclick="openPositionManager()" title="Quản lý định biên theo vị trí (PAF)">🧩 Định biên (PAF)</button>
         <button class="btn-ghost" style="font-size:13px" onclick="hrReqOpen()" title="Đề xuất nhân sự: gia hạn HĐ / điều chuyển / nghỉ việc — duyệt rồi mới thi hành">📋 Đề xuất NS</button>
         <button class="btn-sec" style="font-size:13px" onclick="hrmDiagTypes()" title="Kiểm tra số lượng NV theo nhóm (chẩn đoán)">🔍 Kiểm tra dữ liệu</button>
         <button class="btn-sec" id="hrm-btn-export" style="font-size:13px" onclick="hrmExportPick()" title="Xuất Excel — chọn mục cần xuất (danh sách NV, cảnh báo HĐLĐ, thẻ lương…)">📊 Xuất Excel</button>
@@ -3733,7 +3733,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.13.29';
+const APP_VERSION='3.13.33';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -17963,6 +17963,7 @@ function payDispatchCompute(profile, inputs, period){
     /* v3.12.91: khoán dùng CHUNG engine crew — chỉ khác PROFILE (3 hệ số = 1.0) */
     case 'crew_khoan': return payComputeCrew(inputs, prof);
     case 'project':return payComputeExpert(inputs, prof);
+    case 'expert': case 'expert_om': return payComputeExpert(inputs, prof);  /* v3.13.32: OM dùng engine chuyên gia (USD/giờ) — prof null → engine tự fallback profile project */
     case 'expat':  return payComputeExpat(inputs, prof);
     case 'tech':   return payComputeTech(inputs, prof);
     default: return {takeHome:0};
@@ -19323,7 +19324,11 @@ const PAY_ATT_MAP={
      dock=D→R (engine mức J=I×1.5 ✓); D1 bỏ (quy chế không có). */
   office:{ M:['N','P','NL','N1'], N:['N3'] },
   tech:  { Q:['N3'], R:['D'], T:['N'], U:['P'], W:['N4'], Y:['N1'], Z:['N2'] },
-  crew:  { G:['DB1'], H:['DB2'], I:['DOCK'], J:['BO'], K:['NGHICA'], L:['BO2'], M:['DP'] }
+  crew:  { G:['DB1'], H:['DB2'], I:['DOCK'], J:['BO'], K:['NGHICA'], L:['BO2'], M:['DP'] },
+  /* v3.13.32 chuyên gia/OM: BCC_CHUYENGIA cột GIỜ → chữ engine payComputeExpert.
+     _ignore = cột THÔNG SỐ TIỀN trong file (đơn giá lấy từ THẺ LƯƠNG — nguồn sự thật) — bỏ qua không cảnh báo. */
+  expert_om:{ J:['NORMAL'], K:['OT12'], L:['OT15'], Q:['ALLOW_DAYS'],
+    _ignore:['BASIC_DAY','BASIC_HR','NET_USD','ALLOW_RATE'] }
 };
 /* PURE — dựng bảng chênh lệch, test được bằng VM. Trả {items:[{empId,name,status,changes:{F:{from,to,manual}}}], extraAtt:[...]} */
 function _payAttBuildDiff(p, att, map){
@@ -21035,7 +21040,7 @@ window.hrmAllocOpen=function(){
     });
     body+='</table>'+(rows.length>200?'<div style="font-size:10px;color:var(--muted)">… và '+(rows.length-200)+' dòng nữa (lọc bớt)</div>':'');
   }
-  var groups=['OFFICE','CREW','TECH','DRILL','EXPERT','EXPAT'];
+  var groups=['OFFICE','CREW','TECH','DRILL','EXPERT','EXPERT_OM','EXPAT'];
   var filters='<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap;font-size:12px">'
     +'<select onchange="window._allocF.ent=this.value;hrmAllocOpen()"><option value="">Đơn vị (tất cả)</option>'+hrAllocEnts_().map(function(en){return '<option '+(st.ent===en?'selected':'')+'>'+en+'</option>';}).join('')+'</select>'
     +'<select onchange="window._allocF.g=this.value;hrmAllocOpen()"><option value="">Nhóm (tất cả)</option>'+groups.map(function(g){return '<option '+(st.g===g?'selected':'')+'>'+g+'</option>';}).join('')+'</select>'
@@ -21044,6 +21049,7 @@ window.hrmAllocOpen=function(){
     +(st.warn?'<button class="btn-ghost" style="font-size:11px" onclick="window._allocF.warn=\'\';hrmAllocOpen()">✕ bỏ lọc cảnh báo '+st.warn+'</button>':'')
     +(hrAllocCanEdit_()?'<button class="btn" style="margin-left:auto" onclick="hrmAllocForm(null,null)">➕ Thêm phân bổ</button>':'')
     +(hrAllocCanEdit_()&&kNoAsg>0?'<button class="btn-sec" onclick="hrmAllocBackfill()" title="Gán hàng loạt NV chưa có assignment vào đơn vị mẹ SMEJSC — có preview + xác nhận">⚡ Gán SMEJSC hàng loạt ('+kNoAsg+')</button>':'')
+    +(hrAllocCanEdit_()?'<button class="btn-ghost" onclick="hrmAllocSyncGroup()" title="Quét assignment có Nhóm lương lệch engine Thẻ lương (vd expert_om bị gộp EXPERT) — preview + xác nhận">🔁 Đồng bộ nhóm theo thẻ</button>':'')
     +'</div>';
   openModal('🏢 Phân bổ nhân sự theo đơn vị',
     '<div style="max-height:75vh;overflow:auto">'+kpis+filters+body
@@ -21067,7 +21073,7 @@ window.hrmAllocBackfill=function(){
   var co=pfCompanyOfEnt('SMEJSC'); if(!co){ toast('Danh mục thiếu công ty mẹ','bad'); return; }
   var nowD=new Date().toISOString().slice(0,10), nowPer=nowD.slice(0,7);
   var has={}; (S.hrEmploymentAssignments||[]).forEach(function(a){ if(a&&a.status!=='ended') has[a.empId]=1; });
-  var G={office:'OFFICE', crew:'CREW', crew_khoan:'CREW', tech:'TECH', 'tech-daily':'TECH', 'tech_daily':'TECH', drill:'DRILL', project:'EXPERT', expert:'EXPERT', expert_om:'EXPERT', expat:'EXPAT'};
+  var G={office:'OFFICE', crew:'CREW', crew_khoan:'CREW', tech:'TECH', 'tech-daily':'TECH', 'tech_daily':'TECH', drill:'DRILL', project:'EXPERT', expert:'EXPERT', expert_om:'EXPERT_OM', expat:'EXPAT'};
   var list=HRService.employees().filter(function(e){ return e&&!e._deleted&&e.status!=='inactive'&&!has[e.id]; })
     .map(function(e){ var v=salaryProfileAt(e.id, nowPer);
       return {e:e, g:(v&&G[v.engine])||'', from:(e.startDate&&/^\d{4}-\d{2}-\d{2}$/.test(e.startDate))?e.startDate:'2026-01-01'}; });
@@ -21081,6 +21087,40 @@ window.hrmAllocBackfill=function(){
     '<button class="btn-ghost" onclick="hrmAllocOpen()">← Hủy</button>'
     +'<button class="btn-primary" onclick="hrmAllocBackfillGo()">✓ Xác nhận tạo '+list.length+' assignment</button>');
   window._allocBF=list;
+};
+/* v3.13.31: bản backfill trước map expert_om→EXPERT (nhầm) — nút này QUÉT assignment active có
+   payrollGroup lệch với engine thẻ hiệu lực → PREVIEW + confirm sửa TẠI CHỖ + auditTrail act:'fix_group'.
+   (record backfill mới tạo, chưa kỳ khóa nào dùng — sửa tại chỗ chấp nhận được; không structural end+new.) */
+window.hrmAllocSyncGroup=function(){
+  if(!hrAllocCanEdit_()){ toast('Chỉ HR/Admin','bad'); return; }
+  var nowPer=new Date().toISOString().slice(0,7);
+  var G={office:'OFFICE', crew:'CREW', crew_khoan:'CREW', tech:'TECH', 'tech-daily':'TECH', 'tech_daily':'TECH', drill:'DRILL', project:'EXPERT', expert:'EXPERT', expert_om:'EXPERT_OM', expat:'EXPAT'};
+  var byId={}; HRService.employees().forEach(function(e){ if(e&&!e._deleted) byId[e.id]=e; });
+  var list=(S.hrEmploymentAssignments||[]).filter(function(a){
+    if(!a||a.status==='ended') return false;
+    var v=salaryProfileAt(a.empId, nowPer); if(!v) return false;
+    var g=G[v.engine]||''; return g && (a.payrollGroup||'')!==g;
+  }).map(function(a){ var v=salaryProfileAt(a.empId, nowPer);
+    return {a:a, e:byId[a.empId]||{}, from:a.payrollGroup||'(trống)', to:G[v.engine]}; });
+  if(!list.length){ toast('✓ Nhóm lương mọi assignment đã khớp engine thẻ','good'); return; }
+  var h='<div style="font-size:12px"><div style="margin-bottom:6px">Có <b>'+list.length+'</b> assignment có Nhóm lương LỆCH với engine Thẻ lương hiệu lực (thường do backfill trước gộp expert_om vào EXPERT). Sửa tại chỗ + audit trail, KHÔNG đổi đơn vị/ngày.</div>'
+    +'<div style="max-height:45vh;overflow:auto"><table class="tbl" style="font-size:11px"><tr><th>NV</th><th>Đang</th><th>→ Đúng</th></tr>'
+    +list.map(function(x){ return '<tr><td>'+esc(x.e.smartId||'')+' · '+esc(x.e.fullName||'')+'</td><td>'+esc(x.from)+'</td><td><b>'+esc(x.to)+'</b></td></tr>'; }).join('')
+    +'</table></div></div>';
+  openModal('🔁 Đồng bộ nhóm theo thẻ — xem trước', h,
+    '<button class="btn-ghost" onclick="hrmAllocOpen()">← Hủy</button>'
+    +'<button class="btn-primary" onclick="hrmAllocSyncGroupGo()">✓ Sửa '+list.length+' assignment</button>');
+  window._allocSG=list;
+};
+window.hrmAllocSyncGroupGo=function(){
+  if(!hrAllocCanEdit_()){ toast('Chỉ HR/Admin','bad'); return; }
+  var list=window._allocSG||[]; if(!list.length){ hrmAllocOpen(); return; }
+  var n=0;
+  list.forEach(function(x){ x.a.payrollGroup=x.to;
+    (x.a.auditTrail=x.a.auditTrail||[]).push({at:new Date().toISOString(), by:(CURRENT_USER&&CURRENT_USER.name)||'', act:'fix_group', note:x.from+'→'+x.to}); n++; });
+  try{ logAuditEvent('hr_alloc_sync_group',{count:n}); }catch(e){}
+  saveState(); window._allocSG=null;
+  toast('🔁 Đã đồng bộ '+n+' assignment','good'); hrmAllocOpen();
 };
 window.hrmAllocBackfillGo=function(){
   if(!hrAllocCanEdit_()){ toast('Chỉ HR/Admin','bad'); return; }
@@ -21109,7 +21149,7 @@ window.hrmAllocForm=function(asgId, empId){
   var emps=HRService.employees().filter(function(e){return e&&!e._deleted&&e.status!=='inactive';});
   var co=a?(S.companies||[]).find(function(c){return c&&c.id===a.companyId;}):null;
   var entSel=co?pfEntCodeOf_(co):'';
-  var groups=['OFFICE','CREW','TECH','DRILL','EXPERT','EXPAT'];
+  var groups=['OFFICE','CREW','TECH','DRILL','EXPERT','EXPERT_OM','EXPAT'];
   var h='<div style="font-size:12px">'
     +(a?('<div style="margin-bottom:6px">Sửa assignment của <b>'+esc((emps.find(function(e){return e.id===eId;})||{}).fullName||eId)+'</b> — đổi Đơn vị/Nhóm/Ngày hiệu lực sẽ <b>kết thúc bản cũ + tạo bản mới</b> (không ghi đè lịch sử).</div>')
         :('<div class="field"><label style="font-size:10px">Nhân sự (đã có hồ sơ)</label><select id="al-emp" style="width:100%">'
@@ -74374,8 +74414,8 @@ const PayrollDataStore={
 };
 
 /* ── SCHEMA INIT + TỔNG HỢP THÁNG (điều kiện #8 thiết kế) ─────────── */
-const PF_PAYGROUPS=['OFFICE','CREW','TECH','DRILL','EXPERT','EXPAT'];
-const PF_REQUIRED_PAYGROUPS={ SMEJSC:['OFFICE','CREW','TECH','DRILL','EXPERT'] };
+const PF_PAYGROUPS=['OFFICE','CREW','TECH','DRILL','EXPERT','EXPERT_OM','EXPAT'];  /* v3.13.31: EXPERT_OM nhóm riêng (Sếp chốt) — không lẫn EXPERT */
+const PF_REQUIRED_PAYGROUPS={ SMEJSC:['OFFICE','CREW','TECH','DRILL','EXPERT','EXPERT_OM'] };
 function pfEnsureStores(){
   ['payrollPeriods','pfAttendanceImports','pfPayrollRuns','pfAccChecks','pfApprovals',
    'pfBankFiles','pfDecisions','pfAudit','pfEntityConfig'].forEach(function(k){ if(!Array.isArray(S[k])) S[k]=[]; });
@@ -74491,7 +74531,7 @@ function pfAudit_(action,refId,detail){
 /* v3.13.21 (chốt B 27/7): CẦU 1 CHIỀU HRM → pf. Đọc S.hrAttendance kỳ tương ứng (CHỈ bản đã KHÓA — công đã ký/chốt),
    map cols (N/NL/P/OT…) → days của pf (PAY_ATT_MAP đọc đúng các mã này), ghi qua PIPELINE pf CHUẨN
    (PayrollDataStore + sha + stale cascade) — KHÔNG đường tắt, đèn 🚦 kiểm như import file. Import file trực tiếp VẪN GIỮ. */
-const PF_GROUP_BCC={ OFFICE:['BCC_VP','BCC_VP_BP'], CREW:['BCC_DOITAU'], TECH:['BCC_KYTHUAT'], DRILL:['BCC_KYTHUAT'], EXPERT:['BCC_CHUYENGIA'], EXPAT:['BCC_EXPAT'] };
+const PF_GROUP_BCC={ OFFICE:['BCC_VP','BCC_VP_BP'], CREW:['BCC_DOITAU'], TECH:['BCC_KYTHUAT'], DRILL:['BCC_KYTHUAT'], EXPERT:['BCC_CHUYENGIA'], EXPERT_OM:['BCC_CHUYENGIA'], EXPAT:['BCC_EXPAT'] };  /* EXPERT_OM tạm dùng bảng công chuyên gia — có BCC O&M riêng thì tách */
 window.pfPullFromHrm=async function(month,ent,g){
   if(!hasPfWrite_()) { toast('Không có quyền','warn'); return; }
   if(!pfCanTouchEntity_(ent)){ toast('Ngoài phạm vi đơn vị của bạn','bad'); return; }
@@ -74586,13 +74626,15 @@ const PF_ENGINE_DAYKEYS={ /* header import trùng THẲNG chữ cái engine cũn
   project:['J','K','L','Q','T'], expert:['J','K','L','Q','T'], expert_om:['J','K','L','Q','T'], expat:[] };
 function pfMapAttDays(engine, days){
   /* days {tênCột:sốCông} → {chữEngine:sốCông}. Ưu tiên PAY_ATT_MAP (mã BCC đã duyệt), rồi chữ engine trực tiếp. */
-  var eng=(engine==='crew_khoan')?'crew':engine;
+  var eng=(engine==='crew_khoan')?'crew':((engine==='expert'||engine==='project')?'expert_om':engine);
   var map=(typeof PAY_ATT_MAP!=='undefined'&&PAY_ATT_MAP[eng])||null;
+  var ign=(map&&map._ignore)||[];
   var out={}, unmapped=[];
   Object.keys(days||{}).forEach(function(kRaw){
     var K=String(kRaw).trim().toUpperCase(); var v=+days[kRaw]||0; if(!v) return;
+    if(ign.indexOf(K)>=0) return;   /* thông số tiền trong file — đơn giá đọc từ thẻ */
     var hit=null;
-    if(map){ Object.keys(map).forEach(function(F){ if(!hit && map[F].indexOf(K)>=0) hit=F; }); }
+    if(map){ Object.keys(map).forEach(function(F){ if(F==='_ignore') return; if(!hit && map[F].indexOf(K)>=0) hit=F; }); }
     if(!hit && (PF_ENGINE_DAYKEYS[engine]||[]).indexOf(K)>=0) hit=K;
     if(hit) out[hit]=(out[hit]||0)+v; else unmapped.push(K);
   });
@@ -74621,7 +74663,7 @@ async function pfRunCompute(month, ent, g){
   if(!att||!att.rows){ toast('Không đọc được dữ liệu chấm công (IDB/Drive)','bad'); return null; }
   var emps=HRService.employees().filter(function(e){return e&&!e._deleted&&e.status!=='inactive';});
   var byMs={}; emps.forEach(function(e){ byMs[String(e.smartId||'').trim().toUpperCase()]=e; });
-  var G2E={OFFICE:['office'],CREW:['crew','crew_khoan'],TECH:['tech'],DRILL:['tech'],EXPERT:['project','expert','expert_om'],EXPAT:['expat']};
+  var G2E={OFFICE:['office'],CREW:['crew','crew_khoan'],TECH:['tech'],DRILL:['tech'],EXPERT:['project','expert'],EXPERT_OM:['expert_om'],EXPAT:['expat']};
   var fxSnap=pfBuildFxSnapshot();
   var salarySnapshot=[], rows=[], warns=[];
   for(var i=0;i<att.rows.length;i++){
@@ -75274,7 +75316,7 @@ async function pfRunReadiness(month,ent,g){   /* COMPUTED-ONLY — không ghi st
     emps=emps.filter(function(e){ return ok[e.id]; });
   })();
   /* lọc theo payGroup qua engine alias nhóm — P2 tối giản: CREW={crew,crew_khoan}, OFFICE={office}, TECH/DRILL={tech}, EXPERT={project,expert,expert_om}, EXPAT={expat} */
-  var G2E={OFFICE:['office'],CREW:['crew','crew_khoan'],TECH:['tech'],DRILL:['tech'],EXPERT:['project','expert','expert_om'],EXPAT:['expat']};
+  var G2E={OFFICE:['office'],CREW:['crew','crew_khoan'],TECH:['tech'],DRILL:['tech'],EXPERT:['project','expert'],EXPERT_OM:['expert_om'],EXPAT:['expat']};
   var profOf=function(id){ try{ var v=salaryProfileAt(id, month); if(!v) return null;
       var ok=(G2E[g]||[]).indexOf(v.engine)>=0; return ok?v:null; }catch(e){ return null; } };
   emps=emps.filter(function(e){ return profOf(e.id) || (G2E[g]||[]).length===0 ? true : true; });
@@ -76317,10 +76359,12 @@ function salaryProfileAssignGrade(versionId){
   if(!gs.length){ toast('Danh mục Grade trống — tạo Grade trước (Danh mục lương)','warn'); return; }
   var opts='<option value="">(bỏ gán)</option>'+gs.map(function(x){
     var match=pfx&&String(x.code||'').indexOf(pfx)===0;
-    return '<option value="'+x.id+'" '+(v.gradeId===x.id?'selected':'')+'>'+esc(x.code||'')+(x.name?' · '+esc(x.name):'')+(match?'':' ⚠khác nhóm')+'</option>'; }).join('');
+    var sum=sgGradeSummary(x); /* v3.13.33: tóm tắt tiền chính ngay trên option */
+    return '<option value="'+x.id+'" '+(v.gradeId===x.id?'selected':'')+'>'+esc(x.code||'')+(x.name?' · '+esc(x.name):'')+(x.label?' · '+esc(x.label):'')+(sum?' — '+sum:'')+(match?'':' ⚠khác nhóm')+'</option>'; }).join('');
   openModal('🏷 Gán Grade — V'+v.version+' ('+esc(v.engine||'')+')',
     '<div style="font-size:12px"><div style="margin-bottom:6px;color:var(--muted)">Engine <b>'+esc(v.engine||'?')+'</b> → Grade nhóm <b>'+(pfx||'?')+'*</b> đứng đầu danh sách. Grade là phân loại/mức chuẩn; tiền trên thẻ vẫn ưu tiên theo cấu hình hiện hành.</div>'
-    +'<select id="ag-grade" style="width:100%">'+opts+'</select></div>',
+    +'<select id="ag-grade" style="width:100%" onchange="document.getElementById(\'ag-grade-detail\').innerHTML=sgGradeDetailHtml(this.value)">'+opts+'</select>'
+    +'<div id="ag-grade-detail">'+sgGradeDetailHtml(v.gradeId||'')+'</div></div>',
     '<button class="btn-ghost" onclick="closeModal();openSalaryProfileCard(\''+v.empId+'\')">← Quay lại</button>'
     +'<button class="btn-primary" onclick="salaryProfileAssignGradeSave(\''+versionId+'\')">💾 Lưu</button>');
 }
@@ -76351,7 +76395,7 @@ function salaryProfileNewVersionForm(empId){
       ${((S.companies||[]).length>1)?`<div class="field"><label>Pháp nhân trả *</label><select id="sp-company">${(S.companies||[]).map(c=>`<option value="${c.id}" ${cur&&cur.companyId===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select></div>`:''}
       <div class="field"><label>Engine</label><select id="sp-engine"><option value="office" ${(!cur||cur.engine==='office')?'selected':''}>Văn phòng</option><option value="tech" ${cur&&cur.engine==='tech'?'selected':''}>Kỹ thuật</option><option value="crew" ${cur&&cur.engine==='crew'?'selected':''}>Đội tàu</option><option value="crew_khoan" ${cur&&cur.engine==='crew_khoan'?'selected':''}>Đội tàu — Khoán (trả theo ngày làm)</option></select></div>
       <div class="field"><label>Loại lương</label><select id="sp-type"><option value="NET" selected>NET</option><option value="GROSS">GROSS</option></select></div>
-      <div class="field"><label>Grade (bậc lương) <span style="font-weight:400;text-transform:none;color:var(--muted)">— khớp nhóm: OFF/TECH/CREW/KHOAN/EXP…</span></label><select id="sp-grade" style="width:100%"><option value="">(chưa gán)</option>${(typeof salaryGrades==='function'?salaryGrades():[]).filter(x=>x&&!x._deleted).slice().sort((a,b)=>String(a.code||'').localeCompare(String(b.code||''))).map(x=>`<option value="${x.id}" ${cur&&cur.gradeId===x.id?'selected':''}>${esc(x.code||'')}${x.name?' · '+esc(x.name):''}</option>`).join('')}</select></div>
+      <div class="field"><label>Grade (bậc lương) <span style="font-weight:400;text-transform:none;color:var(--muted)">— khớp nhóm: OFF/TECH/CREW/KHOAN/EXP…</span></label><select id="sp-grade" style="width:100%" onchange="document.getElementById('sp-grade-detail').innerHTML=sgGradeDetailHtml(this.value)"><option value="">(chưa gán)</option>${(typeof salaryGrades==='function'?salaryGrades():[]).filter(x=>x&&!x._deleted).slice().sort((a,b)=>String(a.code||'').localeCompare(String(b.code||''))).map(x=>{const _s=sgGradeSummary(x);return `<option value="${x.id}" ${cur&&cur.gradeId===x.id?'selected':''}>${esc(x.code||'')}${x.name?' · '+esc(x.name):''}${x.label?' · '+esc(x.label):''}${_s?' — '+_s:''}</option>`;}).join('')}</select><div id="sp-grade-detail">${sgGradeDetailHtml((cur&&cur.gradeId)||'')}</div></div>
       <div class="field"><label>Lương cơ bản NET</label><input type="number" id="sp-net" value="${val('netBase')}" step="any"></div>
       <div class="field"><label>PC trách nhiệm</label><input type="number" id="sp-a1" value="${val('allow_trachNhiem')}" step="any"></div>
       <div class="field"><label>PC dự án</label><input type="number" id="sp-a2" value="${val('allow_duAn')}" step="any"></div>
@@ -76840,6 +76884,44 @@ function salaryGradeUsage(gradeId){
   }).length;
 }
 
+/* ═══ v3.13.33: CHI TIẾT NỘI DUNG GRADE ═══
+   Dropdown gán Grade trước đây chỉ hiện code (CREW-G01…) — không biết grade mang
+   bộ tiền nào. Bổ sung: (a) tóm tắt tiền chính ngay trên option, (b) ô chi tiết
+   dưới select liệt kê MỌI trường tiền ≠0 + số thẻ đang dùng. CHỈ ĐỌC — không ghi. */
+const SG_FIELD_LABELS = {
+  netBase:'Lương cơ bản NET', bhxhBase:'Lương đóng BHXH',
+  crewSeaRate:'Đi biển/khoán /ngày', crewDpRate:'Mức DP /ngày',
+  techSeaRate:'KT đi biển /ngày', techOfficeRate:'KT văn phòng /ngày', techDockRate:'KT dock /ngày',
+  expertUsdPerDay:'Đơn giá USD/ngày', expertAllowDays:'Ngày trợ cấp mặc định', expertLiving:'Trợ cấp sinh hoạt USD/ngày',
+  allow_trachNhiem:'PC trách nhiệm', allow_duAn:'PC dự án'
+};
+function _sgFmtVal(f, v){
+  var n=+v||0;
+  if(f==='expertAllowDays') return String(n)+' ngày';
+  var s=n.toLocaleString('vi-VN');
+  return (f==='expertUsdPerDay'||f==='expertLiving') ? s+' USD' : s;
+}
+/* Tóm tắt 1 dòng cho option — tối đa 2 trường "chính" theo nhóm */
+function sgGradeSummary(g){
+  if(!g || !g.money) return '';
+  var order=['netBase','crewSeaRate','techSeaRate','expertUsdPerDay','crewDpRate','techOfficeRate','expertLiving','bhxhBase'];
+  var parts=[];
+  order.forEach(function(f){ if(parts.length<2 && (+g.money[f]||0)!==0) parts.push(_sgFmtVal(f,g.money[f])); });
+  return parts.join(' · ');
+}
+/* Ô chi tiết đầy đủ — render lại mỗi khi đổi select */
+function sgGradeDetailHtml(gid){
+  var g = gid ? salaryGradeById(gid) : null;
+  if(!g) return '<div style="color:var(--muted);font-size:12px;padding:6px 0">Chưa chọn Grade — engine đọc thẳng số tiền cấu hình trên thẻ (legacy).</div>';
+  var rows = SG_MONEY_FIELDS.filter(function(f){ return g.money && (+g.money[f]||0)!==0; })
+    .map(function(f){ return '<div style="display:flex;justify-content:space-between;font-size:12px;padding:1px 0"><span style="color:var(--muted)">'+esc(SG_FIELD_LABELS[f]||f)+'</span><b style="font-family:var(--font-mono)">'+_sgFmtVal(f, g.money[f])+'</b></div>'; }).join('');
+  var use = salaryGradeUsage(g.id);
+  return '<div style="border:1px solid var(--rule);border-radius:6px;padding:8px;margin-top:6px;font-size:12px">'
+    + '<div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:4px"><b>'+esc(g.code||'')+(g.label?' · '+esc(g.label):'')+'</b><span style="color:var(--muted);white-space:nowrap">'+esc(g.profileKey||'')+' · đang dùng: '+use+' thẻ</span></div>'
+    + (rows || '<div style="color:var(--muted)">Grade không có trường tiền nào ≠ 0 — engine fallback data trên thẻ.</div>')
+    + '<div style="color:var(--muted);margin-top:5px;font-size:11px">Ưu tiên đọc: Override trên thẻ → Grade → data cũ trên thẻ. Trường = 0 trong Grade bị bỏ qua (fallback xuống thẻ).</div></div>';
+}
+
 /* ───────────────────────────────────────────────────────────────────────────
    ĐỌC THAM SỐ HỢP NHẤT — thứ tự ưu tiên (Sếp chốt):
      1. Override  (v.data[field] khi field nằm trong v.overrides)
@@ -77091,6 +77173,13 @@ function salaryProfileBuildInp(empId, period){
     o.P=R('allow_duAn');
     return o;
   }
+
+  /* CHUYÊN GIA O&M / DỰ ÁN (v3.13.32 — Sếp duyệt nối engine OM): đơn giá từ THẺ, công (J/K/L/Q)
+     từ BCC Chuyên gia sẽ ĐÈ lên (Object.assign baseInp← md.inputs trong pfRunCompute).
+     inp payComputeExpert: G=basic/ngày(USD), R=trợ cấp USD/ngày, Q=ngày trợ cấp (default thẻ). */
+  if(v.engine==='expert_om'||v.engine==='expert'||v.engine==='project')
+    return {G:R('expert_usdPerDay'), R:R('expert_livingAllowance'), Q:R('expert_allowDays'),
+            F:F, _bhxhBase:R('bhxhBase'), _v:v};
 
   /* VĂN PHÒNG (và các engine còn lại) — giữ NGUYÊN ánh xạ cũ */
   return {G:R('netBase'), H:0, K:+d.allow_kpi||0, F:F,
@@ -78200,7 +78289,7 @@ function hrmDiagTypes(){
   // chuyên gia "tiềm năng": dept/title chứa từ khóa nhưng type CHƯA phải expert
   const kw=['chuyen gia','expert','expat','specialist','consultant','co van'];
   const _n=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/đ/g,'d');
-  const looksExpert=all.filter(e=>e.type!=='expert' && kw.some(k=>_n(e.dept).includes(k)||_n(e.title||e.position).includes(k)));
+  const looksExpert=all.filter(e=>e.type!=='expert' && e.type!=='expert_om' /* v3.13.31: expert_om là NHÓM RIÊNG hợp lệ (Sếp chốt) — không gợi ý đổi */ && kw.some(k=>_n(e.dept).includes(k)||_n(e.title||e.position).includes(k)));
   const row=(k,v)=>`<tr><td style="padding:4px 10px;border:1px solid var(--rule)">${k}</td><td style="padding:4px 10px;border:1px solid var(--rule);text-align:right;font-weight:600">${v}</td></tr>`;
   const list=arr=>arr.slice(0,15).map(e=>`<li style="font-size:11px">${hrmEsc(e.smartId||'—')} · ${hrmEsc(e.fullName||e.name||'(không tên)')} · <span style="color:var(--muted)">type=${e.type||'(trống)'} · status=${e.status||'(trống)'} · dept=${hrmEsc(e.dept||'—')}</span></li>`).join('');
   const body=`
@@ -78215,8 +78304,11 @@ function hrmDiagTypes(){
     ${looksExpert.length?`<div style="margin-top:10px;padding:8px;background:#fff7e0;border:1px solid #e8d088;border-radius:8px;font-size:13px">
       ⚠ Có <b>${looksExpert.length}</b> NV có chức danh/bộ phận giống chuyên gia nhưng CHƯA xếp nhóm Chuyên gia:
       <ul style="margin:4px 0 0 16px">${list(looksExpert)}</ul>
-      <div style="margin-top:6px">→ Bấm <b>🔧 Phân loại lại</b> (hoặc nút dưới) để chuyển các NV này sang nhóm Chuyên gia.</div>
-      <button class="btn-primary" style="font-size:13px;margin-top:6px" onclick="hrmReclassifyPreview()">🔧 Phân loại lại ngay</button></div>`:''}
+      <div style="margin-top:6px">App KHÔNG tự đổi — Sếp/HR chọn một trong hai:</div>
+      <div style="display:flex;gap:8px;margin-top:6px">
+        <button class="btn-sec" style="font-size:13px" onclick="hrmReclassifyPreview()">🔧 Phân loại lại (xem trước)</button>
+        <button class="btn-ghost" style="font-size:13px" onclick="closeModal()">✓ Giữ nguyên nhóm hiện tại</button>
+      </div></div>`:''}
     ${noType.length?`<div style="margin-top:8px;font-size:11px;color:#c0392b">⚠ ${noType.length} NV chưa có nhóm (type trống) — bị xem là Văn phòng khi lọc.</div>`:''}`;
   openModal('🔍 Chẩn đoán dữ liệu nhân sự', body, `<button class="btn-ghost" onclick="closeModal()">Đóng</button>`);
 }

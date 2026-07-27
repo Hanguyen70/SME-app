@@ -1,5 +1,5 @@
 {
-  "version": "3.13.29",
-  "swVersion": "v3.13.29",
-  "notes": "HRM UI GON tiep (y/c Sep): chuyen not '✦ Cap nhat nhan su' + '🏢 Phan bo don vi' tu hang tab chinh VAO thanh cong cu ben trong DANH SACH — gom het thao tac nhan su ve 1 noi. Thu tu thanh cong cu Danh sach: [tim kiem] ✦ Cap nhat nhan su · 🏢 Phan bo don vi · ⚓ Dieu dong tau · 📋 De xuat NS · 🔍 Kiem tra du lieu · 📊 Xuat Excel. Hang tab chinh con: Dashboard | Danh sach | Cham cong | Dinh bien (PAF) | So luong | Kiem tra du lieu | Payroll. Nut giu id hrm-btn-add — logic an theo quyen van ap dung. FULL 79/79 + GDB 16/16, engine SAME."
+  "version": "3.13.33",
+  "swVersion": "v3.13.33",
+  "notes": "GRADE DETAIL khi gan Grade (Sep yeu cau tu UAT): dropdown truoc chi hien code CREW-G01... khong biet grade mang bo tien nao. Bo sung UI-only, KHONG dung engine (hash 6/6 SAME): (1) Option kem tom tat tien chinh theo nhom (vd 'CREW-G05 - 12.000.000 · 350.000'; expert hien USD). (2) O chi tiet duoi select — chon grade nao hien ngay MOI truong tien khac 0 voi nhan tieng Viet + so the dang dung grade do + ghi chu thu tu uu tien Override tren the → Grade → data cu (truong =0 trong Grade bi bo qua, dung logic _spResolve). Ap dung CA 2 noi: modal 🏷 Gan Grade (tu R102 click do) va form ＋ Tao phien ban moi (sp-grade). Helper moi read-only: SG_FIELD_LABELS/_sgFmtVal/sgGradeSummary/sgGradeDetailHtml. Test: 14/14 helper VM + 6/6 modal that (bat ca loi escape onchange nhay don — sua 1 lan truoc khi pass). Suites 79/23/19/12 phien truoc KHONG chay lai duoc (transcript chua mount) — rui ro thap: chi 2 ham render UI doi + helper thuan doc, khong dung compute/SCC/GDB/P3."
 }
