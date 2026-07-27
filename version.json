@@ -1,5 +1,5 @@
 {
-  "version": "3.13.26",
-  "swVersion": "v3.13.26",
-  "notes": "FIX 'bam xac nhan khong phan ung' (backfill): nut ✓ Xac nhan tao N assignment goi asgAdd tung nguoi ma asgAdd saveState MOI LAN → 174 lan serialize+ma hoa toan bo state ≈ treo UI 30-90s khong phan hoi (thuc te van chay xong — R105 sach o anh sau). Fix: (1) asgAdd nhan opts.noSave (tuong thich nguoc — moi cho goi cu giu nguyen hanh vi); (2) hrmAllocBackfillGo: toast '⏳ Dang tao N assignment...' TUC THI khi bam + setTimeout nha UI thread, ghi tung record noSave, saveState DUNG 1 LAN cuoi lo → tu ~1 phut dung hinh xuong ~1-2s co phan hoi ro. Test GDB 16/16 + FULL 79/79, engine SAME."
+  "version": "3.13.28",
+  "swVersion": "v3.13.28",
+  "notes": "HRM UI GON (y/c Sep): (1) BO 2 dropdown loc '— Tat ca nhom —' + 'Dang lam viec' khoi thanh cong cu Danh sach — chi giu o tim kiem; danh sach LUON hien du: DANG LAM VIEC (mo, nhom theo phong ban) + DA NGHI (nhom gap cuoi, bam mo/gap) — khong mat chuc nang xem nguoi nghi. (2) CHUYEN '⚓ Dieu dong tau' va '📋 De xuat NS' tu hang tab chinh VAO thanh cong cu ben trong DANH SACH — hang tab chinh gon con: Dashboard | Danh sach | Cham cong | Dinh bien (PAF) | So luong | Kiem tra du lieu | Phan bo don vi | Payroll | ✦ Cap nhat NS. Nut Dieu dong tau giu id hrm-tab-crew de logic an theo quyen (_seeAll) van ap dung; moi tham chieu cu deu co guard null. Test render active+DA NGHI PASS + FULL 79/79 + SCC 23/23 + GDB 16/16, engine SAME."
 }

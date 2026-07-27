@@ -3592,14 +3592,12 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
         <button class="btn-ghost" id="hrm-tab-dash" onclick="hrmSwitchView('dash')">📊 Dashboard</button>
         <button class="btn-ghost" id="hrm-tab-list" onclick="hrmSwitchView('list')">📋 Danh sách</button>
         <button class="btn-ghost" id="hrm-tab-att" onclick="hrmSwitchView('att')">🗓️ Chấm công</button>
-        <button class="btn-ghost" id="hrm-tab-crew" onclick="hrmSwitchView('crew')">⚓ Điều động tàu</button>
         <input type="file" id="hrm-import-file" accept=".xlsx,.xls" style="display:none" onchange="hrmImportEmployees(this)">
         <button class="btn-ghost" id="hrm-tab-paf" onclick="openPositionManager()" title="Quản lý định biên theo vị trí (PAF)">🧩 Định biên (PAF)</button>
         <button class="btn-ghost" id="hrm-btn-ledger" onclick="if(typeof FLAG_SALARY_PROFILE!=='undefined'&&FLAG_SALARY_PROFILE){openSalaryLedger()}else{toast('Tính năng Thẻ lương chưa bật (flag_salary_profile)','warn')}" title="Sổ theo dõi lương nhân sự — báo cáo quản trị từ Thẻ lương">📒 Sổ lương</button>
         <button class="btn-ghost" id="hrm-btn-scc" onclick="sccOpen()" title="Kiểm tra dữ liệu Thẻ lương — chỉ đọc, không sửa gì">🔎 Kiểm tra dữ liệu</button>
           <button class="btn-ghost" onclick="hrmAllocOpen()" title="Phân bổ nhân sự theo đơn vị (GĐ-B)">🏢 Phân bổ đơn vị</button>
         <button class="btn-ghost" id="hrm-btn-payroll" onclick="if(window.FLAG_PAYROLL_MODULE&&typeof isAdmin==='function'&&isAdmin()){pfOpenUI()}else{toast('Payroll P2: admin-first (flag_payroll_module)','warn')}" title="Module Payroll — quy trình lương tháng (P2)">⚙️ Payroll</button>
-        <button class="btn-ghost" id="hrm-btn-req" onclick="hrReqOpen()" title="Đề xuất nhân sự: gia hạn HĐ / điều chuyển / nghỉ việc — duyệt rồi mới thi hành (H4)">📋 Đề xuất NS</button>
         <button class="btn-primary" id="hrm-btn-add" onclick="hrmUpdateMenu()">✦ Cập nhật nhân sự</button>
       </div>
     </div>
@@ -3617,18 +3615,8 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
     <div id="hrm-view-list" style="display:none">
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
         <input type="text" id="hrm-search" placeholder="🔍 Tìm tên / Smart-ID / chức danh…" oninput="hrmRenderList()" style="padding:7px 12px;border:1px solid var(--rule);border-radius:8px;font-size:13px;width:220px">
-        <select id="hrm-filter-type" onchange="hrmRenderList()" style="font-size:13px;padding:6px 8px;border:1px solid var(--rule);border-radius:8px">
-          <option value="">— Tất cả nhóm —</option>
-          <option value="office">Văn phòng</option>
-          <option value="crew">Thuyền viên</option>
-          <option value="expert">Chuyên gia</option>
-          <option value="expert_om">Chuyên gia O&M</option>
-        </select>
-        <select id="hrm-filter-status" onchange="hrmRenderList()" style="font-size:13px;padding:6px 8px;border:1px solid var(--rule);border-radius:8px">
-          <option value="active">Đang làm việc</option>
-          <option value="all">— Tất cả trạng thái —</option>
-          <option value="inactive">Đã nghỉ</option>
-        </select>
+        <button class="btn-ghost" id="hrm-tab-crew" style="font-size:13px" onclick="hrmSwitchView('crew')" title="Điều động thuyền viên theo tàu">⚓ Điều động tàu</button>
+        <button class="btn-ghost" style="font-size:13px" onclick="hrReqOpen()" title="Đề xuất nhân sự: gia hạn HĐ / điều chuyển / nghỉ việc — duyệt rồi mới thi hành">📋 Đề xuất NS</button>
         <button class="btn-sec" style="font-size:13px" onclick="hrmDiagTypes()" title="Kiểm tra số lượng NV theo nhóm (chẩn đoán)">🔍 Kiểm tra dữ liệu</button>
         <button class="btn-sec" id="hrm-btn-export" style="font-size:13px" onclick="hrmExportPick()" title="Xuất Excel — chọn mục cần xuất (danh sách NV, cảnh báo HĐLĐ, thẻ lương…)">📊 Xuất Excel</button>
       </div>
@@ -3745,7 +3733,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.13.26';
+const APP_VERSION='3.13.28';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -76231,6 +76219,7 @@ function openSalaryProfileCard(empId){
       <div style="font-size:11px;color:var(--muted)">${v.effectiveFrom} → ${v.effectiveTo||'nay'} · ${esc(v.createdBy||'')} · ${(v.createdAt||'').slice(0,10)}</div>
       ${v.reason?`<div style="font-size:11px;color:var(--warn)">${esc(v.reason)}</div>`:''}
       <div style="font-size:12px;font-family:var(--font-mono);margin-top:3px">NET cố định: <b>${fmtFull(_spFixedTotal(v), (v.data&&v.data.ccy)||'VND')}</b>${_spVarTotal(v)?` <span class="ds-t-sub" title="Đơn giá PC không thường xuyên — chỉ tính khi có ngày công/dự án/KPI">+ ${fmtFull(_spVarTotal(v),(v.data&&v.data.ccy)||'VND')} (không TX)</span>`:''} · Lương BH: ${fmtFull(+(v.data&&v.data.bhxhBase)||0,(v.data&&v.data.ccy)||'VND')} · NPT: ${+(v.data&&v.data.dependents)||0}</div>
+      <div style="font-size:11px;margin-top:2px">🏷 Grade: <b style="font-family:var(--font-mono)">${v.gradeId?esc((salaryGradeById(v.gradeId)||{}).code||v.gradeId):'<span style="color:#c0392b">(chưa gán)</span>'}</b>${(canE&&!lockUse)?` <a href="javascript:void(0)" onclick="salaryProfileAssignGrade('${v.id}')" style="font-size:10px">✎ gán</a>`:''}</div>
       ${(canE&&!lockUse)?`<button class="btn-ghost" style="font-size:10px;padding:1px 8px;margin-top:3px" onclick="salaryProfileDeleteVersion('${v.id}')">✕ Xóa (tạo nhầm)</button>`:''}
     </div>`;
   }).join('')||'<div style="color:var(--muted);font-size:12px">Chưa có phiên bản nào — bấm ＋ Tạo phiên bản.</div>';
@@ -76313,6 +76302,43 @@ function openSalaryProfileCard(empId){
     `<button class="btn-ghost" onclick="closeModal()">Đóng</button>
      ${canE?`<button class="btn-primary" onclick="salaryProfileNewVersionForm('${empId}')">＋ Tạo phiên bản mới</button>`:''}`);
 }
+/* v3.13.27: GÁN GRADE cho phiên bản thẻ — trước đây KHÔNG có nơi nào trong UI ghi gradeId
+   (thẻ có Grade là do migration cũ) → thẻ import/tạo tay đều trống → R102 RED hàng loạt.
+   Chỉ cho gán khi phiên bản CHƯA dùng cho kỳ lương ĐÃ KHÓA (guard sẵn có). Audit updatedBy/At. */
+function salaryProfileAssignGrade(versionId){
+  if(!salaryProfileCanEdit()){ toast('Chỉ HR/Admin','bad'); return; }
+  var v=(S.salaryProfiles||[]).find(function(x){return x&&x.id===versionId&&!x._deleted;});
+  if(!v){ toast('Không tìm thấy phiên bản','bad'); return; }
+  if(_spVersionUsedByLockedPeriod(v)){ toast('Phiên bản đã dùng cho kỳ lương ĐÃ KHÓA — bất biến, tạo phiên bản mới để đổi Grade','bad'); return; }
+  var pfx=(typeof SG_PREFIX!=='undefined'&&SG_PREFIX[v.engine])||'';
+  var gs=(salaryGrades()||[]).filter(function(x){return x&&!x._deleted;})
+    .sort(function(a,b){ var am=pfx&&String(a.code||'').indexOf(pfx)===0?0:1, bm=pfx&&String(b.code||'').indexOf(pfx)===0?0:1;
+      return am-bm || String(a.code||'').localeCompare(String(b.code||'')); });
+  if(!gs.length){ toast('Danh mục Grade trống — tạo Grade trước (Danh mục lương)','warn'); return; }
+  var opts='<option value="">(bỏ gán)</option>'+gs.map(function(x){
+    var match=pfx&&String(x.code||'').indexOf(pfx)===0;
+    return '<option value="'+x.id+'" '+(v.gradeId===x.id?'selected':'')+'>'+esc(x.code||'')+(x.name?' · '+esc(x.name):'')+(match?'':' ⚠khác nhóm')+'</option>'; }).join('');
+  openModal('🏷 Gán Grade — V'+v.version+' ('+esc(v.engine||'')+')',
+    '<div style="font-size:12px"><div style="margin-bottom:6px;color:var(--muted)">Engine <b>'+esc(v.engine||'?')+'</b> → Grade nhóm <b>'+(pfx||'?')+'*</b> đứng đầu danh sách. Grade là phân loại/mức chuẩn; tiền trên thẻ vẫn ưu tiên theo cấu hình hiện hành.</div>'
+    +'<select id="ag-grade" style="width:100%">'+opts+'</select></div>',
+    '<button class="btn-ghost" onclick="closeModal();openSalaryProfileCard(\''+v.empId+'\')">← Quay lại</button>'
+    +'<button class="btn-primary" onclick="salaryProfileAssignGradeSave(\''+versionId+'\')">💾 Lưu</button>');
+}
+function salaryProfileAssignGradeSave(versionId){
+  if(!salaryProfileCanEdit()){ toast('Chỉ HR/Admin','bad'); return; }
+  var v=(S.salaryProfiles||[]).find(function(x){return x&&x.id===versionId&&!x._deleted;});
+  if(!v) return;
+  if(_spVersionUsedByLockedPeriod(v)){ toast('Phiên bản bất biến (kỳ khóa)','bad'); return; }
+  var gid=((document.getElementById('ag-grade')||{}).value||'');
+  commitMutation(function(){ v.gradeId=gid||undefined; if(!gid) delete v.gradeId;
+    v.updatedBy=(CURRENT_USER&&CURRENT_USER.name)||''; v.updatedAt=new Date().toISOString();
+    try{touchRecord(v);}catch(e){} },
+    {action:'salary_profile_assign_grade', fields:['salaryProfiles']});
+  try{ logAuditEvent('sp_assign_grade',{versionId:versionId, gradeId:gid}); }catch(e){}
+  var g=gid?salaryGradeById(gid):null;
+  toast(gid?('🏷 Đã gán Grade '+((g||{}).code||gid)):'Đã bỏ gán Grade','good');
+  closeModal(); openSalaryProfileCard(v.empId);
+}
 function salaryProfileNewVersionForm(empId){
   const e=hrmEmpById(empId); if(!e) return;
   const nowPer=new Date().toISOString().slice(0,7);
@@ -76325,6 +76351,7 @@ function salaryProfileNewVersionForm(empId){
       ${((S.companies||[]).length>1)?`<div class="field"><label>Pháp nhân trả *</label><select id="sp-company">${(S.companies||[]).map(c=>`<option value="${c.id}" ${cur&&cur.companyId===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select></div>`:''}
       <div class="field"><label>Engine</label><select id="sp-engine"><option value="office" ${(!cur||cur.engine==='office')?'selected':''}>Văn phòng</option><option value="tech" ${cur&&cur.engine==='tech'?'selected':''}>Kỹ thuật</option><option value="crew" ${cur&&cur.engine==='crew'?'selected':''}>Đội tàu</option><option value="crew_khoan" ${cur&&cur.engine==='crew_khoan'?'selected':''}>Đội tàu — Khoán (trả theo ngày làm)</option></select></div>
       <div class="field"><label>Loại lương</label><select id="sp-type"><option value="NET" selected>NET</option><option value="GROSS">GROSS</option></select></div>
+      <div class="field"><label>Grade (bậc lương) <span style="font-weight:400;text-transform:none;color:var(--muted)">— khớp nhóm: OFF/TECH/CREW/KHOAN/EXP…</span></label><select id="sp-grade" style="width:100%"><option value="">(chưa gán)</option>${(typeof salaryGrades==='function'?salaryGrades():[]).filter(x=>x&&!x._deleted).slice().sort((a,b)=>String(a.code||'').localeCompare(String(b.code||''))).map(x=>`<option value="${x.id}" ${cur&&cur.gradeId===x.id?'selected':''}>${esc(x.code||'')}${x.name?' · '+esc(x.name):''}</option>`).join('')}</select></div>
       <div class="field"><label>Lương cơ bản NET</label><input type="number" id="sp-net" value="${val('netBase')}" step="any"></div>
       <div class="field"><label>PC trách nhiệm</label><input type="number" id="sp-a1" value="${val('allow_trachNhiem')}" step="any"></div>
       <div class="field"><label>PC dự án</label><input type="number" id="sp-a2" value="${val('allow_duAn')}" step="any"></div>
@@ -76356,7 +76383,8 @@ function salaryProfileSaveVersion(empId){
     crewSeaRate:+g('sp-sea').value||0, crewDpRate:+g('sp-dp').value||0 };
   let saved=null;
   const _spCo=(g('sp-company')||{}).value||'';
-  commitMutation(()=>{ saved=salaryProfileAddVersion(empId,{effectiveFrom:g('sp-eff').value, engine:g('sp-engine').value, data, reason, source:'manual'}); if(!saved) throw new Error('validate'); if(_spCo) saved.companyId=_spCo; },
+  const _spGrade=(g('sp-grade')||{}).value||'';
+  commitMutation(()=>{ saved=salaryProfileAddVersion(empId,{effectiveFrom:g('sp-eff').value, engine:g('sp-engine').value, data, reason, source:'manual'}); if(!saved) throw new Error('validate'); if(_spCo) saved.companyId=_spCo; if(_spGrade) saved.gradeId=_spGrade; },
     {action:'salary_profile_add', fields:['salaryProfiles'], onOk:()=>{
        /* v3.12.01 H1: liên kết chặt thẻ lương ↔ lịch sử nhân sự — mỗi version mới tự ghi 1 dòng */
        try{
@@ -78195,8 +78223,9 @@ function hrmDiagTypes(){
 function hrmRenderList(){
   const body=document.getElementById('hrm-list-body'); if(!body) return;
   const q=(document.getElementById('hrm-search')||{}).value||'';
-  const fType=(document.getElementById('hrm-filter-type')||{}).value||'';
-  const fStatus=(document.getElementById('hrm-filter-status')||{}).value||'active';
+  /* v3.13.28: bỏ 2 dropdown lọc nhóm/trạng thái (Sếp: gọn) — tìm kiếm giữ; ĐÃ NGHỈ luôn nhóm gập cuối */
+  const fType='';
+  const fStatus='all';
   const ql=q.trim().toLowerCase();
 
   let list=hrmVisibleEmps();
@@ -78301,8 +78330,6 @@ function hrmRenderList(){
         </summary>
         <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">${_tableHead}<tbody>${emps.map(_empRow).join('')}</tbody></table></div>
       </details>`;
-  } else if(inactive.length && fStatus==='active'){
-    html+=`<div style="margin-top:10px;color:var(--muted);font-size:11px;font-style:normal">+ ${inactive.length} nhân sự đã nghỉ (đổi bộ lọc trạng thái để xem)</div>`;
   }
   html+=`<div style="margin-top:10px;color:var(--muted);font-size:11px">${list.length} nhân sự · 🔗 đã liên kết tài khoản · 🔴 HĐ ≤1 tháng · 🟠 HĐ ≤2 tháng · Phép năm theo luật VN (12 + thâm niên 5 năm/ngày)</div>`;
   body.innerHTML=html;
