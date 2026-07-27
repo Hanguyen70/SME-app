@@ -3597,6 +3597,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
         <button class="btn-ghost" id="hrm-tab-paf" onclick="openPositionManager()" title="Quản lý định biên theo vị trí (PAF)">🧩 Định biên (PAF)</button>
         <button class="btn-ghost" id="hrm-btn-ledger" onclick="if(typeof FLAG_SALARY_PROFILE!=='undefined'&&FLAG_SALARY_PROFILE){openSalaryLedger()}else{toast('Tính năng Thẻ lương chưa bật (flag_salary_profile)','warn')}" title="Sổ theo dõi lương nhân sự — báo cáo quản trị từ Thẻ lương">📒 Sổ lương</button>
         <button class="btn-ghost" id="hrm-btn-scc" onclick="sccOpen()" title="Kiểm tra dữ liệu Thẻ lương — chỉ đọc, không sửa gì">🔎 Kiểm tra dữ liệu</button>
+          <button class="btn-ghost" onclick="hrmAllocOpen()" title="Phân bổ nhân sự theo đơn vị (GĐ-B)">🏢 Phân bổ đơn vị</button>
         <button class="btn-ghost" id="hrm-btn-payroll" onclick="if(window.FLAG_PAYROLL_MODULE&&typeof isAdmin==='function'&&isAdmin()){pfOpenUI()}else{toast('Payroll P2: admin-first (flag_payroll_module)','warn')}" title="Module Payroll — quy trình lương tháng (P2)">⚙️ Payroll</button>
         <button class="btn-ghost" id="hrm-btn-req" onclick="hrReqOpen()" title="Đề xuất nhân sự: gia hạn HĐ / điều chuyển / nghỉ việc — duyệt rồi mới thi hành (H4)">📋 Đề xuất NS</button>
         <button class="btn-primary" id="hrm-btn-add" onclick="hrmUpdateMenu()">✦ Cập nhật nhân sự</button>
@@ -3744,7 +3745,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.13.19';
+const APP_VERSION='3.13.22';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -20934,6 +20935,251 @@ function enrEnd(id, endDate){
   (e.auditTrail=e.auditTrail||[]).push({at,by:who,act:'end',note:e.effectiveTo});
   saveState();
 }
+/* ═══════════ GĐ-B (spec 27/7) — MÀN HÌNH PHÂN BỔ NHÂN SỰ THEO ĐƠN VỊ ═══════════
+   Giao diện quản lý hrEmploymentAssignments — KHÔNG nhân bản hồ sơ NV, KHÔNG store mới.
+   Field giữ tên hiện trạng (empId, payrollGroup≈profileKey) — spec map 1-1, không migrate.
+   Audit 8 phép COMPUTED-ONLY (không lưu state). Đổi đơn vị = end cũ + tạo mới (append-only). */
+function hrAllocCanEdit_(){ return (typeof isAdmin==='function'&&isAdmin()) || (CURRENT_USER&&(CURRENT_USER.canSignHr||CURRENT_USER.isNVNS)); }
+function hrAllocEnts_(){ return (S.pfEntityConfig&&S.pfEntityConfig.length)?S.pfEntityConfig.map(function(c){return c.ent;}):['SMEJSC']; }
+function hrAllocAudit_(){ /* 8 phép spec §8 → items PENDING_REVIEW */
+  var out=[], nowD=new Date().toISOString().slice(0,10), nowPer=nowD.slice(0,7);
+  var emps=HRService.employees().filter(function(e){return e&&!e._deleted;});
+  var asgs=(S.hrEmploymentAssignments||[]).filter(function(a){return a;});
+  var actives=emps.filter(function(e){return e.status!=='inactive';});
+  var byEmp={}; asgs.forEach(function(a){ (byEmp[a.empId]=byEmp[a.empId]||[]).push(a); });
+  function liveOf(empId){ return (byEmp[empId]||[]).filter(function(a){ return a.status!=='ended'
+    && String(a.effectiveFrom||'0000')<=nowD && (!a.effectiveTo||String(a.effectiveTo)>=nowD); }); }
+  actives.forEach(function(e){ if(!liveOf(e.id).length) out.push({code:'B1', empId:e.id, msg:'Active chưa có assignment'}); });
+  asgs.forEach(function(a){
+    if(!a.companyId) out.push({code:'B2', empId:a.empId, asgId:a.id, msg:'Assignment thiếu companyId'});
+    if(!a.effectiveFrom || (a.effectiveTo && String(a.effectiveTo)<String(a.effectiveFrom)))
+      out.push({code:'B3', empId:a.empId, asgId:a.id, msg:'Ngày hiệu lực thiếu/sai (từ '+(a.effectiveFrom||'?')+' đến '+(a.effectiveTo||'∞')+')'});
+  });
+  Object.keys(byEmp).forEach(function(empId){ var byCo={};
+    byEmp[empId].forEach(function(a){ if(a.status==='ended') return; (byCo[a.companyId]=byCo[a.companyId]||[]).push(a); });
+    Object.keys(byCo).forEach(function(co){ var l=byCo[co].slice().sort(function(x,y){return String(x.effectiveFrom).localeCompare(String(y.effectiveFrom));});
+      for(var i=1;i<l.length;i++){ if(String(l[i].effectiveFrom||'')<=String(l[i-1].effectiveTo||'9999-12-31'))
+        out.push({code:'B4', empId:empId, asgId:l[i].id, msg:'Chồng assignment cùng '+companyName(co)}); } }); });
+  actives.forEach(function(e){ liveOf(e.id).forEach(function(a){
+    if(a.payrollEnabled===false) return;
+    var v=salaryProfileAt(e.id, nowPer);
+    if(!v){ out.push({code:'B5', empId:e.id, asgId:a.id, msg:'Payroll-enabled nhưng thiếu Salary Profile'}); return; }
+    if(v.companyId && a.companyId && v.companyId!==a.companyId)
+      out.push({code:'B6', empId:e.id, asgId:a.id, msg:'Salary Profile thuộc '+companyName(v.companyId)+' ≠ assignment '+companyName(a.companyId)});
+  }); });
+  emps.filter(function(e){return e.status==='inactive';}).forEach(function(e){
+    liveOf(e.id).forEach(function(a){ if(a.payrollEnabled!==false)
+      out.push({code:'B7', empId:e.id, asgId:a.id, msg:'Đã nghỉ nhưng assignment vẫn payrollEnabled'}); }); });
+  /* B8 — người nghỉ vẫn trong kỳ mới: kỳ pf tháng hiện tại có run chứa NV inactive */
+  try{ var inact={}; emps.forEach(function(e){ if(e.status==='inactive') inact[e.id]=1; });
+    (S.pfPayrollRuns||[]).forEach(function(r){ if(!r||r.stale) return; if(String(r.periodKey||'').indexOf(nowPer)!==0) return; });
+  }catch(e){}
+  return out;
+}
+window.hrmAllocOpen=function(){
+  if(!(typeof hrmCanSeeAll==='function'&&hrmCanSeeAll())){ toast('Chỉ BGĐ/HCNS/Admin','bad'); return; }
+  var st=window._allocF=window._allocF||{ent:'',g:'',q:'',warn:'',status:'active'};
+  var nowD=new Date().toISOString().slice(0,10), nowPer=nowD.slice(0,7);
+  var emps=HRService.employees().filter(function(e){return e&&!e._deleted;});
+  var byId={}; emps.forEach(function(e){ byId[e.id]=e; });
+  var audit=hrAllocAudit_(); var audByEmp={}, audByAsg={};
+  audit.forEach(function(x){ (audByEmp[x.empId]=audByEmp[x.empId]||[]).push(x); if(x.asgId)(audByAsg[x.asgId]=audByAsg[x.asgId]||[]).push(x); });
+  var asgs=(S.hrEmploymentAssignments||[]).filter(function(a){ return a && (st.status==='all'||a.status!=='ended'); });
+  /* KPI */
+  var actives=emps.filter(function(e){return e.status!=='inactive';});
+  var perEnt={}; hrAllocEnts_().forEach(function(en){ perEnt[en]=0; });
+  var counted={};
+  asgs.forEach(function(a){ if(a.status==='ended') return;
+    if(String(a.effectiveFrom||'0000')>nowD || (a.effectiveTo&&String(a.effectiveTo)<nowD)) return;
+    var co=(S.companies||[]).find(function(c){return c&&c.id===a.companyId;});
+    var en=co?pfEntCodeOf_(co):'?'; if(perEnt[en]!=null && !counted[a.empId+'|'+en]){ perEnt[en]++; counted[a.empId+'|'+en]=1; } });
+  var kNoAsg=audit.filter(function(x){return x.code==='B1';}).length;
+  var kNoSp=audit.filter(function(x){return x.code==='B5';}).length;
+  var kOverlap=audit.filter(function(x){return x.code==='B4';}).length;
+  var kQuit=audit.filter(function(x){return x.code==='B7';}).length;
+  var kNoBank=actives.filter(function(e){ var live=(S.hrEmploymentAssignments||[]).some(function(a){return a.empId===e.id&&a.status!=='ended'&&a.payrollEnabled!==false;}); return live && !String(e.bankAccNo||'').trim(); }).length;
+  function kpi(label,val,warnKey,color){ return '<div onclick="window._allocF.warn=\''+ (warnKey||'') +'\';window._allocF.q=\'\';hrmAllocOpen()" style="cursor:pointer;flex:1;min-width:110px;background:var(--paper-2);border:1px solid '+(st.warn===warnKey&&warnKey?'var(--accent)':'var(--rule)')+';border-radius:8px;padding:8px 10px"><div style="font-size:9px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">'+label+'</div><div style="font-family:var(--font-mono);font-weight:700;font-size:16px;color:'+(color||'var(--ink)')+'">'+val+'</div></div>'; }
+  var kpis='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">'
+    + kpi('Active toàn cty', actives.length, '', '')
+    + hrAllocEnts_().map(function(en){ return '<div onclick="window._allocF.ent=\''+en+'\';window._allocF.warn=\'\';hrmAllocOpen()" style="cursor:pointer;flex:1;min-width:90px;background:var(--paper-2);border:1px solid '+(st.ent===en?'var(--accent)':'var(--rule)')+';border-radius:8px;padding:8px 10px"><div style="font-size:9px;color:var(--muted)">'+en+'</div><div style="font-family:var(--font-mono);font-weight:700;font-size:16px">'+perEnt[en]+'</div></div>'; }).join('')
+    + kpi('Chưa có assignment', kNoAsg, 'B1', kNoAsg?'var(--bad)':'var(--good)')
+    + kpi('Thiếu Thẻ lương', kNoSp, 'B5', kNoSp?'#E37400':'var(--good)')
+    + kpi('Chồng thời gian', kOverlap, 'B4', kOverlap?'var(--bad)':'var(--good)')
+    + kpi('Nghỉ còn payroll', kQuit, 'B7', kQuit?'var(--bad)':'var(--good)')
+    + kpi('Thiếu TK bank', kNoBank, 'BANK', kNoBank?'#E37400':'var(--good)')
+    +'</div>';
+  /* rows: warn=B1 → NV chưa có assignment; BANK → NV thiếu bank; khác → assignment rows */
+  var body='';
+  if(st.warn==='B1'||st.warn==='BANK'){
+    var listE = st.warn==='B1' ? audit.filter(function(x){return x.code==='B1';}).map(function(x){return byId[x.empId];})
+      : actives.filter(function(e){ var live=(S.hrEmploymentAssignments||[]).some(function(a){return a.empId===e.id&&a.status!=='ended'&&a.payrollEnabled!==false;}); return live && !String(e.bankAccNo||'').trim(); });
+    body+='<table class="tbl" style="font-size:12px"><tr><th>NV</th><th>Phòng/Chức vụ</th><th>Trạng thái</th><th></th></tr>'
+      + listE.filter(Boolean).map(function(e){ return '<tr><td><b>'+esc(e.smartId||'')+'</b> · '+esc(e.fullName||'')+(e.hrVisibility==='PAYROLL_ONLY'?' <span style="font-size:9px;background:var(--paper-3);padding:1px 5px;border-radius:4px">PAYROLL-ONLY</span>':'')+'</td><td style="font-size:11px">'+esc(e.dept||'')+' · '+esc(e.title||'')+'</td><td>'+esc(e.status||'active')+'</td><td>'
+        +(st.warn==='B1'?'<button class="btn-sec" style="font-size:11px" onclick="hrmAllocForm(null,\''+e.id+'\')">➕ Phân bổ</button>':'<button class="btn-ghost" style="font-size:11px" onclick="hrmViewEmployee(\''+e.id+'\')">Mở hồ sơ</button>')
+        +'</td></tr>'; }).join('')+'</table>';
+  } else {
+    var rows=asgs.slice();
+    if(st.ent){ rows=rows.filter(function(a){ var co=pfCompanyOfEnt(st.ent); return co && a.companyId===co.id; }); }
+    if(st.g){ rows=rows.filter(function(a){ return (a.payrollGroup||'')===st.g; }); }
+    if(st.warn&&st.warn!=='B1'&&st.warn!=='BANK'){ rows=rows.filter(function(a){ return (audByAsg[a.id]||[]).some(function(x){return x.code===st.warn;}); }); }
+    if(st.q){ var ql=st.q.toLowerCase(); rows=rows.filter(function(a){ var e=byId[a.empId]||{}; return ((e.smartId||'')+' '+(e.fullName||'')).toLowerCase().indexOf(ql)>=0; }); }
+    rows.sort(function(a,b){ var ea=byId[a.empId]||{}, eb=byId[b.empId]||{}; return String(ea.smartId||'').localeCompare(String(eb.smartId||'')); });
+    body+='<table class="tbl" style="font-size:11.5px"><tr><th>NV</th><th>Đơn vị</th><th>Nhóm</th><th>Nơi làm</th><th>Hiệu lực</th><th>CC/PL</th><th>BHXH</th><th>TN chính</th><th>Thẻ lương</th><th>Cảnh báo</th><th></th></tr>';
+    rows.slice(0,200).forEach(function(a){
+      var e=byId[a.empId]||{};
+      var co=(S.companies||[]).find(function(c){return c&&c.id===a.companyId;});
+      var en=co?pfEntCodeOf_(co):'?';
+      var enr=(typeof empEnrollmentAt==='function')?empEnrollmentAt(a.empId):null;
+      var v=salaryProfileAt(a.empId, nowPer);
+      var spSt = !v ? '<span style="color:#c0392b">Chưa có</span>'
+        : (v.companyId&&a.companyId&&v.companyId!==a.companyId ? '<span style="color:#E37400">Khác đơn vị</span>' : '<span style="color:var(--good)">V'+v.version+' ✓</span>');
+      var warns=(audByAsg[a.id]||[]); var wTxt=warns.length?('<span style="color:#c0392b" title="'+esc(warns.map(function(x){return x.msg;}).join(' · '))+'">'+warns.map(function(x){return x.code;}).join(',')+'</span>'):'—';
+      body+='<tr'+(a.status==='ended'?' style="opacity:.55"':'')+'><td style="cursor:pointer" onclick="hrmViewEmployee(\''+a.empId+'\')"><b>'+esc(e.smartId||'')+'</b> · '+esc(e.fullName||'?')+(e.hrVisibility==='PAYROLL_ONLY'?' <span style="font-size:9px;background:var(--paper-3);padding:1px 4px;border-radius:4px">P-ONLY</span>':'')+'</td>'
+        +'<td><b>'+en+'</b></td><td>'+esc(a.payrollGroup||'—')+'</td><td style="font-size:11px">'+esc(a.workLocation||a.departmentId||'—')+'</td>'
+        +'<td style="font-family:var(--font-mono);font-size:10.5px">'+esc(a.effectiveFrom||'?')+' → '+esc(a.effectiveTo||'∞')+'</td>'
+        +'<td>'+(a.attendanceEnabled===false?'✗':'✓')+'/'+(a.payrollEnabled===false?'✗':'✓')+'</td>'
+        +'<td style="font-size:10.5px">'+(enr?esc(companyName(enr.companyId)).slice(0,14):'—')+'</td>'
+        +'<td>'+(a.isPrimaryIncome?'★':'')+'</td>'
+        +'<td><a href="javascript:void(0)" onclick="closeModal();openSalaryProfileCard(\''+a.empId+'\')">'+spSt+'</a></td>'
+        +'<td>'+wTxt+'</td>'
+        +'<td style="white-space:nowrap">'+(hrAllocCanEdit_()&&a.status!=='ended' && a.payrollEnabled!==false?('<button class="icon-btn" title="Sửa" onclick="hrmAllocForm(\''+a.id+'\',null)">✎</button><button class="icon-btn danger" title="Kết thúc" onclick="hrmAllocEnd(\''+a.id+'\')">⏹</button>'):'')+'</td></tr>';
+    });
+    body+='</table>'+(rows.length>200?'<div style="font-size:10px;color:var(--muted)">… và '+(rows.length-200)+' dòng nữa (lọc bớt)</div>':'');
+  }
+  var groups=['OFFICE','CREW','TECH','DRILL','EXPERT','EXPAT'];
+  var filters='<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap;font-size:12px">'
+    +'<select onchange="window._allocF.ent=this.value;hrmAllocOpen()"><option value="">Đơn vị (tất cả)</option>'+hrAllocEnts_().map(function(en){return '<option '+(st.ent===en?'selected':'')+'>'+en+'</option>';}).join('')+'</select>'
+    +'<select onchange="window._allocF.g=this.value;hrmAllocOpen()"><option value="">Nhóm (tất cả)</option>'+groups.map(function(g){return '<option '+(st.g===g?'selected':'')+'>'+g+'</option>';}).join('')+'</select>'
+    +'<select onchange="window._allocF.status=this.value;hrmAllocOpen()"><option value="active" '+(st.status==='active'?'selected':'')+'>Đang hiệu lực</option><option value="all" '+(st.status==='all'?'selected':'')+'>Cả đã kết thúc</option></select>'
+    +'<input placeholder="mã/tên" value="'+esc(st.q)+'" onchange="window._allocF.q=this.value;hrmAllocOpen()" style="width:130px">'
+    +(st.warn?'<button class="btn-ghost" style="font-size:11px" onclick="window._allocF.warn=\'\';hrmAllocOpen()">✕ bỏ lọc cảnh báo '+st.warn+'</button>':'')
+    +(hrAllocCanEdit_()?'<button class="btn" style="margin-left:auto" onclick="hrmAllocForm(null,null)">➕ Thêm phân bổ</button>':'')
+    +'</div>';
+  openModal('🏢 Phân bổ nhân sự theo đơn vị',
+    '<div style="max-height:75vh;overflow:auto">'+kpis+filters+body
+    +'<div style="font-size:10px;color:var(--muted);margin-top:6px">Màn quản lý hrEmploymentAssignments — không nhân bản hồ sơ. Audit computed, PENDING_REVIEW: không tự gán theo phòng ban/kỳ cũ. R105 chuyển BLOCK chỉ khi các KPI đỏ về 0.</div></div>',
+    '<button class="btn-ghost" onclick="closeModal()">Đóng</button>');
+};
+window.hrmAllocEnd=function(id){
+  if(!hrAllocCanEdit_()){ toast('Chỉ HR/Admin','bad'); return; }
+  var a=(S.hrEmploymentAssignments||[]).find(function(x){return x.id===id;}); if(!a) return;
+  var d=prompt('Kết thúc assignment từ ngày (YYYY-MM-DD):', new Date().toISOString().slice(0,10));
+  if(!d) return;
+  asgEnd(id, d);
+  toast('⏹ Đã kết thúc assignment','good'); hrmAllocOpen();
+};
+window.hrmAllocForm=function(asgId, empId){
+  if(!hrAllocCanEdit_()){ toast('Chỉ HR/Admin','bad'); return; }
+  var a=asgId?(S.hrEmploymentAssignments||[]).find(function(x){return x.id===asgId;}):null;
+  var eId=a?a.empId:(empId||'');
+  var emps=HRService.employees().filter(function(e){return e&&!e._deleted&&e.status!=='inactive';});
+  var co=a?(S.companies||[]).find(function(c){return c&&c.id===a.companyId;}):null;
+  var entSel=co?pfEntCodeOf_(co):'';
+  var groups=['OFFICE','CREW','TECH','DRILL','EXPERT','EXPAT'];
+  var h='<div style="font-size:12px">'
+    +(a?('<div style="margin-bottom:6px">Sửa assignment của <b>'+esc((emps.find(function(e){return e.id===eId;})||{}).fullName||eId)+'</b> — đổi Đơn vị/Nhóm/Ngày hiệu lực sẽ <b>kết thúc bản cũ + tạo bản mới</b> (không ghi đè lịch sử).</div>')
+        :('<div class="field"><label style="font-size:10px">Nhân sự (đã có hồ sơ)</label><select id="al-emp" style="width:100%">'
+          +'<option value="">— chọn —</option>'+emps.map(function(e){return '<option value="'+e.id+'" '+(e.id===eId?'selected':'')+'>'+esc((e.smartId||'')+' · '+(e.fullName||''))+'</option>';}).join('')+'</select>'
+          +'<div style="font-size:10px;color:var(--muted);margin-top:2px">Người CHƯA có hồ sơ (chỉ phục vụ Payroll)? <a href="javascript:void(0)" onclick="hrmAllocNewPerson()">➕ Tạo Payroll-only</a></div></div>'))
+    +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">'
+    +'<div class="field"><label style="font-size:10px">Đơn vị *</label><select id="al-ent" style="width:100%">'+hrAllocEnts_().map(function(en){return '<option '+(en===entSel?'selected':'')+'>'+en+'</option>';}).join('')+'</select></div>'
+    +'<div class="field"><label style="font-size:10px">Nhóm lương *</label><select id="al-g" style="width:100%">'+groups.map(function(g){return '<option '+(g===(a?a.payrollGroup:'')?'selected':'')+'>'+g+'</option>';}).join('')+'</select></div>'
+    +'<div class="field"><label style="font-size:10px">Hiệu lực từ *</label><input id="al-from" type="date" value="'+esc(a?a.effectiveFrom:new Date().toISOString().slice(0,10))+'" style="width:100%"></div>'
+    +'</div>'
+    +'<div class="field"><label style="font-size:10px">Phòng ban / tàu / dự án</label><input id="al-loc" value="'+esc(a?(a.workLocation||''):'')+'" style="width:100%"></div>'
+    +'<div style="display:flex;gap:16px;font-size:12px;margin:6px 0">'
+    +'<label><input type="checkbox" id="al-att" '+((a?a.attendanceEnabled!==false:true)?'checked':'')+'> Chấm công</label>'
+    +'<label><input type="checkbox" id="al-pay" '+((a?a.payrollEnabled!==false:true)?'checked':'')+'> Tính lương</label>'
+    +'<label><input type="checkbox" id="al-pri" '+((a&&a.isPrimaryEmployment)?'checked':'')+'> Việc chính</label>'
+    +'<label><input type="checkbox" id="al-inc" '+((a&&a.isPrimaryIncome)?'checked':'')+'> Thu nhập chính</label>'
+    +'</div></div>';
+  openModal(a?'✎ Sửa phân bổ':'➕ Thêm phân bổ', h,
+    '<button class="btn-ghost" onclick="hrmAllocOpen()">← Danh sách</button>'
+    +'<button class="btn-primary" onclick="hrmAllocSave(\''+(asgId||'')+'\')">💾 Lưu</button>');
+};
+window.hrmAllocSave=function(asgId){
+  if(!hrAllocCanEdit_()){ toast('Chỉ HR/Admin','bad'); return; }
+  var old=asgId?(S.hrEmploymentAssignments||[]).find(function(x){return x.id===asgId;}):null;
+  var eId=old?old.empId:((document.getElementById('al-emp')||{}).value||'');
+  if(!eId){ toast('Chọn nhân sự','warn'); return; }
+  var ent=(document.getElementById('al-ent')||{}).value||'';
+  var co=pfCompanyOfEnt(ent); if(!co){ toast('Đơn vị không có trong danh mục','bad'); return; }
+  var g=(document.getElementById('al-g')||{}).value||'';
+  var from=(document.getElementById('al-from')||{}).value||'';
+  if(!from){ toast('Nhập ngày hiệu lực','warn'); return; }
+  var loc=(document.getElementById('al-loc')||{}).value||'';
+  var att=!!(document.getElementById('al-att')||{}).checked;
+  var pay=!!(document.getElementById('al-pay')||{}).checked;
+  var pri=!!(document.getElementById('al-pri')||{}).checked;
+  var inc=!!(document.getElementById('al-inc')||{}).checked;
+  /* cảnh báo giao cắt kỳ đang tính/đã kiểm (spec §5) */
+  try{ var m=from.slice(0,7);
+    var hot=(S.payrollPeriods||[]).some(function(p){ return p&&!p._deleted&&p.month===m&&p.companyId===co.id
+      && ['COMPUTED','ACC_CHECKED','APPROVED','TRANSFER_READY'].indexOf(p.status)>=0; });
+    if(hot && !confirm('⚠ Tháng '+m+' tại '+ent+' đang có kỳ ĐÃ TÍNH/ĐANG KIỂM. Thay đổi assignment có thể làm lệch — vẫn tiếp tục?')) return;
+  }catch(e){}
+  var mk=function(){ return asgAdd({ empId:eId, companyId:co.id, payrollGroup:g, workLocation:loc,
+    attendanceEnabled:att, payrollEnabled:pay, isPrimaryEmployment:pri, isPrimaryIncome:inc,
+    effectiveFrom:from, status:'active' }); };
+  if(!old){ if(mk()) toast('➕ Đã thêm phân bổ','good'); hrmAllocOpen(); return; }
+  var structural = old.companyId!==co.id || (old.payrollGroup||'')!==g || old.effectiveFrom!==from;
+  if(structural){
+    var dayBefore=(function(d){ var t=new Date(d); t.setDate(t.getDate()-1); return t.toISOString().slice(0,10); })(from);
+    asgEnd(old.id, dayBefore);
+    if(mk()) toast('✓ Đã kết thúc bản cũ ('+dayBefore+') + tạo bản mới từ '+from,'good');
+  } else {
+    old.workLocation=loc; old.attendanceEnabled=att; old.payrollEnabled=pay;
+    old.isPrimaryEmployment=pri; old.isPrimaryIncome=inc;
+    (old.auditTrail=old.auditTrail||[]).push({at:new Date().toISOString(), by:(CURRENT_USER&&CURRENT_USER.name)||'', act:'edit_flags'});
+    try{touchRecord(old);}catch(e){} saveState();
+    toast('✓ Đã cập nhật cờ/nơi làm (giữ lịch sử)','good');
+  }
+  hrmAllocOpen();
+};
+window.hrmAllocNewPerson=function(){
+  if(!hrAllocCanEdit_()){ toast('Chỉ HR/Admin','bad'); return; }
+  var h='<div style="font-size:12px"><div style="margin-bottom:6px;color:var(--muted)">Hồ sơ TỐI THIỂU chỉ phục vụ Payroll (hrVisibility=PAYROLL_ONLY) — không hiện trong danh sách HRM chính; nâng lên FULL_HRM sau được, không tạo hồ sơ mới.</div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
+    +'<div class="field"><label style="font-size:10px">Mã NV *</label><input id="np-ms" style="width:100%" placeholder="VD POND001"></div>'
+    +'<div class="field"><label style="font-size:10px">Họ tên *</label><input id="np-name" style="width:100%"></div>'
+    +'<div class="field"><label style="font-size:10px">MST cá nhân</label><input id="np-mst" style="width:100%"></div>'
+    +'<div class="field"><label style="font-size:10px">CCCD</label><input id="np-cccd" style="width:100%"></div>'
+    +'<div class="field"><label style="font-size:10px">Ngày sinh</label><input id="np-dob" type="date" style="width:100%"></div>'
+    +'<div class="field"><label style="font-size:10px">Số TK ngân hàng</label><input id="np-bank" style="width:100%"></div>'
+    +'</div></div>';
+  openModal('➕ Người mới — Payroll-only', h,
+    '<button class="btn-ghost" onclick="hrmAllocForm(null,null)">← Quay lại</button>'
+    +'<button class="btn-primary" onclick="hrmAllocCreatePerson()">Tạo & phân bổ →</button>');
+};
+window.hrmAllocCreatePerson=function(){
+  var ms=((document.getElementById('np-ms')||{}).value||'').trim();
+  var name=((document.getElementById('np-name')||{}).value||'').trim();
+  var mst=((document.getElementById('np-mst')||{}).value||'').trim();
+  var cccd=((document.getElementById('np-cccd')||{}).value||'').trim();
+  var dob=((document.getElementById('np-dob')||{}).value||'').trim();
+  var bank=((document.getElementById('np-bank')||{}).value||'').trim();
+  if(!ms||!name){ toast('Cần Mã NV + Họ tên','warn'); return; }
+  /* spec §4B: tìm trùng — KHÔNG âm thầm tạo người trùng */
+  var norm=function(x){ return String(x||'').trim().toUpperCase().replace(/\s+/g,' '); };
+  var dup=HRService.employees().find(function(e){ if(!e||e._deleted) return false;
+    if(norm(e.smartId)===norm(ms)) return true;
+    if(mst && String(e.taxCode||'').trim()===mst) return true;
+    if(cccd && (String(e.idNo||'').trim()===cccd || String(e.cccd||'').trim()===cccd)) return true;
+    if(dob && norm(e.fullName)===norm(name) && String(e.dob||'').trim()===dob) return true;
+    if(bank && String(e.bankAccNo||'').trim()===bank) return true;
+    return false; });
+  if(dup){ toast('⚠ TRÙNG với '+(dup.smartId||'')+' · '+(dup.fullName||'')+' — dùng hồ sơ có sẵn, không tạo mới','bad');
+    hrmAllocForm(null, dup.id); return; }
+  var rec={ id:'emp_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6), smartId:ms, fullName:name,
+    taxCode:mst, idNo:cccd, dob:dob, bankAccNo:bank, status:'active', hrVisibility:'PAYROLL_ONLY',
+    createdBy:(CURRENT_USER&&CURRENT_USER.name)||'', createdAt:new Date().toISOString() };
+  commitMutation(function(){ HRService.addEmployee(rec); try{touchRecord(rec);}catch(e){} },
+    {action:'hr_add_payroll_only', fields:['hrEmployees']});
+  try{ logAuditEvent('hr_add_payroll_only',{smartId:ms}); }catch(e){}
+  toast('✓ Đã tạo hồ sơ Payroll-only '+ms,'good');
+  hrmAllocForm(null, rec.id);
+};
+
 /* ── Quyền taxRules (v1.2.1 mục 7): cờ + sổ ủy quyền có thời hạn ── */
 function _taxRuleAuthority(user, role){
   const list=(S.payrollConfig&&S.payrollConfig.taxRuleAuthority)||[];
@@ -74208,6 +74454,45 @@ function pfAudit_(action,refId,detail){
   }catch(e){}
 }
 /* ── IMPORT CHẤM CÔNG: xlsx (SheetJS sẵn) — cột: MSNV | Họ tên | bien | vp | dock | dp | ot ... */
+/* v3.13.21 (chốt B 27/7): CẦU 1 CHIỀU HRM → pf. Đọc S.hrAttendance kỳ tương ứng (CHỈ bản đã KHÓA — công đã ký/chốt),
+   map cols (N/NL/P/OT…) → days của pf (PAY_ATT_MAP đọc đúng các mã này), ghi qua PIPELINE pf CHUẨN
+   (PayrollDataStore + sha + stale cascade) — KHÔNG đường tắt, đèn 🚦 kiểm như import file. Import file trực tiếp VẪN GIỮ. */
+const PF_GROUP_BCC={ OFFICE:['BCC_VP','BCC_VP_BP'], CREW:['BCC_DOITAU'], TECH:['BCC_KYTHUAT'], DRILL:['BCC_KYTHUAT'], EXPERT:['BCC_CHUYENGIA'], EXPAT:['BCC_EXPAT'] };
+window.pfPullFromHrm=async function(month,ent,g){
+  if(!hasPfWrite_()) { toast('Không có quyền','warn'); return; }
+  if(!pfCanTouchEntity_(ent)){ toast('Ngoài phạm vi đơn vị của bạn','bad'); return; }
+  var _c=pfEntCfg_(ent); if(_c&&_c.attendanceEnabled===false){ toast('Đơn vị '+ent+' đang TẮT chấm công (cấu hình)','warn'); return; }
+  var p=pfPeriod(month,ent,g); if(!p){ toast('Mở kỳ trước','warn'); return; }
+  if(['LOCKED','NO_ACTIVITY'].indexOf(p.status)>=0){ toast('Kỳ '+p.status+' — không nhận công','warn'); return; }
+  var profs=PF_GROUP_BCC[g]||[];
+  var cands=(S.hrAttendance||[]).filter(function(a){ return a && a.period===month && profs.indexOf(a.profile)>=0; });
+  if(!cands.length){ toast('HRM chưa có kỳ công '+month+' loại '+profs.join('/'),'warn'); return; }
+  var locked=cands.filter(function(a){ return a.status==='locked'; });
+  if(!locked.length){ toast('Kỳ công '+month+' bên HRM CHƯA KHÓA — khóa kỳ công (đã ký) bên tab Chấm công trước, rồi lấy về','warn'); return; }
+  var att=locked[locked.length-1];
+  var rows=[]; (att.rows||[]).forEach(function(r){ if(!r||!r.msnv) return;
+    var days={}; Object.keys(r.cols||{}).forEach(function(k){ var v=+r.cols[k]||0; if(v) days[k]=v; });
+    rows.push({smartId:String(r.msnv).trim(), days:days}); });
+  if(!rows.length){ toast('Bản công HRM không có dòng NV hợp lệ','warn'); return; }
+  var srcSha=await pfSha256({hrmAttId:att.id, period:att.period, profile:att.profile, n:rows.length});
+  var ref='att_'+p.id+'_'+Date.now();
+  var cm=await PayrollDataStore.commit(ref,{rows:rows},{});
+  if(cm.status!=='READY'){ toast('Lấy công lỗi: '+(cm.error||''),'warn'); return; }
+  var meta={ id:ref, periodKey:p.periodKey, fileName:'HRM:'+att.profile+' '+att.period+(att.fileName?(' ('+att.fileName+')'):''),
+    fileHashSha256:srcSha, rowCount:rows.length, source:'HRM_LOCKED', srcHrmAttId:att.id,
+    dataRef:ref, contentSha256:cm.sha256, storageStatus:cm.storageStatus,
+    importedBy:actorName(), importedAt:new Date().toISOString(), stale:false };
+  commitMutation(function(){
+    S.pfAttendanceImports.push(meta);
+    pfStaleCascade_(p.periodKey, 'new_attendance', {});
+    p.activeAttendanceImportId=ref;
+    if(p.status==='DRAFT') p.status='ATT_IMPORTED';
+    try{touchRecord(meta);touchRecord(p);}catch(e){}
+  },{action:'pf_pull_hrm',fields:['pfAttendanceImports','payrollPeriods']});
+  pfAudit_('IMPORT_ATT',ref,'HRM(khóa) '+att.profile+' '+att.period+' · '+rows.length+' NV · '+cm.storageStatus);
+  toast('📥 Đã lấy công từ HRM: '+rows.length+' NV ('+cm.storageStatus+')','good');
+  pfOpenUI(month,ent,g);
+};
 window.pfImportAttendance=function(month,ent,g){
   if(!hasPfWrite_()) { toast('Không có quyền','warn'); return; }
   if(!pfCanTouchEntity_(ent)){ toast('Ngoài phạm vi đơn vị của bạn','bad'); return; }
@@ -74838,7 +75123,7 @@ window.PAYROLL_RULES=[
     var out=[];
     (ctx.att||[]).forEach(function(ar){
       var e=ctx.byMs[String(ar.smartId||'').toUpperCase()]; if(!e) return;   /* NV lạ đã có R201 */
-      var ok=asgs.some(function(a){ return a && a.empId===e.id && a.companyId===co.id && a.status!=='ended'
+      var ok=asgs.some(function(a){ return a && a.empId===e.id && a.companyId===co.id && a.status!=='ended' && a.payrollEnabled!==false
         && String(a.effectiveFrom||'')<=mEnd && (!a.effectiveTo || String(a.effectiveTo)>=mStart); });
       if(!ok) out.push(pfRR('R105',2,sev,e.id,'Không có assignment hiệu lực tại '+ctx.ent+' trong '+ctx.month+' (chấm công có thể thuộc đơn vị khác)','(thiếu)','assignment '+ctx.ent,'hrEmploymentAssignments',blocks,{type:'employee',id:e.id}));
     });
@@ -74950,7 +75235,7 @@ async function pfRunReadiness(month,ent,g){   /* COMPUTED-ONLY — không ghi st
     var asgs=S.hrEmploymentAssignments||[]; if(!asgs.length) return;
     var co=(typeof pfCompanyOfEnt==='function')?pfCompanyOfEnt(ent):null; if(!co) return;
     var mS=month+'-01', mE=month+'-31';
-    var ok={}; asgs.forEach(function(a){ if(a && a.companyId===co.id && a.status!=='ended'
+    var ok={}; asgs.forEach(function(a){ if(a && a.companyId===co.id && a.status!=='ended' && a.payrollEnabled!==false
       && String(a.effectiveFrom||'')<=mE && (!a.effectiveTo||String(a.effectiveTo)>=mS)) ok[a.empId]=1; });
     emps=emps.filter(function(e){ return ok[e.id]; });
   })();
@@ -75030,7 +75315,7 @@ window.pfOpenUI=async function(month,ent,g){
       :('<button class="btn" onclick="pfCreatePeriod(\''+month+'\',\''+ent+'\',\''+g+'\');pfOpenUI(\''+month+'\',\''+ent+'\',\''+g+'\')">➕ Mở kỳ '+g+'</button>'
        +' <button class="btn-ghost" onclick="var r=prompt(\'Lý do không phát sinh?\');if(r){pfDeclareNoActivity(\''+month+'\',\''+ent+'\',\''+g+'\',r);pfOpenUI(\''+month+'\',\''+ent+'\',\''+g+'\')}">Không phát sinh</button>'))
    +(p?' <button class="btn-ghost" onclick="pfacOpen(\''+month+'\',\''+ent+'\',\''+g+'\',1)">📋 Kiểm toán</button>':'')
-   +(p&&p.status!=='NO_ACTIVITY'?' <button class="btn" onclick="pfImportAttendance(\''+month+'\',\''+ent+'\',\''+g+'\')">📥 Import chấm công</button>':'')
+   +(p&&p.status!=='NO_ACTIVITY'?' <button class="btn" onclick="pfPullFromHrm(\''+month+'\',\''+ent+'\',\''+g+'\')" title="Đọc kỳ công ĐÃ KHÓA từ tab Chấm công HRM — không phải nhập file lần 2">📥 Lấy công từ HRM</button> <button class="btn-ghost" onclick="pfImportAttendance(\''+month+'\',\''+ent+'\',\''+g+'\')" title="Nhập file BCC trực tiếp (đối chứng)">📄 Import file</button>':'')
    +(p&&p.activeAttendanceImportId&&['LOCKED','NO_ACTIVITY'].indexOf(p.status)<0?' <button class="btn" onclick="pfRunCompute(\''+month+'\',\''+ent+'\',\''+g+'\').then(function(){pfOpenUI(\''+month+'\',\''+ent+'\',\''+g+'\')})">⚡ Tính lương</button>':'')
    +(p&&p.status==='COMPUTED'?' <button class="btn" onclick="pfAccCheck(\''+month+'\',\''+ent+'\',\''+g+'\',\'PASS\',prompt(\'Ghi chú KT kiểm (Enter bỏ qua)\')||\'\').then(function(){pfOpenUI(\''+month+'\',\''+ent+'\',\''+g+'\')})">🧾 KT kiểm PASS</button>':'')
    +(p&&p.status==='ACC_CHECKED'?' <button class="btn" onclick="pfApprove(\''+month+'\',\''+ent+'\',\''+g+'\').then(function(){pfOpenUI(\''+month+'\',\''+ent+'\',\''+g+'\')})">✅ KTT duyệt</button>':'')
@@ -76633,7 +76918,9 @@ window.sccOpen=function(month, engineFilter, fLevel, q){
      +'<span>NV active <b>'+k.empTotal+'</b></span><span>· có thẻ <b>'+k.hasCard+'</b></span><span>· thiếu thẻ <b style="color:#c0392b">'+k.noCard+'</b></span>'
      +'<span>· 🔴 <b>'+k.block+'</b></span><span>· 🟡 <b>'+k.review+'</b></span>'
      +'<span style="margin-left:auto;font-weight:700;color:'+vc+'">'+s.verdict+'</span></div>'
-     +'<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Σ theo ĐƠN VỊ (không cộng chéo): VND/tháng '+s.money.vndMonth.toLocaleString('vi-VN')+' · VND/ngày '+s.money.vndDay.toLocaleString('vi-VN')+' · USD/ngày '+s.money.usdDay.toLocaleString('vi-VN')+' · Kiểm lúc '+s.at.slice(0,16).replace('T',' ')+' bởi '+s.by+'</div>'
+     +'<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Σ theo ĐƠN VỊ (không cộng chéo): VND/tháng '+s.money.vndMonth.toLocaleString('vi-VN')+' · VND/ngày '+s.money.vndDay.toLocaleString('vi-VN')+' · USD/ngày '+s.money.usdDay.toLocaleString('vi-VN')+' · Kiểm lúc '+s.at.slice(0,16).replace('T',' ')+' bởi '+s.by
+     +((function(){ try{ var st=(S.salaryProfiles||[]).some(function(x){return x&&!x._deleted&&((x.createdAt&&x.createdAt>s.at)||(x.updatedAt&&x.updatedAt>s.at));});
+        return st?'<div style="color:#c0392b;font-weight:700;margin-top:2px">⚠ Có thẻ lương ĐÃ THAY ĐỔI sau lần kiểm — bấm ▶ CHẠY KIỂM TRA để cập nhật</div>':''; }catch(e){ return ''; } })())+'</div>'
      +'<div style="margin-bottom:6px">Lọc <select id="scc-f" onchange="sccOpen(\''+month+'\',\''+(engineFilter||'')+'\'||null,this.value,document.getElementById(\'scc-q\').value)">'
        +['','BLOCK','REVIEW','OK'].map(function(x){return '<option value="'+x+'" '+(fLevel===x?'selected':'')+'>'+(x||'(tất cả)')+'</option>';}).join('')+'</select>'
      +' 🔍 <input id="scc-q" value="'+(q||'').replace(/"/g,'')+'" placeholder="mã/tên" style="width:140px" onchange="sccOpen(\''+month+'\',\''+(engineFilter||'')+'\'||null,document.getElementById(\'scc-f\').value,this.value)"></div>';
@@ -76671,11 +76958,19 @@ window.sccDetail=function(empId){
       h+='<tr><td>'+k+'</td><td style="text-align:right;font-family:var(--font-mono)">'+(typeof val==='number'?val.toLocaleString('vi-VN'):esc(String(val)))+'</td><td>'+spFieldSource(v,k)+'</td><td>'+(reads.indexOf(k)>=0?'✓':'<span style="color:#9a5b12">KHÔNG</span>')+'</td></tr>'; });
     h+='</table>';
   } else h+='<div style="color:#c0392b;font-size:12px;margin-top:6px"><b>B · KHÔNG có thẻ hiệu lực tại kỳ '+s.month+'</b></div>';
-  if(b.items.length){ h+='<div style="font-size:12px;margin-top:8px"><b>Phép kiểm ('+b.items.length+'):</b></div><table class="tbl" style="font-size:11.5px">';
-    b.items.forEach(function(r){ h+='<tr><td>'+(r.level==='BLOCK'?'🔴':'🟡')+' '+r.code+'</td><td>'+esc(r.field)+'</td><td>'+esc(String(r.message))+'</td><td style="color:var(--muted)">'+esc(String(r.suggestedAction||''))+'</td></tr>'; });
+  var _stale=false;   /* 27/7: STALE — thẻ đổi SAU lần chạy kiểm */
+  try{ _stale = !!(v && ((v.createdAt&&v.createdAt>s.at) || (v.updatedAt&&v.updatedAt>s.at))); }catch(e2){}
+  if(_stale){ h='<div style="background:rgba(196,138,57,.12);border-left:3px solid #E37400;padding:8px 10px;font-size:12px;margin-bottom:8px">⚠ <b>Thẻ lương đã THAY ĐỔI sau lần kiểm</b> (chạy lúc '+esc(String(s.at).slice(0,16).replace('T',' '))+'). Các dòng lỗi bên dưới thuộc bản thẻ CŨ. <button class="btn" style="font-size:11px" onclick="sccRun(\''+s.month+'\',\''+(s.engineFilter||'')+'\'||null);sccDetail(\''+empId+'\')">▶ Chạy lại &amp; xem kết quả mới</button></div>'+h; }
+  if(b.items.length){ h+='<div style="font-size:12px;margin-top:8px"><b>Phép kiểm ('+b.items.length+'):</b> <span style="color:var(--muted);font-weight:400">— click dòng lỗi để mở nơi sửa</span></div><table class="tbl" style="font-size:11.5px">';
+    b.items.forEach(function(r){
+      var toEmp=(r.code==='SC23'||r.code==='SC18');
+      var fix=toEmp?('hrmViewEmployee(\''+empId+'\')'):('closeModal();openSalaryProfileCard(\''+empId+'\')');
+      h+='<tr style="cursor:pointer" title="Click: mở '+(toEmp?'hồ sơ NV':'Thẻ lương')+' để sửa" onclick="'+fix+'"><td>'+(r.level==='BLOCK'?'🔴':'🟡')+' '+r.code+'</td><td>'+esc(r.field)+'</td><td>'+esc(String(r.message))+'</td><td style="color:var(--muted)">'+esc(String(r.suggestedAction||''))+' <span style="color:var(--accent)">✎</span></td></tr>'; });
     h+='</table>'; }
   openModal('🔎 '+esc(e.fullName||empId)+' — chi tiết kiểm tra', h,
-    '<button class="btn-ghost" onclick="sccOpen(\''+s.month+'\',\''+(s.engineFilter||'')+'\'||null)">← Danh sách</button><button class="btn-ghost" onclick="closeModal()">Đóng</button>');
+    '<button class="btn-ghost" onclick="sccOpen(\''+s.month+'\',\''+(s.engineFilter||'')+'\'||null)">← Danh sách</button>'
+    +'<button class="btn-sec" onclick="closeModal();openSalaryProfileCard(\''+empId+'\')">✎ Mở Thẻ lương</button>'
+    +'<button class="btn-ghost" onclick="closeModal()">Đóng</button>');
 };
 /* ĐIỂM MỞ cho giai đoạn sau (chưa dùng — chưa có dữ liệu kỳ lương thật):
    khi kỳ lương đã khoá có p._profSnapshot, tầng đọc sẽ ưu tiên snapshot.
@@ -77166,7 +77461,8 @@ function hrmMyEmpIds(){
 }
 /* Danh sách hồ sơ user ĐƯỢC PHÉP xem (toàn bộ hoặc chỉ của mình). */
 function hrmVisibleEmps(){
-  const all=HRService.employees();
+  /* GĐ-B §7: hồ sơ PAYROLL_ONLY không hiện mặc định trong HRM chính (vẫn hiện ở màn Phân bổ + Payroll) */
+  const all=HRService.employees().filter(e=>e && e.hrVisibility!=='PAYROLL_ONLY');
   if(hrmCanSeeAll()) return all.slice();
   const mine=new Set(hrmMyEmpIds());
   return all.filter(e=>mine.has(e.id));
