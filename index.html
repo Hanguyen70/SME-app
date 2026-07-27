@@ -3745,7 +3745,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.13.25';
+const APP_VERSION='3.13.26';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -20896,7 +20896,7 @@ function empEnrollmentAt(empId, atDate){
   return (S.insuranceEnrollments||[]).find(e=>e.empId===empId
     && String(e.effectiveFrom||'0000')<=d && (!e.effectiveTo || String(e.effectiveTo)>=d))||null;
 }
-function asgAdd(o){
+function asgAdd(o, opts){
   const who=(CURRENT_USER&&CURRENT_USER.name)||'', at=new Date().toISOString();
   const rec=Object.assign({ id:'asg_'+Date.now().toString(36)+Math.random().toString(36).slice(2,5),
     relationshipType:'LABOR', contractType:'INDEFINITE', taxWithholdingMethod:'PROGRESSIVE',
@@ -20909,7 +20909,8 @@ function asgAdd(o){
     if(clash){ toast('NV đã có nơi hưởng giảm trừ gia cảnh hiệu lực — kết thúc bản cũ trước','bad'); return null; }
   }
   (S.hrEmploymentAssignments=S.hrEmploymentAssignments||[]).push(rec);
-  saveState(); return rec;
+  if(!(opts&&opts.noSave)) saveState();   /* v3.13.26: bulk (backfill) save 1 lần cuối — 174×saveState = treo UI ~1 phút */
+  return rec;
 }
 function asgEnd(id, endDate){
   const a=(S.hrEmploymentAssignments||[]).find(x=>x.id===id); if(!a) return;
@@ -21096,19 +21097,22 @@ window.hrmAllocBackfill=function(){
 window.hrmAllocBackfillGo=function(){
   if(!hrAllocCanEdit_()){ toast('Chỉ HR/Admin','bad'); return; }
   var list=window._allocBF||[]; if(!list.length){ hrmAllocOpen(); return; }
-  var co=pfCompanyOfEnt('SMEJSC');
-  var n=0;
-  list.forEach(function(x){
-    var r=asgAdd({ empId:x.e.id, companyId:co.id, payrollGroup:x.g, workLocation:x.e.dept||'',
-      attendanceEnabled:true, payrollEnabled:true, isPrimaryEmployment:true, isPrimaryIncome:true,
-      effectiveFrom:x.from, status:'active', reason:'backfill SMEJSC (GĐ-B)' });
-    if(r){ (r.auditTrail=r.auditTrail||[]).push({at:new Date().toISOString(), by:(CURRENT_USER&&CURRENT_USER.name)||'', act:'backfill'}); n++; }
-  });
-  try{ logAuditEvent('hr_alloc_backfill',{count:n, ent:'SMEJSC'}); }catch(e){}
-  saveState();
-  window._allocBF=null;
-  toast('⚡ Đã tạo '+n+' assignment SMEJSC','good');
-  hrmAllocOpen();
+  toast('⏳ Đang tạo '+list.length+' assignment — chờ vài giây...','warn');   /* phản hồi TỨC THÌ trước việc nặng */
+  setTimeout(function(){   /* nhả UI thread để toast hiện */
+    var co=pfCompanyOfEnt('SMEJSC');
+    var n=0;
+    list.forEach(function(x){
+      var r=asgAdd({ empId:x.e.id, companyId:co.id, payrollGroup:x.g, workLocation:x.e.dept||'',
+        attendanceEnabled:true, payrollEnabled:true, isPrimaryEmployment:true, isPrimaryIncome:true,
+        effectiveFrom:x.from, status:'active', reason:'backfill SMEJSC (GĐ-B)' }, {noSave:true});
+      if(r){ (r.auditTrail=r.auditTrail||[]).push({at:new Date().toISOString(), by:(CURRENT_USER&&CURRENT_USER.name)||'', act:'backfill'}); n++; }
+    });
+    try{ logAuditEvent('hr_alloc_backfill',{count:n, ent:'SMEJSC'}); }catch(e){}
+    saveState();   /* 1 LẦN cho cả lô */
+    window._allocBF=null;
+    toast('⚡ Đã tạo '+n+' assignment SMEJSC','good');
+    hrmAllocOpen();
+  }, 60);
 };
 window.hrmAllocForm=function(asgId, empId){
   if(!hrAllocCanEdit_()){ toast('Chỉ HR/Admin','bad'); return; }
