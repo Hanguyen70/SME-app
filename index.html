@@ -3733,7 +3733,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.13.54';
+const APP_VERSION='3.13.56';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -17451,7 +17451,9 @@ function payComputeOffice(inp, prof){
   const L=G+H+K;
   const Y=(X>=(prof.kpiThreshold||0.95))?K:K*X;
   const Z=Math.round((G+H+Y)/SD);
-  const AA=G+H;
+  /* v3.13.55 QUY ĐỊNH BẮT BUỘC (Sếp 28/7): BH tính trên NỀN RIÊNG (bhxhBase — sổ BH), không theo lương.
+     Sửa luôn side-effect 3.13.52 (H=PC lọt vào nền). Thẻ chưa khai nền → fallback G+H như cũ. */
+  const AA=(n(inp._bhxhBase)>0)?n(inp._bhxhBase):(G+H);
   const base=(G+H+Y)/SD;
   const AB=M*base + N*cf.sea*base + O*cf.dock*base + P*cf.dockOt*base + cf.ot15*Q*base + R*cf.ot20*base + Sx*cf.holiday*base + T*I + U*J + W + V;
   const AC=cf.ot15*Q*Z + cf.ot20*R*Z + cf.holiday*Sx*Z + T*I + U*J;
@@ -17523,7 +17525,8 @@ function payComputeCrew(inp, prof){
   const AD=(AB===0)?0:(AB-AC-AI);
   const AG=_payNet2Gross(AD, prof.grossBrackets);
   const AE=AG, AF=_payPit(AE, prof.pitBrackets);
-  const AM=Math.min(N, prof.capBHTN), AN=Math.min(N, prof.capBHXH);
+  const _bhN=(n(inp._bhxhBase)>0)?n(inp._bhxhBase):N;   /* v3.13.55: nền BH riêng bắt buộc — fallback N khi thẻ chưa khai (98 thẻ crew hiện hữu giữ nguyên số) */
+  const AM=Math.min(_bhN, prof.capBHTN), AN=Math.min(_bhN, prof.capBHXH);
   const AO=AM*prof.rateBHTN + AN*prof.rateBHXHYT;          // BHXH NV
   const AOco=AM*prof.rateBHTNco + AN*prof.rateBHXHYTco;    // công ty
   const AH=AB+AF+AO;
@@ -76910,6 +76913,15 @@ function resolveEmployeeGrade(employeeId, effectiveDate, companyId){
     .sort(function(a,b){return String(b.effectiveFrom||'').localeCompare(String(a.effectiveFrom||''));})[0];
   if(ov&&ov.gradeOverrideCode) return {code:ov.gradeOverrideCode, source:'override', ref:ov.id};
   var e=(typeof hrmEmpById==='function')?hrmEmpById(employeeId):null;
+  /* v3.13.56 — SẾP CHỐT 28/7: "Grade quản trị LÀ CHỨC DANH trong hồ sơ nhân sự."
+     Nguồn chính = e.title (chức danh hồ sơ) — mọi NV có chức danh tự có Grade, hết cảnh 46 NV vàng
+     R102 chờ ánh xạ. Giữ tầng override cá nhân (đứng trên); tầng pgMappings positionId cũ chỉ còn
+     là fallback khi hồ sơ TRỐNG chức danh (không phá dữ liệu ánh xạ đã lập). Grade vẫn KHÔNG money. */
+  if(e&&String(e.title||'').trim()){
+    var _t=String(e.title).trim();
+    try{ if(typeof gradeMetaEnsure==='function') gradeMetaEnsure(_t.toUpperCase(), _t); }catch(_e){}
+    return {code:_t.toUpperCase(), source:'title', title:_t};
+  }
   if(e&&e.positionId){
     var m=pgMappings().filter(function(x){return x&&x.positionId===e.positionId&&_pgActiveAt(x,d);})
       .sort(function(a,b){return String(b.effectiveFrom||'').localeCompare(String(a.effectiveFrom||''));})[0];

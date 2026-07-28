@@ -1,5 +1,5 @@
 {
-  "version": "3.13.54",
-  "swVersion": "v3.13.54",
-  "notes": "HIEN THI LUONG CO BAN TREN THE TECH (Sep 28/7 — 'the tech thieu luong co ban'): nhom ky thuat khong co netBase trong data (engine tinh don gia × cong) nhung thang chuc danh T6/2026 chot cong thuc nghiem dung 5/5 ky su: LUONG CO BAN THANG = muc VP/ngay × 22 (Koong 32tr · Thanh 28tr · Tai 22tr · Hung 16tr · Nam 14tr; hoi to dau nam: Thanh 25tr · Tai 20tr · Hung 14tr). Man the (openSalaryProfileCard): engine tech → dong 'Luong co ban (= muc VP × 22)' = techOfficeRate (qua _spResolve, an Grade/Override) × 22 — CHI HIEN THI, khong ghi data, engine KHONG doi (hash 6/6 SAME). Office/crew/expert giu nguyen dong netBase cu. Hoi quy spimp53 7/7 + pctn52 6/6 + pex50 12/12 + fix44 13/13."
+  "version": "3.13.56",
+  "swVersion": "v3.13.56",
+  "notes": "GRADE = CHUC DANH HO SO (Sep chot 28/7: 'Grade quan tri la chuc danh trong ho so nhan su'): resolveEmployeeGrade nguon chinh = e.title — moi NV co chuc danh TU CO Grade (source='title', code=title.toUpperCase(), gradeMetaEnsure tu tao metadata khong money), het canh 46 NV vang R102 cho anh xa. Thu tu: override ca nhan (giu, dung tren) → CHUC DANH ho so → pgMappings positionId (chi con fallback khi ho so trong chuc danh — khong pha du lieu anh xa da lap) → UNCLASSIFIED. Grade van KHONG anh huong tien (FLAG_GRADE_MONEY=false). Test 4/4: title→grade; metadata tu tao; trong title→UNCLASSIFIED; override thang. Hash engine: office dc2c024 · crew e15cd43d · tech/expert/expat/Row giu (bo chuan 3.13.55) — khong doi. Hoi quy spimp53 7/7 + pctn52 6/6. Thong ke Grade (🏷 trong 📒 So luong) tu nhom theo chuc danh sau deploy."
 }
