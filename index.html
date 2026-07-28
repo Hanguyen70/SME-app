@@ -3733,7 +3733,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.13.56';
+const APP_VERSION='3.13.58';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -77184,6 +77184,9 @@ function salaryProfileNewVersionForm(empId){
       <div class="field"><label>Đoàn viên CĐ</label><select id="sp-union"><option value="1" ${d.isUnionMember?'selected':''}>Có</option><option value="0" ${!d.isUnionMember?'selected':''}>Không</option></select></div>
       <div class="field"><label>Mức đi biển /ngày (crew)</label><input type="number" id="sp-sea" value="${val('crewSeaRate')}" step="any"></div>
       <div class="field"><label>Mức DP /ngày (crew)</label><input type="number" id="sp-dp" value="${val('crewDpRate')}" step="any"></div>
+      <div class="field"><label>Mức đi biển /ngày (TECH)</label><input type="number" id="sp-tsea" value="${val('techSeaRate')}" step="any"></div>
+      <div class="field"><label>Mức VP /ngày (TECH) — cơ bản = VP×22</label><input type="number" id="sp-tvp" value="${val('techOfficeRate')}" step="any"></div>
+      <div class="field"><label>Mức dock /ngày (TECH — trống = VP×1,5)</label><input type="number" id="sp-tdock" value="${val('techDockRate')}" step="any"></div>
       <div class="field"><label>Lý do điều chỉnh *</label><input type="text" id="sp-reason" placeholder="VD: Điều chỉnh lương định kỳ 2026"></div>
     </div>
     <div id="sp-err" style="font-size:12px;color:var(--bad);min-height:14px;font-family:var(--font-mono)"></div>`;
@@ -77201,7 +77204,9 @@ function salaryProfileSaveVersion(empId){
     isUnionMember:g('sp-union').value==='1',
     allow_trachNhiem:+g('sp-a1').value||0, allow_duAn:+g('sp-a2').value||0, allow_kpi:+g('sp-a3').value||0,
     allow_thamNien:+g('sp-a4').value||0, allow_khac:+g('sp-a5').value||0,
-    crewSeaRate:+g('sp-sea').value||0, crewDpRate:+g('sp-dp').value||0 };
+    crewSeaRate:+g('sp-sea').value||0, crewDpRate:+g('sp-dp').value||0,
+    /* v3.13.58 (Sếp 28/7 "chỉnh ở đâu?"): form tay có đủ 3 đơn giá TECH — trước chỉ vào được qua 📥 import */
+    techSeaRate:+((g('sp-tsea')||{}).value)||0, techOfficeRate:+((g('sp-tvp')||{}).value)||0, techDockRate:+((g('sp-tdock')||{}).value)||0 };
   let saved=null;
   const _spCo=(g('sp-company')||{}).value||'';
   const _spGrade=(g('sp-grade')||{}).value||'';
@@ -77285,9 +77290,14 @@ function spImportParse_(aoa, empBySmart){
       bhxhBase:num(ix.bh), dependents:num(ix.npt), isUnionMember:false,
       techSeaRate:num(ix.sea), techOfficeRate:num(ix.vp), techDockRate:num(ix.dock) };
     var eng=String(ix.eng>=0?(row[ix.eng]||''):'').trim().toLowerCase();
-    if(eng!=='office'&&eng!=='tech') eng=(d.techSeaRate>0||d.techOfficeRate>0)?'tech':'office';
+    if(eng!=='office'&&eng!=='tech'&&eng!=='crew_khoan'&&eng!=='crew') eng=(d.techSeaRate>0||d.techOfficeRate>0)?'tech':'office';
     if(eng==='office'){ delete d.techSeaRate; delete d.techOfficeRate; delete d.techDockRate;
       if(!(d.netBase>0)){ out.err.push(line+': Thẻ office cần Lương cơ bản > 0'); continue; } }
+    else if(eng==='crew_khoan'||eng==='crew'){ /* v3.13.57: đội khoan/thuyền viên — lương bờ (Lương cơ bản) + KPI (Thưởng KPI) + phụ cấp biển/ngày (cột "Đi biển /ngày" → crewSeaRate) + nền BH riêng (ăn engine 3.13.55). Đội khoan: netBase = bờ TRỌN (CB+KPI) nếu cột KPI trống, hoặc CB+KPI nếu tách. */
+      d.crewSeaRate=d.techSeaRate||0; d.netBase=(d.netBase||0)+(d.allow_kpi||0);
+      delete d.techSeaRate; delete d.techOfficeRate; delete d.techDockRate;
+      delete d.allow_trachNhiem; delete d.allow_kpi; delete d.allow_duAn; delete d.allow_thamNien; delete d.allow_khac;
+      if(!(d.netBase>0)){ out.err.push(line+': Thẻ '+eng+' cần Lương bờ > 0'); continue; } }
     else { delete d.netBase; delete d.allow_trachNhiem; delete d.allow_kpi; delete d.allow_duAn; delete d.allow_thamNien; delete d.allow_khac;
       if(!(d.techSeaRate>0||d.techOfficeRate>0)){ out.err.push(line+': Thẻ tech cần đơn giá Biển hoặc VP > 0'); continue; } }
     var dup=(S.salaryProfiles||[]).some(function(x){return x&&!x._deleted&&x.empId===e.id&&x.effectiveFrom===eff;});
