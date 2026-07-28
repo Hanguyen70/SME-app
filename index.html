@@ -3733,7 +3733,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.13.53';
+const APP_VERSION='3.13.54';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -76834,7 +76834,16 @@ function openSalaryProfileCard(empId, _ret){
             const eng=cur.engine||'office';
             const money=(lbl,val)=>kv(lbl,val,true);
             let h='';
-            h+=money('Lương cơ bản (NET)', d.netBase);
+            /* v3.13.54 (Sếp 28/7 — "thẻ tech thiếu lương cơ bản"): nhóm kỹ thuật KHÔNG có netBase trong data
+               (engine tính bằng đơn giá × công) nhưng thang chức danh T6/2026 chốt công thức đã nghiệm đúng 5/5:
+               LƯƠNG CƠ BẢN THÁNG = mức VP/ngày × 22 (Koóng 32tr · Thành 28tr · Tài 22tr · Hưng 16tr · Nam 14tr).
+               CHỈ HIỂN THỊ — không ghi vào data, engine không đổi một ký tự. */
+            if(eng==='tech'){
+              var _vpRate=(typeof _spResolve==='function')?(+_spResolve(cur,'techOfficeRate')||0):(+d.techOfficeRate||0);
+              h+=money('Lương cơ bản (= mức VP × 22)', _vpRate*22);
+            } else {
+              h+=money('Lương cơ bản (NET)', d.netBase);
+            }
 
             if(eng==='crew'){
               /* Thuyền viên: chỉ khoản cố định (nếu có), KHÔNG hiện PC office */
