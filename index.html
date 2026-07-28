@@ -3733,7 +3733,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.13.52';
+const APP_VERSION='3.13.53';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -77227,6 +77227,107 @@ function _slFixedVnd(cur, tot, rate){
   if(_slIsTechDaily(cur)) return _slTechOfficeRate(cur) * _SL_STD_DAYS + amount;
   return _slIsUsd(cur) ? amount * _SL_STD_DAYS * fx : amount;
 }
+/* ═══ v3.13.53 — IMPORT THẺ LƯƠNG HỒI TỐ TỪ EXCEL (Sếp duyệt 28/7, sau đợt đối chiếu 6 tháng):
+   File cột (dò theo TÊN header, không theo vị trí — bài học parser 28/7): MSNV | Hiệu lực từ (YYYY-MM) |
+   Lương cơ bản (netBase) | PC trách nhiệm | Thưởng KPI | Lương BHXH | NPT | [tech: Đi biển/ngày | VP/ngày | Dock/ngày] | [Engine]
+   AN TOÀN: đi trọn qua salaryProfileAddVersion (quyền + chống trùng effectiveFrom + đóng dây + touch + audit + stale) —
+   CHỈ TẠO BẢN MỚI, không sửa/xóa bản cũ; chạy lại file → dòng trùng kỳ tự BỎ QUA (idempotent); bản chèn hồi tố
+   TRƯỚC bản đã có → tự đóng effectiveTo của CHÍNH BẢN MỚI (không đụng bản cũ). */
+function spImportParse_(aoa, empBySmart){
+  var out={ok:[], err:[]};
+  if(!aoa || !aoa.length) return out;
+  var hi=-1, H=null;
+  for(var i=0;i<Math.min(aoa.length,10);i++){
+    var hs=(aoa[i]||[]).map(function(c){return String(c==null?'':c).replace(/\n/g,' ').toLowerCase();});
+    if(hs.some(function(h){return h.indexOf('msnv')>=0;}) && hs.some(function(h){return h.indexOf('hiệu lực')>=0||h.indexOf('hieu luc')>=0;})){ hi=i; H=hs; break; }
+  }
+  if(hi<0){ out.err.push('Không tìm thấy dòng tiêu đề (cần cột MSNV + Hiệu lực từ)'); return out; }
+  function col(pats){ for(var j=0;j<H.length;j++){ for(var p=0;p<pats.length;p++){ if(H[j].indexOf(pats[p])>=0) return j; } } return -1; }
+  var ix={ ms:col(['msnv']), eff:col(['hiệu lực','hieu luc']),
+    net:col(['netbase','lương cơ bản','luong co ban']), tn:col(['trách nhiệm','trach nhiem']),
+    kpi:col(['kpi']), bh:col(['bhxh','lương bhxh']), npt:col(['npt','phụ thuộc']),
+    sea:col(['techsearate','đi biển','di bien']), vp:col(['techofficerate','văn phòng /ngày','vp /ngày','vp/ngày']),
+    dock:col(['techdockrate','dock']), eng:col(['engine']) };
+  for(var r=hi+1;r<aoa.length;r++){
+    var row=aoa[r]||[];
+    var ms=String(row[ix.ms]==null?'':row[ix.ms]).trim().toUpperCase();
+    if(!ms) continue;
+    var line='Dòng '+(r+1)+' ['+ms+']';
+    var e=empBySmart[ms];
+    if(!e){ out.err.push(line+': MSNV không khớp hồ sơ'); continue; }
+    var eff=String(row[ix.eff]==null?'':row[ix.eff]).trim().slice(0,7).replace('/','-');
+    if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(eff)){ out.err.push(line+': Hiệu lực sai (cần YYYY-MM)'); continue; }
+    function num(j){ if(j<0) return 0; var v=String(row[j]==null?'':row[j]).replace(/[., ]/g,''); return Math.round(+v||+row[j]||0); }
+    var d={ salaryType:'NET', ccy:'VND',
+      netBase:num(ix.net), allow_trachNhiem:num(ix.tn), allow_kpi:num(ix.kpi),
+      allow_duAn:0, allow_thamNien:0, allow_khac:0,
+      bhxhBase:num(ix.bh), dependents:num(ix.npt), isUnionMember:false,
+      techSeaRate:num(ix.sea), techOfficeRate:num(ix.vp), techDockRate:num(ix.dock) };
+    var eng=String(ix.eng>=0?(row[ix.eng]||''):'').trim().toLowerCase();
+    if(eng!=='office'&&eng!=='tech') eng=(d.techSeaRate>0||d.techOfficeRate>0)?'tech':'office';
+    if(eng==='office'){ delete d.techSeaRate; delete d.techOfficeRate; delete d.techDockRate;
+      if(!(d.netBase>0)){ out.err.push(line+': Thẻ office cần Lương cơ bản > 0'); continue; } }
+    else { delete d.netBase; delete d.allow_trachNhiem; delete d.allow_kpi; delete d.allow_duAn; delete d.allow_thamNien; delete d.allow_khac;
+      if(!(d.techSeaRate>0||d.techOfficeRate>0)){ out.err.push(line+': Thẻ tech cần đơn giá Biển hoặc VP > 0'); continue; } }
+    var dup=(S.salaryProfiles||[]).some(function(x){return x&&!x._deleted&&x.empId===e.id&&x.effectiveFrom===eff;});
+    out.ok.push({empId:e.id, smartId:ms, name:e.fullName, eff:eff, engine:eng, data:d, dup:dup});
+  }
+  return out;
+}
+window.spImportOpen=function(){
+  if(!salaryProfileCanEdit()){ toast('Chỉ KTT/Admin','bad'); return; }
+  if(typeof XLSX==='undefined'){ toast('Thư viện Excel chưa sẵn sàng','bad'); return; }
+  var inp=document.createElement('input'); inp.type='file'; inp.accept='.xlsx,.xls';
+  inp.onchange=function(){
+    var f=inp.files&&inp.files[0]; if(!f) return;
+    var rd=new FileReader();
+    rd.onload=function(ev){
+      try{
+        var wbk=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});
+        var aoa=XLSX.utils.sheet_to_json(wbk.Sheets[wbk.SheetNames[0]],{header:1,raw:false});
+        var bm={}; HRService.employees().forEach(function(e){ if(e&&!e._deleted) bm[String(e.smartId||'').trim().toUpperCase()]=e; });
+        var pr=spImportParse_(aoa, bm);
+        var fresh=pr.ok.filter(function(x){return !x.dup;}), dups=pr.ok.length-fresh.length;
+        var h='<div style="font-size:12px"><div>📥 <b>'+fresh.length+'</b> phiên bản sẽ TẠO · <b style="color:#8a6d3b">'+dups+'</b> trùng kỳ (BỎ QUA — đã tồn tại) · <b style="color:#c0392b">'+pr.err.length+'</b> dòng lỗi</div>'
+          +(pr.err.length?('<div style="max-height:16vh;overflow:auto;font-size:10.5px;color:#c0392b;margin:4px 0">'+pr.err.map(esc).join('<br>')+'</div>'):'')
+          +'<div style="max-height:34vh;overflow:auto"><table class="tbl" style="font-size:11px"><tr><th>MSNV</th><th>Họ tên</th><th>Hiệu lực</th><th>Engine</th><th>Mức chính</th><th>BH</th><th>NPT</th><th></th></tr>'
+          +pr.ok.map(function(x){ var main=x.engine==='tech'?('B '+Number(x.data.techSeaRate||0).toLocaleString('vi-VN')+' · VP '+Number(x.data.techOfficeRate||0).toLocaleString('vi-VN')):(Number(x.data.netBase||0).toLocaleString('vi-VN')+' +TN '+Number(x.data.allow_trachNhiem||0).toLocaleString('vi-VN')+' +KPI '+Number(x.data.allow_kpi||0).toLocaleString('vi-VN'));
+            return '<tr'+(x.dup?' style="opacity:.5"':'')+'><td>'+esc(x.smartId)+'</td><td>'+esc(x.name)+'</td><td>'+x.eff+'</td><td>'+x.engine+'</td><td style="font-size:10px">'+main+'</td><td style="text-align:right">'+Number(x.data.bhxhBase||0).toLocaleString('vi-VN')+'</td><td>'+(x.data.dependents||0)+'</td><td>'+(x.dup?'BỎ QUA':'TẠO')+'</td></tr>'; }).join('')
+          +'</table></div><div style="font-size:10.5px;color:var(--muted);margin-top:6px">Chỉ TẠO phiên bản mới — không sửa/xóa bản cũ · dây hiệu lực tự đóng · kỳ ĐÃ KHÓA không bị ảnh hưởng · kỳ chưa khóa tự STALE để tính lại</div></div>';
+        window._spImp=fresh;
+        openModal('📥 Import thẻ lương hồi tố — xem trước', h,
+          '<button class="btn-ghost" onclick="window._spImp=null;closeModal()">✖ Hủy</button>'
+          +(fresh.length?'<button class="btn-primary" onclick="spImportGo()">✓ Tạo '+fresh.length+' phiên bản</button>':''));
+      }catch(err){ toast('Lỗi đọc file: '+err.message,'warn'); }
+    };
+    rd.readAsArrayBuffer(f);
+  };
+  inp.click();
+};
+window.spImportGo=function(){
+  var list=window._spImp||[]; window._spImp=null;
+  if(!list.length){ closeModal(); return; }
+  var made=0, fail=0, batch='spb_'+Date.now().toString(36);
+  commitMutation(function(){
+    list.forEach(function(x){
+      var v=salaryProfileAddVersion(x.empId,{effectiveFrom:x.eff, engine:x.engine, data:x.data,
+        reason:'Import hồi tố từ bảng lương excel (lô '+batch+')', source:'import', versionType:'SYSTEM_FIX'});
+      if(!v){ fail++; return; }
+      made++;
+      /* bản chèn hồi tố TRƯỚC bản đã có → đóng effectiveTo của CHÍNH BẢN MỚI (addVersion chỉ đóng bản trước nó) */
+      var next=_spList(x.empId).filter(function(p){return p.effectiveFrom>x.eff;})
+        .sort(function(a,b){return a.effectiveFrom.localeCompare(b.effectiveFrom);})[0];
+      if(next && next.id!==v.id){
+        var y=+next.effectiveFrom.slice(0,4), m=+next.effectiveFrom.slice(5,7);
+        v.effectiveTo=(m===1?(y-1)+'-12':y+'-'+String(m-1).padStart(2,'0'));
+        try{touchRecord(v);}catch(e){}
+      }
+    });
+  },{action:'sp_import_batch', fields:['salaryProfiles']});
+  try{ logAuditEvent('sp_import_batch',{batch:batch, created:made, failed:fail}); }catch(e){}
+  closeModal(); toast('📥 Đã tạo '+made+' phiên bản thẻ (lô '+batch+')'+(fail?(' · '+fail+' dòng bị chặn'):''), fail?'warn':'good');
+  try{ renderAll(); }catch(e){}
+};
 function openSalaryLedger(){
   if(!(hrmCanSeeAll()||salaryProfileCanEdit())){ toast('Chỉ BGĐ/HCNS/KTT/Admin','bad'); return; }
   const nowPer=new Date().toISOString().slice(0,7), year=nowPer.slice(0,4);
@@ -77385,7 +77486,7 @@ function openSalaryLedger(){
         <th style="padding:5px 8px;text-align:left">Lịch sử điều chỉnh (đủ mọi lần)</th><th style="padding:5px 8px">Từ lần tăng cuối</th></tr></thead>
       <tbody>${trs||'<tr><td colspan="6" style="padding:14px;text-align:center;color:var(--muted)">Không có dữ liệu khớp bộ lọc</td></tr>'}</tbody></table>`;
   openModal('📒 Sổ theo dõi lương nhân sự — báo cáo quản trị', body,
-    `<button class="btn-ghost" onclick="gradeAdminOpen()" title="Phân loại quản trị theo chức vụ + thống kê min/trung vị/bq/max từ Thẻ lương — không ảnh hưởng tính lương">🏷 Grade & thống kê</button><button class="btn-ghost" onclick="closeModal()">Đóng</button>`);
+    `${salaryProfileCanEdit()?'<button class="btn-ghost" onclick="spImportOpen()" title="Nhập hàng loạt PHIÊN BẢN THẺ LƯƠNG hồi tố từ Excel (MSNV | Hiệu lực YYYY-MM | các mức) — chỉ TẠO BẢN MỚI, không sửa/xóa bản cũ, trùng kỳ tự bỏ qua">📥 Import thẻ hồi tố</button>':''}<button class="btn-ghost" onclick="gradeAdminOpen()" title="Phân loại quản trị theo chức vụ + thống kê min/trung vị/bq/max từ Thẻ lương — không ảnh hưởng tính lương">🏷 Grade & thống kê</button><button class="btn-ghost" onclick="closeModal()">Đóng</button>`);
   try{ if(typeof setModalWide==='function') setModalWide(true); }catch(e){}
 }
 /* v3.12.92: điểm vào chức năng Đối chiếu Thẻ lương ↔ file HR (GĐ1 — chỉ đọc).
