@@ -1,5 +1,5 @@
 {
-  "version": "3.13.79",
-  "swVersion": "v3.13.79",
-  "notes": "FIX: 'Tong luong net' tren the Ky thuat hien 0d, mau thuan voi dong 'Luong co ban (= muc VP x 22)' dung ngay phia tren. Nguyen nhan: _spFixedTotal() (dung chung cho So luong, Grade stats, hien thi the) thieu han nhanh engine='tech' - roi ve d.netBase||0 = 0 vi the tech khong luu netBase (tinh bang don gia x cong, khong phai luong thang co dinh). Da them nhanh tech = techOfficeRate x 22, dung lai chinh xac cong thuc da verify T6/2026 (Koong 32tr/Thanh 28tr/Tai 22tr/Hung 16tr/Nam 14tr - da xac nhan tu truoc). Don gian hoa hien thi the tech: bo 4 dong PC (trach nhiem/KPI/tham nien/khac) luon hien 0d vi khong thuoc engine nay. Anh huong tich cuc day du: the hien tai, lich su phien ban, So luong, Grade stats deu dung _spFixedTotal nen tu dong sua dung theo, khong can sua rieng tung noi. 6 engine hash SHA-256 van BYTE-FOR-BYTE giong het ban goc 3.13.60 qua toan bo phien lam viec (25 ban tu 3.13.60). 3 file dong bo."
+  "version": "3.13.80",
+  "swVersion": "v3.13.80",
+  "notes": "FIX import the luong bao loi toan bo (Sep gui anh 30/7): dong tieu de trang tri cua file Excel ('IMPORT THE LUONG HOI TO - VAN PHONG - HIEU LUC 2026-01 (ban co MSNV)') chua CA 2 tu khoa 'MSNV' va 'HIEU LUC' trong CUNG 1 O - app do header tu tren xuong nhan nham dong 1 lam header, toan bo cot lech -> 27 dong loi 'MSNV khong khop/Hieu luc sai'. Fix app: yeu cau 2 tu khoa nam o 2 O KHAC NHAU moi nhan la header (spImportParse_). Fix file: doi tieu de Import_TheLuong_VanPhong_T01 bo tu khoa; da ra soat 9 file import khac - khong file nao bi tuong tu. 6 engine hash van BYTE-FOR-BYTE giong het ban goc 3.13.60 (26 ban). 3 file dong bo."
 }

@@ -3732,7 +3732,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.13.79';
+const APP_VERSION='3.13.80';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -76017,10 +76017,15 @@ function spImportParse_(aoa, empBySmart, empByName){
   var hi=-1, H=null;
   for(var i=0;i<Math.min(aoa.length,10);i++){
     var hs=(aoa[i]||[]).map(function(c){return String(c==null?'':c).replace(/\n/g,' ').toLowerCase();});
-    var hasHieuLuc=hs.some(function(h){return h.indexOf('hiệu lực')>=0||h.indexOf('hieu luc')>=0;});
-    var hasMsnv=hs.some(function(h){return h.indexOf('msnv')>=0;});
-    var hasName=hs.some(function(h){return h.indexOf('họ tên')>=0||h.indexOf('ho ten')>=0||h.indexOf('họ và tên')>=0;});
-    if(hasHieuLuc && (hasMsnv||hasName)){ hi=i; H=hs; break; }   /* v3.13.76: chấp nhận file CHỈ có Họ tên (không MSNV) */
+    /* v3.13.80: từ khóa phải nằm ở CÁC Ô KHÁC NHAU — dòng tiêu đề trang trí kiểu
+       "IMPORT THẺ ... HIỆU LỰC 2026-01 (bản có MSNV)" chứa cả 2 trong 1 ô từng bị nhận nhầm là header */
+    var iHieuLuc=-1, iMsnv=-1, iName=-1;
+    for(var j2=0;j2<hs.length;j2++){
+      if(iHieuLuc<0 && (hs[j2].indexOf('hiệu lực')>=0||hs[j2].indexOf('hieu luc')>=0)) iHieuLuc=j2;
+      if(iMsnv<0 && hs[j2].indexOf('msnv')>=0) iMsnv=j2;
+      if(iName<0 && (hs[j2].indexOf('họ tên')>=0||hs[j2].indexOf('ho ten')>=0||hs[j2].indexOf('họ và tên')>=0)) iName=j2;
+    }
+    if(iHieuLuc>=0 && ((iMsnv>=0&&iMsnv!==iHieuLuc)||(iName>=0&&iName!==iHieuLuc))){ hi=i; H=hs; break; }
   }
   if(hi<0){ out.err.push('Không tìm thấy dòng tiêu đề (cần cột MSNV hoặc Họ tên + Hiệu lực từ)'); return out; }
   function col(pats){ for(var j=0;j<H.length;j++){ for(var p=0;p<pats.length;p++){ if(H[j].indexOf(pats[p])>=0) return j; } } return -1; }
