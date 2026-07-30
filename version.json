@@ -1,5 +1,5 @@
 {
-  "version": "3.13.58",
-  "swVersion": "v3.13.58",
-  "notes": "FORM TAO PHIEN BAN THE co du 3 don gia TECH (Sep 28/7 'chinh o dau?' — truoc form tay THIEU o tech, don gia chi vao duoc qua 📥 import): salaryProfileNewVersionForm them 3 field Muc di bien /ngay (TECH) · Muc VP /ngay (TECH — co ban = VP×22) · Muc dock /ngay (TECH — trong = VP×1,5, engine tu tinh); salaryProfileSaveVersion luu techSeaRate/techOfficeRate/techDockRate (||0, guard element thieu). Cach chinh don gia tech tu nay: mo the NV → + TAO PHIEN BAN MOI → nhap Hieu luc tu + 3 don gia + nen BH + ly do → Luu (versioning chuan: khong ghi de ban cu, day tu dong, ky LOCKED bat bien, stale cascade). Luong co ban hien thi tren the tu doi theo VP×22 (3.13.54). Hash engine giu bo chuan (office dc2c024 · crew e15cd43d · 4 SAME). Hoi quy spimp53 7/7 + pctn52 6/6. 3 file dong bo."
+  "version": "3.13.60",
+  "swVersion": "v3.13.60",
+  "notes": "FORM THE LUONG co o LOAI TIEN (Sep 28/7 — tao the expat 'khong co loai tien khac'): them select VND/USD ngay sau Loai luong; salaryProfileSaveVersion luu ccy tu form thay hard-code 'VND' (goc bug da ghi chu tu 3.12.87 — truoc day so luong phai SUY tien te tu engine vi ccy luon bi ghi 'VND'). The cu khong doi; the moi tao se mang ccy dung. Expat/expert luong USD: chon USD. Hash engine giu bo chuan 3.13.59 (office 3b202032 · crew ba56d9a2 · 4 SAME) — form/UI khong dung cong thuc. Hoi quy spimp53 7/7. 3 file dong bo."
 }

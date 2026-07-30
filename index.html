@@ -3733,7 +3733,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.13.58';
+const APP_VERSION='3.13.60';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -17453,7 +17453,8 @@ function payComputeOffice(inp, prof){
   const Z=Math.round((G+H+Y)/SD);
   /* v3.13.55 QUY ĐỊNH BẮT BUỘC (Sếp 28/7): BH tính trên NỀN RIÊNG (bhxhBase — sổ BH), không theo lương.
      Sửa luôn side-effect 3.13.52 (H=PC lọt vào nền). Thẻ chưa khai nền → fallback G+H như cũ. */
-  const AA=(n(inp._bhxhBase)>0)?n(inp._bhxhBase):(G+H);
+  /* v3.13.59 (Sếp 28/7): thẻ KHÔNG có nền BHXH → BỎ TRỐNG (BH=0), app không được tự suy diễn (bỏ fallback G+H của 3.13.55) */
+  const AA=n(inp._bhxhBase);
   const base=(G+H+Y)/SD;
   const AB=M*base + N*cf.sea*base + O*cf.dock*base + P*cf.dockOt*base + cf.ot15*Q*base + R*cf.ot20*base + Sx*cf.holiday*base + T*I + U*J + W + V;
   const AC=cf.ot15*Q*Z + cf.ot20*R*Z + cf.holiday*Sx*Z + T*I + U*J;
@@ -17525,7 +17526,7 @@ function payComputeCrew(inp, prof){
   const AD=(AB===0)?0:(AB-AC-AI);
   const AG=_payNet2Gross(AD, prof.grossBrackets);
   const AE=AG, AF=_payPit(AE, prof.pitBrackets);
-  const _bhN=(n(inp._bhxhBase)>0)?n(inp._bhxhBase):N;   /* v3.13.55: nền BH riêng bắt buộc — fallback N khi thẻ chưa khai (98 thẻ crew hiện hữu giữ nguyên số) */
+  const _bhN=n(inp._bhxhBase);   /* v3.13.59 (Sếp): thẻ không nền → BH=0, không suy diễn (bỏ fallback N; 113 thẻ crew đều có nền sẵn — không đổi số) */
   const AM=Math.min(_bhN, prof.capBHTN), AN=Math.min(_bhN, prof.capBHXH);
   const AO=AM*prof.rateBHTN + AN*prof.rateBHXHYT;          // BHXH NV
   const AOco=AM*prof.rateBHTNco + AN*prof.rateBHXHYTco;    // công ty
@@ -77172,6 +77173,7 @@ function salaryProfileNewVersionForm(empId){
       ${((S.companies||[]).length>1)?`<div class="field"><label>Pháp nhân trả *</label><select id="sp-company">${(S.companies||[]).map(c=>`<option value="${c.id}" ${cur&&cur.companyId===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select></div>`:''}
       <div class="field"><label>Engine</label><select id="sp-engine"><option value="office" ${(!cur||cur.engine==='office')?'selected':''}>Văn phòng</option><option value="tech" ${cur&&cur.engine==='tech'?'selected':''}>Kỹ thuật</option><option value="crew" ${cur&&cur.engine==='crew'?'selected':''}>Đội tàu</option><option value="crew_khoan" ${cur&&cur.engine==='crew_khoan'?'selected':''}>Đội tàu — Khoán (trả theo ngày làm)</option></select></div>
       <div class="field"><label>Loại lương</label><select id="sp-type"><option value="NET" selected>NET</option><option value="GROSS">GROSS</option></select></div>
+      <div class="field"><label>Loại tiền</label><select id="sp-ccy"><option value="VND" ${(d.ccy||'VND')==='VND'?'selected':''}>VND</option><option value="USD" ${d.ccy==='USD'?'selected':''}>USD</option></select></div>
       <div style="font-size:10.5px;color:var(--muted);margin:4px 0">🏷 Grade tự phân loại theo chức vụ (quản lý ở màn 🏷 Grade quản trị) — không chọn trên thẻ. Grade không ảnh hưởng tiền lương/BH/thuế.</div>
       <div class="field"><label>Lương cơ bản NET</label><input type="number" id="sp-net" value="${val('netBase')}" step="any"></div>
       <div class="field"><label>PC trách nhiệm</label><input type="number" id="sp-a1" value="${val('allow_trachNhiem')}" step="any"></div>
@@ -77199,7 +77201,8 @@ function salaryProfileSaveVersion(empId){
   const err=g('sp-err'); if(err) err.textContent='';
   const reason=(g('sp-reason').value||'').trim();
   if(!reason){ if(err)err.textContent='Nhập lý do điều chỉnh (bắt buộc theo spec)'; return; }
-  const data={ salaryType:g('sp-type').value, ccy:'VND',
+  /* v3.13.60 (Sếp 28/7 — thẻ expat "không có loại tiền khác"): ccy chọn trên form thay hard-code 'VND' (gốc bug ghi chú 3.12.87) */
+  const data={ salaryType:g('sp-type').value, ccy:((g('sp-ccy')||{}).value)||'VND',
     netBase:+g('sp-net').value||0, bhxhBase:+g('sp-bhs').value||0, dependents:+g('sp-npt').value||0,
     isUnionMember:g('sp-union').value==='1',
     allow_trachNhiem:+g('sp-a1').value||0, allow_duAn:+g('sp-a2').value||0, allow_kpi:+g('sp-a3').value||0,
