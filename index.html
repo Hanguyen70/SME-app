@@ -3732,7 +3732,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.13.64';
+const APP_VERSION='3.13.78';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -19496,6 +19496,10 @@ const PAY_ATT_MAP={
   office:{ M:['N','P','NL','N1'], N:['N3'] },
   tech:  { Q:['N3'], R:['D'], T:['N'], U:['P'], W:['N4'], Y:['N1'], Z:['N2'] },
   crew:  { G:['DB1'], H:['DB2'], I:['DOCK'], J:['BO'], K:['NGHICA'], L:['BO2'], M:['DP'] },
+  /* v3.13.72 FIX: crew_khoan THIẾU hẳn trong map này — dùng chung payComputeCrew với crew (chỉ khác
+     profile hệ số, không khác cột chấm công), nhưng trước đây "Kéo chấm công" bị chặn với thông báo
+     SAI (tưởng nguồn là import O&M, thật ra nguồn đúng là BCC_DOITAU như crew thường). */
+  crew_khoan: { G:['DB1'], H:['DB2'], I:['DOCK'], J:['BO'], K:['NGHICA'], L:['BO2'], M:['DP'] },
   /* v3.13.32 chuyên gia/OM: BCC_CHUYENGIA cột GIỜ → chữ engine payComputeExpert.
      _ignore = cột THÔNG SỐ TIỀN trong file (đơn giá lấy từ THẺ LƯƠNG — nguồn sự thật) — bỏ qua không cảnh báo. */
   expert_om:{ J:['NORMAL'], K:['OT12'], L:['OT15'], Q:['ALLOW_DAYS'],
@@ -19530,7 +19534,7 @@ function payPullAttendance(periodId){
   if(payStatusIdx(p.status)>=payStatusIdx('approved')){ toast('Kỳ đã duyệt/khóa — không kéo chấm công. Cần điều chỉnh: dùng phiếu điều chỉnh.','warn'); return; }
   const map=PAY_ATT_MAP[p.profile];
   if(!map){ toast('Kỳ '+(PAY_PROFILE_LABEL[p.profile]||p.profile)+' không kéo từ bảng chấm công (nguồn là import chuyên gia/O&M)','warn'); return; }
-  const wantP = p.profile==='crew' ? ['BCC_DOITAU'] : ['BCC_VP','BCC_VP_BP'];
+  const wantP = (p.profile==='crew'||p.profile==='crew_khoan') ? ['BCC_DOITAU'] : ['BCC_VP','BCC_VP_BP'];
   const cands=(S.hrAttendance||[]).filter(a=>wantP.indexOf(a.profile)>=0);
   if(!cands.length){ toast('Chưa có kỳ chấm công loại phù hợp trong HRM','warn'); return; }
   const opts=cands.map(a=>{
@@ -21097,6 +21101,24 @@ function asgAdd(o, opts){
   if(!(opts&&opts.noSave)) saveState();   /* v3.13.26: bulk (backfill) save 1 lần cuối — 174×saveState = treo UI ~1 phút */
   return rec;
 }
+/* v3.13.75 FIX: nút ⏹ trong màn 🏛 Pháp nhân & BHXH (per-NV, empEntityOpen) gọi thẳng asgEnd/enrEnd
+   KHÔNG hỏi ngày (mặc định hôm nay, im lặng) — khác hẳn hrmAllocEnd (màn Phân bổ nhóm) có hỏi ngày +
+   báo kết quả. Sếp bấm xong không thấy gì → tưởng chưa lưu, đi tìm nút Lưu không có (đúng — hành động
+   là 1 click, nhưng thiếu phản hồi). Bọc thêm 2 hàm này để nhất quán 2 màn, không đổi asgEnd/enrEnd gốc. */
+function _asgEndUi(id, empId){
+  var d=prompt('Kết thúc hiệu lực từ ngày (YYYY-MM-DD):', new Date().toISOString().slice(0,10));
+  if(!d) return;
+  asgEnd(id, d);
+  toast('⏹ Đã kết thúc hiệu lực từ '+d,'good');
+  empEntityOpen(empId);
+}
+function _enrEndUi(id, empId){
+  var d=prompt('Kết thúc nơi đóng BHXH từ ngày (YYYY-MM-DD):', new Date().toISOString().slice(0,10));
+  if(!d) return;
+  enrEnd(id, d);
+  toast('⏹ Đã kết thúc từ '+d,'good');
+  empEntityOpen(empId);
+}
 function asgEnd(id, endDate){
   const a=(S.hrEmploymentAssignments||[]).find(x=>x.id===id); if(!a) return;
   const who=(CURRENT_USER&&CURRENT_USER.name)||'', at=new Date().toISOString();
@@ -21469,7 +21491,7 @@ window.hrmAllocSave=function(asgId){
   try{ var m=from.slice(0,7);
     var hot=(S.payrollPeriods||[]).some(function(p){ return p&&!p._deleted&&p.month===m&&p.companyId===co.id
       && ['COMPUTED','ACC_CHECKED','APPROVED','TRANSFER_READY'].indexOf(p.status)>=0; });
-    if(hot && !confirm('⚠ Tháng '+m+' tại '+ent+' đang có kỳ ĐÃ TÍNH/ĐANG KIỂM. Thay đổi assignment có thể làm lệch — vẫn tiếp tục?')) return;
+    if(hot && !confirm('⚠ Tháng '+m+' tại '+ent+' đang có kỳ ĐÃ TÍNH/ĐANG KIỂM. Thay đổi assignment có thể làm lệch — vẫn tiếp tục?')){ toast('Đã HỦY — chưa lưu gì (Sếp bấm Không ở hộp xác nhận)','warn'); return; }
   }catch(e){}
   var mk=function(){ return asgAdd({ empId:eId, companyId:co.id, workLocation:loc,
     attendanceEnabled:att, payrollEnabled:pay, isPrimaryEmployment:pri, isPrimaryIncome:inc,
@@ -21554,12 +21576,12 @@ function empEntityOpen(empId){
       <td style="padding:3px 6px;font-size:10.5px">${esc(mLabel[a.taxWithholdingMethod]||a.taxWithholdingMethod)}</td>
       <td style="padding:3px 6px;font-size:10.5px">${a.isFamilyDeductionCompany?'✅ GTGC':''} ${a.isPrimaryInsurance?'🛡 BH chính':''}</td>
       <td style="padding:3px 6px;font-size:9.5px;color:var(--muted)">${esc(a.effectiveFrom)} → ${esc(a.effectiveTo||'∞')}</td>
-      <td style="padding:3px 6px">${!a.effectiveTo?`<button class="icon-btn" title="Kết thúc hiệu lực" onclick="asgEnd('${a.id}');empEntityOpen('${esc(empId)}')">⏹</button>`:''}</td></tr>`).join('');
+      <td style="padding:3px 6px">${!a.effectiveTo?`<button class="icon-btn" title="Kết thúc hiệu lực" onclick="_asgEndUi('${a.id}','${esc(empId)}')">⏹</button>`:''}</td></tr>`).join('');
   const enrRows=enrs.map(x=>`<tr style="border-bottom:1px solid var(--rule);${x.effectiveTo?'opacity:.5':''}">
       <td style="padding:3px 6px;font-size:11px">🛡 ${esc(companyName(x.companyId))}</td>
       <td style="padding:3px 6px;font-size:10px">${Object.keys(x.schemes||{}).filter(k=>x.schemes[k]).join(' · ')}</td>
       <td style="padding:3px 6px;font-size:9.5px;color:var(--muted)">${esc(x.effectiveFrom)} → ${esc(x.effectiveTo||'∞')}</td>
-      <td style="padding:3px 6px">${!x.effectiveTo?`<button class="icon-btn" title="Kết thúc" onclick="enrEnd('${x.id}');empEntityOpen('${esc(empId)}')">⏹</button>`:''}</td></tr>`).join('');
+      <td style="padding:3px 6px">${!x.effectiveTo?`<button class="icon-btn" title="Kết thúc" onclick="_enrEndUi('${x.id}','${esc(empId)}')">⏹</button>`:''}</td></tr>`).join('');
   openModal('🏛 Pháp nhân & BHXH — '+esc(e.fullName||''), `
     <div style="font-size:10.5px;color:var(--muted);margin-bottom:6px">Nguồn sự thật quan hệ NV–pháp nhân (effective-dated). Sửa = kết thúc bản cũ + tạo bản mới. FLAG đa pháp nhân đang <b>${esc(multiEntityMode('',''))}</b> — GĐ1 chỉ nhập liệu nền.</div>
     <div style="font-size:12px;font-weight:600;margin:4px 0">Quan hệ lao động (${asgs.length}) <button class="btn-sec" style="font-size:10px" onclick="asgFormUi('${esc(empId)}')">➕ Thêm</button></div>
@@ -74725,6 +74747,15 @@ function hrDeptDisplay(code, nameOpt){
   if(!n || n===c) return n||c;
   return c+' · '+n;
 }
+/* v3.13.65 — PHÒNG BAN → ENGINE LƯƠNG (Sếp chốt: tiêu chí phân biệt Chuyên gia O&M vs Expat là
+   PHÒNG/BAN, không phải chọn tay). Đọc THẲNG từ hồ sơ NV (Phòng ban đã chọn sẵn) — không suy đoán,
+   không thêm màn cấu hình riêng (Sếp chốt 30/7: "app phải lấy nguồn từ hồ sơ nhân viên"). */
+function deptImpliedEngine(dept){
+  const c=hrDeptCanon(dept||'');
+  if(c==='OM') return 'expert_om';
+  if(c==='EXPAT') return 'expat';
+  return '';
+}
 /* v3.11.23 — HẠNG SẮP XẾP PHÒNG BAN (thống nhất mọi danh sách):
    BOD LUÔN ĐẦU (rank 0) → các phòng theo ĐÚNG THỨ TỰ trong danh mục S.departments →
    mã canon ngoài danh mục (xếp sau phòng) → KHỐI TÀU/CREW cuối → 'chưa gán' cuối cùng.
@@ -75450,14 +75481,24 @@ function openSalaryProfileCard(empId, _ret){
   const nowPer=new Date().toISOString().slice(0,7);
   const cur=salaryProfileAt(empId, nowPer);
   const canE=salaryProfileCanEdit();
+  /* v3.13.66 FIX NGHIÊM TRỌNG: fmtFull(val,ccy) KHÔNG chỉ định dạng — nó QUY ĐỔI val từ ccy sang
+     displayCcy() (cấu hình hiển thị toàn hệ thống VND/USD, S.displayCcy) rồi mới format. Thẻ lương
+     trước giờ dùng fmtFull cho mục đích "hiển thị đúng nguyên tệ" — SAI hoàn toàn: khi S.displayCcy=
+     'VND', 1 thẻ USD/ngày=15 bị NHÂN TỶ GIÁ hiển thị "394.500đ" (đã xảy ra thật — thẻ SURESH BHAGAWAN
+     KADAM, USD/ngày=15 hiện 394.500đ, Số ngày phụ cấp=14 hiện 368.200đ vì bị coi là TIỀN nhân tỷ giá).
+     _spFmt hiển thị ĐÚNG NGUYÊN TỆ của thẻ, không quy đổi, không phụ thuộc cấu hình hiển thị toàn hệ thống. */
+  const _spFmt=(val,ccy)=>{ val=+val||0; const c=String(ccy||'VND').toUpperCase();
+    return c==='USD' ? '$'+val.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})
+                      : Math.round(val).toLocaleString('vi-VN')+'₫'; };
   const tl=list.slice().reverse().map(v=>{
     const live=cur&&cur.id===v.id;
     const lockUse=_spVersionUsedByLockedPeriod(v);
+    const _vCcy=_slIsUsd(v)?'USD':((v.data&&v.data.ccy)||'VND');
     return `<div style="padding:8px 12px;border-left:3px solid ${live?'var(--accent)':'var(--rule)'};margin-bottom:6px;background:${live?'var(--paper-2)':'var(--paper-2)'}">
       <div style="font-family:var(--font-mono);font-weight:700;font-size:12.5px">V${v.version} ${live?'<span class="ds-need" data-dot="good">HIỆU LỰC</span>':''} ${lockUse?'<span title="Đã dùng cho kỳ lương khóa — bất biến">🔒</span>':''}</div>
       <div style="font-size:11px;color:var(--muted)">${v.effectiveFrom} → ${v.effectiveTo||'nay'} · ${esc(v.createdBy||'')} · ${(v.createdAt||'').slice(0,10)}</div>
       ${v.reason?`<div style="font-size:11px;color:var(--warn)">${esc(v.reason)}</div>`:''}
-      <div style="font-size:12px;font-family:var(--font-mono);margin-top:3px">NET cố định: <b>${fmtFull(_spFixedTotal(v), _slIsUsd(v)?'USD':((v.data&&v.data.ccy)||'VND'))}</b>${_spVarTotal(v)?` <span class="ds-t-sub" title="Đơn giá PC không thường xuyên — chỉ tính khi có ngày công/dự án/KPI">+ ${fmtFull(_spVarTotal(v),_slIsUsd(v)?'USD':((v.data&&v.data.ccy)||'VND'))} (không TX)</span>`:''} · Lương BH: ${fmtFull(+(v.data&&v.data.bhxhBase)||0,_slIsUsd(v)?'USD':((v.data&&v.data.ccy)||'VND'))} · NPT: ${+(v.data&&v.data.dependents)||0}</div>
+      <div style="font-size:12px;font-family:var(--font-mono);margin-top:3px">NET cố định: <b>${_spFmt(_spFixedTotal(v), _vCcy)}</b>${_spVarTotal(v)?` <span class="ds-t-sub" title="Đơn giá PC không thường xuyên — chỉ tính khi có ngày công/dự án/KPI">+ ${_spFmt(_spVarTotal(v),_vCcy)} (không TX)</span>`:''} · Lương BH: ${_spFmt(+(v.data&&v.data.bhxhBase)||0,'VND')} · NPT: ${+(v.data&&v.data.dependents)||0}</div>
       <div style="font-size:11px;margin-top:2px">🏷 Grade quản trị: <b style="font-family:var(--font-mono)">${(typeof resolveEmployeeGrade==='function')?esc(resolveEmployeeGrade(empId).code):'—'}</b> <span style="color:var(--muted);font-size:10px">(tự theo chức vụ — không ảnh hưởng tiền)</span>${canE?` <a href="javascript:void(0)" onclick="gradeOverrideForm('${empId}')" style="font-size:10px">⚙ override</a>`:''}</div>
       <div style="font-size:11px;margin-top:2px">🏦 ${(function(){var b=pfBankInfo(e);
         if(!b.acc) return '<span style="color:#c0392b;font-weight:600">THIẾU SỐ TK ngân hàng — không vào được file bank</span>';
@@ -75471,8 +75512,8 @@ function openSalaryProfileCard(empId, _ret){
   }).join('')||'<div style="color:var(--muted);font-size:12px">Chưa có phiên bản nào — bấm ＋ Tạo phiên bản.</div>';
   const d=(cur&&cur.data)||{};
   const _curCcy=_slIsUsd(cur)?'USD':(d.ccy||'VND');   /* v3.13.64 FIX: thẻ expert/expert_om tạo trước 3.13.60 có d.ccy='VND' cứng (bug đã ghi chú 3.12.87) — suy theo engine như Sổ lương đã làm, không tin ccy lưu cũ */
-  const kv=(k,val,money)=>`<div style="display:flex;justify-content:space-between;font-size:12.5px;padding:2px 0"><span style="color:var(--muted)">${k}</span><b style="font-family:var(--font-mono)">${money?fmtFull(+val||0,_curCcy):esc(String(val==null?'—':val))}</b></div>`;
-  const extra=Object.keys(d).filter(k=>!['netBase','bhxhBase','dependents','isUnionMember','ccy','salaryType'].includes(k)&&!k.startsWith('allow_')&&!k.startsWith('crew'))
+  const kv=(k,val,money)=>`<div style="display:flex;justify-content:space-between;font-size:12.5px;padding:2px 0"><span style="color:var(--muted)">${k}</span><b style="font-family:var(--font-mono)">${money?_spFmt(+val||0,money===true?_curCcy:money):esc(String(val==null?'—':val))}</b></div>`;
+  const extra=Object.keys(d).filter(k=>!['netBase','bhxhBase','dependents','isUnionMember','ccy','salaryType'].includes(k)&&!k.startsWith('allow_')&&!k.startsWith('crew')&&!k.startsWith('expert_')&&!k.startsWith('expat_')&&!k.startsWith('tech'))
     .map(k=>kv(k,d[k],false)).join('');
   const body=`
     <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:10px">
@@ -75504,6 +75545,8 @@ function openSalaryProfileCard(empId, _ret){
             if(eng==='tech'){
               var _vpRate=(typeof _spResolve==='function')?(+_spResolve(cur,'techOfficeRate')||0):(+d.techOfficeRate||0);
               h+=money('Lương cơ bản (= mức VP × 22)', _vpRate*22);
+            } else if(eng==='expert_om'){   /* v3.13.68 (Sếp chốt 30/7): NET cơ bản = đơn giá ngày × 22 ngày công chuẩn — cùng nếp tech (mức VP × 22) */
+              h+=money('Lương NET cơ bản (= đơn giá ngày × 22)', _spFixedTotal(cur));
             } else {
               h+=money('Lương cơ bản (NET)', d.netBase);
             }
@@ -75524,8 +75567,19 @@ function openSalaryProfileCard(empId, _ret){
               h+='<div style="border-top:1px dashed var(--rule);margin:6px 0"></div>';
               h+='<div class="ds-t-label" style="margin:4px 0 2px">Đơn giá theo ngày (không cố định)</div>';
               h+=money('USD / ngày', d.expert_usdPerDay);
-              h+=money('Số ngày phụ cấp', d.expert_allowDays);
+              h+=kv('Số ngày phụ cấp', +d.expert_allowDays||0, false);   /* v3.13.66: SỐ NGÀY, không phải tiền — trước bị format như tiền, quy đổi tỷ giá vô nghĩa */
               h+=money('Phụ cấp sinh hoạt', d.expert_livingAllowance);
+              return h;
+            }
+
+            if(eng==='expat'){   /* v3.13.73: verify công thức khớp 100% bảng lương thật T6/2026 */
+              h+=money('TỔNG thu nhập cố định', _spFixedTotal(cur));
+              h+='<div style="border-top:1px dashed var(--rule);margin:6px 0"></div>';
+              h+=money('Lương/ngày (= lương tháng ÷ hệ số)', ((+d.expat_stdDaysCoef||22)>0?(+d.expat_monthlySalary||0)/(+d.expat_stdDaysCoef||22):0));
+              h+=kv('Hệ số ngày công/tháng (riêng người này)', +d.expat_stdDaysCoef||22, false);
+              h+=money('PC di chuyển/tháng', d.expat_transport);
+              h+=money('PC ăn trưa/ngày × 22', (+d.expat_lunchPerDay||0)*22);
+              h+='<div class="ds-t-sub" style="margin-top:2px">Công/phép/OT/thưởng THÁNG THẬT lấy từ chấm công kỳ lương — không nằm trên thẻ.</div>';
               return h;
             }
 
@@ -75542,13 +75596,13 @@ function openSalaryProfileCard(empId, _ret){
             return h;
           })()}
           <div style="border-top:1px dashed var(--rule);margin:6px 0"></div>
-          ${kv('Lương đóng BHXH',d.bhxhBase,true)}
+          ${kv('Lương đóng BHXH (luôn VNĐ)',d.bhxhBase,'VND')}
           ${(function(){ /* v3.12.34: rate BH đọc từ NGUỒN DUY NHẤT payrollEngine.profiles — không hard-code */
             const _pr=(typeof PayrollService!=='undefined'&&PayrollService.profileByKey&&PayrollService.profileByKey(cur.engine))||{};
             const _rNV=_pr.insEmployee!=null?+_pr.insEmployee:((+_pr.rateBHXHYT||0)+(+_pr.rateBHTN||0))||0.105;
             const _rDN=_pr.insEmployer!=null?+_pr.insEmployer:((+_pr.rateBHXHYTco||0)+(+_pr.rateBHTNco||0))||0.215;
-            return kv('BH phần NV '+(Math.round(_rNV*1000)/10)+'% (cty trả)',Math.round((+d.bhxhBase||0)*_rNV),true)
-                 + kv('BH phần DN '+(Math.round(_rDN*1000)/10)+'% (cty trả)',Math.round((+d.bhxhBase||0)*_rDN),true); })()}
+            return kv('BH phần NV '+(Math.round(_rNV*1000)/10)+'% (cty trả)',Math.round((+d.bhxhBase||0)*_rNV),'VND')
+                 + kv('BH phần DN '+(Math.round(_rDN*1000)/10)+'% (cty trả)',Math.round((+d.bhxhBase||0)*_rDN),'VND'); })()}
           ${kv('Người phụ thuộc',+d.dependents||0,false)}
           ${(cur.engine==='crew'||cur.engine==='crew_khoan')?kv(cur.engine==='crew_khoan'?'Mức khoán /ngày':'Mức đi biển /ngày',d.crewSeaRate,true)+kv('Mức DP /ngày',d.crewDpRate,true):''}
           ${extra?'<div style="border-top:1px dashed var(--rule);margin:6px 0"></div><div style="font-size:10px;color:var(--muted)">Tham số mở rộng</div>'+extra:''}`:'<div style="color:var(--muted);font-size:12px">Tạo phiên bản đầu tiên để engine dùng.</div>'}
@@ -75613,9 +75667,14 @@ function pgMapSet(positionId, gradeCode){
 /* §7 — thống kê ĐỘNG từ THẺ (KHÔNG đọc tiền từ object Grade) */
 function gradeStatsCompute(){
   var per=new Date().toISOString().slice(0,7), by={};
+  var _fx=(typeof fxRate==='function')?fxRate():25000;   /* v3.13.71 (Sếp chốt 30/7): đưa Chuyên gia O&M vào thống kê */
   HRService.employees().filter(function(e){return e&&!e._deleted&&e.status!=='inactive';}).forEach(function(e){
     var r=resolveEmployeeGrade(e.id), v=salaryProfileAt(e.id, per);
-    var net=v?(+_spResolve(v,'netBase')||0):0, bh=v?(+_spResolve(v,'bhxhBase')||0):0;
+    /* v3.13.71: trước đọc thẳng netBase (luôn =0 cho tech/expert_om vì 2 engine này không dùng field đó
+       — bị loại hoàn toàn khỏi thống kê). Giờ dùng _spFixedTotal (xử lý đúng từng engine) + quy đổi VND
+       qua _slFixedVnd (giống Sổ lương đã làm) để so sánh công bằng giữa NV các engine khác nhau cùng 1 Grade. */
+    var _tot=v?_spFixedTotal(v):0;
+    var net=v?_slFixedVnd(v,_tot,_fx):0, bh=v?(+_spResolve(v,'bhxhBase')||0):0;   /* bh luôn VNĐ theo đúng nghiệp vụ BHXH, không quy đổi */
     var co=v&&v.companyId?companyName(v.companyId):'—';
     var b=by[r.code]=by[r.code]||{code:r.code,emps:[],byCo:{},byDept:{}};
     b.emps.push({e:e,v:v,net:net,bh:bh,src:r.source});
@@ -75820,24 +75879,25 @@ function _sgGroupOf(g){
 /* v3.13.51 VIỆC 3b: đã DỌN cụm sgGradePickerHtml + salaryProfileAssignGrade(+Save) —
    chết từ 3.13.40 (Grade gán qua ánh xạ Chức vụ trong gradeAdminOpen, thẻ không giữ grade tiền).
    Bản tham chiếu nằm ở lịch sử git ≤3.13.50. */
-function _spEngineChanged(){   /* v3.13.64: khóa cứng USD khi chọn engine Chuyên gia/O&M — không cho chọn nhầm VND */
+function _spEngineChanged(){   /* v3.13.64/73: khóa cứng USD khi chọn engine Chuyên gia/O&M hoặc Expat — không cho chọn nhầm VND */
   var e=document.getElementById('sp-engine'), c=document.getElementById('sp-ccy');
   if(!e||!c) return;
-  var isExp=(e.value==='expert_om');
+  var isExp=(e.value==='expert_om'||e.value==='expat');
   c.disabled=isExp; if(isExp) c.value='USD';
 }
 function salaryProfileNewVersionForm(empId){
   const e=hrmEmpById(empId); if(!e) return;
   const nowPer=new Date().toISOString().slice(0,7);
   const cur=salaryProfileAt(empId, nowPer); const d=(cur&&cur.data)||{};
-  const _isExpEng=!!(cur&&(cur.engine==='expert_om'||cur.engine==='expert'||cur.engine==='project'));
+  const _deptHint=(!cur)?deptImpliedEngine(e.dept):'';   /* v3.13.65: chỉ gợi ý khi TẠO MỚI, không đụng thẻ đã có */
+  const _isExpEng=!!(cur&&(cur.engine==='expert_om'||cur.engine==='expert'||cur.engine==='project'||cur.engine==='expat'))||_deptHint==='expert_om'||_deptHint==='expat';
   const val=k=>+(d[k])||0;
   const body=`
     <div style="font-size:12px;color:var(--muted);margin-bottom:8px">${esc(e.fullName)} · phiên bản mới KHÔNG ghi đè bản cũ — bản cũ tự đóng hiệu lực tháng liền trước.</div>
     <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr">
       <div class="field"><label>Hiệu lực từ THÁNG *</label><input type="month" id="sp-eff" value="${nowPer}"></div>
       ${((S.companies||[]).length>1)?`<div class="field"><label>Pháp nhân trả *</label><select id="sp-company">${(S.companies||[]).map(c=>`<option value="${c.id}" ${cur&&cur.companyId===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select></div>`:''}
-      <div class="field"><label>Engine</label><select id="sp-engine" onchange="_spEngineChanged()"><option value="office" ${(!cur||cur.engine==='office')?'selected':''}>Văn phòng</option><option value="tech" ${cur&&cur.engine==='tech'?'selected':''}>Kỹ thuật</option><option value="crew" ${cur&&cur.engine==='crew'?'selected':''}>Đội tàu</option><option value="crew_khoan" ${cur&&cur.engine==='crew_khoan'?'selected':''}>Đội tàu — Khoán (trả theo ngày làm)</option><option value="expert_om" ${cur&&(cur.engine==='expert_om'||cur.engine==='expert'||cur.engine==='project')?'selected':''}>Chuyên gia / O&M / Dự án (USD)</option></select></div>
+      <div class="field"><label>Engine${_deptHint?' <span style="color:#9a5b12;font-size:10px" title="Tự gợi ý theo Phòng ban — đổi tay được">(gợi ý theo PB)</span>':''}</label><select id="sp-engine" onchange="_spEngineChanged()"><option value="office" ${(!cur&&!_deptHint)||(cur&&cur.engine==='office')?'selected':''}>Văn phòng</option><option value="tech" ${cur&&cur.engine==='tech'?'selected':''}>Kỹ thuật</option><option value="crew" ${cur&&cur.engine==='crew'?'selected':''}>Đội tàu</option><option value="crew_khoan" ${cur&&cur.engine==='crew_khoan'?'selected':''}>Đội tàu — Khoán (trả theo ngày làm)</option><option value="expert_om" ${_isExpEng?'selected':''}>Chuyên gia / O&M / Dự án (USD)</option><option value="expat" ${(cur&&cur.engine==='expat')||_deptHint==='expat'?'selected':''}>Expat VP (USD)</option></select></div>
       <div class="field"><label>Loại lương</label><select id="sp-type"><option value="NET" selected>NET</option><option value="GROSS">GROSS</option></select></div>
       <div class="field"><label>Loại tiền</label><select id="sp-ccy" ${_isExpEng?'disabled':''}><option value="VND" ${!_isExpEng&&(d.ccy||'VND')==='VND'?'selected':''}>VND</option><option value="USD" ${_isExpEng||d.ccy==='USD'?'selected':''}>USD</option></select></div>
       <div style="font-size:10.5px;color:var(--muted);margin:4px 0">🏷 Grade tự phân loại theo chức vụ (quản lý ở màn 🏷 Grade quản trị) — không chọn trên thẻ. Grade không ảnh hưởng tiền lương/BH/thuế.</div>
@@ -75858,6 +75918,10 @@ function salaryProfileNewVersionForm(empId){
       <div class="field"><label>USD / ngày (Chuyên gia)</label><input type="number" id="sp-exp-usd" value="${val('expert_usdPerDay')}" step="any"></div>
       <div class="field"><label>Số ngày phụ cấp (Chuyên gia)</label><input type="number" id="sp-exp-days" value="${val('expert_allowDays')}" step="any"></div>
       <div class="field"><label>Phụ cấp sinh hoạt (Chuyên gia)</label><input type="number" id="sp-exp-allow" value="${val('expert_livingAllowance')}" step="any"></div>
+      <div class="field"><label>Lương/tháng USD (Expat)</label><input type="number" id="sp-expat-sal" value="${val('expat_monthlySalary')}" step="any"></div>
+      <div class="field"><label>Hệ số ngày công/tháng (Expat)</label><input type="number" id="sp-expat-days" value="${d.expat_stdDaysCoef||22}" step="any" title="Chia lương tháng ra đơn giá/ngày — RIÊNG TỪNG NGƯỜI, không cố định (VD Chow=30, Marina=22 theo bảng lương thật)"></div>
+      <div class="field"><label>PC di chuyển/tháng USD (Expat)</label><input type="number" id="sp-expat-transport" value="${val('expat_transport')}" step="any"></div>
+      <div class="field"><label>PC ăn trưa/ngày USD (Expat)</label><input type="number" id="sp-expat-lunch" value="${val('expat_lunchPerDay')}" step="any" title="Tự nhân với 22 ngày cố định khi tính (đúng theo bảng lương thật) — nhập đơn giá/ngày thôi"></div>
       <div class="field"><label>Lý do điều chỉnh *</label><input type="text" id="sp-reason" placeholder="VD: Điều chỉnh lương định kỳ 2026"></div>
     </div>
     <div id="sp-err" style="font-size:12px;color:var(--bad);min-height:14px;font-family:var(--font-mono)"></div>`;
@@ -75872,7 +75936,7 @@ function salaryProfileSaveVersion(empId){
   if(!reason){ if(err)err.textContent='Nhập lý do điều chỉnh (bắt buộc theo spec)'; return; }
   /* v3.13.60 (Sếp 28/7 — thẻ expat "không có loại tiền khác"): ccy chọn trên form thay hard-code 'VND' (gốc bug ghi chú 3.12.87) */
   const _eng=g('sp-engine').value;
-  const data={ salaryType:g('sp-type').value, ccy:(_eng==='expert_om')?'USD':(((g('sp-ccy')||{}).value)||'VND'),
+  const data={ salaryType:g('sp-type').value, ccy:(_eng==='expert_om'||_eng==='expat')?'USD':(((g('sp-ccy')||{}).value)||'VND'),
     netBase:+g('sp-net').value||0, bhxhBase:+g('sp-bhs').value||0, dependents:+g('sp-npt').value||0,
     isUnionMember:g('sp-union').value==='1',
     allow_trachNhiem:+g('sp-a1').value||0, allow_duAn:+g('sp-a2').value||0, allow_kpi:+g('sp-a3').value||0,
@@ -75881,10 +75945,18 @@ function salaryProfileSaveVersion(empId){
     /* v3.13.58 (Sếp 28/7 "chỉnh ở đâu?"): form tay có đủ 3 đơn giá TECH — trước chỉ vào được qua 📥 import */
     techSeaRate:+((g('sp-tsea')||{}).value)||0, techOfficeRate:+((g('sp-tvp')||{}).value)||0, techDockRate:+((g('sp-tdock')||{}).value)||0,
     /* v3.13.64: 3 field riêng Chuyên gia/O&M — khớp salaryProfileBuildInp (expert_usdPerDay/expert_allowDays/expert_livingAllowance) */
-    expert_usdPerDay:+((g('sp-exp-usd')||{}).value)||0, expert_allowDays:+((g('sp-exp-days')||{}).value)||0, expert_livingAllowance:+((g('sp-exp-allow')||{}).value)||0 };
+    expert_usdPerDay:+((g('sp-exp-usd')||{}).value)||0, expert_allowDays:+((g('sp-exp-days')||{}).value)||0, expert_livingAllowance:+((g('sp-exp-allow')||{}).value)||0,
+    /* v3.13.73: 4 field riêng Expat VP — khớp salaryProfileBuildInp + verify bằng bảng lương thật T6/2026 */
+    expat_monthlySalary:+((g('sp-expat-sal')||{}).value)||0, expat_stdDaysCoef:+((g('sp-expat-days')||{}).value)||22,
+    expat_transport:+((g('sp-expat-transport')||{}).value)||0, expat_lunchPerDay:+((g('sp-expat-lunch')||{}).value)||0 };
   let saved=null;
   const _spCo=(g('sp-company')||{}).value||'';
   const _spGrade=(g('sp-grade')||{}).value||'';
+  const _effMonth=(g('sp-eff').value||'').slice(0,7);
+  if(_spList(empId).some(x=>x.effectiveFrom===_effMonth)){
+    if(err) err.textContent='⚠ Đã có phiên bản hiệu lực '+_effMonth+' — đổi "Hiệu lực từ THÁNG" sang tháng khác (thẻ lương KHÔNG ghi đè, mỗi tháng chỉ 1 bản).';
+    return;
+  }
   commitMutation(()=>{ saved=salaryProfileAddVersion(empId,{effectiveFrom:g('sp-eff').value, engine:g('sp-engine').value, data, reason, source:'manual'}); if(!saved) throw new Error('validate'); if(_spCo) saved.companyId=_spCo; if(_spGrade) saved.gradeId=_spGrade; },
     {action:'salary_profile_add', fields:['salaryProfiles'], onOk:()=>{
        /* v3.12.01 H1: liên kết chặt thẻ lương ↔ lịch sử nhân sự — mỗi version mới tự ghi 1 dòng */
@@ -75897,7 +75969,7 @@ function salaryProfileSaveVersion(empId){
            reason);
        }catch(_e){}
        renderAll(); toast('Đã tạo phiên bản V'+saved.version,'good'); openSalaryProfileCard(empId); },
-     onFail:()=>{ /* toast đã hiện trong add */ }});
+     onFail:(r)=>{ if(err) err.textContent='⚠ CHƯA lưu được: '+((r&&r.error)||'lỗi không rõ — thử lại hoặc báo dev'); }});
 }
 
 /* ---- SỔ THEO DÕI LƯƠNG NHÂN SỰ (báo cáo quản trị READ-ONLY, nguồn CHỈ salaryProfiles) ---- */
@@ -75910,7 +75982,7 @@ const _SL_STD_DAYS = 22;
 function _slIsUsd(cur){
   if(!cur) return false;
   const eng = cur.engine || '';
-  return eng === 'expert_om' || eng === 'expert';
+  return eng === 'expert_om' || eng === 'expert' || eng === 'expat';
 }
 /* v3.12.98: nhóm Kỹ thuật — lương theo NGÀY (mức VP/biển/dock), không có thu nhập cố định tháng.
    Nhận diện qua engine, đúng tiền lệ _slIsUsd 3.12.87. */
@@ -75920,13 +75992,13 @@ function _slTechOfficeRate(cur){
   try{ return (typeof _spResolve==='function') ? (+_spResolve(cur,'techOfficeRate')||0) : (+((cur.data||{}).techOfficeRate)||0); }
   catch(e){ return +((cur.data||{}).techOfficeRate)||0; }
 }
-/* Quy đổi VỀ VND để so sánh trên BIỂU ĐỒ. USD/ngày → ×22 ngày ×tỷ giá. */
+/* Quy đổi VỀ VND để so sánh trên BIỂU ĐỒ. v3.13.70: _spFixedTotal đã là THÁNG (đơn giá×22) từ 3.13.68 — chỉ còn nhân tỷ giá, KHÔNG nhân 22 lần nữa (trước đây tot là NGÀY nên cần ×22, giờ tot đã là THÁNG). */
 function _slFixedVnd(cur, tot, rate){
   const amount = Number(tot) || 0;
   const fx = Number(rate) || 0;
   /* v3.12.98: tech quy đổi mức VP/ngày × 22 + phụ cấp cố định (tot đã gồm KPI nếu có — Sếp chốt) */
   if(_slIsTechDaily(cur)) return _slTechOfficeRate(cur) * _SL_STD_DAYS + amount;
-  return _slIsUsd(cur) ? amount * _SL_STD_DAYS * fx : amount;
+  return _slIsUsd(cur) ? amount * fx : amount;
 }
 /* ═══ v3.13.53 — IMPORT THẺ LƯƠNG HỒI TỐ TỪ EXCEL (Sếp duyệt 28/7, sau đợt đối chiếu 6 tháng):
    File cột (dò theo TÊN header, không theo vị trí — bài học parser 28/7): MSNV | Hiệu lực từ (YYYY-MM) |
@@ -75934,28 +76006,39 @@ function _slFixedVnd(cur, tot, rate){
    AN TOÀN: đi trọn qua salaryProfileAddVersion (quyền + chống trùng effectiveFrom + đóng dây + touch + audit + stale) —
    CHỈ TẠO BẢN MỚI, không sửa/xóa bản cũ; chạy lại file → dòng trùng kỳ tự BỎ QUA (idempotent); bản chèn hồi tố
    TRƯỚC bản đã có → tự đóng effectiveTo của CHÍNH BẢN MỚI (không đụng bản cũ). */
-function spImportParse_(aoa, empBySmart){
+function spImportParse_(aoa, empBySmart, empByName){
   var out={ok:[], err:[]};
   if(!aoa || !aoa.length) return out;
   var hi=-1, H=null;
   for(var i=0;i<Math.min(aoa.length,10);i++){
     var hs=(aoa[i]||[]).map(function(c){return String(c==null?'':c).replace(/\n/g,' ').toLowerCase();});
-    if(hs.some(function(h){return h.indexOf('msnv')>=0;}) && hs.some(function(h){return h.indexOf('hiệu lực')>=0||h.indexOf('hieu luc')>=0;})){ hi=i; H=hs; break; }
+    var hasHieuLuc=hs.some(function(h){return h.indexOf('hiệu lực')>=0||h.indexOf('hieu luc')>=0;});
+    var hasMsnv=hs.some(function(h){return h.indexOf('msnv')>=0;});
+    var hasName=hs.some(function(h){return h.indexOf('họ tên')>=0||h.indexOf('ho ten')>=0||h.indexOf('họ và tên')>=0;});
+    if(hasHieuLuc && (hasMsnv||hasName)){ hi=i; H=hs; break; }   /* v3.13.76: chấp nhận file CHỈ có Họ tên (không MSNV) */
   }
-  if(hi<0){ out.err.push('Không tìm thấy dòng tiêu đề (cần cột MSNV + Hiệu lực từ)'); return out; }
+  if(hi<0){ out.err.push('Không tìm thấy dòng tiêu đề (cần cột MSNV hoặc Họ tên + Hiệu lực từ)'); return out; }
   function col(pats){ for(var j=0;j<H.length;j++){ for(var p=0;p<pats.length;p++){ if(H[j].indexOf(pats[p])>=0) return j; } } return -1; }
-  var ix={ ms:col(['msnv']), eff:col(['hiệu lực','hieu luc']),
+  var ix={ ms:col(['msnv']), name:col(['họ tên','ho ten','họ và tên']), eff:col(['hiệu lực','hieu luc']),
     net:col(['netbase','lương cơ bản','luong co ban']), tn:col(['trách nhiệm','trach nhiem']),
     kpi:col(['kpi']), bh:col(['bhxh','lương bhxh']), npt:col(['npt','phụ thuộc']),
     sea:col(['techsearate','đi biển','di bien']), vp:col(['techofficerate','văn phòng /ngày','vp /ngày','vp/ngày']),
-    dock:col(['techdockrate','dock']), eng:col(['engine']) };
+    dock:col(['techdockrate','dock']), eng:col(['engine']),
+    expUsd:col(['usd / ngày','usd/ngày','usd ngày','expert_usdperday']), expDays:col(['ngày trợ cấp','so ngay phu cap','expert_allowdays']),
+    expAllow:col(['phụ cấp sinh hoạt','phu cap sinh hoat','expert_livingallowance']),
+    expatSal:col(['lương/tháng usd','luong/thang usd','expat_monthlysalary']), expatDays:col(['hệ số ngày công','he so ngay cong','expat_stddayscoef']),
+    expatTr:col(['pc di chuyển','pc di chuyen','expat_transport']), expatLu:col(['pc ăn trưa','pc an trua','expat_lunchperday']) };
+  var _normName=function(s){ return String(s||'').trim().toUpperCase().replace(/\s+/g,' '); };
   for(var r=hi+1;r<aoa.length;r++){
     var row=aoa[r]||[];
-    var ms=String(row[ix.ms]==null?'':row[ix.ms]).trim().toUpperCase();
-    if(!ms) continue;
-    var line='Dòng '+(r+1)+' ['+ms+']';
-    var e=empBySmart[ms];
-    if(!e){ out.err.push(line+': MSNV không khớp hồ sơ'); continue; }
+    var ms=(ix.ms>=0)?String(row[ix.ms]==null?'':row[ix.ms]).trim().toUpperCase():'';
+    var nameRaw=(ix.name>=0)?String(row[ix.name]==null?'':row[ix.name]).trim():'';
+    if(!ms && !nameRaw) continue;
+    var line='Dòng '+(r+1)+' ['+(ms||nameRaw)+']';
+    var e=null;
+    if(ms) e=empBySmart[ms];
+    if(!e && nameRaw && empByName){ e=empByName[_normName(nameRaw)]; }   /* v3.13.76: fallback theo TÊN — CHỈ khi không khớp MSNV (giống hrmAttParseSheet) */
+    if(!e){ out.err.push(line+(ms?': MSNV không khớp hồ sơ':': Tên không khớp hồ sơ HRM (kiểm chính tả/dấu)')); continue; }
     var eff=String(row[ix.eff]==null?'':row[ix.eff]).trim().slice(0,7).replace('/','-');
     if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(eff)){ out.err.push(line+': Hiệu lực sai (cần YYYY-MM)'); continue; }
     function num(j){ if(j<0) return 0; var v=String(row[j]==null?'':row[j]).replace(/[., ]/g,''); return Math.round(+v||+row[j]||0); }
@@ -75965,7 +76048,8 @@ function spImportParse_(aoa, empBySmart){
       bhxhBase:num(ix.bh), dependents:num(ix.npt), isUnionMember:false,
       techSeaRate:num(ix.sea), techOfficeRate:num(ix.vp), techDockRate:num(ix.dock) };
     var eng=String(ix.eng>=0?(row[ix.eng]||''):'').trim().toLowerCase();
-    if(eng!=='office'&&eng!=='tech'&&eng!=='crew_khoan'&&eng!=='crew') eng=(d.techSeaRate>0||d.techOfficeRate>0)?'tech':'office';
+    if(eng==='expert'||eng==='project') eng='expert_om';
+    if(eng!=='office'&&eng!=='tech'&&eng!=='crew_khoan'&&eng!=='crew'&&eng!=='expert_om'&&eng!=='expat') eng=(d.techSeaRate>0||d.techOfficeRate>0)?'tech':'office';
     if(eng==='office'){ delete d.techSeaRate; delete d.techOfficeRate; delete d.techDockRate;
       if(!(d.netBase>0)){ out.err.push(line+': Thẻ office cần Lương cơ bản > 0'); continue; } }
     else if(eng==='crew_khoan'||eng==='crew'){ /* v3.13.57: đội khoan/thuyền viên — lương bờ (Lương cơ bản) + KPI (Thưởng KPI) + phụ cấp biển/ngày (cột "Đi biển /ngày" → crewSeaRate) + nền BH riêng (ăn engine 3.13.55). Đội khoan: netBase = bờ TRỌN (CB+KPI) nếu cột KPI trống, hoặc CB+KPI nếu tách. */
@@ -75973,10 +76057,18 @@ function spImportParse_(aoa, empBySmart){
       delete d.techSeaRate; delete d.techOfficeRate; delete d.techDockRate;
       delete d.allow_trachNhiem; delete d.allow_kpi; delete d.allow_duAn; delete d.allow_thamNien; delete d.allow_khac;
       if(!(d.netBase>0)){ out.err.push(line+': Thẻ '+eng+' cần Lương bờ > 0'); continue; } }
+    else if(eng==='expert_om'){ /* v3.13.77: Chuyên gia O&M/Dự án — khớp đúng salaryProfileBuildInp (expert_usdPerDay/expert_allowDays/expert_livingAllowance) */
+      d={ salaryType:'NET', ccy:'USD', bhxhBase:num(ix.bh), dependents:num(ix.npt), isUnionMember:false,
+        expert_usdPerDay:num(ix.expUsd), expert_allowDays:num(ix.expDays), expert_livingAllowance:num(ix.expAllow) };
+      if(!(d.expert_usdPerDay>0)){ out.err.push(line+': Thẻ Chuyên gia O&M cần USD/ngày > 0'); continue; } }
+    else if(eng==='expat'){ /* v3.13.77: Expat VP — khớp đúng salaryProfileBuildInp (expat_monthlySalary/expat_stdDaysCoef/expat_transport/expat_lunchPerDay) */
+      d={ salaryType:'NET', ccy:'USD', bhxhBase:num(ix.bh), dependents:num(ix.npt), isUnionMember:false,
+        expat_monthlySalary:num(ix.expatSal), expat_stdDaysCoef:num(ix.expatDays)||22, expat_transport:num(ix.expatTr), expat_lunchPerDay:num(ix.expatLu) };
+      if(!(d.expat_monthlySalary>0)){ out.err.push(line+': Thẻ Expat cần Lương/tháng USD > 0'); continue; } }
     else { delete d.netBase; delete d.allow_trachNhiem; delete d.allow_kpi; delete d.allow_duAn; delete d.allow_thamNien; delete d.allow_khac;
       if(!(d.techSeaRate>0||d.techOfficeRate>0)){ out.err.push(line+': Thẻ tech cần đơn giá Biển hoặc VP > 0'); continue; } }
     var dup=(S.salaryProfiles||[]).some(function(x){return x&&!x._deleted&&x.empId===e.id&&x.effectiveFrom===eff;});
-    out.ok.push({empId:e.id, smartId:ms, name:e.fullName, eff:eff, engine:eng, data:d, dup:dup});
+    out.ok.push({empId:e.id, smartId:e.smartId||ms, name:e.fullName, eff:eff, engine:eng, data:d, dup:dup});
   }
   return out;
 }
@@ -75991,13 +76083,16 @@ window.spImportOpen=function(){
       try{
         var wbk=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});
         var aoa=XLSX.utils.sheet_to_json(wbk.Sheets[wbk.SheetNames[0]],{header:1,raw:false});
-        var bm={}; HRService.employees().forEach(function(e){ if(e&&!e._deleted) bm[String(e.smartId||'').trim().toUpperCase()]=e; });
-        var pr=spImportParse_(aoa, bm);
+        var bm={}; var bn={}; HRService.employees().forEach(function(e){ if(e&&!e._deleted){ bm[String(e.smartId||'').trim().toUpperCase()]=e; bn[String(e.fullName||'').trim().toUpperCase().replace(/\s+/g,' ')]=e; } });
+        var pr=spImportParse_(aoa, bm, bn);
         var fresh=pr.ok.filter(function(x){return !x.dup;}), dups=pr.ok.length-fresh.length;
         var h='<div style="font-size:12px"><div>📥 <b>'+fresh.length+'</b> phiên bản sẽ TẠO · <b style="color:#8a6d3b">'+dups+'</b> trùng kỳ (BỎ QUA — đã tồn tại) · <b style="color:#c0392b">'+pr.err.length+'</b> dòng lỗi</div>'
           +(pr.err.length?('<div style="max-height:16vh;overflow:auto;font-size:10.5px;color:#c0392b;margin:4px 0">'+pr.err.map(esc).join('<br>')+'</div>'):'')
           +'<div style="max-height:34vh;overflow:auto"><table class="tbl" style="font-size:11px"><tr><th>MSNV</th><th>Họ tên</th><th>Hiệu lực</th><th>Engine</th><th>Mức chính</th><th>BH</th><th>NPT</th><th></th></tr>'
-          +pr.ok.map(function(x){ var main=x.engine==='tech'?('B '+Number(x.data.techSeaRate||0).toLocaleString('vi-VN')+' · VP '+Number(x.data.techOfficeRate||0).toLocaleString('vi-VN')):(Number(x.data.netBase||0).toLocaleString('vi-VN')+' +TN '+Number(x.data.allow_trachNhiem||0).toLocaleString('vi-VN')+' +KPI '+Number(x.data.allow_kpi||0).toLocaleString('vi-VN'));
+          +pr.ok.map(function(x){ var main=x.engine==='tech'?('B '+Number(x.data.techSeaRate||0).toLocaleString('vi-VN')+' · VP '+Number(x.data.techOfficeRate||0).toLocaleString('vi-VN'))
+              :x.engine==='expert_om'?('USD/ngày '+Number(x.data.expert_usdPerDay||0).toLocaleString('vi-VN')+' · '+(x.data.expert_allowDays||0)+' ngày PC')
+              :x.engine==='expat'?('Lương/tháng $'+Number(x.data.expat_monthlySalary||0).toLocaleString('vi-VN')+' · hệ số '+(x.data.expat_stdDaysCoef||22))
+              :(Number(x.data.netBase||0).toLocaleString('vi-VN')+' +TN '+Number(x.data.allow_trachNhiem||0).toLocaleString('vi-VN')+' +KPI '+Number(x.data.allow_kpi||0).toLocaleString('vi-VN'));
             return '<tr'+(x.dup?' style="opacity:.5"':'')+'><td>'+esc(x.smartId)+'</td><td>'+esc(x.name)+'</td><td>'+x.eff+'</td><td>'+x.engine+'</td><td style="font-size:10px">'+main+'</td><td style="text-align:right">'+Number(x.data.bhxhBase||0).toLocaleString('vi-VN')+'</td><td>'+(x.data.dependents||0)+'</td><td>'+(x.dup?'BỎ QUA':'TẠO')+'</td></tr>'; }).join('')
           +'</table></div><div style="font-size:10.5px;color:var(--muted);margin-top:6px">Chỉ TẠO phiên bản mới — không sửa/xóa bản cũ · dây hiệu lực tự đóng · kỳ ĐÃ KHÓA không bị ảnh hưởng · kỳ chưa khóa tự STALE để tính lại</div></div>';
         window._spImp=fresh;
@@ -76046,8 +76141,10 @@ function openSalaryLedger(){
   const rows=[]; let fund=0, cnt=0, raisedThisYear=0, raiseVal=0, raisePctSum=0, raiseN=0;
   /* v3.12.87: snapshot tỷ giá MỘT LẦN cho cả lần render (không gọi fxRate() rải rác) */
   const slFx = (typeof fxRate==='function') ? fxRate() : 25000;
-  /* v3.12.87: KPI tách 2 nhóm độc lập — VND/tháng và USD/ngày, KHÔNG cộng gộp */
-  let vndFund=0, vndCount=0, usdDailyFund=0, usdCount=0;
+  /* v3.12.87: KPI tách 2 nhóm độc lập — VND/tháng và USD/tháng, KHÔNG cộng gộp
+     v3.13.70 FIX: _spFixedTotal (từ 3.13.68) trả về THÁNG cho expert_om (đơn giá×22), KHÔNG còn là NGÀY
+     như thiết kế gốc 3.12.87 — đổi tên biến + bỏ nhân 22 lần nữa ở các chỗ dùng bên dưới (tránh gấp đôi). */
+  let vndFund=0, vndCount=0, usdMonthlyFund=0, usdCount=0;
   const dueRaise=[], expiring=[];
   emps.forEach(e=>{
     if(e.status==='inactive') return;
@@ -76057,7 +76154,7 @@ function openSalaryLedger(){
     if(cur){
       fund+=tot; cnt++;                                   // giữ cho tương thích ngược
       const amount = Number(tot) || 0;
-      if(_slIsUsd(cur)){ usdDailyFund += amount; usdCount++; }
+      if(_slIsUsd(cur)){ usdMonthlyFund += amount; usdCount++; }
       else { vndFund += amount; vndCount++; }
     }
     // lịch sử điều chỉnh — v3.12.99: thống kê CHỈ tính BUSINESS_CHANGE (thiết kế versionType)
@@ -76098,21 +76195,21 @@ function openSalaryLedger(){
   const vtCnt={BUSINESS_CHANGE:0, DATA_IMPORT:0, MIGRATION:0, SYSTEM_FIX:0};
   (S.salaryProfiles||[]).forEach(v=>{ if(v&&!v._deleted){ vtCnt[spVersionType(v)]=(vtCnt[spVersionType(v)]||0)+1; } });
   emps.forEach(e=>{ if(e.status==='inactive')return; const c=salaryProfileAt(e.id,nowPer); if(!c)return; const _cd=hrDeptCanon(e.dept||''); const k=_cd?hrDeptLabel(_cd):'—';
-    /* v3.12.87: chuyên gia quy đổi USD/ngày → VND/tháng (×22 ngày ×tỷ giá) CHỈ để so sánh trên biểu đồ */
+    /* v3.13.70: _spFixedTotal đã là THÁNG cho chuyên gia (từ 3.13.68) — _slFixedVnd chỉ còn nhân tỷ giá */
     byDept[k]=(byDept[k]||0)+_slFixedVnd(c, _spFixedTotal(c), slFx); });
   /* v3.13.17 (Sếp duyệt 27/7): chú thích 3 thành phần biểu đồ để đối chiếu được với KPI */
   let _slTechDailyVnd=0; emps.forEach(e=>{ if(e.status==='inactive')return; const c=salaryProfileAt(e.id,nowPer); if(c&&_slIsTechDaily(c)) _slTechDailyVnd+=_slTechOfficeRate(c)*_SL_STD_DAYS; });
-  const _slChartNote='Gồm: VND/tháng '+vndFund.toLocaleString('vi-VN')+'₫ + chuyên gia quy đổi '+Math.round(usdDailyFund*_SL_STD_DAYS*slFx).toLocaleString('vi-VN')+'₫ + kỹ thuật/ngày quy đổi '+Math.round(_slTechDailyVnd).toLocaleString('vi-VN')+'₫';
+  const _slChartNote='Gồm: VND/tháng '+vndFund.toLocaleString('vi-VN')+'₫ + chuyên gia quy đổi '+Math.round(usdMonthlyFund*slFx).toLocaleString('vi-VN')+'₫ + kỹ thuật/ngày quy đổi '+Math.round(_slTechDailyVnd).toLocaleString('vi-VN')+'₫';
   (S.salaryProfiles||[]).forEach(v=>{ if(v && !v._deleted && v.version>1 && spVersionType(v)==='BUSINESS_CHANGE'){ const y=v.effectiveFrom.slice(0,4); raisesByYear[y]=(raisesByYear[y]||0)+1; } });
   const bar=(obj,fmtV)=>{ const ks=Object.keys(obj); const mx=Math.max(1,...ks.map(k=>obj[k]));
     return ks.sort((a,b)=>obj[b]-obj[a]).map(k=>`<div style="display:flex;align-items:center;gap:6px;font-size:10.5px;margin:2px 0"><span style="width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(k)}</span><div style="flex:1;background:var(--rule);border-radius:3px"><div style="width:${Math.round(obj[k]/mx*100)}%;background:var(--accent);height:9px;border-radius:3px"></div></div><span style="font-family:var(--font-mono);width:92px;text-align:right">${fmtV(obj[k])}</span></div>`).join(''); };
   const kpi=(l,v,c)=>`<div style="flex:1;min-width:130px;background:var(--paper-2);border:1px solid var(--rule);border-radius:8px;padding:8px 10px"><div style="font-size:9px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)">${l}</div><div style="font-family:var(--font-mono);font-weight:700;font-size:15px;color:${c||'var(--ink)'}">${v}</div></div>`;
   const trs=rows.map((x,i)=>{
     const e=x.e;
-    /* v3.12.87: lịch sử theo NGUYÊN TỆ — chuyên gia USD/ngày, còn lại VND/tháng. KHÔNG quy đổi. */
+    /* v3.13.70: _spFixedTotal (từ 3.13.68) trả về THÁNG cho chuyên gia (đơn giá×22), không còn NGÀY như thiết kế gốc 3.12.87 */
     const _xUsd=_slIsUsd(x.cur);
     const _xTech=_slIsTechDaily(x.cur);   /* v3.12.98 */
-    const _hm=v=>{ const n=Number(v)||0; if(_xUsd) return n.toLocaleString('en-US',{maximumFractionDigits:2})+' USD/ngày'; if(_xTech) return fmtFull(n,'VND'); return fmtFull(n,'VND'); };
+    const _hm=v=>{ const n=Number(v)||0; if(_xUsd) return n.toLocaleString('en-US',{maximumFractionDigits:2})+' USD/tháng'; if(_xTech) return fmtFull(n,'VND'); return fmtFull(n,'VND'); };
     const _vtb=vt=> vt==='BUSINESS_CHANGE' ? '' : `<span style="font-size:8.5px;border:1px solid var(--rule);border-radius:3px;padding:0 3px;color:var(--muted);margin-right:3px" title="Không tính vào thống kê tăng lương">${_SP_VT_LABEL[vt]||vt}</span>`;
     const histHtml=x.hist.slice().reverse().map(h=>`<div style="font-size:10.5px;font-family:var(--font-mono)">${_vtb(h.vt)}${h.eff}: ${_hm(h.before)} → <b>${_hm(h.after)}</b> <span style="color:${h.delta>=0?'var(--good)':'var(--bad)'}">(${h.delta>=0?'+':''}${_hm(h.delta)} · ${h.pct.toFixed(1)}%)</span> · ${esc(h.by)} · ${esc(h.reason)}</div>`).join('')||'<span style="font-size:10px;color:var(--muted)">chưa điều chỉnh</span>';
     return `<tr style="border-top:1px solid var(--rule)">
@@ -76124,20 +76221,20 @@ function openSalaryLedger(){
         const _t=Number(x.tot)||0;
         if(_xUsd){
           const _vnd=_slFixedVnd(x.cur,_t,slFx);
-          return '<b>'+_t.toLocaleString('en-US',{maximumFractionDigits:2})+' USD/ngày</b>'
-            +'<br><span style="font-size:9.5px;color:var(--muted)">≈ '+fmtFull(_vnd,'VND')+'/tháng · '+_SL_STD_DAYS+' ngày · tỷ giá '+Number(slFx).toLocaleString('vi-VN')+'</span>';
+          return '<b>'+_t.toLocaleString('en-US',{maximumFractionDigits:2})+' USD/tháng</b>'
+            +'<br><span style="font-size:9.5px;color:var(--muted)">≈ '+fmtFull(_vnd,'VND')+'/tháng · quy đổi '+_SL_STD_DAYS+' ngày · tỷ giá '+Number(slFx).toLocaleString('vi-VN')+'</span>';
         }
         if(_slIsTechDaily(x.cur)){
           const _or=_slTechOfficeRate(x.cur);
           const _vnd=_slFixedVnd(x.cur,_t,slFx);
           return '<b>'+fmtFull(_or,'VND')+'/ngày VP</b>'
             +'<br><span style="font-size:9.5px;color:var(--muted)">≈ '+fmtFull(_vnd,'VND')+'/tháng · '+_SL_STD_DAYS+' ngày'+(_t?(' · gồm PC/KPI '+fmtFull(_t,'VND')):'')+'</span>'
-            +'<br><span style="font-size:10px;color:var(--muted)">BH '+fmtFull(+(x.cur.data.bhxhBase)||0,'VND')+'</span>';
+            +'<br><span style="font-size:10px;color:var(--muted)">BH '+Math.round(+(x.cur.data.bhxhBase)||0).toLocaleString('vi-VN')+'₫ (luôn VNĐ)</span>';
         }
         const _sub=(x.cur.engine==='crew')?'MLCB · VND/tháng':'VND/tháng';
         return '<b>'+fmtFull(_t,'VND')+'</b>'
           +'<br><span style="font-size:9.5px;color:var(--muted)">'+_sub+'</span>'
-          +'<br><span style="font-size:10px;color:var(--muted)">BH '+fmtFull(+(x.cur.data.bhxhBase)||0,'VND')+'</span>';
+          +'<br><span style="font-size:10px;color:var(--muted)">BH '+Math.round(+(x.cur.data.bhxhBase)||0).toLocaleString('vi-VN')+'₫ (luôn VNĐ)</span>';
       })()}</td>
       <td style="padding:6px 8px;max-width:340px">${histHtml}</td>
       <td style="padding:6px 8px;text-align:center;font-size:10.5px;${x.monthsSince>=10?'color:#b8730a;font-weight:700':''}">${x.monthsSince===999?'—':x.monthsSince+' th'}</td>
@@ -76155,7 +76252,7 @@ function openSalaryLedger(){
       ${kpi('Quỹ lương cố định/tháng', fmtFull(vndFund,'VND'),'var(--accent)')}
       ${kpi('Nhân viên có thẻ', cnt+' / '+emps.filter(e=>e.status!=='inactive').length)}
       ${kpi('Bình quân', fmtFull(vndAvg,'VND'))}
-      ${kpi('Quỹ chuyên gia (USD/ngày)', usdCount? (Number(usdDailyFund).toLocaleString('en-US',{maximumFractionDigits:2})+' USD') : '0 USD', usdCount?'var(--teal)':'var(--muted)')}
+      ${kpi('Quỹ chuyên gia (USD/tháng)', usdCount? (Number(usdMonthlyFund).toLocaleString('en-US',{maximumFractionDigits:2})+' USD') : '0 USD', usdCount?'var(--teal)':'var(--muted)')}
       ${kpi('Tăng lương năm '+year, raisedThisYear+' lượt','var(--good)')}
       ${kpi('Quỹ tăng trong năm', fmtFull(raiseVal,'VND'),'var(--good)')}
       ${kpi('Tỷ lệ tăng BQ', (raiseN?(raisePctSum/raiseN).toFixed(1):'0')+'%')}
@@ -76246,6 +76343,35 @@ function salaryProfileAddVersion(empId, payload){
   try{ logAuditEvent('salary_profile_add',{empId, version:v.version, effectiveFrom:eff, reason:v.reason, actor:actorName()}); }catch(e){}
   return v;
 }
+/* v3.13.78 — LỆNH DEV CONSOLE (không có nút UI) để dọn sạch thẻ lương TEST trước khi import lại
+   hàng loạt từ tháng 1. Gõ trong Console trình duyệt: window.__wipeAllSalaryProfiles()
+   An toàn: chỉ Admin/KTT, tự chặn thẻ đã dùng cho kỳ ĐÃ KHOÁ (dùng lại đúng check của
+   salaryProfileDeleteVersion — không bypass), yêu cầu gõ đúng chữ xác nhận, ghi audit log
+   từng thẻ bị xoá + tổng kết cuối. Không gắn nút — chỉ chạy khi Sếp tự gõ lệnh 1 lần. */
+window.__wipeAllSalaryProfiles = function(){
+  if(!salaryProfileCanEdit()){ console.warn('Chỉ KTT/Admin được dùng lệnh này'); return; }
+  var all = (S.salaryProfiles||[]).filter(function(x){ return x && !x._deleted; });
+  if(!all.length){ console.log('Không có thẻ lương nào để xoá.'); return; }
+  var locked = all.filter(function(v){ return typeof _spVersionUsedByLockedPeriod==='function' && _spVersionUsedByLockedPeriod(v); });
+  var deletable = all.filter(function(v){ return locked.indexOf(v)<0; });
+  console.log('Tổng thẻ hiện có: '+all.length+' | Đã dùng cho kỳ KHOÁ (KHÔNG xoá được, tự bỏ qua): '+locked.length+' | Sẽ xoá: '+deletable.length);
+  if(!deletable.length){ console.log('Không còn thẻ nào xoá được (toàn bộ đã khoá).'); return; }
+  var typed = prompt('⚠ SẮP XOÁ '+deletable.length+' THẺ LƯƠNG (không khôi phục được).\nGõ chính xác: XOA HET '+deletable.length+' THE\nđể xác nhận:');
+  if(typed !== ('XOA HET '+deletable.length+' THE')){ console.log('Đã huỷ — chữ xác nhận không khớp.'); return; }
+  var who=(CURRENT_USER&&CURRENT_USER.name)||'', at=new Date().toISOString();
+  var ids = deletable.map(function(v){ return v.id; });
+  commitMutation(function(){
+    S.salaryProfiles = (S.salaryProfiles||[]).filter(function(x){ return ids.indexOf(x.id)<0; });
+    if(typeof markDeleted==='function'){ try{ markDeleted(ids,'salaryProfiles'); }catch(e){} }
+  }, {action:'salary_profile_bulk_wipe', fields:['salaryProfiles'], onOk:function(){
+      deletable.forEach(function(v){
+        try{ logAuditEvent('salary_profile_delete',{empId:v.empId, version:v.version, effectiveFrom:v.effectiveFrom, actor:who, batch:'bulk_wipe_'+at}); }catch(e){}
+      });
+      try{ logAuditEvent('salary_profile_bulk_wipe',{count:deletable.length, skippedLocked:locked.length, actor:who, at:at}); }catch(e){}
+      renderAll();
+      console.log('✓ Đã xoá '+deletable.length+' thẻ. Sẵn sàng import lại.');
+    }, onFail:function(r){ console.error('✗ XOÁ THẤT BẠI:', (r&&r.error)||'lỗi không rõ — dữ liệu KHÔNG đổi, thử lại.'); }});
+};
 function salaryProfileDeleteVersion(vid){
   if(!salaryProfileCanEdit()){ toast('Chỉ KTT/Admin','bad'); return; }
   const v=(S.salaryProfiles||[]).find(x=>x.id===vid); if(!v) return;
@@ -76296,6 +76422,16 @@ const _SP_FIXED_ALLOW = ['allow_trachNhiem','allow_kpi','allow_thamNien','allow_
 const _SP_VAR_ALLOW   = ['allow_duAn'];   // CHỈ PC dự án — không thường xuyên
 function _spFixedTotal(v){
   if(!v) return 0; const d=v.data||{};
+  if(v.engine==='expert_om'){   /* v3.13.68 (Sếp chốt 30/7): NET cơ bản Chuyên gia O&M = đơn giá ngày × 22 ngày công chuẩn — engine này không dùng netBase */
+    const r=(typeof _spResolve==='function')?(+_spResolve(v,'expert_usdPerDay')||0):(+d.expert_usdPerDay||0);
+    return r*22;
+  }
+  if(v.engine==='expat'){   /* v3.13.73: verify khớp bảng lương thật T6/2026 — lương tháng + PC di chuyển + PC ăn trưa(×22) */
+    const sal=(typeof _spResolve==='function')?(+_spResolve(v,'expat_monthlySalary')||0):(+d.expat_monthlySalary||0);
+    const tr=(typeof _spResolve==='function')?(+_spResolve(v,'expat_transport')||0):(+d.expat_transport||0);
+    const lu=(typeof _spResolve==='function')?(+_spResolve(v,'expat_lunchPerDay')||0):(+d.expat_lunchPerDay||0);
+    return sal + tr + lu*22;
+  }
   let t=+d.netBase||0;
   _SP_FIXED_ALLOW.forEach(k=>{ t+=+d[k]||0; });
   return t;
@@ -76794,6 +76930,18 @@ function salaryProfileBuildInp(empId, period){
   if(v.engine==='expert_om'||v.engine==='expert'||v.engine==='project')
     return {G:R('expert_usdPerDay'), R:R('expert_livingAllowance'), Q:R('expert_allowDays'),
             F:F, _bhxhBase:R('bhxhBase'), _v:v};
+
+  /* EXPAT VP (v3.13.73 — verify khớp 100% bảng lương thật T6/2026, Chow Kit Yeen/Marina Nareswari):
+     inp payComputeExpat: E=lương/tháng(USD), F=lương/ngày = E÷hệ số ngày công THEO NGƯỜI (không phải
+     hằng số chung — Chow dùng 30, Marina dùng 22, xác nhận từ file lương thật), O=PC di chuyển/tháng
+     (flat), P=PC ăn trưa = đơn giá/ngày × 22 CỐ ĐỊNH (khác hệ số ngày công riêng ở trên — đúng theo
+     bảng lương thật, không suy diễn). H/I/K/L/N/Q (công/phép/OT/thưởng/hoàn trả) đến từ chấm công kỳ,
+     KHÔNG nằm trên thẻ — để trống ở đây, kỳ lương tự điền khi nhập công. */
+  if(v.engine==='expat'){
+    const _eSal=R('expat_monthlySalary'), _eDays=+R('expat_stdDaysCoef')||22;
+    return {E:_eSal, F:(_eDays>0?(_eSal/_eDays):0), O:R('expat_transport'),
+            P:(+R('expat_lunchPerDay')||0)*22, _bhxhBase:R('bhxhBase'), _v:v};
+  }
 
   /* VĂN PHÒNG (và các engine còn lại) — giữ NGUYÊN ánh xạ cũ */
   return {G:R('netBase'),
