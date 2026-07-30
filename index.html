@@ -3732,7 +3732,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.13.78';
+const APP_VERSION='3.13.79';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -75583,7 +75583,12 @@ function openSalaryProfileCard(empId, _ret){
               return h;
             }
 
-            /* office / tech — GIỮ THỨ TỰ NHƯ BẢNG CŨ, chỉ tách PC dự án xuống dưới */
+            if(eng==='tech'){
+              h+=money('TỔNG lương NET cố định', _spFixedTotal(cur));
+              return h;
+            }
+
+            /* office — GIỮ THỨ TỰ NHƯ BẢNG CŨ, chỉ tách PC dự án xuống dưới */
             h+=money(_SP_ALLOW_LABEL.allow_trachNhiem, d.allow_trachNhiem);
             h+=money(_SP_ALLOW_LABEL.allow_kpi,        d.allow_kpi);
             h+=money(_SP_ALLOW_LABEL.allow_thamNien,   d.allow_thamNien);
@@ -76422,6 +76427,13 @@ const _SP_FIXED_ALLOW = ['allow_trachNhiem','allow_kpi','allow_thamNien','allow_
 const _SP_VAR_ALLOW   = ['allow_duAn'];   // CHỈ PC dự án — không thường xuyên
 function _spFixedTotal(v){
   if(!v) return 0; const d=v.data||{};
+  if(v.engine==='tech'){   /* v3.13.79 (Sếp báo "tổng lương net không đúng" 30/7): _spFixedTotal THIẾU nhánh tech
+       — trả về d.netBase||0 = 0 vì thẻ tech không có netBase (engine tính bằng đơn giá×công), gây "TỔNG lương
+       NET cố định" hiện 0đ mâu thuẫn với dòng "Lương cơ bản (= mức VP×22)" đã đúng ngay phía trên. Dùng LẠI
+       đúng công thức đã verify T6/2026 (Koóng 32tr/Thành 28tr/Tài 22tr/Hưng 16tr/Nam 14tr — cùng nếp expert_om). */
+    const r=(typeof _spResolve==='function')?(+_spResolve(v,'techOfficeRate')||0):(+d.techOfficeRate||0);
+    return r*22;
+  }
   if(v.engine==='expert_om'){   /* v3.13.68 (Sếp chốt 30/7): NET cơ bản Chuyên gia O&M = đơn giá ngày × 22 ngày công chuẩn — engine này không dùng netBase */
     const r=(typeof _spResolve==='function')?(+_spResolve(v,'expert_usdPerDay')||0):(+d.expert_usdPerDay||0);
     return r*22;
