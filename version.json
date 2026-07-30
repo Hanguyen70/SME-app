@@ -1,5 +1,5 @@
 {
-  "version": "3.13.60",
-  "swVersion": "v3.13.60",
-  "notes": "FORM THE LUONG co o LOAI TIEN (Sep 28/7 — tao the expat 'khong co loai tien khac'): them select VND/USD ngay sau Loai luong; salaryProfileSaveVersion luu ccy tu form thay hard-code 'VND' (goc bug da ghi chu tu 3.12.87 — truoc day so luong phai SUY tien te tu engine vi ccy luon bi ghi 'VND'). The cu khong doi; the moi tao se mang ccy dung. Expat/expert luong USD: chon USD. Hash engine giu bo chuan 3.13.59 (office 3b202032 · crew ba56d9a2 · 4 SAME) — form/UI khong dung cong thuc. Hoi quy spimp53 7/7. 3 file dong bo."
+  "version": "3.13.61",
+  "swVersion": "v3.13.61",
+  "notes": "KHAI TU PAYROLL MODULE P1 (pf*) theo ke hoach Sep duyet 27/7: go ~60 ham pf* + module (74566-75944, 1379 dong) + modal ⚙ Payroll + 8 store (pfPayrollRuns/pfAttendanceImports/pfBankFiles/pfAccChecks/pfApprovals/pfDecisions/pfAudit/pfEntityConfig). Call-graph scan truoc khi cat phat hien 3 diem SHARED phai xu ly rieng: (1) FLAG_LEGACY_BANK tung TAT (false, lenh Sep 27/7) de chuyen sang pfGenerateBankFile — da DAO LAI ve true, khoi phuc luong bang NH legacy (_bankBatchBuild/payExportBankFile), neu khong se te liet ca 2 luong; (2) hrAllocEnts_ (man Phan bo don vi GD-B) tung doc S.pfEntityConfig — viet lai lay thang tu S.companies; (3) giu lai 3 helper thuan tuy pfEntCodeOf_/pfCompanyOfEnt/pfBankInfo vi dang dung that o tinh nang khac. Ghost scan sau cat: sach, khong con tham chieu song. 6 engine hash SHA-256 kiem tra BYTE-FOR-BYTE giong het ban 3.13.60 (office/tech/crew/expert/expat/Row) — engine KHONG bi dung toi. 3 file dong bo."
 }
