@@ -3732,7 +3732,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.13.61';
+const APP_VERSION='3.13.62';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -18522,8 +18522,14 @@ function payPeriodCreateCommit(){
   const _coId=(document.getElementById('pp-company')||{}).value||(((S.companies||[]).length===1)?(S.companies[0]||{}).id:'');
   if(PayrollService.periods().some(p=>p.period===period && p.profile===profile && (p.companyId||'')===(_coId||''))){ toast('Đã có kỳ '+period+' cho nhóm này'+((S.companies||[]).length>1?' tại pháp nhân đã chọn':''),'bad'); return; }
   // nạp NV thuộc nhóm (lọc theo type tương ứng; nếu chưa có HRM thì để trống cho HR thêm)
-  const typeMap={office:'office',crew:'crew',project:'expert',expat:'expert',tech:'tech'};
-  const emps=HRService.employees().filter(e=>e.status!=='inactive' && (e.type===typeMap[profile]||!e.type)).map(e=>({empId:e.id, name:e.fullName, smartId:e.smartId, inputs:{}, result:{}}));
+  /* v3.13.61 FIX GỐC: typeMap cũ dựa employee.type — THIẾU crew_khoan (rơi vào nhánh "!e.type" sai),
+     tech/expat cũng sai tương tự (không NV nào có type đó qua dropdown 4 giá trị). Nạp trực tiếp theo
+     engine THẺ LƯƠNG hiệu lực (nguồn thật duy nhất, khớp payDispatchCompute) — không qua employee.type nữa. */
+  const engForProfile={office:['office'],crew:['crew'],crew_khoan:['crew_khoan'],tech:['tech'],
+    project:['project','expert','expert_om'],expat:['expat']}[profile]||[];
+  const emps=HRService.employees().filter(e=>e.status!=='inactive').filter(e=>{
+    const v=salaryProfileAt(e.id, period); return v && engForProfile.indexOf(v.engine)>=0;
+  }).map(e=>({empId:e.id, name:e.fullName, smartId:e.smartId, inputs:{}, result:{}}));
   /* v3.12.86 (lệnh Sếp): LƯU ngày công chuẩn VÀO KỲ — kỳ cũ bất biến khi đổi cấu hình chung. */
   const _sd=+((document.getElementById('pp-stddays')||{}).value)||0;
   if(!_sd || _sd<1 || _sd>31){ toast('Nhập Ngày công chuẩn của kỳ (1–31)','bad'); return; }
@@ -21195,7 +21201,7 @@ window.hrmAllocOpen=function(){
   } else {
     var rows=asgs.slice();
     if(st.ent){ rows=rows.filter(function(a){ var co=pfCompanyOfEnt(st.ent); return co && a.companyId===co.id; }); }
-    if(st.g){ rows=rows.filter(function(a){ return (a.payrollGroup||'')===st.g; }); }
+    if(st.g){ rows=rows.filter(function(a){ return payrollGroupOf(a.empId)===st.g; }); }
     if(st.warn&&st.warn!=='B1'&&st.warn!=='BANK'){ rows=rows.filter(function(a){ return (audByAsg[a.id]||[]).some(function(x){return x.code===st.warn;}); }); }
     if(st.q){ var ql=st.q.toLowerCase(); rows=rows.filter(function(a){ var e=byId[a.empId]||{}; return ((e.smartId||'')+' '+(e.fullName||'')).toLowerCase().indexOf(ql)>=0; }); }
     rows.sort(function(a,b){ var ea=byId[a.empId]||{}, eb=byId[b.empId]||{}; return String(ea.smartId||'').localeCompare(String(eb.smartId||'')); });
@@ -21210,7 +21216,7 @@ window.hrmAllocOpen=function(){
         : (v.companyId&&a.companyId&&v.companyId!==a.companyId ? '<span style="color:#E37400">Khác đơn vị</span>' : '<span style="color:var(--good)">V'+v.version+' ✓</span>');
       var warns=(audByAsg[a.id]||[]); var wTxt=warns.length?('<span style="color:#c0392b" title="'+esc(warns.map(function(x){return x.msg;}).join(' · '))+'">'+warns.map(function(x){return x.code;}).join(',')+'</span>'):'—';
       body+='<tr'+(a.status==='ended'?' style="opacity:.55"':'')+'><td style="cursor:pointer" onclick="hrmViewEmployee(\''+a.empId+'\')"><b>'+esc(e.smartId||'')+'</b> · '+esc(e.fullName||'?')+(e.hrVisibility==='PAYROLL_ONLY'?' <span style="font-size:9px;background:var(--paper-3);padding:1px 4px;border-radius:4px">P-ONLY</span>':'')+'</td>'
-        +'<td><b>'+en+'</b></td><td>'+esc(a.payrollGroup||'—')+'</td><td style="font-size:11px">'+esc(a.workLocation||a.departmentId||'—')+'</td>'
+        +'<td><b>'+en+'</b></td><td title="Tự suy từ engine thẻ lương hiệu lực">'+esc(payrollGroupOf(a.empId)||'—')+'</td><td style="font-size:11px">'+esc(a.workLocation||a.departmentId||'—')+'</td>'
         +'<td style="font-family:var(--font-mono);font-size:10.5px">'+esc(a.effectiveFrom||'?')+' → '+esc(a.effectiveTo||'∞')+'</td>'
         +'<td>'+(a.attendanceEnabled===false?'✗':'✓')+'/'+(a.payrollEnabled===false?'✗':'✓')+'</td>'
         +'<td style="font-size:10.5px">'+(enr?esc(companyName(enr.companyId)).slice(0,14):'—')+'</td>'
@@ -21230,7 +21236,6 @@ window.hrmAllocOpen=function(){
     +(st.warn?'<button class="btn-ghost" style="font-size:11px" onclick="window._allocF.warn=\'\';hrmAllocOpen()">✕ bỏ lọc cảnh báo '+st.warn+'</button>':'')
     +(hrAllocCanEdit_()?'<button class="btn" style="margin-left:auto" onclick="hrmAllocForm(null,null)">➕ Thêm phân bổ</button>':'')
     +(hrAllocCanEdit_()&&kNoAsg>0?'<button class="btn-sec" onclick="hrmAllocBackfill()" title="Gán hàng loạt NV chưa có assignment vào đơn vị mẹ SMEJSC — có preview + xác nhận">⚡ Gán SMEJSC hàng loạt ('+kNoAsg+')</button>':'')
-    +(hrAllocCanEdit_()?'<button class="btn-ghost" onclick="hrmAllocSyncGroup()" title="Quét assignment có Nhóm lương lệch engine Thẻ lương (vd expert_om bị gộp EXPERT) — preview + xác nhận">🔁 Đồng bộ nhóm theo thẻ</button>':'')
     +(hrAllocCanEdit_()?'<button class="btn-ghost" onclick="hrmAllocDedupe()" title="Quét assignment ACTIVE trùng nhau (cùng NV + đơn vị + ngày hiệu lực — do lỗi double-click backfill cũ) — preview giữ/bỏ + xác nhận, bản thừa tombstone">🧹 Dọn trùng</button>':'')
     +'<button class="btn-ghost" onclick="closeModal();gradeAdminOpen()" title="Phân loại quản trị theo chức vụ + thống kê lương từ Thẻ">🏷 Grade</button>'
     +'</div>';
@@ -21401,7 +21406,7 @@ window.hrmAllocBackfillGo=function(){
     var co=pfCompanyOfEnt('SMEJSC');
     var n=0;
     list.forEach(function(x){
-      var r=asgAdd({ empId:x.e.id, companyId:co.id, payrollGroup:x.g, workLocation:x.e.dept||'',
+      var r=asgAdd({ empId:x.e.id, companyId:co.id, workLocation:x.e.dept||'',
         attendanceEnabled:true, payrollEnabled:true, isPrimaryEmployment:true, isPrimaryIncome:true,
         effectiveFrom:x.from, status:'active', reason:'backfill SMEJSC (GĐ-B)' }, {noSave:true});
       if(r){ (r.auditTrail=r.auditTrail||[]).push({at:new Date().toISOString(), by:(CURRENT_USER&&CURRENT_USER.name)||'', act:'backfill'}); n++; }
@@ -21419,7 +21424,7 @@ window.hrmAllocForm=function(asgId, empId){
   var emps=HRService.employees().filter(function(e){return e&&!e._deleted&&e.status!=='inactive';});
   var co=a?(S.companies||[]).find(function(c){return c&&c.id===a.companyId;}):null;
   var entSel=co?pfEntCodeOf_(co):'';
-  var groups=['OFFICE','CREW','TECH','DRILL','EXPERT','EXPERT_OM','EXPAT'];
+  var _gDisp=eId?(payrollGroupOf(eId)||'— chưa có thẻ lương'):'—';
   var h='<div style="font-size:12px">'
     +(a?('<div style="margin-bottom:6px">Sửa assignment của <b>'+esc((emps.find(function(e){return e.id===eId;})||{}).fullName||eId)+'</b> — đổi Đơn vị/Nhóm/Ngày hiệu lực sẽ <b>kết thúc bản cũ + tạo bản mới</b> (không ghi đè lịch sử).</div>')
         :('<div class="field"><label style="font-size:10px">Nhân sự (đã có hồ sơ)</label><select id="al-emp" style="width:100%">'
@@ -21427,7 +21432,7 @@ window.hrmAllocForm=function(asgId, empId){
           +'<div style="font-size:10px;color:var(--muted);margin-top:2px">Người CHƯA có hồ sơ (chỉ phục vụ Payroll)? <a href="javascript:void(0)" onclick="hrmAllocNewPerson()">➕ Tạo Payroll-only</a></div></div>'))
     +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">'
     +'<div class="field"><label style="font-size:10px">Đơn vị *</label><select id="al-ent" style="width:100%">'+hrAllocEnts_().map(function(en){return '<option '+(en===entSel?'selected':'')+'>'+en+'</option>';}).join('')+'</select></div>'
-    +'<div class="field"><label style="font-size:10px">Nhóm lương *</label><select id="al-g" style="width:100%">'+groups.map(function(g){return '<option '+(g===(a?a.payrollGroup:'')?'selected':'')+'>'+g+'</option>';}).join('')+'</select></div>'
+    +'<div class="field"><label style="font-size:10px">Nhóm lương</label><div style="padding:6px 0;font-weight:600" title="v3.13.61: tự suy từ engine thẻ lương hiệu lực — không sửa tay được nữa">'+esc(_gDisp)+'</div></div>'
     +'<div class="field"><label style="font-size:10px">Hiệu lực từ *</label><input id="al-from" type="date" value="'+esc(a?a.effectiveFrom:new Date().toISOString().slice(0,10))+'" style="width:100%"></div>'
     +'</div>'
     +'<div class="field"><label style="font-size:10px">Phòng ban / tàu / dự án</label><input id="al-loc" value="'+esc(a?(a.workLocation||''):'')+'" style="width:100%"></div>'
@@ -21448,7 +21453,6 @@ window.hrmAllocSave=function(asgId){
   if(!eId){ toast('Chọn nhân sự','warn'); return; }
   var ent=(document.getElementById('al-ent')||{}).value||'';
   var co=pfCompanyOfEnt(ent); if(!co){ toast('Đơn vị không có trong danh mục','bad'); return; }
-  var g=(document.getElementById('al-g')||{}).value||'';
   var from=(document.getElementById('al-from')||{}).value||'';
   if(!from){ toast('Nhập ngày hiệu lực','warn'); return; }
   var loc=(document.getElementById('al-loc')||{}).value||'';
@@ -21462,11 +21466,11 @@ window.hrmAllocSave=function(asgId){
       && ['COMPUTED','ACC_CHECKED','APPROVED','TRANSFER_READY'].indexOf(p.status)>=0; });
     if(hot && !confirm('⚠ Tháng '+m+' tại '+ent+' đang có kỳ ĐÃ TÍNH/ĐANG KIỂM. Thay đổi assignment có thể làm lệch — vẫn tiếp tục?')) return;
   }catch(e){}
-  var mk=function(){ return asgAdd({ empId:eId, companyId:co.id, payrollGroup:g, workLocation:loc,
+  var mk=function(){ return asgAdd({ empId:eId, companyId:co.id, workLocation:loc,
     attendanceEnabled:att, payrollEnabled:pay, isPrimaryEmployment:pri, isPrimaryIncome:inc,
-    effectiveFrom:from, status:'active' }); };
+    effectiveFrom:from, status:'active' }); };  /* v3.13.61: bỏ payrollGroup — suy sống qua payrollGroupOf() */
   if(!old){ if(mk()) toast('➕ Đã thêm phân bổ','good'); hrmAllocOpen(); return; }
-  var structural = old.companyId!==co.id || (old.payrollGroup||'')!==g || old.effectiveFrom!==from;
+  var structural = old.companyId!==co.id || old.effectiveFrom!==from;
   if(structural){
     var dayBefore=(function(d){ var t=new Date(d); t.setDate(t.getDate()-1); return t.toISOString().slice(0,10); })(from);
     asgEnd(old.id, dayBefore);
@@ -21568,7 +21572,6 @@ function asgFormUi(empId){
       <label>Quan hệ<select id="ag-rel" style="width:100%;padding:6px;border:1px solid var(--rule);border-radius:5px"><option value="LABOR">LABOR — lao động</option><option value="SERVICE">SERVICE — dịch vụ</option><option value="OTHER">OTHER</option></select></label>
       <label>Loại HĐ<select id="ag-ct" style="width:100%;padding:6px;border:1px solid var(--rule);border-radius:5px"><option>INDEFINITE</option><option>FIXED_TERM</option><option>PROBATION</option><option>SEASONAL_OR_SHORT_TERM</option><option>SERVICE</option><option>OTHER</option></select></label>
       <label>PP khấu trừ thuế<select id="ag-tax" style="width:100%;padding:6px;border:1px solid var(--rule);border-radius:5px"><option>PROGRESSIVE</option><option>FLAT_10</option><option>NON_RESIDENT_20</option><option>BY_TAXRULES</option></select></label>
-      <label>Nhóm chi trả<input id="ag-grp" placeholder="tùy chọn" style="width:100%;padding:6px;border:1px solid var(--rule);border-radius:5px"></label>
       <label style="grid-column:1/3"><input type="checkbox" id="ag-gtgc"> Nơi hưởng GIẢM TRỪ GIA CẢNH (isFamilyDeductionCompany — tối đa 1 nơi/thời điểm; KHÔNG quyết định ủy quyền QT)</label>
       <label style="grid-column:1/3"><input type="checkbox" id="ag-pins"> Nơi bảo hiểm chính (isPrimaryInsurance — đối chiếu enrollment)</label>
     </div>`,
@@ -21580,7 +21583,7 @@ function asgSaveUi(empId){
   const chk=id=>!!((document.getElementById(id)||{}).checked);
   if(!g('ag-co')){ toast('Chọn pháp nhân','bad'); return; }
   const rec=asgAdd({empId, companyId:g('ag-co'), relationshipType:g('ag-rel'), contractType:g('ag-ct'),
-    taxWithholdingMethod:g('ag-tax'), payrollGroup:g('ag-grp').trim(), effectiveFrom:g('ag-from'),
+    taxWithholdingMethod:g('ag-tax'), effectiveFrom:g('ag-from'),
     isFamilyDeductionCompany:chk('ag-gtgc'), isPrimaryInsurance:chk('ag-pins')});
   if(rec) empEntityOpen(empId);
 }
@@ -74575,6 +74578,15 @@ window.permAuditData=function(){
  * bảng NH legacy _bankBatchBuild/payExportBankFile):
  * ═══════════════════════════════════════════════════════════════════ */
 function pfEntCodeOf_(co){ return co ? (co.isParent ? 'SMEJSC' : String(co.code||'').toUpperCase()) : ''; }
+/* v3.13.61: Nhóm lương (payrollGroup) — 1 NGUỒN DUY NHẤT = engine thẻ lương hiệu lực, không lưu cứng
+   trên assignment nữa (trước đây 2 form ghi tự do/khác nhau → lệch 28 NV EXPERT/EXPERT_OM). */
+const PAYROLL_GROUP_BY_ENGINE={office:'OFFICE', crew:'CREW', crew_khoan:'CREW', tech:'TECH',
+  project:'EXPERT', expert:'EXPERT', expert_om:'EXPERT_OM', expat:'EXPAT'};
+function payrollGroupOf(empId, atPeriod){
+  var per=atPeriod||new Date().toISOString().slice(0,7);
+  var v=(typeof salaryProfileAt==='function')?salaryProfileAt(empId, per):null;
+  return (v&&v.engine&&PAYROLL_GROUP_BY_ENGINE[v.engine])||'';
+}
 function pfCompanyOfEnt(ent){
   var cs=S.companies||[];
   if(ent==='SMEJSC'){ return cs.find(function(c){return c&&c.isParent;})||null; }
@@ -78352,8 +78364,9 @@ function hrmEditEmployee(id){
   }).join('');
   const managerOpt=`<option value="">— Không —</option>`+HRService.employees().filter(x=>x.id!==id).map(x=>`<option value="${x.id}"${x.id===e.managerId?' selected':''}>${hrmEsc(x.fullName)} (${hrmEsc(x.smartId)})</option>`).join('');
 
-  const fld=(label,fid,val,type)=>`<div style="flex:1;min-width:160px"><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:2px">${label}</label><input id="${fid}" type="${type||'text'}" value="${hrmEsc(val||'')}" style="width:100%;padding:6px 8px;border:1px solid var(--rule);border-radius:6px;font-size:13px"></div>`;
-  const sel=(label,fid,html)=>`<div style="flex:1;min-width:160px"><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:2px">${label}</label><select id="${fid}" style="width:100%;padding:6px 8px;border:1px solid var(--rule);border-radius:6px;font-size:13px">${html}</select></div>`;
+  const hint='<span style="color:#E37400" title="Nên điền để hồ sơ đầy đủ — KHÔNG bắt buộc, không chặn lưu">*</span>';
+  const fld=(label,fid,val,type,rec)=>`<div style="flex:1;min-width:160px"><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:2px">${label}${rec?hint:''}</label><input id="${fid}" type="${type||'text'}" value="${hrmEsc(val||'')}" style="width:100%;padding:6px 8px;border:1px solid var(--rule);border-radius:6px;font-size:13px"></div>`;
+  const sel=(label,fid,html,rec)=>`<div style="flex:1;min-width:160px"><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:2px">${label}${rec?hint:''}</label><select id="${fid}" style="width:100%;padding:6px 8px;border:1px solid var(--rule);border-radius:6px;font-size:13px">${html}</select></div>`;
   const rowWrap=h=>`<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px">${h}</div>`;
 
   // Mã NV (SME): khi tạo mới → gợi ý mã kế tiếp, HR sửa được. Khi sửa → cho phép chỉnh nhưng cảnh báo.
@@ -78369,6 +78382,7 @@ function hrmEditEmployee(id){
   const body=`
     <div style="background:#f4f8ff;border:1px solid #cfe0f5;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:13px">
       <div style="font-weight:600;margin-bottom:4px">Mã nhân viên</div>${idBlock}</div>
+    <div style="font-size:10.5px;color:var(--muted);margin-bottom:10px">${hint} = nên điền để hồ sơ đầy đủ (phục vụ lương/BHXH/thuế) — <b>không bắt buộc</b>, không chặn lưu. Chỉ Họ tên và Mã NV là bắt buộc thật.</div>
     <h4 style="font-size:13px;margin:0 0 6px">Phân loại</h4>
     ${rowWrap(
       sel('Nhóm nhân sự','hrm-f-type', `<option value="office"${e.type==='office'?' selected':''}>Văn phòng</option><option value="crew"${e.type==='crew'?' selected':''}>Thuyền viên</option><option value="expert"${e.type==='expert'?' selected':''}>Chuyên gia</option><option value="expert_om"${e.type==='expert_om'?' selected':''}>Chuyên gia O&M</option>`)+
@@ -78376,8 +78390,8 @@ function hrmEditEmployee(id){
     )}
     <h4 style="font-size:13px;margin:10px 0 6px">Thông tin cơ bản</h4>
     ${rowWrap(fld('Họ tên *','hrm-f-fullName',e.fullName)+sel('Giới tính','hrm-f-gender',opt(['','Nam','Nữ','Khác'],e.gender)))}
-    ${rowWrap(fld('Ngày sinh','hrm-f-dob',e.dob,'date')+fld('Nơi sinh','hrm-f-pob',e.pob)+sel('Hôn nhân','hrm-f-maritalStatus',opt(['','Độc thân','Đã kết hôn','Khác'],e.maritalStatus)))}
-    ${rowWrap(fld('CCCD/Hộ chiếu','hrm-f-idNo',e.idNo)+fld('Ngày cấp','hrm-f-idIssueDate',e.idIssueDate,'date')+fld('Nơi cấp','hrm-f-idIssuePlace',e.idIssuePlace))}
+    ${rowWrap(fld('Ngày sinh','hrm-f-dob',e.dob,'date',true)+fld('Nơi sinh','hrm-f-pob',e.pob)+sel('Hôn nhân','hrm-f-maritalStatus',opt(['','Độc thân','Đã kết hôn','Khác'],e.maritalStatus)))}
+    ${rowWrap(fld('CCCD/Hộ chiếu','hrm-f-idNo',e.idNo,null,true)+fld('Ngày cấp','hrm-f-idIssueDate',e.idIssueDate,'date',true)+fld('Nơi cấp','hrm-f-idIssuePlace',e.idIssuePlace,null,true))}
     ${rowWrap(fld('Quốc tịch','hrm-f-nationality',e.nationality||'Việt Nam')+fld('Điện thoại','hrm-f-phone',e.phone)+fld('Email','hrm-f-email',e.email,'email'))}
     ${rowWrap(fld('Hộ khẩu thường trú','hrm-f-addrPermanent',e.addrPermanent))}
     ${rowWrap(fld('Địa chỉ hiện tại','hrm-f-addrCurrent',e.addrCurrent))}
@@ -78391,7 +78405,7 @@ function hrmEditEmployee(id){
       <div id="hrm-ai-review" style="margin-top:4px"></div>
     </div>
     ${_hrmPositionBlockHtml(e)}
-    ${rowWrap(fld('Chức danh','hrm-f-title',e.title)+sel('Phòng ban','hrm-f-dept',(()=>{
+    ${rowWrap(fld('Chức danh','hrm-f-title',e.title,null,true)+sel('Phòng ban','hrm-f-dept',(()=>{
       // v3.10.25: dropdown Phòng ban dùng DANH MỤC THẬT (HRService.departments) — lưu TÊN phòng ban.
       //   Trước đây dùng HRM_DEPTS cứng (8 mục), không khớp danh mục app (7 phòng: BOD/KT/HCNS/QLT/TMHD/BDA/CN-QN).
       const _depts=(HRService.departments()||[]).map(d=>d.name).filter(Boolean);
@@ -78400,7 +78414,7 @@ function hrmEditEmployee(id){
       return opt([''].concat(_depts), e.dept);
     })())+fld('Bộ phận','hrm-f-division',e.division))}
     ${rowWrap(sel('Tàu công tác','hrm-f-vessel',vesselOpt)+sel('Quản lý trực tiếp','hrm-f-manager',managerOpt))}
-    ${rowWrap(fld('Ngày vào làm','hrm-f-startDate',e.startDate,'date')+fld('Ngày thử việc','hrm-f-probationDate',e.probationDate,'date')+fld('Ngày ký HĐ','hrm-f-contractSignDate',e.contractSignDate,'date'))}
+    ${rowWrap(fld('Ngày vào làm','hrm-f-startDate',e.startDate,'date',true)+fld('Ngày thử việc','hrm-f-probationDate',e.probationDate,'date')+fld('Ngày ký HĐ','hrm-f-contractSignDate',e.contractSignDate,'date'))}
     ${rowWrap(sel('Loại hợp đồng','hrm-f-contractType',(()=>{
       // v3.11.89 FIX (gốc chuỗi lặp '36 tháng → ∅'): contractType từ import ("xác đinh thời hạn 36 tháng")
       //   không nằm trong danh mục cứng → select rơi về rỗng → MỖI LẦN mở form + Lưu là ghi diff giả
@@ -78423,9 +78437,9 @@ function hrmEditEmployee(id){
     ${rowWrap(fld('Hết hạn Hộ chiếu','hrm-f-passportExpiry',e.passportExpiry,'date'))}
     ${rowWrap(fld('Phép đã dùng (năm nay)','hrm-f-leaveUsed',e.leaveUsed||0,'number')+fld('Phép tồn năm trước','hrm-f-leaveCarryOver',e.leaveCarryOver||0,'number')+`<div style="flex:1;min-width:160px;align-self:flex-end;font-size:11px;color:var(--muted);padding-bottom:8px">Phép năm = 12 + thâm niên (5 năm/ngày), tính tự động theo ngày vào làm.</div>`)}
     <h4 style="font-size:13px;margin:10px 0 6px">Thông tin ngân hàng</h4>
-    ${rowWrap(fld('Ngân hàng','hrm-f-bankName',e.bankName)+fld('Chủ tài khoản','hrm-f-bankAccName',e.bankAccName))}
-    ${rowWrap(fld('Số tài khoản','hrm-f-bankAccNo',e.bankAccNo)+fld('Chi nhánh','hrm-f-bankBranch',e.bankBranch))}
-    ${rowWrap(fld('MST cá nhân','hrm-f-taxCode',e.taxCode)+fld('Số sổ BHXH','hrm-f-bhxhNo',e.bhxhNo))}
+    ${rowWrap(fld('Ngân hàng','hrm-f-bankName',e.bankName,null,true)+fld('Chủ tài khoản','hrm-f-bankAccName',e.bankAccName,null,true))}
+    ${rowWrap(fld('Số tài khoản','hrm-f-bankAccNo',e.bankAccNo,null,true)+fld('Chi nhánh','hrm-f-bankBranch',e.bankBranch))}
+    ${rowWrap(fld('MST cá nhân','hrm-f-taxCode',e.taxCode,null,true)+fld('Số sổ BHXH','hrm-f-bhxhNo',e.bhxhNo,null,true))}
     ${rowWrap(fld('Ngày nghỉ việc','hrm-f-resignDate',e.resignDate,'date')+`<div style="flex:1;min-width:160px;align-self:flex-end;font-size:11px;color:var(--muted);padding-bottom:8px">NV nghỉ TRONG tháng nào vẫn được tính lương kỳ tháng đó (v3.13.48).</div>`)}  <!-- v3.12.00 H0: nền quyết toán thuế (H2) + BHXH (H3) -->
     <h4 style="font-size:13px;margin:10px 0 6px">Ghi chú</h4>
     ${rowWrap(fld('Ghi chú','hrm-f-note',e.note))}
