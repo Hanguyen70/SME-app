@@ -1,5 +1,5 @@
 {
-  "version": "3.13.93",
-  "swVersion": "v3.13.93",
-  "notes": "XOA DANH MUC PHONG BAN 'KSD' (lenh Sep 30/7). KSD khong co trong code/seed - la muc rac nguoi dung tao trong danh muc. Migration tu chay khi ADMIN dang nhap (cung khoi auto-migrate co san): tim department code/ten = 'KSD'; AN TOAN - chi xoa khi KHONG NV nao (ke ca da nghi) dang canon ve no; neu con nguoi dung -> GIU + toast canh bao 'con N ho so dang gan - chuyen phong ban truoc'; xoa xong toast + audit log dept_delete_ksd + saveState. Idempotent - chay lai khong lam gi neu da sach. 7 engine SAME. 3 file dong bo."
+  "version": "3.13.94",
+  "swVersion": "v3.13.94",
+  "notes": "CHECK ca Luu Viet Hoa (Sep 30/7): bang 3 thang T04-T06 CO DINH y het - tong TN 11.111.111 = NET 10.000.000/0.9 (gross-up de sau khau tru 10% con dung 10tr). Xac nhan: T10 cung co MUC NET CO DINH. Sua 3 diem (KHONG dung engine): (1) _spFixedTotal office_gross: T10 tra netBase (muc NET co dinh) thay 0d - So luong het hien 0d; (2) hien thi the: nhan 'Luong NET co dinh (khau tru 10% tai nguon)'; (3) import T10: nen BHXH = 0 (truoc fallback = LCB -> the hien BH sai). Sep cap nhat the Hoa: xoa phien ban cu (chua tinh ky) -> tao lai/import voi Luong co ban = 10.000.000. File Import_TheLuong_STER da sua dong Hoa LCB=10tr. 7 engine SAME. 3 file dong bo."
 }

@@ -3733,7 +3733,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.13.93';
+const APP_VERSION='3.13.94';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -75753,7 +75753,7 @@ function openSalaryProfileCard(empId, _ret){
             } else if(eng==='expert_om'){   /* v3.13.68 (Sếp chốt 30/7): NET cơ bản = đơn giá ngày × 22 ngày công chuẩn — cùng nếp tech (mức VP × 22) */
               h+=money('Lương NET cơ bản (= đơn giá ngày × 22)', _spFixedTotal(cur));
             } else if(eng==='office_gross'){   /* v3.13.85 GĐ2 */
-              h+=money(d.taxWithhold10?'(Khấu trừ 10% — không lương cố định)':'Lương cơ bản (GROSS)', d.taxWithhold10?0:(d.netBase||0));
+              h+=money(d.taxWithhold10?'Lương NET cố định (khấu trừ 10% tại nguồn)':'Lương cơ bản (GROSS)', d.netBase||0);
             } else {
               h+=money('Lương cơ bản (NET)', d.netBase);
             }
@@ -76306,7 +76306,7 @@ function spImportParse_(aoa, empBySmart, empByName){
       var _t10=String(ix.grT10>=0?(row[ix.grT10]||''):'').trim().toLowerCase();
       var _isT10=(_t10==='1'||_t10==='có'||_t10==='co'||_t10==='x'||_t10==='true');
       d={ salaryType:'GROSS', ccy:'VND', netBase:num(ix.net), grossHousing:num(ix.grHouse), taxWithhold10:_isT10,
-        bhxhBase:num(ix.bh)||num(ix.net), dependents:num(ix.npt), isUnionMember:false };
+        bhxhBase:_isT10?0:(num(ix.bh)||num(ix.net)), dependents:num(ix.npt), isUnionMember:false };   /* v3.13.94: T10 không BHXH — nền = 0 */
       if(!_isT10 && !(d.netBase>0)){ out.err.push(line+': Thẻ GROSS cần Lương cơ bản > 0 (hoặc đánh dấu Khấu trừ 10%)'); continue; } }
     else if(eng==='expat'){ /* v3.13.77: Expat VP — khớp đúng salaryProfileBuildInp (expat_monthlySalary/expat_stdDaysCoef/expat_transport/expat_lunchPerDay) */
       d={ salaryType:'NET', ccy:'USD', bhxhBase:num(ix.bh), dependents:num(ix.npt), isUnionMember:false,
@@ -76692,8 +76692,8 @@ function _spFixedTotal(v){
     const r=(typeof _spResolve==='function')?(+_spResolve(v,'techOfficeRate')||0):(+d.techOfficeRate||0);
     return r*22;
   }
-  if(v.engine==='office_gross'){   /* v3.13.85 GĐ2: GROSS — mức cố định = LCB tháng (thuế/BH trừ khi tính kỳ); khấu trừ 10% tại nguồn không có lương cố định */
-    return d.taxWithhold10 ? 0 : (+_spResolve(v,'netBase')||+d.netBase||0);
+  if(v.engine==='office_gross'){   /* v3.13.94 (Sếp check ca Hoa 30/7): T10 cũng có MỨC NET CỐ ĐỊNH (VD Hoa 10tr/tháng — bảng 3 tháng y hệt, tổng TN = NET/0.9). Thẻ lưu netBase = NET cố định, hiển thị thay 0đ. */
+    return (+_spResolve(v,'netBase')||+d.netBase||0);
   }
   if(v.engine==='expert_om'){   /* v3.13.68 (Sếp chốt 30/7): NET cơ bản Chuyên gia O&M = đơn giá ngày × 22 ngày công chuẩn — engine này không dùng netBase */
     const r=(typeof _spResolve==='function')?(+_spResolve(v,'expert_usdPerDay')||0):(+d.expert_usdPerDay||0);
