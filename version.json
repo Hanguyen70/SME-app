@@ -1,5 +1,5 @@
 {
-  "version": "3.13.89",
-  "swVersion": "v3.13.89",
-  "notes": "NUT NOP NSNN TAI CONG TY CON (Sep 30/7): bang nghia vu tab 12 - record thuoc phap nhan KHAC cong ty me hien nut noi bat '💸 Nop NSNN' thay dau + nho; mo form ghi nhan co banner vang: 'Cong ty con nop truc tiep - khoan nay KHONG lien ket tai khoan ngan hang trong app (ngan quy app uu tien SME). Chi ghi nhan so da nop + chung tu' + o ghi chu tu dien '(ten cty) nop truc tiep - ngoai NH app'. Record cua SME (me): giu nut + nhu cu, tooltip nhac luong chuan = tao phieu AP ma 'Thue TNCN'/'Nop BHXH' chi qua ngan hang (phieu DA CHI tu cong vao Da nop - 3.13.88). Tai dung 100% co che payments[] co san, khong dung ngan quy/bank ledger. 7 engine SAME. 3 file dong bo."
+  "version": "3.13.93",
+  "swVersion": "v3.13.93",
+  "notes": "XOA DANH MUC PHONG BAN 'KSD' (lenh Sep 30/7). KSD khong co trong code/seed - la muc rac nguoi dung tao trong danh muc. Migration tu chay khi ADMIN dang nhap (cung khoi auto-migrate co san): tim department code/ten = 'KSD'; AN TOAN - chi xoa khi KHONG NV nao (ke ca da nghi) dang canon ve no; neu con nguoi dung -> GIU + toast canh bao 'con N ho so dang gan - chuyen phong ban truoc'; xoa xong toast + audit log dept_delete_ksd + saveState. Idempotent - chay lai khong lam gi neu da sach. 7 engine SAME. 3 file dong bo."
 }

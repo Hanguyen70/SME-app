@@ -3733,7 +3733,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.13.89';
+const APP_VERSION='3.13.93';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -6251,6 +6251,27 @@ async function authAction(){
         const n=migrateDepartmentsAddBODKT();
         if(n>0) setTimeout(()=>toast(`🏢 Đã thêm ${n} phòng ban mặc định (BOD / Kế toán)`,'good'),2000);
       }catch(e){console.warn('[migrate dept] failed:',e);}
+      /* v3.13.93 (lệnh Sếp 30/7: "KSD: XÓA LUÔN"): dọn mục danh mục phòng ban 'KSD' — mục rác do
+         người dùng tạo, không có trong seed. AN TOÀN: chỉ xoá khi KHÔNG NV nào (kể cả đã nghỉ)
+         đang canon về nó; nếu có người dùng -> giữ + báo để xử tay. Idempotent. */
+      try{
+        const _ds=(S.departments||[]);
+        const _ksd=_ds.filter(d=>d && (String(d.code||'').trim().toUpperCase()==='KSD' || String(d.name||'').trim().toUpperCase()==='KSD'));
+        if(_ksd.length){
+          const _users=HRService.employees().filter(e=>{
+            const c=(typeof hrDeptCanon==='function')?hrDeptCanon(e.dept):e.dept;
+            return _ksd.some(d=>String(c)===String(d.code));
+          });
+          if(_users.length){
+            setTimeout(()=>toast('⚠ Không xoá được danh mục KSD: còn '+_users.length+' hồ sơ NV đang gán — chuyển phòng ban cho họ trước','warn'),2100);
+          } else {
+            S.departments=_ds.filter(d=>_ksd.indexOf(d)<0);
+            try{ logAuditEvent('dept_delete_ksd',{removed:_ksd.length, actor:actorName()}); }catch(e2){}
+            saveState();
+            setTimeout(()=>toast('🗑 Đã xoá danh mục phòng ban "KSD" (lệnh Sếp — không NV nào đang dùng)','good'),2100);
+          }
+        }
+      }catch(e){console.warn('[migrate KSD] failed:',e);}
       // Auto-migrate: add 16 default expense types if missing
       try{
         const n=migrateExpenseTypes();
@@ -74898,6 +74919,16 @@ function hrDeptCanon(raw){                       // text bất kỳ → MÃ danh
     d=ds.find(x=>_hrDeptNorm(x.code)===_hrDeptNorm(code));
     return d?d.code:code;
   }
+  /* v3.13.91 (Sếp: "bộ phận app tự tạo trùng — ngăn chặn"): dạng "Tên phòng [MÃ]" (file XUẤT từ app
+     bị import ngược) không khớp tên/mã -> trước đây giữ thô -> SINH NHÓM TRÙNG ("Phòng Kế toán [KT]"
+     song song "KT · Phòng Kế toán"). Nay bóc "[MÃ]" cuối chuỗi: thử map MÃ, rồi thử map phần TÊN. */
+  const mBr=s.match(/^(.*?)\s*\[([^\]]+)\]\s*$/);
+  if(mBr){
+    const byCode=ds.find(x=>_hrDeptNorm(x.code)===_hrDeptNorm(mBr[2]));
+    if(byCode) return byCode.code;
+    const byName=ds.find(x=>_hrDeptNorm(x.name)===_hrDeptNorm(mBr[1]));
+    if(byName) return byName.code;
+  }
   return s;                                       // không khớp: giữ nguyên (migration liệt kê xử tay)
 }
 function hrDeptLabel(code){                       // MÃ → tên hiển thị (fallback chính giá trị)
@@ -74966,7 +74997,15 @@ function hrmMigrateDeptApply(){
 }
 /* v3.09.44: chuẩn hóa tên phòng ban khi IMPORT → khớp về HRM_DEPTS nếu trùng (bỏ dấu/hoa-thường/
    khoảng trắng + bỏ phần sau gạch nối như "- BOD"). KHÔNG ép nếu không khớp (giữ tên phòng thật). */
-function _hrmCanonDept(raw){ return hrDeptCanon(raw); }   // v3.10.95: import canon về MÃ danh mục thật
+function _hrmCanonDept(raw){   // v3.10.95: import canon về MÃ danh mục thật
+  /* v3.13.91 (NGĂN app tự tạo phòng ban): IMPORT là cửa duy nhất đưa text tự do vào dept (form là dropdown
+     danh mục). Canon xong mà vẫn KHÔNG thuộc danh mục -> để TRỐNG (NV vào nhóm "chưa phân bộ phận",
+     HR gán lại qua form) — KHÔNG bao giờ sinh nhóm phòng ban mới từ file import nữa. */
+  const c=hrDeptCanon(raw);
+  if(!c) return '';
+  const ds=(typeof HRService!=='undefined')?HRService.departments():[];
+  return ds.some(x=>String(x.code)===String(c)) ? c : '';
+}
 const HRM_CREW_TITLES=['Thuyền trưởng','Máy trưởng','Đại phó','Máy hai','Máy ba','Phó hai','Phó ba','Thủy thủ trưởng','Thủy thủ','Thợ máy','Bếp','Khác'];
 const HRM_CONTRACT_TYPES=['Thử việc','Xác định thời hạn','Không xác định thời hạn','Thời vụ','Khoán việc','Cộng tác viên'];
 
@@ -76221,7 +76260,8 @@ function spImportParse_(aoa, empBySmart, empByName){
     expAllow:col(['phụ cấp sinh hoạt','phu cap sinh hoat','expert_livingallowance']),
     expatSal:col(['lương/tháng usd','luong/thang usd','expat_monthlysalary']), expatDays:col(['hệ số ngày công','he so ngay cong','expat_stddayscoef']),
     expatTr:col(['pc di chuyển','pc di chuyen','expat_transport']), expatLu:col(['pc ăn trưa','pc an trua','expat_lunchperday']),
-    grHouse:col(['tiền thuê nhà','tien thue nha','grosshousing']), grT10:col(['khấu trừ 10','khau tru 10','taxwithhold10']) };   /* v3.13.85 GĐ2 */
+    grHouse:col(['tiền thuê nhà','tien thue nha','grosshousing']), grT10:col(['khấu trừ 10','khau tru 10','taxwithhold10']),   /* v3.13.85 GĐ2 */
+    dp:col(['mức dp','muc dp','dp /ngày','dp/ngày','crewdprate']) };   /* v3.13.90: khoán NGÀY (SDPO) — cột Mức DP /ngày */
   var _normName=function(s){ return String(s||'').trim().toUpperCase().replace(/\s+/g,' '); };
   for(var r=hi+1;r<aoa.length;r++){
     var row=aoa[r]||[];
@@ -76252,10 +76292,12 @@ function spImportParse_(aoa, empBySmart, empByName){
     if(eng==='office'){ delete d.techSeaRate; delete d.techOfficeRate; delete d.techDockRate;
       if(!(d.netBase>0)){ out.err.push(line+': Thẻ office cần Lương cơ bản > 0'); continue; } }
     else if(eng==='crew_khoan'||eng==='crew'){ /* v3.13.57: đội khoan/thuyền viên — lương bờ (Lương cơ bản) + KPI (Thưởng KPI) + phụ cấp biển/ngày (cột "Đi biển /ngày" → crewSeaRate) + nền BH riêng (ăn engine 3.13.55). Đội khoan: netBase = bờ TRỌN (CB+KPI) nếu cột KPI trống, hoặc CB+KPI nếu tách. */
-      d.crewSeaRate=d.techSeaRate||0; d.netBase=(d.netBase||0)+(d.allow_kpi||0);
+      d.crewSeaRate=d.techSeaRate||0; d.crewDpRate=num(ix.dp); d.netBase=(d.netBase||0)+(d.allow_kpi||0);
       delete d.techSeaRate; delete d.techOfficeRate; delete d.techDockRate;
       delete d.allow_trachNhiem; delete d.allow_kpi; delete d.allow_duAn; delete d.allow_thamNien; delete d.allow_khac;
-      if(!(d.netBase>0)){ out.err.push(line+': Thẻ '+eng+' cần Lương bờ > 0'); continue; } }
+      /* v3.13.90 (nguyên tắc lương khoán Sếp chốt): KHOÁN NGÀY (SDPO/DPO) = netBase 0 + Mức DP/ngày > 0 là
+         thẻ HỢP LỆ (VD LVP/PDC 300USD/ngày DP). Trước đây đòi Lương bờ > 0 tuyệt đối -> chặn nhầm. */
+      if(!(d.netBase>0) && !(d.crewDpRate>0)){ out.err.push(line+': Thẻ '+eng+' cần Lương bờ > 0 HOẶC Mức DP /ngày > 0 (khoán ngày)'); continue; } }
     else if(eng==='expert_om'){ /* v3.13.77: Chuyên gia O&M/Dự án — khớp đúng salaryProfileBuildInp (expert_usdPerDay/expert_allowDays/expert_livingAllowance) */
       d={ salaryType:'NET', ccy:'USD', bhxhBase:num(ix.bh), dependents:num(ix.npt), isUnionMember:false,
         expert_usdPerDay:num(ix.expUsd), expert_allowDays:num(ix.expDays), expert_livingAllowance:num(ix.expAllow) };
@@ -78806,12 +78848,16 @@ function hrmEditEmployee(id){
     </div>
     ${_hrmPositionBlockHtml(e)}
     ${rowWrap(fld('Chức danh','hrm-f-title',e.title,null,true)+sel('Phòng ban','hrm-f-dept',(()=>{
-      // v3.10.25: dropdown Phòng ban dùng DANH MỤC THẬT (HRService.departments) — lưu TÊN phòng ban.
-      //   Trước đây dùng HRM_DEPTS cứng (8 mục), không khớp danh mục app (7 phòng: BOD/KT/HCNS/QLT/TMHD/BDA/CN-QN).
-      const _depts=(HRService.departments()||[]).map(d=>d.name).filter(Boolean);
-      // giữ tương thích: nếu dept hiện tại của NV không nằm trong danh mục (data cũ) → vẫn hiện để không mất
-      if(e.dept && !_depts.some(n=>n===e.dept)) _depts.push(e.dept);
-      return opt([''].concat(_depts), e.dept);
+      /* v3.13.92 (Sếp 30/7: "tạo NV lấy MÃ từ dropdown"): dropdown dùng DANH MỤC THẬT và LƯU MÃ (d.code)
+         — hết cảnh lưu TÊN rồi canon ngược (nguồn sinh nhóm trùng 3.13.91). Hiển thị "MÃ · Tên".
+         Giá trị cũ của NV: canon về mã để chọn đúng; thật sự lạ (ngoài danh mục) → giữ 1 option thô để không mất. */
+      const _ds=(HRService.departments()||[]).filter(d=>d&&d.code);
+      const _curCode=(typeof hrDeptCanon==='function')?hrDeptCanon(e.dept):(e.dept||'');
+      const _known=_ds.some(d=>String(d.code)===String(_curCode));
+      let h='<option value=""'+(!e.dept?' selected':'')+'></option>';
+      _ds.forEach(d=>{ h+='<option value="'+hrmEsc(d.code)+'"'+(String(d.code)===String(_curCode)?' selected':'')+'>'+hrmEsc(d.code)+' · '+hrmEsc(d.name||d.code)+'</option>'; });
+      if(e.dept && !_known) h+='<option value="'+hrmEsc(e.dept)+'" selected>⚠ '+hrmEsc(e.dept)+' (ngoài danh mục — chọn lại)</option>';
+      return h;
     })())+fld('Bộ phận','hrm-f-division',e.division))}
     ${rowWrap(sel('Tàu công tác','hrm-f-vessel',vesselOpt)+sel('Quản lý trực tiếp','hrm-f-manager',managerOpt))}
     ${rowWrap(fld('Ngày vào làm','hrm-f-startDate',e.startDate,'date',true)+fld('Ngày thử việc','hrm-f-probationDate',e.probationDate,'date')+fld('Ngày ký HĐ','hrm-f-contractSignDate',e.contractSignDate,'date'))}
