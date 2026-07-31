@@ -1,5 +1,5 @@
 {
-  "version": "3.13.80",
-  "swVersion": "v3.13.80",
-  "notes": "FIX import the luong bao loi toan bo (Sep gui anh 30/7): dong tieu de trang tri cua file Excel ('IMPORT THE LUONG HOI TO - VAN PHONG - HIEU LUC 2026-01 (ban co MSNV)') chua CA 2 tu khoa 'MSNV' va 'HIEU LUC' trong CUNG 1 O - app do header tu tren xuong nhan nham dong 1 lam header, toan bo cot lech -> 27 dong loi 'MSNV khong khop/Hieu luc sai'. Fix app: yeu cau 2 tu khoa nam o 2 O KHAC NHAU moi nhan la header (spImportParse_). Fix file: doi tieu de Import_TheLuong_VanPhong_T01 bo tu khoa; da ra soat 9 file import khac - khong file nao bi tuong tu. 6 engine hash van BYTE-FOR-BYTE giong het ban goc 3.13.60 (26 ban). 3 file dong bo."
+  "version": "3.13.89",
+  "swVersion": "v3.13.89",
+  "notes": "NUT NOP NSNN TAI CONG TY CON (Sep 30/7): bang nghia vu tab 12 - record thuoc phap nhan KHAC cong ty me hien nut noi bat '💸 Nop NSNN' thay dau + nho; mo form ghi nhan co banner vang: 'Cong ty con nop truc tiep - khoan nay KHONG lien ket tai khoan ngan hang trong app (ngan quy app uu tien SME). Chi ghi nhan so da nop + chung tu' + o ghi chu tu dien '(ten cty) nop truc tiep - ngoai NH app'. Record cua SME (me): giu nut + nhu cu, tooltip nhac luong chuan = tao phieu AP ma 'Thue TNCN'/'Nop BHXH' chi qua ngan hang (phieu DA CHI tu cong vao Da nop - 3.13.88). Tai dung 100% co che payments[] co san, khong dung ngan quy/bank ledger. 7 engine SAME. 3 file dong bo."
 }

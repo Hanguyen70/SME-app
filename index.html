@@ -3533,6 +3533,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
         <div class="section-title"><span class="tag">∑</span>Danh sách nghĩa vụ thuế</div>
         <div class="filter-bar" style="margin:0">
           <label>Loại</label>
+          <select id="nsnn-filter-co" onchange="renderNSNN()" style="margin-right:6px"><option value="">🏛 Tất cả pháp nhân</option></select>
           <select id="nsnn-filter-type" onchange="renderNSNN()">
             <option value="">Tất cả</option>
           </select>
@@ -3732,7 +3733,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.13.80';
+const APP_VERSION='3.13.89';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -11433,7 +11434,7 @@ function openCrewAssignModal(id){
   if(isEdit&&!a){ toast('Không tìm thấy QĐ','bad'); return; }
   const readOnly=!canManageCrewAssign();
   // danh sách thuyền viên (type=crew) để chọn — KHÔNG tạo mới
-  const crews=HRService.employees().filter(e=>e && (e.type==='crew'||e.type==='expert'||e.type==='expert_om')).sort((x,y)=>String(x.fullName||x.name||'').localeCompare(String(y.fullName||y.name||'')));
+  const crews=HRService.employees().filter(e=>e && (e.type==='crew'||e.type==='expert'||e.type==='expert_om')).sort(empIdSort);   /* v3.13.82: theo mã NV, SME trước */
   const empOpts=['<option value="">— Chọn thuyền viên (từ hồ sơ) —</option>']
     .concat(crews.map(e=>`<option value="${e.id}" ${a.empId===e.id?'selected':''}>${esc((e.fullName||e.name||'')+' · '+(e.smartId||'')+(e.title?' · '+e.title:''))}</option>`)).join('');
   // tàu: gộp 2 nguồn
@@ -11762,7 +11763,7 @@ function openCrewPlanModal(id, presetEmp, presetVessel){
   if(!canManageCrewChange()){ toast('Không có quyền','bad'); return; }
   let curA=null;
   if(p.empId && p.vesselId) curA=HRService.crewAssignments().find(x=>x.empId===p.empId&&x.vesselId===p.vesselId&&!x.actualSignoffDate);
-  const crews=HRService.employees().filter(e=>e&&(e.type==='crew'||e.type==='expert'||e.type==='expert_om')).sort((x,y)=>String(x.fullName||x.name||'').localeCompare(String(y.fullName||y.name||'')));
+  const crews=HRService.employees().filter(e=>e&&(e.type==='crew'||e.type==='expert'||e.type==='expert_om')).sort(empIdSort);   /* v3.13.82: theo mã NV, SME trước */
   const empOpts=cur=>['<option value="">— Chọn —</option>'].concat(crews.map(e=>`<option value="${e.id}" ${cur===e.id?'selected':''}>${esc((e.fullName||e.name||'')+' · '+(e.smartId||''))}</option>`)).join('');
   const vOpts=['<option value="">— Chọn tàu —</option>'].concat(fleetVessels().map(v=>`<option value="${v.id}" ${p.vesselId===v.id?'selected':''}>${esc(v.name)}</option>`)).join('');
   const statusOpts=Object.keys(CREW_PLAN_STATUS).map(k=>`<option value="${k}" ${p.status===k?'selected':''}>${CREW_PLAN_STATUS[k].step}. ${CREW_PLAN_STATUS[k].label}</option>`).join('');
@@ -14853,6 +14854,7 @@ const DEFAULT_EXPENSE_TYPES = [
   {id:'ET-TAX_FCT',         code:'TAX_FCT',         group:'FINANCE', label:'Thuế Nhà thầu (FCT)',     icon:'🏢', isPO:false, nsnnType:'FCT', hint:'Thuế nhà thầu nước ngoài (TNDN + GTGT thầu). Phần GTGT lên bảng kê nhóm 2. Link tab 12 NSNN.'},
   {id:'ET-TAX_CIT',         code:'TAX_CIT',         group:'FINANCE', label:'Thuế TNDN',              icon:'🏛', isPO:false, nsnnType:'CIT', hint:'Thuế thu nhập doanh nghiệp (tạm tính/quyết toán). Link tab 12 NSNN.'},
   {id:'ET-TAX_PIT',         code:'TAX_PIT',         group:'FINANCE', label:'Thuế TNCN',              icon:'👤', isPO:false, nsnnType:'PIT', hint:'Thuế thu nhập cá nhân khấu trừ. Link tab 12 NSNN.'},
+  {id:'ET-BHXH_NOP',        code:'BHXH_NOP',        group:'FINANCE', label:'Nộp BHXH/BHYT/BHTN',     icon:'🏥', isPO:false, nsnnType:'INSURANCE_SOCIAL', hint:'v3.13.88: Phiếu nộp BHXH cho cơ quan BHXH (NV 10,5% thu hộ + DN 21,5%). Phiếu ĐÃ CHI tự cộng vào "Đã nộp" tab 12 NSNN.'},
   {id:'ET-TAX_LICENSE',     code:'TAX_LICENSE',     group:'FINANCE', label:'Thuế Môn bài',           icon:'📋', isPO:false, nsnnType:'BUSINESS_LICENSE', hint:'Thuế môn bài hàng năm. Link tab 12 NSNN.'},
   {id:'ET-TAX_PENALTY',     code:'TAX_PENALTY',     group:'FINANCE', label:'Phạt thuế',              icon:'⚠',  isPO:false, nsnnType:'PENALTY', hint:'Phạt chậm nộp / vi phạm thuế. Link tab 12 NSNN.'},
   {id:'ET-ADVANCE',       code:'ADVANCE',       group:'FINANCE',  label:'Ứng quỹ tiền mặt',        icon:'💰', isPO:false, isAdvance:true, hint:'Phiếu đề xuất ứng tiền mặt. AP duyệt xong → cộng vào số dư Quỹ tiền mặt đã chọn.'},
@@ -17384,11 +17386,30 @@ function defaultPayProfiles(){
       dockPct: 1.00,      // KHOÁN: dock = mức/ngày (không giảm)
       standbyVnPct: 1.00, // KHOÁN: chờ HĐ tại VN = mức/ngày
       standbyFnPct: 1.00, // KHOÁN: chờ HĐ nước ngoài = mức/ngày
+      restDayPct: 0,      /* v3.13.83 (Sếp chốt 30/7): nghỉ ca = 0đ — nguyên tắc KHOÁN: lương cố định mọi trường hợp ĐI LÀM; nghỉ ca không đi làm không trả. Thuế TNCN vẫn áp như crew (lương NET, cty gánh gross-up) — Sếp xác nhận cùng ngày. */
       pitBrackets: [
         {upTo:10000000,rate:0.05,sub:0},{upTo:30000000,rate:0.10,sub:500000},{upTo:60000000,rate:0.20,sub:3500000},{upTo:100000000,rate:0.30,sub:9500000},{upTo:Infinity,rate:0.35,sub:14500000}
       ],
       grossBrackets: [
         {upTo:9500000,div:0.95,sub:0},{upTo:27500000,div:0.90,sub:500000},{upTo:51500000,div:0.80,sub:3500000},{upTo:79500000,div:0.70,sub:9500000},{upTo:Infinity,div:0.65,sub:14500000}
+      ]
+    },
+    office_gross: {
+      /* v3.13.84 GĐ1 (Sếp duyệt kế hoạch 30/7) — LƯƠNG GROSS (STER): thuế TNCN + BHXH NV trừ THẲNG vào
+         lương (khác office NET: cty gánh gross-up). Đối chiếu từng ô Excel STER_BẢNG_LƯƠNG_2026:
+         lương theo công =ROUND(LCB/E×G,-3) · nhà ở chịu thuế =MIN(tiềnNhà, 15%×TNCT-trước-nhà) ·
+         BHXH nền riêng mặc định=LCB (Sếp chốt) NV 10,5% · GTGC 15,5tr+6,2tr/NPT · biểu 5 bậc.
+         Thưởng năng suất (biến động) + khoản miễn (công tác phí/ĐT/cơm) nhập theo KỲ, không nằm thẻ. */
+      salaryBasis:'MONTHLY',
+      label:'Lương GROSS — công ty con (thuế + BHXH trừ vào lương)',
+      standardDays: 22,
+      gtgcSelf: 15500000, gtgcDependent: 6200000,
+      capBHTN: 106200000, capBHXH: 50600000, rateBHTN: 0.01, rateBHXHYT: 0.095,
+      rateBHTNco: 0.01, rateBHXHYTco: 0.205,
+      housingTaxPct: 0.15,
+      roundSalaryTo: 1000,
+      pitBrackets: [
+        {upTo:10000000,rate:0.05,sub:0},{upTo:30000000,rate:0.10,sub:500000},{upTo:60000000,rate:0.20,sub:3500000},{upTo:100000000,rate:0.30,sub:9500000},{upTo:Infinity,rate:0.35,sub:14500000}
       ]
     },
     project: {
@@ -17516,7 +17537,11 @@ function payComputeCrew(inp, prof){
   const N=n(inp.N),O=n(inp.O),T=n(inp.T),AA=n(inp.AA),AR=n(inp.AR);
   const SD=prof.standardDays||31;
   // mức lương dẫn xuất
-  const P=O*prof.dockPct, Q=O*prof.standbyVnPct, R=N/SD, Sm=O*prof.standbyFnPct;
+  /* v3.13.83 (Sếp chốt 30/7 — thay đổi CÓ CHỦ ĐÍCH đầu tiên vào engine này từ 3.13.60): nghỉ ca đọc
+     restDayPct từ profile. Nguyên tắc KHOÁN: lương cố định mọi trường hợp ĐI LÀM — nghỉ ca (không đi làm)
+     = 0đ, khớp bảng lương thật (ô mức nghỉ ca NTP để trống). crew thường KHÔNG có field này -> giữ nguyên
+     N/SD như cũ, không đổi 1 đồng nào (đã VM-regression). */
+  const P=O*prof.dockPct, Q=O*prof.standbyVnPct, R=(prof.restDayPct!=null ? O*prof.restDayPct : N/SD), Sm=O*prof.standbyFnPct;
   // tiền lương từng loại
   const U=O*G+O*H, V=I*P, W=J*Q, X=Kc*R, Ym=Lc*Sm, Z=Mc*T;
   const AB=Math.round(U+V+W+X+Ym+Z+AA);
@@ -17554,6 +17579,42 @@ function payComputeExpert(inp, prof){
     grossTotal:AB, netTotal:M, takeHome:AB, ccy:prof.ccy||'USD'};
 }
 /* Tính lương 1 chuyên gia văn phòng (Expat, USD). inp = {E(lương/tháng),F(mức/ngày, nếu trống tính E/standardDays),H(công thường),I(phép),K(OT1.5 giờ),L(OT2 giờ),N(thưởng),O(đi lại),P(ăn trưa),Q(hoàn trả)}. */
+/* v3.13.84 GĐ1 — ENGINE LƯƠNG GROSS (STER). Inputs (giữ chữ cái cột Excel gốc):
+   E=ngày công chuẩn kỳ · G=công thực · F=LCB tháng (thẻ) · I=thưởng năng suất + PS chịu thuế (theo kỳ)
+   K/L/M=thưởng dịp chịu thuế (T13/tết/30-4... theo kỳ) · NH=tiền thuê nhà/tháng (thẻ) · W=NPT
+   EX=tổng khoản miễn thuế NGOÀI nhà ở (công tác phí/ĐT/cơm/trang phục — theo kỳ) · _bhxhBase=nền BH (thẻ, mặc định LCB)
+   Đối chiếu 24 ca thật T1-T6/2026 (VM test) trước khi giao. */
+function payComputeOfficeGross(inp, prof){
+  prof = prof || PayrollService.profileByKey('office_gross') || defaultPayProfiles().office_gross;
+  const n=v=>+v||0;
+  /* v3.13.84: nhánh KHẤU TRỪ 10% TẠI NGUỒN (phát hiện từ ca thật Lưu Việt Hoa T4-T6/2026 — lao động
+     không HĐLĐ/thời vụ): thuế = 10% thẳng trên tổng thu nhập, KHÔNG GTGC, KHÔNG BHXH. Thẻ bật cờ T10. */
+  if(n(inp.T10)===1){
+    const _U=n(inp.I)+n(inp.K)+n(inp.L)+n(inp.M);
+    const _AB=Math.round(_U*0.10*100)/100;
+    return {H:0,TX:_U,J:0,JX:0,EX:0,Y:_U,V:0,Vco:0,X:0,AA:_U,AB:_AB,U:_U,AD:_U-_AB,
+      grossTotal:_U, netTotal:_U-_AB, pit:_AB, insEmp:0, insCompany:0, takeHome:_U-_AB, ccy:'VND'};
+  }
+  const E=n(inp.E)||n(prof.standardDays)||22, G=n(inp.G), F=n(inp.F);
+  const _rt=n(prof.roundSalaryTo)||1000;
+  const H=E>0?Math.round((F/E*G)/_rt)*_rt:0;                       // =ROUND(F/E×G,-3)
+  const TX=n(inp.I)+n(inp.K)+n(inp.L)+n(inp.M);                   // thu nhập chịu thuế thêm (theo kỳ)
+  const NH=n(inp.NH);
+  const J=Math.min(NH, Math.round((H+TX)*(prof.housingTaxPct!=null?prof.housingTaxPct:0.15)));  // nhà ở CHỊU thuế
+  const JX=Math.max(NH-J,0);                                       // nhà ở MIỄN thuế
+  const EX=n(inp.EX);
+  const Y=H+TX+J;                                                  // thu nhập chịu thuế
+  const bh=(inp._bhxhBase!=null&&inp._bhxhBase!=='')?n(inp._bhxhBase):F;   // nền BH: thẻ; mặc định = LCB (Sếp chốt 30/7)
+  const V=Math.round(Math.min(bh,prof.capBHTN)*prof.rateBHTN + Math.min(bh,prof.capBHXH)*prof.rateBHXHYT);      // BHXH NV — TRỪ LƯƠNG
+  const Vco=Math.round(Math.min(bh,prof.capBHTN)*prof.rateBHTNco + Math.min(bh,prof.capBHXH)*prof.rateBHXHYTco); // DN (chi phí cty)
+  const X=prof.gtgcSelf + prof.gtgcDependent*n(inp.W);
+  const AA=Math.max(Y-V-X,0);
+  const AB=_payPit(AA, prof.pitBrackets);                          // thuế TNCN — TRỪ LƯƠNG (không gross-up)
+  const U=H+TX+J+JX+EX;                                            // tổng thu nhập tháng
+  const AD=U-V-AB;                                                 // THỰC LÃNH
+  return {H,TX,J,JX,EX,Y,V,Vco,X,AA,AB,U,AD,
+    grossTotal:U, netTotal:AD, pit:AB, insEmp:V, insCompany:Vco, takeHome:AD, ccy:'VND'};
+}
 function payComputeExpat(inp, prof){
   prof = prof || PayrollService.profileByKey('expat') || defaultPayProfiles().expat;
   const n=v=>+v||0;
@@ -17968,6 +18029,7 @@ function payDispatchCompute(profile, inputs, period){
     case 'crew_khoan': return payComputeCrew(inputs, prof);
     case 'project':return payComputeExpert(inputs, prof);
     case 'expert': case 'expert_om': return payComputeExpert(inputs, prof);  /* v3.13.32: OM dùng engine chuyên gia (USD/giờ) — prof null → engine tự fallback profile project */
+    case 'office_gross': return payComputeOfficeGross(inputs, prof);   /* v3.13.84 GĐ1 — lương GROSS công ty con */
     case 'expat':  return payComputeExpat(inputs, prof);
     case 'tech':   return payComputeTech(inputs, prof);
     default: return {takeHome:0};
@@ -18168,6 +18230,7 @@ const PayrollPolicyService=(function(){
     if(!(canEditHrPolicy())){ toast('🔒 Chỉ Admin/KTT/HR xác nhận chính sách','bad'); return false; }  /* v3.12.40 */
     const p=pols().find(x=>x.id===polId); if(!p){ toast('Không tìm thấy','bad'); return false; }
     p.pendingKtt=false; p.status='approved';
+    try{ _nsnnSyncFromPayrollPeriod(p); }catch(e){}   /* v3.13.88: kỳ ĐÃ DUYỆT → upsert nghĩa vụ PIT/BHXH vào NSNN */
     (p.audit=p.audit||[]).push(_aud('ktt_confirm','KTT xác nhận căn cứ + giá trị'));
     saveState(); toast('✅ Đã xác nhận '+p.id,'good'); return true;
   }
@@ -18527,8 +18590,24 @@ function payPeriodCreateCommit(){
      engine THẺ LƯƠNG hiệu lực (nguồn thật duy nhất, khớp payDispatchCompute) — không qua employee.type nữa. */
   const engForProfile={office:['office'],crew:['crew'],crew_khoan:['crew_khoan'],tech:['tech'],
     project:['project','expert','expert_om'],expat:['expat']}[profile]||[];
+  /* v3.13.86 (Sếp kiểm tra 30/7 — "tính lương và chuyển ngân hàng từ các công ty, không trộn chung 1 bảng"):
+     LỌC PHÁP NHÂN khi nạp NV vào kỳ. Nguồn xác định NV thuộc pháp nhân nào (theo thứ tự tin cậy):
+     (1) Quan hệ lao động hiệu lực tại kỳ (hrEmploymentAssignments — nguồn sự thật, màn 🏛);
+     (2) chưa khai QHLĐ -> thẻ lương hiệu lực có companyId;
+     (3) không có cả hai -> mặc định thuộc CÔNG TY ĐẦU TIÊN (công ty mẹ SME) — dữ liệu cũ chưa khai
+         không bị rơi khỏi kỳ SME (hành vi cũ giữ nguyên). App 1 pháp nhân: không lọc gì. */
+  const _multiCo=(S.companies||[]).length>1 && _coId;
+  const _defaultCo=((S.companies||[])[0]||{}).id||'';
+  function _empInCompany(e, spV){
+    if(!_multiCo) return true;
+    const asg=(typeof empAssignments==='function')?empAssignments(e.id, period+'-15'):[];
+    if(asg.length) return asg.some(a=>a.companyId===_coId);
+    const spCo=(spV&&spV.companyId)||'';
+    if(spCo) return spCo===_coId;
+    return _coId===_defaultCo;
+  }
   const emps=HRService.employees().filter(e=>e.status!=='inactive').filter(e=>{
-    const v=salaryProfileAt(e.id, period); return v && engForProfile.indexOf(v.engine)>=0;
+    const v=salaryProfileAt(e.id, period); return v && engForProfile.indexOf(v.engine)>=0 && _empInCompany(e, v);
   }).map(e=>({empId:e.id, name:e.fullName, smartId:e.smartId, inputs:{}, result:{}}));
   /* v3.12.86 (lệnh Sếp): LƯU ngày công chuẩn VÀO KỲ — kỳ cũ bất biến khi đổi cấu hình chung. */
   const _sd=+((document.getElementById('pp-stddays')||{}).value)||0;
@@ -19056,7 +19135,7 @@ function omImportDelete(id){
   saveState(); omImportOpen();
 }
 
-const PAY_EXTRA_TAXFIELD={office:'V', tech:'O', crew:'AA', project:'V', expat:'Q'};
+const PAY_EXTRA_TAXFIELD={office:'V', tech:'O', crew:'AA', project:'V', expat:'Q', office_gross:'I'};  /* v3.13.84 */
 function _extrasCompanyOf(period){
   const ps=(PayrollService.periods()||[]).filter(p=>p.period===period && p.companyId);
   const cos={}; ps.forEach(p=>cos[p.companyId]=1);
@@ -21231,7 +21310,7 @@ window.hrmAllocOpen=function(){
     if(st.g){ rows=rows.filter(function(a){ return payrollGroupOf(a.empId)===st.g; }); }
     if(st.warn&&st.warn!=='B1'&&st.warn!=='BANK'){ rows=rows.filter(function(a){ return (audByAsg[a.id]||[]).some(function(x){return x.code===st.warn;}); }); }
     if(st.q){ var ql=st.q.toLowerCase(); rows=rows.filter(function(a){ var e=byId[a.empId]||{}; return ((e.smartId||'')+' '+(e.fullName||'')).toLowerCase().indexOf(ql)>=0; }); }
-    rows.sort(function(a,b){ var ea=byId[a.empId]||{}, eb=byId[b.empId]||{}; return String(ea.smartId||'').localeCompare(String(eb.smartId||'')); });
+    rows.sort(function(a,b){ var ea=byId[a.empId]||{}, eb=byId[b.empId]||{}; return empIdSort(ea,eb); });   /* v3.13.82 */
     body+='<table class="tbl" style="font-size:11.5px"><tr><th>NV</th><th>Đơn vị</th><th>Nhóm</th><th>Nơi làm</th><th>Hiệu lực</th><th>CC/PL</th><th>BHXH</th><th>TN chính</th><th>Thẻ lương</th><th>Cảnh báo</th><th></th></tr>';
     rows.slice(0,200).forEach(function(a){
       var e=byId[a.empId]||{};
@@ -65931,11 +66010,88 @@ function _nsnnInit(){
   });
 }
 /* v2.99.40: tổng đã nộp của 1 record = Σ payments (fallback paidAmount nếu chưa có payments) */
+/* v3.13.88 (Sếp duyệt 30/7 — "Phải nộp lấy từ NHÂN SỰ, KHÔNG lấy từ phiếu AP"):
+   PURE — tính nghĩa vụ PIT + BHXH từ KỲ LƯƠNG trạng thái ≥ ĐÃ DUYỆT (approved), tách theo tháng + pháp nhân.
+   Chi tiết từng NV nằm sẵn trong bảng kỳ lương (Nhân sự) — NSNN chỉ giữ TỔNG. Kỳ USD (project/expat) giữ
+   ngoài như hiện hành. Kỳ cũ không companyId → công ty ĐẦU TIÊN (mẹ SME), cùng nếp 3.13.86. */
+function _nsnnDefaultCo(){ return ((S.companies||[])[0]||{}).id||''; }
+function _nsnnPayrollObligations(periodOrYear){
+  const out={PIT:0, INS:0, byKey:{}};
+  const pref=String(periodOrYear||'');
+  (PayrollService.periods()||[]).forEach(p=>{
+    if(payStatusIdx(p.status)<payStatusIdx('approved')) return;
+    if(p.profile==='project'||p.profile==='expat') return;
+    if(!String(p.period||'').startsWith(pref)) return;
+    let pit=0, insE=0, insC=0;
+    (p.rows||[]).forEach(r=>{ const R=r.result||{}; pit+=+R.pit||0; insE+=+R.insEmp||0; insC+=+R.insCompany||0; });
+    if(!(pit>0)&&!(insE+insC>0)) return;
+    const co=p.companyId||_nsnnDefaultCo();
+    const k=p.period+'|'+co;
+    const b=(out.byKey[k]=out.byKey[k]||{period:p.period, companyId:co, pit:0, insEmp:0, insCo:0});
+    b.pit+=pit; b.insEmp+=insE; b.insCo+=insC;
+    out.PIT+=pit; out.INS+=insE+insC;
+  });
+  return out;
+}
+/* v3.13.88 — "Đã nộp = từ phiếu AP theo mã chi phí, trạng thái ĐÃ CHI": Σ tiền ĐÃ CHI THẬT (payments[])
+   của các phiếu AP có expenseType nsnnType khớp loại, trong đúng tháng kỳ. AP chưa có trường pháp nhân
+   → quy về công ty mặc định (mẹ SME) — khi AP có companyId sẽ tự khớp đúng. */
+function _nsnnApPaidFor(taxType, period, companyId){
+  let sum=0;
+  (AccountingService.payables()||[]).forEach(r=>{
+    const meta=(typeof getExpenseType==='function')?getExpenseType(r.expenseType):null;
+    if(!meta || meta.nsnnType!==taxType) return;
+    const d=r.issueDate||r.invoiceDate||'';
+    if(!String(d).startsWith(period)) return;
+    const rCo=r.companyId||_nsnnDefaultCo();
+    if((companyId||_nsnnDefaultCo())!==rCo) return;
+    sum += (Array.isArray(r.payments)?r.payments:[]).reduce((s,p)=>s+(+p.amount||0),0);
+  });
+  return sum;
+}
+/* v3.13.88: upsert nghĩa vụ NSNN khi kỳ lương ĐÃ DUYỆT — key (type|period|companyId), idempotent, cập nhật amount khi kỳ tính lại */
+function _nsnnSyncFromPayrollPeriod(p){
+  if(!p || payStatusIdx(p.status)<payStatusIdx('approved')) return;
+  if(p.profile==='project'||p.profile==='expat') return;
+  _nsnnInit();
+  let pit=0, insE=0, insC=0;
+  (p.rows||[]).forEach(r=>{ const R=r.result||{}; pit+=+R.pit||0; insE+=+R.insEmp||0; insC+=+R.insCompany||0; });
+  const co=p.companyId||_nsnnDefaultCo();
+  const dueD=new Date(p.period+'-01'); dueD.setMonth(dueD.getMonth()+1); dueD.setDate(20);
+  const dueStr=dueD.toISOString().slice(0,10);
+  const mk=(taxType, amount, desc)=>{
+    const key=taxType+'|'+p.period+'|'+co;
+    let rec=S.taxes.records.find(t=>t._autoFromPayroll && t.payrollKey===key);
+    if(!(amount>0)){ if(rec && !_nsnnRecPaid(rec)){ S.taxes.records=S.taxes.records.filter(t=>t!==rec); } return; }
+    if(rec){
+      /* nhiều kỳ cùng tháng cùng pháp nhân (VP+KT+Đội tàu...) → amount = TỔNG lại từ mọi kỳ đã duyệt */
+      rec.amount=amount; rec.description=desc; rec.dueDate=dueStr; rec.updatedAt=new Date().toISOString();
+      return;
+    }
+    S.taxes.records.push({ id:'TAX-PR-'+(typeof uid==='function'?uid().slice(-6):Math.random().toString(36).slice(-6)),
+      type:taxType, period:p.period, description:desc, amount:amount, ccy:'VND', dueDate:dueStr,
+      paidAmount:0, paidDate:'', payments:[], isExpense:false, vesselId:'', isOpVessel:false, projectId:'',
+      companyId:co, payrollKey:key, _autoFromPayroll:true,
+      addedBy:'AUTO kỳ lương ('+actorName()+')', addedAt:new Date().toISOString(), updatedAt:new Date().toISOString() });
+  };
+  /* amount tổng lại từ TẤT CẢ kỳ đã duyệt cùng (tháng, pháp nhân) — không cộng dồn trùng khi duyệt lại */
+  const agg=_nsnnPayrollObligations(p.period);
+  const b=agg.byKey[p.period+'|'+co]||{pit:0,insEmp:0,insCo:0};
+  const coName=(typeof companyName==='function'?companyName(co):'')||'';
+  mk('PIT', Math.round(b.pit), 'TNCN T'+p.period.slice(5)+'/'+p.period.slice(2,4)+(coName?' · '+coName:'')+' (auto từ kỳ lương đã duyệt)');
+  mk('INSURANCE_SOCIAL', Math.round(b.insEmp+b.insCo), 'BHXH T'+p.period.slice(5)+'/'+p.period.slice(2,4)+(coName?' · '+coName:'')+' — NV '+Math.round(b.insEmp).toLocaleString('vi-VN')+' + DN '+Math.round(b.insCo).toLocaleString('vi-VN')+' (auto từ kỳ lương)');
+  try{ logAuditEvent('nsnn_sync_from_payroll',{period:p.period, companyId:co, pit:Math.round(b.pit), bhxh:Math.round(b.insEmp+b.insCo)}); }catch(e){}
+}
 function _nsnnRecPaid(r){
+  let base=0;
   if(r && Array.isArray(r.payments) && r.payments.length){
-    return r.payments.reduce((s,p)=>s+(+p.amount||0),0);
+    base = r.payments.reduce((s,p)=>s+(+p.amount||0),0);
+  } else base = +(r&&r.paidAmount)||0;
+  /* v3.13.88: record PIT/BHXH tự sinh từ kỳ lương → CỘNG THÊM phiếu AP nộp thuế ĐÃ CHI (mã ET-TAX_PIT / ET-BHXH_NOP) */
+  if(r && r._autoFromPayroll && (r.type==='PIT'||r.type==='INSURANCE_SOCIAL')){
+    try{ base += _nsnnApPaidFor(r.type, r.period, r.companyId); }catch(e){}
   }
-  return +(r&&r.paidAmount)||0;
+  return base;
 }
 
 /* v2.99.18: Auto-sync NSNN records khi AP Lương được DUYỆT.
@@ -65999,8 +66155,9 @@ function _autoSyncTaxFromApSalary(r){
       updatedAt: new Date().toISOString()
     });
   };
-  upsert('PIT', pitAmt, `TNCN T${period.slice(5)}/${period.slice(2,4)} (auto từ AP Lương · ${r.partner||r.desc||'?'})`);
-  upsert('INSURANCE_SOCIAL', bhxhAmt, `BHXH T${period.slice(5)}/${period.slice(2,4)} (auto từ AP Lương · ${r.partner||r.desc||'?'})`);
+  /* v3.13.88 (Sếp 30/7): NGẮT sinh nghĩa vụ PIT/BHXH từ AP Lương — nguồn duy nhất giờ là KỲ LƯƠNG ĐÃ DUYỆT
+     (_nsnnSyncFromPayrollPeriod). Giữ hàm + biến pitAmt/bhxhAmt để không phá chữ ký cũ. */
+  void pitAmt; void bhxhAmt; void upsert;
   try{ logAuditEvent('auto_sync_tax_from_salary', {apId:r.id, pit:pitAmt, bhxh:bhxhAmt, period}); }catch(e){}
 }
 
@@ -66451,19 +66608,10 @@ function _nsnnComputeAuto(period){
       const vat = +r.vatAmount || 0;
       vatIn += toDisplay(vat, r.ccy||'VND', r.fxToUsd);
     }
-    // PIT auto from SALARY records (lương không có số HĐ — giữ điều kiện riêng, không phụ thuộc invoiceNo)
+    /* v3.13.88 (Sếp 30/7): PIT + BHXH KHÔNG lấy từ phiếu AP nữa — nguồn duy nhất = kỳ lương ĐÃ DUYỆT
+       (xem _nsnnPayrollObligations gọi sau vòng lặp). Khối đọc pitAmount/bhxhAmount từ AP đã gỡ. */
     const et = r.expenseType;
     const etMeta = (typeof getExpenseType==='function') ? getExpenseType(et) : null;
-    const isSalary = (etMeta && etMeta.code==='SALARY') || et==='ET-SALARY';
-    if(isSalary && +r.pitAmount > 0){
-      pit += toDisplay(+r.pitAmount, r.ccy||'VND', r.fxToUsd);
-    }
-    // v2.99.18: BHXH auto from SALARY/BONUS/ALLOWANCE records
-    const isHrLike = isSalary || et==='ET-BONUS' || et==='ET-ALLOWANCE'
-      || (etMeta && ['BONUS','ALLOWANCE'].includes(etMeta.code));
-    if(isHrLike && +r.bhxhAmount > 0){
-      bhxh += toDisplay(+r.bhxhAmount, r.ccy||'VND', r.fxToUsd);
-    }
     // v3.03.84: tự gom thuế nhập khẩu / GTGT nhập khẩu / FCT theo nsnnType của loại chi phí.
     //   Số thuế = TỔNG tiền bút toán (gross) — vì các khoản này thường nhập VAT 0%, toàn bộ là tiền thuế.
     const nt = etMeta && etMeta.nsnnType;
@@ -66477,6 +66625,9 @@ function _nsnnComputeAuto(period){
 
   // v3.02.80: chi hộ tàu QL hộ (opTransactions) — VAT là chi hộ chủ tàu, KHÔNG khấu trừ đầu vào.
   //   (đã bỏ vòng cộng vatIn từ opTransactions theo nguyên tắc thuế mảng Quản lý hộ.)
+
+  /* v3.13.88: PIT + BHXH từ KỲ LƯƠNG ĐÃ DUYỆT (nguồn duy nhất — Sếp chốt) */
+  try{ const _po=_nsnnPayrollObligations(period); pit=_po.PIT; bhxh=_po.INS; }catch(e){}
 
   // VAT_PAYABLE: auto = output − input, but admin can override
   let vatPayable = vatOut - vatIn;
@@ -66848,10 +66999,18 @@ function _nsnnRenderRecords(yr){
   if(!el) return;
   _nsnnInit();
   const typeFilter=document.getElementById('nsnn-filter-type')?.value||'';
+  /* v3.13.88: lọc pháp nhân — đổ options 1 lần; record cũ không companyId = công ty mẹ */
+  const coSel=document.getElementById('nsnn-filter-co');
+  if(coSel && coSel.options.length<=1 && (S.companies||[]).length>1){
+    (S.companies||[]).forEach(c=>{ const o=document.createElement('option'); o.value=c.id; o.textContent='🏛 '+c.name; coSel.appendChild(o); });
+  }
+  if(coSel) coSel.style.display=((S.companies||[]).length>1)?'':'none';
+  const coFilter=coSel?.value||'';
   const records = S.taxes.records.filter(r=>{
     if(!r.period) return false;
     if(!r.period.startsWith(String(yr))) return false;
     if(typeFilter && r.type!==typeFilter) return false;
+    if(coFilter && (r.companyId||_nsnnDefaultCo())!==coFilter) return false;
     return true;
   }).sort((a,b)=>(b.period||'').localeCompare(a.period||''));
 
@@ -66860,7 +67019,7 @@ function _nsnnRenderRecords(yr){
     return;
   }
 
-  let html=`<thead><tr><th>Kỳ</th><th>Loại</th><th>Mô tả</th><th>Gắn tàu/DA</th><th class="r">Phải nộp</th><th class="r">Đã nộp</th><th class="r">Còn lại</th><th>CCY</th><th class="ds-t-sub" style="font-family:var(--font-mono)">Hạn nộp</th><th class="ds-t-sub" style="font-family:var(--font-mono)">Ngày TT</th><th></th></tr></thead><tbody>`;
+  let html=`<thead><tr><th>Kỳ</th><th>Loại</th>${(S.companies||[]).length>1?'<th>🏛</th>':''}<th>Mô tả</th><th>Gắn tàu/DA</th><th class="r">Phải nộp</th><th class="r">Đã nộp</th><th class="r">Còn lại</th><th>CCY</th><th class="ds-t-sub" style="font-family:var(--font-mono)">Hạn nộp</th><th class="ds-t-sub" style="font-family:var(--font-mono)">Ngày TT</th><th></th></tr></thead><tbody>`;
   records.forEach(r=>{
     const m=nsnnTypeMeta(r.type);
     const paidR=_nsnnRecPaid(r);
@@ -66887,6 +67046,7 @@ function _nsnnRenderRecords(yr){
     html+=`<tr>
       <td class="ds-t-sub" style="font-family:var(--font-mono)">${esc(r.period||'')}</td>
       <td><span style="display:inline-flex;align-items:center;gap:6px"><span>${m.icon}</span><span>${esc(m.label)}</span>${cpBadge}</span></td>
+      ${(S.companies||[]).length>1?`<td style="font-size:11px">${esc((typeof companyName==='function'&&companyName(r.companyId||_nsnnDefaultCo()))||'—')}</td>`:''}
       <td>${esc(r.description||'—')}</td>
       <td style="font-size:11px">${entityInfo}</td>
       <td class="r num">${fmt(r.amount,r.ccy)}</td>
@@ -66896,7 +67056,9 @@ function _nsnnRenderRecords(yr){
       <td class="ds-t-sub" style="font-family:var(--font-mono);${(r.dueDate && remain>0.001 && r.dueDate<todayISO())?'color:var(--bad);font-weight:700':''}">${r.dueDate||'—'}${(r.dueDate && remain>0.001 && r.dueDate<todayISO())?' ⚠':''}</td>
       <td class="ds-t-sub" style="font-family:var(--font-mono)">${r.paidDate||'—'}</td>
       <td><div class="row-actions">${_nsnnCanEdit()?`
-        <button class="icon-btn" title="Ghi nhận nộp (nhiều lần)" onclick="_nsnnAddPayment('${r.id}')" style="color:var(--good)">＋</button>
+        ${(((S.companies||[]).length>1)&&((r.companyId||_nsnnDefaultCo())!==_nsnnDefaultCo()))
+          ?`<button class="btn-sec" title="v3.13.89: Công ty con nộp NSNN TRỰC TIẾP — ghi nhận tay, KHÔNG liên kết ngân hàng trong app (NH app ưu tiên SME)" onclick="_nsnnAddPayment('${r.id}',1)" style="font-size:10.5px;padding:2px 8px;color:var(--good);border-color:var(--good)">💸 Nộp NSNN</button>`
+          :`<button class="icon-btn" title="Ghi nhận nộp (nhiều lần). SME: luồng chuẩn là tạo phiếu AP mã 'Thuế TNCN'/'Nộp BHXH' chi qua ngân hàng — phiếu ĐÃ CHI tự cộng vào Đã nộp" onclick="_nsnnAddPayment('${r.id}')" style="color:var(--good)">＋</button>`}
         <button class="icon-btn" title="Sửa" onclick="_nsnnEditRecord('${r.id}')">✎</button>
         <button class="icon-btn danger" title="Xóa" onclick="_nsnnDelRecord('${r.id}')">✕</button>`:`<span style="font-size:10px;color:var(--muted)">chỉ xem</span>`}
       </div></td>
@@ -66932,6 +67094,7 @@ function _nsnnAddRecord(){
 
   openEditModal('Thêm nghĩa vụ thuế', [
     {key:'type',label:'Loại thuế *',type:'select',options:typeOpts},
+    ...(((S.companies||[]).length>1)?[{key:'companyId',label:'🏛 Pháp nhân *',type:'select',options:(S.companies||[]).map(c=>({v:c.id,t:c.name}))}]:[]),
     {key:'period',label:'Kỳ tính (YYYY-MM)',placeholder:'VD: 2026-01'},
     {key:'description',label:'Mô tả',span:2,placeholder:'VD: Thuế nhập khẩu lô hàng tháng 1/2026'},
     {key:'amount',label:'Số phải nộp',type:'number'},
@@ -67008,12 +67171,14 @@ function _nsnnAddRecord(){
 }
 
 /* v2.99.40: Ghi nhận 1 lần nộp cho record NSNN (nhiều lần nộp). Mở mini-form số + ngày + ghi chú. */
-function _nsnnAddPayment(id){
+function _nsnnAddPayment(id, subCo){
   if(!_nsnnCanEdit()){ toast('Nghĩa vụ thuế: chỉ KTT hoặc Admin được thao tác','bad'); return; }  // v3.03.18
   _nsnnInit();
   const r=S.taxes.records.find(x=>x.id===id);
   if(!r){ toast('Không tìm thấy bút toán','bad'); return; }
   const m=nsnnTypeMeta(r.type);
+  /* v3.13.89 (Sếp 30/7): công ty CON nộp NSNN trực tiếp — không liên kết ngân hàng trong app (NH app ưu tiên SME) */
+  const _subCoNote = subCo ? ((typeof companyName==='function'&&companyName(r.companyId))||'Cty con')+' nộp trực tiếp — ngoài NH app' : '';
   const paid=_nsnnRecPaid(r);
   const remain=(+r.amount||0)-paid;
   const body=`
@@ -67021,10 +67186,11 @@ function _nsnnAddPayment(id){
       <b>${m.icon} ${esc(m.label)}</b> · Kỳ ${esc(r.period||'')}<br>
       Phải nộp: <b>${fmt(r.amount,r.ccy)}</b> · Đã nộp: <b style="color:var(--good)">${fmt(paid,r.ccy)}</b> · Còn lại: <b style="color:${remain>0?'var(--bad)':'var(--good)'}">${fmt(remain,r.ccy)}</b>
     </div>
+    ${subCo?`<div style="font-size:11px;background:#fff7e6;border:1px solid #e8c98a;border-radius:8px;padding:8px 10px;margin-bottom:10px">🏛 <b>${esc((typeof companyName==='function'&&companyName(r.companyId))||'Công ty con')}</b> nộp NSNN trực tiếp — khoản này <b>KHÔNG liên kết tài khoản ngân hàng trong app</b> (ngân quỹ app ưu tiên SME). Chỉ ghi nhận số đã nộp + chứng từ.</div>`:''}
     <div class="form-grid">
       <div class="field"><label>Ngày nộp *</label><input type="date" id="np-date" value="${todayISO()}"></div>
       <div class="field"><label>Số tiền nộp *</label><input type="number" class="num" id="np-amount" step="any" value="${remain>0?Math.round(remain):0}"></div>
-      <div class="field" style="grid-column:span 2"><label>Ghi chú (UNC, số chứng từ...)</label><input type="text" id="np-note" placeholder="VD: UNC số 123 ngày..."></div>
+      <div class="field" style="grid-column:span 2"><label>Ghi chú (UNC, số chứng từ...)</label><input type="text" id="np-note" placeholder="VD: UNC số 123 ngày..." value="${esc(_subCoNote)}"></div>
     </div>
     ${(Array.isArray(r.payments)&&r.payments.length)?`<div style="margin-top:12px;font-size:11px"><div style="font-weight:700;color:var(--muted);margin-bottom:4px">Các lần đã nộp:</div>${r.payments.map((p,i)=>`<div style="display:flex;justify-content:space-between;padding:3px 0;border-top:1px solid var(--rule)"><span>${esc(p.date||'?')}${p.note?' · '+esc(p.note):''}</span><span style="font-weight:600">${fmt(p.amount,r.ccy)} <button class="icon-btn danger" style="font-size:10px" title="Xóa lần nộp" onclick="_nsnnDelPayment('${r.id}',${i})">✕</button></span></div>`).join('')}</div>`:''}`;
   openModal('Ghi nhận nộp NSNN', body,
@@ -74829,7 +74995,7 @@ function hrmExportExcel(){
     const ra=(typeof hrDeptSortRank==='function')?hrDeptSortRank((typeof hrDeptCanon==='function'?hrDeptCanon(a.dept):a.dept),{isCrew:a.type==='crew'}):0;
     const rb=(typeof hrDeptSortRank==='function')?hrDeptSortRank((typeof hrDeptCanon==='function'?hrDeptCanon(b.dept):b.dept),{isCrew:b.type==='crew'}):0;
     if(ra!==rb) return ra-rb;
-    return String(a.fullName||'').localeCompare(String(b.fullName||''));
+    return empIdSort(a,b);   /* v3.13.82 */
   });
   const rows=sorted.map((e,i)=>({
     'STT':i+1,
@@ -75547,8 +75713,22 @@ function openSalaryProfileCard(empId, _ret){
               h+=money('Lương cơ bản (= mức VP × 22)', _vpRate*22);
             } else if(eng==='expert_om'){   /* v3.13.68 (Sếp chốt 30/7): NET cơ bản = đơn giá ngày × 22 ngày công chuẩn — cùng nếp tech (mức VP × 22) */
               h+=money('Lương NET cơ bản (= đơn giá ngày × 22)', _spFixedTotal(cur));
+            } else if(eng==='office_gross'){   /* v3.13.85 GĐ2 */
+              h+=money(d.taxWithhold10?'(Khấu trừ 10% — không lương cố định)':'Lương cơ bản (GROSS)', d.taxWithhold10?0:(d.netBase||0));
             } else {
               h+=money('Lương cơ bản (NET)', d.netBase);
+            }
+
+            if(eng==='office_gross'){   /* v3.13.85 GĐ2 — GROSS: thuế + BHXH NV trừ VÀO lương khi tính kỳ */
+              if(d.taxWithhold10){
+                h+='<div class="ds-t-sub" style="margin:4px 0">⚠ Khấu trừ 10% tại nguồn (không HĐLĐ): thuế = 10% thẳng trên tổng thu nhập kỳ, KHÔNG GTGC, KHÔNG BHXH. Thu nhập nhập qua ➕ Khoản PS từng tháng.</div>';
+                return h;
+              }
+              h+=money('Tiền thuê nhà /tháng', d.grossHousing);
+              h+='<div class="ds-t-sub" style="margin:2px 0 6px">Phần nhà ở CHỊU thuế app tự tính = MIN(tiền nhà, 15% × thu nhập chịu thuế trước nhà) — đúng bảng STER.</div>';
+              h+='<div style="border-top:1px dashed var(--rule);margin:6px 0"></div>';
+              h+='<div class="ds-t-sub">Thưởng năng suất (biến động) + khoản miễn thuế (công tác phí/ĐT/cơm/trang phục) nhập qua ➕ Khoản PS theo tháng — không nằm trên thẻ. Thuế TNCN + BHXH NV 10,5% TRỪ THẲNG vào lương (khác NET).</div>';
+              return h;
             }
 
             if(eng==='crew'){
@@ -75902,7 +76082,7 @@ function salaryProfileNewVersionForm(empId){
     <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr">
       <div class="field"><label>Hiệu lực từ THÁNG *</label><input type="month" id="sp-eff" value="${nowPer}"></div>
       ${((S.companies||[]).length>1)?`<div class="field"><label>Pháp nhân trả *</label><select id="sp-company">${(S.companies||[]).map(c=>`<option value="${c.id}" ${cur&&cur.companyId===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select></div>`:''}
-      <div class="field"><label>Engine${_deptHint?' <span style="color:#9a5b12;font-size:10px" title="Tự gợi ý theo Phòng ban — đổi tay được">(gợi ý theo PB)</span>':''}</label><select id="sp-engine" onchange="_spEngineChanged()"><option value="office" ${(!cur&&!_deptHint)||(cur&&cur.engine==='office')?'selected':''}>Văn phòng</option><option value="tech" ${cur&&cur.engine==='tech'?'selected':''}>Kỹ thuật</option><option value="crew" ${cur&&cur.engine==='crew'?'selected':''}>Đội tàu</option><option value="crew_khoan" ${cur&&cur.engine==='crew_khoan'?'selected':''}>Đội tàu — Khoán (trả theo ngày làm)</option><option value="expert_om" ${_isExpEng?'selected':''}>Chuyên gia / O&M / Dự án (USD)</option><option value="expat" ${(cur&&cur.engine==='expat')||_deptHint==='expat'?'selected':''}>Expat VP (USD)</option></select></div>
+      <div class="field"><label>Engine${_deptHint?' <span style="color:#9a5b12;font-size:10px" title="Tự gợi ý theo Phòng ban — đổi tay được">(gợi ý theo PB)</span>':''}</label><select id="sp-engine" onchange="_spEngineChanged()"><option value="office" ${(!cur&&!_deptHint)||(cur&&cur.engine==='office')?'selected':''}>Văn phòng</option><option value="tech" ${cur&&cur.engine==='tech'?'selected':''}>Kỹ thuật</option><option value="crew" ${cur&&cur.engine==='crew'?'selected':''}>Đội tàu</option><option value="crew_khoan" ${cur&&cur.engine==='crew_khoan'?'selected':''}>Đội tàu — Khoán (trả theo ngày làm)</option><option value="expert_om" ${_isExpEng?'selected':''}>Chuyên gia / O&M / Dự án (USD)</option><option value="expat" ${(cur&&cur.engine==='expat')||_deptHint==='expat'?'selected':''}>Expat VP (USD)</option><option value="office_gross" ${cur&&cur.engine==='office_gross'?'selected':''}>Lương GROSS — công ty con (STER)</option></select></div>
       <div class="field"><label>Loại lương</label><select id="sp-type"><option value="NET" selected>NET</option><option value="GROSS">GROSS</option></select></div>
       <div class="field"><label>Loại tiền</label><select id="sp-ccy" ${_isExpEng?'disabled':''}><option value="VND" ${!_isExpEng&&(d.ccy||'VND')==='VND'?'selected':''}>VND</option><option value="USD" ${_isExpEng||d.ccy==='USD'?'selected':''}>USD</option></select></div>
       <div style="font-size:10.5px;color:var(--muted);margin:4px 0">🏷 Grade tự phân loại theo chức vụ (quản lý ở màn 🏷 Grade quản trị) — không chọn trên thẻ. Grade không ảnh hưởng tiền lương/BH/thuế.</div>
@@ -75917,6 +76097,8 @@ function salaryProfileNewVersionForm(empId){
       <div class="field"><label>Đoàn viên CĐ</label><select id="sp-union"><option value="1" ${d.isUnionMember?'selected':''}>Có</option><option value="0" ${!d.isUnionMember?'selected':''}>Không</option></select></div>
       <div class="field"><label>Mức đi biển /ngày (crew)</label><input type="number" id="sp-sea" value="${val('crewSeaRate')}" step="any"></div>
       <div class="field"><label>Mức DP /ngày (crew)</label><input type="number" id="sp-dp" value="${val('crewDpRate')}" step="any"></div>
+      <div class="field"><label>Tiền thuê nhà /tháng (GROSS)</label><input type="number" id="sp-gr-house" value="${val('grossHousing')}" step="any" title="Phần CHỊU thuế app tự tính = MIN(tiền nhà, 15% thu nhập chịu thuế trước nhà)"></div>
+      <div class="field"><label>Khấu trừ 10% tại nguồn (GROSS)</label><select id="sp-gr-t10" title="Lao động không HĐLĐ/thời vụ: thuế 10% thẳng, không GTGC, không BHXH"><option value="0" ${!d.taxWithhold10?'selected':''}>Không</option><option value="1" ${d.taxWithhold10?'selected':''}>Có</option></select></div>
       <div class="field"><label>Mức đi biển /ngày (TECH)</label><input type="number" id="sp-tsea" value="${val('techSeaRate')}" step="any"></div>
       <div class="field"><label>Mức VP /ngày (TECH) — cơ bản = VP×22</label><input type="number" id="sp-tvp" value="${val('techOfficeRate')}" step="any"></div>
       <div class="field"><label>Mức dock /ngày (TECH — trống = VP×1,5)</label><input type="number" id="sp-tdock" value="${val('techDockRate')}" step="any"></div>
@@ -75941,7 +76123,8 @@ function salaryProfileSaveVersion(empId){
   if(!reason){ if(err)err.textContent='Nhập lý do điều chỉnh (bắt buộc theo spec)'; return; }
   /* v3.13.60 (Sếp 28/7 — thẻ expat "không có loại tiền khác"): ccy chọn trên form thay hard-code 'VND' (gốc bug ghi chú 3.12.87) */
   const _eng=g('sp-engine').value;
-  const data={ salaryType:g('sp-type').value, ccy:(_eng==='expert_om'||_eng==='expat')?'USD':(((g('sp-ccy')||{}).value)||'VND'),
+  const data={ salaryType:_eng==='office_gross'?'GROSS':g('sp-type').value, ccy:(_eng==='expert_om'||_eng==='expat')?'USD':(((g('sp-ccy')||{}).value)||'VND'),
+    grossHousing:+((g('sp-gr-house')||{}).value)||0, taxWithhold10:((g('sp-gr-t10')||{}).value)==='1',   /* v3.13.85 GĐ2 */
     netBase:+g('sp-net').value||0, bhxhBase:+g('sp-bhs').value||0, dependents:+g('sp-npt').value||0,
     isUnionMember:g('sp-union').value==='1',
     allow_trachNhiem:+g('sp-a1').value||0, allow_duAn:+g('sp-a2').value||0, allow_kpi:+g('sp-a3').value||0,
@@ -76037,7 +76220,8 @@ function spImportParse_(aoa, empBySmart, empByName){
     expUsd:col(['usd / ngày','usd/ngày','usd ngày','expert_usdperday']), expDays:col(['ngày trợ cấp','so ngay phu cap','expert_allowdays']),
     expAllow:col(['phụ cấp sinh hoạt','phu cap sinh hoat','expert_livingallowance']),
     expatSal:col(['lương/tháng usd','luong/thang usd','expat_monthlysalary']), expatDays:col(['hệ số ngày công','he so ngay cong','expat_stddayscoef']),
-    expatTr:col(['pc di chuyển','pc di chuyen','expat_transport']), expatLu:col(['pc ăn trưa','pc an trua','expat_lunchperday']) };
+    expatTr:col(['pc di chuyển','pc di chuyen','expat_transport']), expatLu:col(['pc ăn trưa','pc an trua','expat_lunchperday']),
+    grHouse:col(['tiền thuê nhà','tien thue nha','grosshousing']), grT10:col(['khấu trừ 10','khau tru 10','taxwithhold10']) };   /* v3.13.85 GĐ2 */
   var _normName=function(s){ return String(s||'').trim().toUpperCase().replace(/\s+/g,' '); };
   for(var r=hi+1;r<aoa.length;r++){
     var row=aoa[r]||[];
@@ -76059,7 +76243,12 @@ function spImportParse_(aoa, empBySmart, empByName){
       techSeaRate:num(ix.sea), techOfficeRate:num(ix.vp), techDockRate:num(ix.dock) };
     var eng=String(ix.eng>=0?(row[ix.eng]||''):'').trim().toLowerCase();
     if(eng==='expert'||eng==='project') eng='expert_om';
-    if(eng!=='office'&&eng!=='tech'&&eng!=='crew_khoan'&&eng!=='crew'&&eng!=='expert_om'&&eng!=='expat') eng=(d.techSeaRate>0||d.techOfficeRate>0)?'tech':'office';
+    /* v3.13.81 (Sếp yêu cầu 30/7): KHÔNG tự mở thẻ engine lạ khi import. Ô Engine CÓ GIÁ TRỊ nhưng
+       không thuộc danh sách hợp lệ -> LỖI dòng (trước đây bị âm thầm ép về tech/office — nguy hiểm:
+       gõ nhầm 'офиc'/'office_gross' vẫn tạo thẻ với engine đoán). Chỉ đoán khi ô TRỐNG/không có cột. */
+    if(eng && eng!=='office'&&eng!=='tech'&&eng!=='crew_khoan'&&eng!=='crew'&&eng!=='expert_om'&&eng!=='expat'&&eng!=='office_gross'){
+      out.err.push(line+': Engine "'+eng+'" không hợp lệ (chỉ nhận: office/tech/crew/crew_khoan/expert_om/expat/office_gross) — không tự đoán, sửa file rồi import lại'); continue; }
+    if(!eng) eng=(d.techSeaRate>0||d.techOfficeRate>0)?'tech':'office';
     if(eng==='office'){ delete d.techSeaRate; delete d.techOfficeRate; delete d.techDockRate;
       if(!(d.netBase>0)){ out.err.push(line+': Thẻ office cần Lương cơ bản > 0'); continue; } }
     else if(eng==='crew_khoan'||eng==='crew'){ /* v3.13.57: đội khoan/thuyền viên — lương bờ (Lương cơ bản) + KPI (Thưởng KPI) + phụ cấp biển/ngày (cột "Đi biển /ngày" → crewSeaRate) + nền BH riêng (ăn engine 3.13.55). Đội khoan: netBase = bờ TRỌN (CB+KPI) nếu cột KPI trống, hoặc CB+KPI nếu tách. */
@@ -76071,6 +76260,12 @@ function spImportParse_(aoa, empBySmart, empByName){
       d={ salaryType:'NET', ccy:'USD', bhxhBase:num(ix.bh), dependents:num(ix.npt), isUnionMember:false,
         expert_usdPerDay:num(ix.expUsd), expert_allowDays:num(ix.expDays), expert_livingAllowance:num(ix.expAllow) };
       if(!(d.expert_usdPerDay>0)){ out.err.push(line+': Thẻ Chuyên gia O&M cần USD/ngày > 0'); continue; } }
+    else if(eng==='office_gross'){ /* v3.13.85 GĐ2: LCB gross + tiền nhà/tháng + cờ 10% + nền BH (trống = LCB) */
+      var _t10=String(ix.grT10>=0?(row[ix.grT10]||''):'').trim().toLowerCase();
+      var _isT10=(_t10==='1'||_t10==='có'||_t10==='co'||_t10==='x'||_t10==='true');
+      d={ salaryType:'GROSS', ccy:'VND', netBase:num(ix.net), grossHousing:num(ix.grHouse), taxWithhold10:_isT10,
+        bhxhBase:num(ix.bh)||num(ix.net), dependents:num(ix.npt), isUnionMember:false };
+      if(!_isT10 && !(d.netBase>0)){ out.err.push(line+': Thẻ GROSS cần Lương cơ bản > 0 (hoặc đánh dấu Khấu trừ 10%)'); continue; } }
     else if(eng==='expat'){ /* v3.13.77: Expat VP — khớp đúng salaryProfileBuildInp (expat_monthlySalary/expat_stdDaysCoef/expat_transport/expat_lunchPerDay) */
       d={ salaryType:'NET', ccy:'USD', bhxhBase:num(ix.bh), dependents:num(ix.npt), isUnionMember:false,
         expat_monthlySalary:num(ix.expatSal), expat_stdDaysCoef:num(ix.expatDays)||22, expat_transport:num(ix.expatTr), expat_lunchPerDay:num(ix.expatLu) };
@@ -76326,8 +76521,24 @@ function _spVersionUsedByLockedPeriod(v){
     return (p.rows||[]).some(r=>r.empId===v.empId);
   });
 }
+/* v3.13.82 (Sếp yêu cầu 30/7): comparator CHUẨN sắp xếp nhân viên toàn app — theo MÃ NV, ưu tiên SME trước.
+   Thứ tự: (1) mã bắt đầu 'SME' (SME0001 VP -> SMEQN -> SMEV tàu, tự nhiên theo chuỗi), (2) mã khác (NTP, LVP...),
+   (3) không có mã (cuối, theo tên). numeric:true để SME0002 < SME0010 đúng cả khi thiếu zero-pad. */
+function empIdSort(a,b){
+  var ia=String((a&&(a.smartId||a.msnv))||'').trim().toUpperCase(), ib=String((b&&(b.smartId||b.msnv))||'').trim().toUpperCase();
+  var ra=ia?(ia.indexOf('SME')===0?0:1):2, rb=ib?(ib.indexOf('SME')===0?0:1):2;
+  if(ra!==rb) return ra-rb;
+  if(ia!==ib) return ia.localeCompare(ib, undefined, {numeric:true});
+  return String((a&&(a.fullName||a.name))||'').localeCompare(String((b&&(b.fullName||b.name))||''),'vi');
+}
+var SP_VALID_ENGINES=['office','tech','crew','crew_khoan','expert_om','expat','office_gross'];  /* v3.13.84: +office_gross (GĐ1, Sếp duyệt) */  /* v3.13.81: danh sách engine hợp lệ DUY NHẤT — thêm engine mới phải sửa CHỦ ĐÍCH tại đây */
 function salaryProfileAddVersion(empId, payload){
   if(!salaryProfileCanEdit()){ toast('Chỉ KTT/Admin được tạo/sửa Thẻ lương','bad'); return null; }
+  /* v3.13.81 (Sếp yêu cầu 30/7): tầng chặn CUỐI — mọi đường tạo thẻ (form tay, import, script) đều qua đây.
+     Engine không thuộc danh sách -> từ chối, KHÔNG lặng lẽ rơi về 'office'. */
+  var _eng=String(payload&&payload.engine||'office').toLowerCase();
+  if(SP_VALID_ENGINES.indexOf(_eng)<0){ toast('Engine "'+_eng+'" không hợp lệ — không tạo thẻ','bad'); return null; }
+  payload.engine=_eng;
   const eff=(payload.effectiveFrom||'').slice(0,7);
   if(!/^\d{4}-\d{2}$/.test(eff)){ toast('Hiệu lực phải theo THÁNG (YYYY-MM)','bad'); return null; }
   const list=_spList(empId);
@@ -76438,6 +76649,9 @@ function _spFixedTotal(v){
        đúng công thức đã verify T6/2026 (Koóng 32tr/Thành 28tr/Tài 22tr/Hưng 16tr/Nam 14tr — cùng nếp expert_om). */
     const r=(typeof _spResolve==='function')?(+_spResolve(v,'techOfficeRate')||0):(+d.techOfficeRate||0);
     return r*22;
+  }
+  if(v.engine==='office_gross'){   /* v3.13.85 GĐ2: GROSS — mức cố định = LCB tháng (thuế/BH trừ khi tính kỳ); khấu trừ 10% tại nguồn không có lương cố định */
+    return d.taxWithhold10 ? 0 : (+_spResolve(v,'netBase')||+d.netBase||0);
   }
   if(v.engine==='expert_om'){   /* v3.13.68 (Sếp chốt 30/7): NET cơ bản Chuyên gia O&M = đơn giá ngày × 22 ngày công chuẩn — engine này không dùng netBase */
     const r=(typeof _spResolve==='function')?(+_spResolve(v,'expert_usdPerDay')||0):(+d.expert_usdPerDay||0);
@@ -76607,6 +76821,7 @@ function salaryGradeUsage(gradeId){
 const SG_FIELD_LABELS = {
   netBase:'Lương cơ bản NET', bhxhBase:'Lương đóng BHXH',
   crewSeaRate:'Đi biển/khoán /ngày', crewDpRate:'Mức DP /ngày',
+  grossHousing:'Tiền thuê nhà /tháng', taxWithhold10:'Khấu trừ 10% tại nguồn',   /* v3.13.85 */
   techSeaRate:'KT đi biển /ngày', techOfficeRate:'KT văn phòng /ngày', techDockRate:'KT dock /ngày',
   expertUsdPerDay:'Đơn giá USD/ngày', expertAllowDays:'Ngày trợ cấp mặc định', expertLiving:'Trợ cấp sinh hoạt USD/ngày',
   allow_trachNhiem:'PC trách nhiệm', allow_duAn:'PC dự án',
@@ -76729,6 +76944,7 @@ const SCC_ENGINE_READS={
   office:['netBase','allow_trachNhiem','allow_duAn','allow_kpi','bhxhBase','dependents','salaryType','isUnionMember'],
   crew:['netBase','crewSeaRate','crewDpRate','bhxhBase','dependents','salaryType','isUnionMember'],
   crew_khoan:['netBase','crewSeaRate','crewDpRate','bhxhBase','dependents','salaryType','isUnionMember'],
+  office_gross:['netBase','grossHousing','taxWithhold10','bhxhBase','dependents','salaryType','isUnionMember'],   /* v3.13.85 GĐ2 */
   tech:['bhxhBase','techSeaRate','techOfficeRate','techDockRate','allow_duAn','dependents','salaryType','isUnionMember'],
   project:['expertUsdPerDay','expertAllowDays','expertLiving','ccy'],
   expert:['expertUsdPerDay','expertAllowDays','expertLiving','ccy'],
@@ -77007,7 +77223,7 @@ function hrmExportRun(){
       const ra=(typeof hrDeptSortRank==='function')?hrDeptSortRank((typeof hrDeptCanon==='function'?hrDeptCanon(a.dept):a.dept),{isCrew:a.type==='crew'}):0;
       const rb=(typeof hrDeptSortRank==='function')?hrDeptSortRank((typeof hrDeptCanon==='function'?hrDeptCanon(b.dept):b.dept),{isCrew:b.type==='crew'}):0;
       if(ra!==rb) return ra-rb;
-      return String(a.fullName||'').localeCompare(String(b.fullName||''));
+      return empIdSort(a,b);   /* v3.13.82: trong nhóm theo mã NV, SME trước */
     });
     if(want.list){
       const rows=sorted.map((e,i)=>({'STT':i+1,'MSNV':e.smartId||'','Họ và tên':e.fullName||'',
@@ -78185,7 +78401,7 @@ function hrmRenderList(){
       return ra!==rb ? ra-rb : groupLabel[a].localeCompare(groupLabel[b]);
     }).forEach(key=>{
       const dept=groupLabel[key];
-      const emps=groups[key].sort((a,b)=>(a.smartId||'').localeCompare(b.smartId||''));
+      const emps=groups[key].sort(empIdSort);   /* v3.13.82 */
       const nWarn=emps.filter(e=>hrmContractWarn(e).level!=='none').length;
       const gid='hrmg_'+_ohNorm(key).replace(/\s/g,'_');
       html+=`<details style="margin-bottom:8px;border:1px solid var(--rule);border-radius:8px;overflow:hidden">
@@ -78199,7 +78415,7 @@ function hrmRenderList(){
   }
   // ĐÃ NGHỈ — 1 nhóm gập (luôn gập)
   if(inactive.length && fStatus!=='active'){
-    const emps=inactive.sort((a,b)=>(a.smartId||'').localeCompare(b.smartId||''));
+    const emps=inactive.sort(empIdSort);   /* v3.13.82 */
     html+=`<div style="font-size:13px;font-weight:700;color:#888;margin:14px 0 8px">○ ĐÃ NGHỈ (${inactive.length})</div>
       <details style="margin-bottom:8px;border:1px solid var(--rule);border-radius:8px;overflow:hidden">
         <summary style="cursor:pointer;list-style:none;padding:9px 13px;background:var(--paper-3);display:flex;justify-content:space-between;align-items:center">
@@ -78258,7 +78474,7 @@ function hrmAddNewFlow(){
 }
 /* Phiếu NGHỈ VIỆC: chọn NV đang làm → ngày nghỉ + lý do → chuyển inactive + nhắc đính kèm QĐ nghỉ. */
 function hrmTerminateFlow(){
-  const active=HRService.employees().filter(e=>e.status!=='inactive').sort((a,b)=>(a.fullName||'').localeCompare(b.fullName||''));
+  const active=HRService.employees().filter(e=>e.status!=='inactive').sort(empIdSort);   /* v3.13.82 */
   if(!active.length){ toast('Không có nhân sự đang làm việc','warn'); return; }
   const opts=active.map(e=>`<option value="${e.id}">${hrmEsc(e.fullName)} (${hrmEsc(e.smartId)}) — ${hrmEsc(e.title||'')} ${hrmEsc(e.dept||hrmVesselName(e.linkVesselId)||'')}</option>`).join('');
   const body=`<div style="display:flex;flex-direction:column;gap:10px">
@@ -78870,7 +79086,12 @@ function hrmAttParseSheet(aoa, profileKey){
     //   nhà thầu phụ, xuất hiện nhiều dòng) hoặc match mã không ra → fallback đối chiếu theo TÊN,
     //   tránh gán nhiều người vào cùng 1 hồ sơ.
     const _byName=()=>{ const nU=name.toUpperCase().replace(/\s+/g,' ');
-      return HRService.employees().find(e=>String(e.fullName||'').trim().toUpperCase().replace(/\s+/g,' ')===nU); };
+      /* v3.13.87 (Sếp hỏi BCC không mã 30/7): TRÙNG TÊN THẬT trong công ty (vd Nguyễn Văn Minh = 2 người
+         NTP002 Afalina + NTP013 Katran) — find() cũ lấy người ĐẦU TIÊN -> gán nhầm ÂM THẦM.
+         Nay: ≥2 hồ sơ cùng tên -> KHÔNG tự chọn, đẩy cảnh báo yêu cầu bổ sung MSNV cho dòng đó. */
+      const _hits=HRService.employees().filter(e=>String(e.fullName||'').trim().toUpperCase().replace(/\s+/g,' ')===nU);
+      if(_hits.length>1){ warnings.push('"'+name+'" TRÙNG TÊN '+_hits.length+' hồ sơ ('+_hits.map(e=>e.smartId||'?').join(', ')+') — bổ sung MSNV vào file BCC cho dòng này, app không tự đoán'); return null; }
+      return _hits[0]||null; };
     let emp=null;
     const _codeShared = msnv && _codeCount[msnv.toUpperCase()]>1;
     if(P.idx.msnv>=0 && msnv && !_codeShared){
