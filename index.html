@@ -3733,7 +3733,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.13.96';
+const APP_VERSION='3.13.97';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -18056,7 +18056,7 @@ function payDispatchCompute(profile, inputs, period){
     default: return {takeHome:0};
   }
 }
-const PAY_PROFILE_LABEL={office:'Văn phòng',crew:'Đội tàu',crew_khoan:'Đội tàu — Khoán',project:'Chuyên gia/Dự án',expat:'Chuyên gia VP (Expat)',tech:'Bộ phận Kỹ thuật'};
+const PAY_PROFILE_LABEL={office:'Văn phòng',crew:'Đội tàu',crew_khoan:'Đội tàu — Khoán',project:'Chuyên gia/Dự án',expat:'Chuyên gia VP (Expat)',tech:'Bộ phận Kỹ thuật',office_gross:'Lương GROSS — công ty con (STER)'};  /* v3.13.97 GĐ3 */
 // v3.07.78: máy trạng thái vòng đời kỳ lương
 const PAY_STATUS_FLOW=['draft','validated','preview','submitted','approved','locked','posted','paid','closed'];
 const PAY_STATUS_META={
@@ -18610,7 +18610,7 @@ function payPeriodCreateCommit(){
      tech/expat cũng sai tương tự (không NV nào có type đó qua dropdown 4 giá trị). Nạp trực tiếp theo
      engine THẺ LƯƠNG hiệu lực (nguồn thật duy nhất, khớp payDispatchCompute) — không qua employee.type nữa. */
   const engForProfile={office:['office'],crew:['crew'],crew_khoan:['crew_khoan'],tech:['tech'],
-    project:['project','expert','expert_om'],expat:['expat']}[profile]||[];
+    project:['project','expert','expert_om'],expat:['expat'],office_gross:['office_gross']}[profile]||[];   /* v3.13.97 GĐ3 */
   /* v3.13.86 (Sếp kiểm tra 30/7 — "tính lương và chuyển ngân hàng từ các công ty, không trộn chung 1 bảng"):
      LỌC PHÁP NHÂN khi nạp NV vào kỳ. Nguồn xác định NV thuộc pháp nhân nào (theo thứ tự tin cậy):
      (1) Quan hệ lao động hiệu lực tại kỳ (hrEmploymentAssignments — nguồn sự thật, màn 🏛);
@@ -77197,6 +77197,13 @@ function salaryProfileBuildInp(empId, period){
   const _emp=(_sgEnabled() && typeof HRService!=='undefined'&&HRService.employees)
     ? HRService.employees().find(x=>x&&x.id===empId) : null;
   const F=(_emp && _emp.dependents!=null) ? (+_emp.dependents||0) : (+d.dependents||0);
+
+  /* v3.13.97 GĐ3 — LƯƠNG GROSS (STER): F=LCB tháng, NH=tiền nhà/tháng, W=NPT, T10=cờ khấu trừ 10%.
+     E (ngày chuẩn kỳ) + G (công thực) + I/K/L/M (thưởng NS/dịp) + EX (miễn) đến từ KỲ/BCC/Khoản PS —
+     không nằm trên thẻ. Thiếu nhánh này là nguyên nhân LƯƠNG STER SAI (thẻ rơi vào mapping office NET). */
+  if(v.engine==='office_gross')
+    return {F:R('netBase'), NH:R('grossHousing'), W:F, T10:(d.taxWithhold10?1:0),
+            _bhxhBase:R('bhxhBase'), _v:v};
 
   /* ĐỘI TÀU — crew & crew_khoan: cùng bộ input, khác PROFILE (v3.12.91) */
   if(v.engine==='crew'||v.engine==='crew_khoan')

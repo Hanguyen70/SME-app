@@ -1,5 +1,5 @@
 {
-  "version": "3.13.96",
-  "swVersion": "v3.13.96",
-  "notes": "KIEM TRA TY GIA TU DONG (Sep phat hien VND->USD binh quan 12.942 phi ly): cong thuc binh quan gia quyen DUNG (tong quy doi / tong goc); loi do DU LIEU - trong 146 GD VND co but toan fxToUsd rac (~1 thay vi ~26.000) lam VND bi tinh nhu USD, thoi tong USD 625k (dung ~310k). FIX: guard bien ty gia hop le theo tung te (VND 10k-100k, KRW 500-5000, JPY 50-500, CNY 3-15...) - GD ngoai bien bi LOAI khoi binh quan + hien canh bao 'da loai N GD ty gia phi ly - sua fx tai giao dich goc' de KTT truy sua tan goc. BO SUNG KRW (Won Han Quoc) vao danh sach tien te thu/chi ho tau (OP_CURRENCIES). 7 engine SAME. 3 file dong bo."
+  "version": "3.13.97",
+  "swVersion": "v3.13.97",
+  "notes": "FIX LUONG STERLING SAI (Sep bao ca Le Tri Cuong + Nguyen Thi Kim Chi): engine GROSS dung (24/24 ca test GD1) nhung GD3 - duong noi the -> KY LUONG - chua trien khai: salaryProfileBuildInp KHONG co nhanh office_gross nen the GROSS roi vao mapping office NET (inputs sai het). VA 3 DIEM COT LOI: (1) buildInp nhanh office_gross: F=LCB, NH=tien nha, W=NPT, T10, _bhxhBase; E/G/I/K/L/M/EX den tu ky/BCC/Khoan PS; (2) PAY_PROFILE_LABEL + 'Luong GROSS - cong ty con (STER)' -> tao duoc ky nhom rieng; (3) engForProfile office_gross -> ky chi nap nguoi the GROSS. QUY TRINH DUNG cho Sep: XOA ky STER cu (tinh sai) -> tao ky moi nhom 'Luong GROSS' + phap nhan STER + ngay cong chuan thang -> keo the -> nhap cong G + thuong NS qua Khoan PS -> so khop bang STER (da doi chieu 24 ca). Bang ky hien thi cot se tinh chinh GD3b. 7 engine SAME. 3 file dong bo."
 }
