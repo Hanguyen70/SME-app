@@ -1,5 +1,5 @@
 {
-  "version": "3.14.03",
-  "swVersion": "v3.14.03",
-  "notes": "KHONG SUA TAY TUNG NGUOI (Sep 30/7): migration tu chay khi ADMIN dang nhap - bat co 'Lam ca Thu 7' cho TOAN BO nhom BAO VE / TAP VU (nhan dien theo chuc danh/Grade ho so), tren MOI phien ban the office hien co. Co la CHE DO LAM VIEC - khong doi mot dong tien nao (an toan sua in-place; audit log sp_fullweek_auto ghi danh sach ten; idempotent - chay lai bo qua nguoi da bat). Toast bao ten tung nguoi da bat. Sau do moi ky Tinh ca bang: nhom nay tu dung chuan ngay thang - CN (27/24/26...). Ai thuoc nhom lam ca T7 nhung chuc danh KHAC 'bao ve/tap vu' (vd nhan vien SME2) -> bat tay qua form 1 lan hoac Sep gui danh sach de em them tu khoa. 7 engine SAME. 3 file dong bo."
+  "version": "3.14.04",
+  "swVersion": "v3.14.04",
+  "notes": "FIX 'the bat roi tu tat' (Sep bao 30/7): migration 3.14.03 bat co workFullWeek sua in-place nhung KHONG cap nhat updatedAt va KHONG qua commitMutation -> dong bo may khac/cloud coi ban cu moi hon, DE NGUOC -> co tu tat sau sync. FIX dung nguyen tac 'moi ghi phai qua chuan': (1) moi version duoc bat deu dong dau v.updatedAt + touchRecord; (2) toan bo migration boc trong commitMutation (vao Outbox sync nhu moi thay doi chuan) -> co giu vung tren moi may sau moi lan sync. Idempotent nhu cu. Sep deploy ban nay, dang nhap admin lai 1 lan - migration chay lai bat co (nhung nguoi bi tat), lan nay giu vinh vien. 7 engine SAME. 3 file dong bo."
 }

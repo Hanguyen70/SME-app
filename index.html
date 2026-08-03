@@ -3733,7 +3733,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.14.03';
+const APP_VERSION='3.14.04';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -6280,13 +6280,24 @@ async function authAction(){
         const _isGuard=t=>{ const s=String(t||'').toUpperCase(); return s.indexOf('BẢO VỆ')>=0||s.indexOf('BAO VE')>=0||s.indexOf('TẠP VỤ')>=0||s.indexOf('TAP VU')>=0; };
         const _gEmps=HRService.employees().filter(e=>_isGuard(e.title)||_isGuard(e.grade));
         const _done=[];
-        _gEmps.forEach(e=>{
-          let hit=false;
-          (S.salaryProfiles||[]).forEach(v=>{
-            if(v.empId===e.id && v.engine==='office' && v.data && !v.data.workFullWeek){ v.data.workFullWeek=true; hit=true; }
+        /* v3.14.04 (Sếp: "thẻ bật rồi tự tắt?"): bản 3.14.03 sửa in-place KHÔNG cập nhật updatedAt và
+           KHÔNG qua commitMutation -> sync máy khác/cloud coi bản cũ mới hơn, ĐÈ NGƯỢC -> cờ tự tắt.
+           Fix: mọi version được bật đều đóng dấu updatedAt + toàn bộ đi trong commitMutation (vào Outbox
+           sync như mọi thay đổi chuẩn) -> cờ giữ vững trên mọi máy. */
+        commitMutation(()=>{
+          _gEmps.forEach(e=>{
+            let hit=false;
+            (S.salaryProfiles||[]).forEach(v=>{
+              if(v.empId===e.id && v.engine==='office' && v.data && !v.data.workFullWeek){
+                v.data.workFullWeek=true;
+                v.updatedAt=new Date().toISOString();
+                if(typeof touchRecord==='function'){ try{ touchRecord(v); }catch(e3){} }
+                hit=true;
+              }
+            });
+            if(hit) _done.push(e.fullName);
           });
-          if(hit) _done.push(e.fullName);
-        });
+        }, {module:'payroll', action:'sp_fullweek_auto', label:'Bật Làm cả T7 cho bảo vệ/tạp vụ'});
         if(_done.length){
           try{ logAuditEvent('sp_fullweek_auto',{count:_done.length, names:_done.join(', '), actor:actorName()}); }catch(e2){}
           saveState();
