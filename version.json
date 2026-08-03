@@ -1,5 +1,5 @@
 {
-  "version": "3.13.94",
-  "swVersion": "v3.13.94",
-  "notes": "CHECK ca Luu Viet Hoa (Sep 30/7): bang 3 thang T04-T06 CO DINH y het - tong TN 11.111.111 = NET 10.000.000/0.9 (gross-up de sau khau tru 10% con dung 10tr). Xac nhan: T10 cung co MUC NET CO DINH. Sua 3 diem (KHONG dung engine): (1) _spFixedTotal office_gross: T10 tra netBase (muc NET co dinh) thay 0d - So luong het hien 0d; (2) hien thi the: nhan 'Luong NET co dinh (khau tru 10% tai nguon)'; (3) import T10: nen BHXH = 0 (truoc fallback = LCB -> the hien BH sai). Sep cap nhat the Hoa: xoa phien ban cu (chua tinh ky) -> tao lai/import voi Luong co ban = 10.000.000. File Import_TheLuong_STER da sua dong Hoa LCB=10tr. 7 engine SAME. 3 file dong bo."
+  "version": "3.13.96",
+  "swVersion": "v3.13.96",
+  "notes": "KIEM TRA TY GIA TU DONG (Sep phat hien VND->USD binh quan 12.942 phi ly): cong thuc binh quan gia quyen DUNG (tong quy doi / tong goc); loi do DU LIEU - trong 146 GD VND co but toan fxToUsd rac (~1 thay vi ~26.000) lam VND bi tinh nhu USD, thoi tong USD 625k (dung ~310k). FIX: guard bien ty gia hop le theo tung te (VND 10k-100k, KRW 500-5000, JPY 50-500, CNY 3-15...) - GD ngoai bien bi LOAI khoi binh quan + hien canh bao 'da loai N GD ty gia phi ly - sua fx tai giao dich goc' de KTT truy sua tan goc. BO SUNG KRW (Won Han Quoc) vao danh sach tien te thu/chi ho tau (OP_CURRENCIES). 7 engine SAME. 3 file dong bo."
 }

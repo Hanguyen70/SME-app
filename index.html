@@ -3733,7 +3733,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.13.94';
+const APP_VERSION='3.13.96';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -19657,6 +19657,19 @@ function _payPullPreview(periodId){
   const {items, extraAtt}=_payAttBuildDiff(p, att, PAY_ATT_MAP[p.profile]);
   window._papullCache={attId:att.id, items};
   const rowsH=items.map(it=>{
+    /* v3.13.95 (Sếp 30/7): ẨN khỏi preview các dòng "KHÔNG CÓ TRONG BCC" của người (a) chưa vào làm tại kỳ
+       (ngày vào làm > cuối kỳ) hoặc (b) không thuộc pháp nhân của kỳ (QHLĐ hiệu lực ở cty khác).
+       Chỉ ẩn HIỂN THỊ — rows kỳ và dữ liệu không đổi. */
+    if(it.status==='KHÔNG CÓ TRONG BCC'){
+      try{
+        const _e=HRService.employees().find(x=>x.id===it.empId);
+        if(_e && _e.startDate && String(_e.startDate)>p.period+'-31') return '';
+        if(p.companyId && typeof empAssignments==='function'){
+          const _asg=empAssignments(it.empId, p.period+'-15');
+          if(_asg.length && !_asg.some(a=>a.companyId===p.companyId)) return '';
+        }
+      }catch(e){}
+    }
     const ch=Object.keys(it.changes).map(F=>{
       const c=it.changes[F];
       return `<span style="margin-right:8px;white-space:nowrap">${F}: <b style="color:${c.manual?'#9a5b12':'#1e7d44'}">${c.to}</b>${c.from!=null?` <s style="color:var(--muted)">${c.from}</s>`:''}${c.manual?` <label style="color:#9a5b12"><input type="checkbox" data-ov="${esc(it.empId)}|${F}"> đè tay</label>`:''}</span>`;
@@ -28852,12 +28865,17 @@ function renderFxRates(){
   // ccyPair mô tả cặp quy đổi; base = tiền gốc, converted = tiền đã quy đổi
   const points=[];
   // Nguồn 1: giao dịch thu/chi hộ tàu QL — ngoại tệ ≠ USD, quy về USD
+  let _fxTrash=0;   /* v3.13.96 (Sếp phát hiện 30/7): đếm giao dịch tỷ giá RÁC bị loại */
   VesselService.opTransactions().forEach(t=>{
     const ccy=t.ccy||'USD';
     if(ccy==='USD') return;
     const fx=+t.fxToUsd||0;
     const amt=+t.amount||0;
     if(fx<=0||amt<=0||!t.date) return;
+    /* v3.13.96: chặn tỷ giá phi lý làm sập bình quân (thực tế: 146 GD VND có bút toán fx≈1 -> VND bị
+       tính như USD, bình quân ra 12.942 thay ~26.000). Biên hợp lệ theo tệ — ngoài biên: LOẠI + đếm. */
+    const _rng={VND:[10000,100000],KRW:[500,5000],JPY:[50,500],CNY:[3,15],SGD:[1,3],THB:[20,60],MYR:[2,8],NOK:[5,20],RUB:[30,300],EUR:[0.5,2],GBP:[0.5,2],AUD:[1,3]}[ccy];
+    if(_rng && (fx<_rng[0]||fx>_rng[1])){ _fxTrash++; return; }
     points.push({pk:t.date.slice(0,period==='year'?4:7), pair:ccy+'→USD',
       base:amt, converted:amt/fx});
   });
@@ -28896,7 +28914,7 @@ function renderFxRates(){
   });
 
   const cnt=document.getElementById('cat-fx-count');
-  if(cnt) cnt.textContent=selKey?`(kỳ ${selKey})`:'';
+  if(cnt) cnt.textContent=(selKey?`(kỳ ${selKey})`:'')+(_fxTrash?` · ⚠ đã loại ${_fxTrash} GD tỷ giá phi lý — sửa fx tại giao dịch gốc`:'');
 
   const pairs=Object.keys(byPair).sort();
   if(!pairs.length){
@@ -30069,7 +30087,7 @@ function setupFxControls(){
 /* ===== UTILS ===== */
 /* v1.88.0: Danh sách ngoại tệ cho thu-chi hộ tàu QL (backcharge — giữ nguyên đồng gốc, KHÔNG quy đổi).
    Chỉ dùng trong tab Vận hành tàu / Thu-chi hộ. Lõi báo cáo BI vẫn chỉ USD/VND. */
-const OP_CURRENCIES = ['USD','VND','SGD','EUR','NOK','CNY','JPY','THB','MYR','AUD','GBP','RUB'];  // v3.11.31: +RUB
+const OP_CURRENCIES = ['USD','VND','SGD','EUR','NOK','CNY','JPY','THB','MYR','AUD','GBP','RUB','KRW'];  // v3.13.96: +KRW (Won Hàn Quốc — Sếp yêu cầu 30/7)
 function fxRate(){return Math.max(1,+S.fxRate||25000);}
 function displayCcy(){return S.displayCcy==='VND'?'VND':'USD';}
 function toDisplay(amount,sourceCcy,fxToUsd){
