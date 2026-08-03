@@ -1,5 +1,5 @@
 {
-  "version": "3.13.97",
-  "swVersion": "v3.13.97",
-  "notes": "FIX LUONG STERLING SAI (Sep bao ca Le Tri Cuong + Nguyen Thi Kim Chi): engine GROSS dung (24/24 ca test GD1) nhung GD3 - duong noi the -> KY LUONG - chua trien khai: salaryProfileBuildInp KHONG co nhanh office_gross nen the GROSS roi vao mapping office NET (inputs sai het). VA 3 DIEM COT LOI: (1) buildInp nhanh office_gross: F=LCB, NH=tien nha, W=NPT, T10, _bhxhBase; E/G/I/K/L/M/EX den tu ky/BCC/Khoan PS; (2) PAY_PROFILE_LABEL + 'Luong GROSS - cong ty con (STER)' -> tao duoc ky nhom rieng; (3) engForProfile office_gross -> ky chi nap nguoi the GROSS. QUY TRINH DUNG cho Sep: XOA ky STER cu (tinh sai) -> tao ky moi nhom 'Luong GROSS' + phap nhan STER + ngay cong chuan thang -> keo the -> nhap cong G + thuong NS qua Khoan PS -> so khop bang STER (da doi chieu 24 ca). Bang ky hien thi cot se tinh chinh GD3b. 7 engine SAME. 3 file dong bo."
+  "version": "3.14.01",
+  "swVersion": "v3.14.01",
+  "notes": "KHONG PHAI NHAP TUNG NGUOI (Sep hoi 30/7): danh dau 1 LAN tren THE 'Lam ca Thu 7 (bao ve/tap vu)' -> moi ky tu tinh chuan rieng = so ngay trong thang - so Chu nhat (XAC MINH khop B5 bang goc: T01=27, T02=24, T03=26). Trien khai: (1) the office them co workFullWeek (dropdown Co/Khong + tooltip); (2) buildInp truyen _sdAuto; (3) payDispatchCompute: _sdAuto=1 -> tu tinh standardDays theo thang ky (o _sd nhap tay van UU TIEN de ngoai le); (4) SP_ENGIN E_FIELDS/label. Quy trinh: mo the tung nguoi nhom bao ve/tap vu/SME2 (~8 nguoi) -> bat 'Lam ca T7' 1 lan duy nhat -> Tinh ca bang moi ky tu dung; sau x.y.99 nhay 3.14.01 theo quy tac version. 7 engine SAME. 3 file dong bo."
 }

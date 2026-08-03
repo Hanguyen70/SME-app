@@ -3733,7 +3733,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.13.97';
+const APP_VERSION='3.14.01';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -18042,7 +18042,22 @@ function _payProfForPeriod(profile, period){
   return Object.assign({}, base, { standardDays: sd });   // chép nông + ghi đè 1 trường
 }
 function payDispatchCompute(profile, inputs, period){
-  const prof = _payProfForPeriod(profile, period);
+  let prof = _payProfForPeriod(profile, period);
+  /* v3.13.99 (Sếp kiểm từng ca T01 30/7): bảng Excel dùng 2 NGÀY CHUẨN SONG SONG trong 1 kỳ —
+     $A$5=22 (khối văn phòng) và $B$5=27 (bảo vệ/tạp vụ làm cả T7). Kỳ app chỉ có 1 chuẩn ->
+     cho phép NGÀY CHUẨN RIÊNG THEO NGƯỜI qua ô nhập _sd (Ngày chuẩn riêng): dòng nào có _sd>0
+     -> clone profile với standardDays riêng. KHÔNG đụng engine — chỉ đổi tham số truyền vào. */
+  if(inputs && +inputs._sdAuto===1 && !( +inputs._sd>0) && period && period.period){
+    /* v3.14.01 (Sếp: "nhập từng người?" — KHÔNG): người đánh dấu LÀM CẢ T7 trên thẻ -> chuẩn riêng
+       TỰ TÍNH = số ngày trong tháng − số Chủ nhật (xác minh khớp B5 bảng gốc: T01=27, T02=24, T03=26). */
+    try{
+      const [_y,_m]=String(period.period).split('-').map(Number);
+      const _dim=new Date(_y,_m,0).getDate();
+      let _sun=0; for(let _d=1;_d<=_dim;_d++){ if(new Date(_y,_m-1,_d).getDay()===0) _sun++; }
+      prof=Object.assign({}, prof, {standardDays:_dim-_sun});
+    }catch(e){}
+  }
+  if(inputs && +inputs._sd>0){ prof=Object.assign({}, prof, {standardDays:+inputs._sd}); }
   switch(profile){
     case 'office': return payComputeOffice(inputs, prof);
     case 'crew':   return payComputeCrew(inputs, prof);
@@ -18142,6 +18157,22 @@ function payHrCanViewPayroll(){
   return !!u.canViewPayroll;
 }
 function payPeriodById(id){ return PayrollService.periodById(id); }
+/* v3.13.98 (Sếp yêu cầu 30/7 — "Xóa các kỳ lương test"): xoá kỳ AN TOÀN.
+   Chỉ Admin/KTT · chỉ kỳ NHÁP (chưa qua Validate/trình duyệt — kỳ đã duyệt/khoá là chứng từ, KHÔNG xoá được) ·
+   confirm 2 lần · audit log. Kỳ test tạo nhầm/kỳ STER tính sai trước GĐ3 dọn bằng nút này. */
+function payPeriodDelete(id){
+  if(!(CURRENT_ROLE==='admin'||CURRENT_ROLE==='chief_accountant')){ toast('Chỉ Admin/KTT được xóa kỳ','bad'); return; }
+  const p=payPeriodById(id); if(!p){ toast('Không tìm thấy kỳ','bad'); return; }
+  if(payStatusIdx(p.status||'draft')>payStatusIdx('preview')){ toast('Kỳ đã trình duyệt/duyệt/khóa — là chứng từ, không xóa được. Dùng ✗ Từ chối để trả về nháp trước (nếu chưa khóa).','bad'); return; }
+  const _lbl=(PAY_PROFILE_LABEL[p.profile]||p.profile)+' · '+p.period+((typeof companyName==='function'&&p.companyId)?(' · '+companyName(p.companyId)):'');
+  if(!confirm('XÓA kỳ lương "'+_lbl+'" ('+(p.rows||[]).length+' người)?')) return;
+  if(!confirm('Chắc chắn? Toàn bộ dữ liệu nhập trong kỳ này mất vĩnh viễn (thẻ lương/BCC gốc KHÔNG bị ảnh hưởng).')) return;
+  commitMutation(()=>{ S.payrollPeriods=(S.payrollPeriods||[]).filter(x=>x.id!==id); },
+    {module:'payroll', action:'period_delete', label:'Xóa kỳ '+_lbl});
+  try{ logAuditEvent('pay_period_delete',{id:id, period:p.period, profile:p.profile, companyId:p.companyId||'', rows:(p.rows||[]).length, actor:actorName()}); }catch(e){}
+  closeModal(); if(typeof renderPayroll==='function'){renderPayroll();}else if(typeof renderAll==='function'){renderAll();}
+  toast('Đã xóa kỳ '+_lbl,'good');
+}
 function _payAudit(period, action, detail){
   period.audit=period.audit||[];
   period.audit.push({ ts:new Date().toISOString(), user:(CURRENT_USER&&CURRENT_USER.name)||(isAdmin()?'admin':'?'), action, detail:detail||'' });
@@ -18672,7 +18703,7 @@ function openPayPeriodDetail(id){
   let actions='';
   const btn=(fn,label,style)=>`<button class="btn-${style||'sec'}" style="font-size:11px;${style==='danger'?'background:var(--bad);border-color:var(--bad);color:var(--paper-2)':''}" onclick="${fn}('${id}')">${label}</button>`;
   const btn2=(onclick,label,style)=>`<button class="btn-${style||'sec'}" style="font-size:11px;${style==='danger'?'background:var(--bad);border-color:var(--bad);color:var(--paper-2)':''}" onclick="${onclick}">${label}</button>`;
-  if(st==='draft'){ actions=btn('payPeriodComputeAll','⚡ Tính cả bảng')+btn('payPeriodValidate','✔ Kiểm tra (Validate)','primary'); }
+  if(st==='draft'){ actions=btn('payPeriodComputeAll','⚡ Tính cả bảng')+btn('payPeriodValidate','✔ Kiểm tra (Validate)','primary')+btn('payPeriodDelete','🗑 Xóa kỳ','danger'); }
   else if(st==='validated'){ actions=btn('payPeriodComputeAll','⚡ Tính lại')+btn('payPeriodToPreview','👁 Xem trước','primary')+btn('payPeriodBack','↩ Về Nháp'); }
   else if(st==='preview'){ actions=btn('payPeriodSubmit','📤 Trình duyệt','primary')+btn('payPeriodBack','↩ Về Nháp'); }
   else if(st==='submitted'){
@@ -23359,7 +23390,8 @@ function payRowEdit(periodId, empId){
   const row=(p.rows||[]).find(r=>r.empId===empId); if(!row) return;
   // bộ field theo profile
   const fieldsByProfile={
-    office:[['G','Lương CB'],['H','PC trách nhiệm'],['K','KPI 100%'],['F','Người phụ thuộc'],['X','Hiệu quả (1=100%)'],['M','Công thường'],['N','Công biển'],['Q','OT×1.5'],['S','Công lễ']],
+    office:[['G','Lương CB'],['H','PC trách nhiệm'],['K','KPI 100%'],['F','Người phụ thuộc'],['X','Hiệu quả (1=100%)'],['M','Công thường'],['N','Công biển'],['Q','OT×1.5'],['S','Công lễ'],['_sd','Ngày chuẩn RIÊNG (bỏ trống = theo kỳ; bảo vệ/tạp vụ cả T7 = 27/26)']],
+    office_gross:[['F','Lương CB (GROSS)'],['E','Ngày chuẩn tháng'],['G','Công thực'],['I','Thưởng NS (chịu thuế)'],['K','Thưởng dịp 1'],['L','Thưởng dịp 2'],['M','Thưởng dịp 3'],['EX','Khoản miễn thuế (tổng)'],['W','Người phụ thuộc']],   /* v3.13.99 GĐ3b */
     crew:[['N','Lương cơ bản HĐLĐ'],['O','Mức lương biển'],['T','Mức lương DP'],['F','Người phụ thuộc'],['G','Công biển VN'],['H','Công biển NN'],['I','Công dock'],['J','Nằm bờ VN'],['L','Nằm bờ NN'],['M','Công DP'],['AR','Khoản thu khác']],
     project:[['G','Rate/ngày USD'],['J','Giờ thường'],['K','OT×1.2 giờ'],['L','OT×1.5 giờ'],['Q','Ngày trợ cấp'],['R','Mức trợ cấp/ngày'],['T','Mob/Demob'],['U','Hoàn phí'],['V','Khoản khác±']],
     tech:[['H','Mức biển/ngày'],['I','Mức VP/ngày'],['J','Mức dock/ngày (auto I×1.5 nếu trống)'],['K','Mức ngoài giờ (auto I×1.8)'],['L','Mức nghỉ ca'],['M','PC công tác TN'],['N','PC công tác NN'],['O','Bổ sung'],['P','Trợ cấp dự án'],['G','Lương đóng BHXH'],['Q','Công biển'],['R','Công dock'],['S','Công ngoài giờ'],['T','Công VP'],['U','Phép'],['W','Tăng ca cuối tuần'],['X','Tăng ca lễ'],['Y','Công tác TN'],['Z','Công tác NN'],['F','Người phụ thuộc']],
@@ -76154,6 +76186,7 @@ function salaryProfileNewVersionForm(empId){
       <div class="field"><label>Đoàn viên CĐ</label><select id="sp-union"><option value="1" ${d.isUnionMember?'selected':''}>Có</option><option value="0" ${!d.isUnionMember?'selected':''}>Không</option></select></div>
       <div class="field"><label>Mức đi biển /ngày (crew)</label><input type="number" id="sp-sea" value="${val('crewSeaRate')}" step="any"></div>
       <div class="field"><label>Mức DP /ngày (crew)</label><input type="number" id="sp-dp" value="${val('crewDpRate')}" step="any"></div>
+      <div class="field"><label>Làm cả Thứ 7 (bảo vệ/tạp vụ — office)</label><select id="sp-fullweek" title="v3.14.01: chuẩn ngày công RIÊNG tự tính mỗi kỳ = ngày trong tháng − Chủ nhật (T1=27, T2=24, T3=26...). Đánh dấu 1 lần — mọi kỳ tự đúng."><option value="0" ${!d.workFullWeek?'selected':''}>Không</option><option value="1" ${d.workFullWeek?'selected':''}>Có</option></select></div>
       <div class="field"><label>Tiền thuê nhà /tháng (GROSS)</label><input type="number" id="sp-gr-house" value="${val('grossHousing')}" step="any" title="Phần CHỊU thuế app tự tính = MIN(tiền nhà, 15% thu nhập chịu thuế trước nhà)"></div>
       <div class="field"><label>Khấu trừ 10% tại nguồn (GROSS)</label><select id="sp-gr-t10" title="Lao động không HĐLĐ/thời vụ: thuế 10% thẳng, không GTGC, không BHXH"><option value="0" ${!d.taxWithhold10?'selected':''}>Không</option><option value="1" ${d.taxWithhold10?'selected':''}>Có</option></select></div>
       <div class="field"><label>Mức đi biển /ngày (TECH)</label><input type="number" id="sp-tsea" value="${val('techSeaRate')}" step="any"></div>
@@ -76182,6 +76215,7 @@ function salaryProfileSaveVersion(empId){
   const _eng=g('sp-engine').value;
   const data={ salaryType:_eng==='office_gross'?'GROSS':g('sp-type').value, ccy:(_eng==='expert_om'||_eng==='expat')?'USD':(((g('sp-ccy')||{}).value)||'VND'),
     grossHousing:+((g('sp-gr-house')||{}).value)||0, taxWithhold10:((g('sp-gr-t10')||{}).value)==='1',   /* v3.13.85 GĐ2 */
+    workFullWeek:((g('sp-fullweek')||{}).value)==='1',   /* v3.14.01 */
     netBase:+g('sp-net').value||0, bhxhBase:+g('sp-bhs').value||0, dependents:+g('sp-npt').value||0,
     isUnionMember:g('sp-union').value==='1',
     allow_trachNhiem:+g('sp-a1').value||0, allow_duAn:+g('sp-a2').value||0, allow_kpi:+g('sp-a3').value||0,
@@ -76882,6 +76916,7 @@ const SG_FIELD_LABELS = {
   netBase:'Lương cơ bản NET', bhxhBase:'Lương đóng BHXH',
   crewSeaRate:'Đi biển/khoán /ngày', crewDpRate:'Mức DP /ngày',
   grossHousing:'Tiền thuê nhà /tháng', taxWithhold10:'Khấu trừ 10% tại nguồn',   /* v3.13.85 */
+  workFullWeek:'Làm cả Thứ 7 (chuẩn riêng tự tính)',   /* v3.14.01 */
   techSeaRate:'KT đi biển /ngày', techOfficeRate:'KT văn phòng /ngày', techDockRate:'KT dock /ngày',
   expertUsdPerDay:'Đơn giá USD/ngày', expertAllowDays:'Ngày trợ cấp mặc định', expertLiving:'Trợ cấp sinh hoạt USD/ngày',
   allow_trachNhiem:'PC trách nhiệm', allow_duAn:'PC dự án',
@@ -77005,6 +77040,7 @@ const SCC_ENGINE_READS={
   crew:['netBase','crewSeaRate','crewDpRate','bhxhBase','dependents','salaryType','isUnionMember'],
   crew_khoan:['netBase','crewSeaRate','crewDpRate','bhxhBase','dependents','salaryType','isUnionMember'],
   office_gross:['netBase','grossHousing','taxWithhold10','bhxhBase','dependents','salaryType','isUnionMember'],   /* v3.13.85 GĐ2 */
+  /* v3.14.01: workFullWeek thuộc office — thêm động bên dưới */
   tech:['bhxhBase','techSeaRate','techOfficeRate','techDockRate','allow_duAn','dependents','salaryType','isUnionMember'],
   project:['expertUsdPerDay','expertAllowDays','expertLiving','ccy'],
   expert:['expertUsdPerDay','expertAllowDays','expertLiving','ccy'],
@@ -77252,7 +77288,9 @@ function salaryProfileBuildInp(empId, period){
              (trước H=0 cứng + I cần cờ T không ai cấp → PC mất trắng ở luồng pf). PC DỰ ÁN: không thường
              xuyên, theo tháng/từng NV, KTT/Admin duyệt → đi đường Khoản PS (preset 'duan'), J=0 để U*J
              không cộng từ thẻ. Engine KHÔNG đổi một ký tự. */
-          I:0, J:0, _bhxhBase:R('bhxhBase'), _v:v};
+          I:0, J:0, _bhxhBase:R('bhxhBase'),
+          _sdAuto:(d.workFullWeek?1:0),   /* v3.14.01: thẻ đánh dấu "làm cả T7" -> kỳ tự tính chuẩn riêng = ngày tháng − CN */
+          _v:v};
 }
 /* v3.12.92 (Sếp): XUẤT EXCEL CÓ CHỌN MỤC — thay vì xuất cứng 1 kiểu.
    Mục 'Cảnh báo HĐLĐ' lấy đúng danh sách đang cảnh báo trên màn hình (≤60 ngày). */
