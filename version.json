@@ -1,5 +1,5 @@
 {
-  "version": "3.14.01",
-  "swVersion": "v3.14.01",
-  "notes": "KHONG PHAI NHAP TUNG NGUOI (Sep hoi 30/7): danh dau 1 LAN tren THE 'Lam ca Thu 7 (bao ve/tap vu)' -> moi ky tu tinh chuan rieng = so ngay trong thang - so Chu nhat (XAC MINH khop B5 bang goc: T01=27, T02=24, T03=26). Trien khai: (1) the office them co workFullWeek (dropdown Co/Khong + tooltip); (2) buildInp truyen _sdAuto; (3) payDispatchCompute: _sdAuto=1 -> tu tinh standardDays theo thang ky (o _sd nhap tay van UU TIEN de ngoai le); (4) SP_ENGIN E_FIELDS/label. Quy trinh: mo the tung nguoi nhom bao ve/tap vu/SME2 (~8 nguoi) -> bat 'Lam ca T7' 1 lan duy nhat -> Tinh ca bang moi ky tu dung; sau x.y.99 nhay 3.14.01 theo quy tac version. 7 engine SAME. 3 file dong bo."
+  "version": "3.14.03",
+  "swVersion": "v3.14.03",
+  "notes": "KHONG SUA TAY TUNG NGUOI (Sep 30/7): migration tu chay khi ADMIN dang nhap - bat co 'Lam ca Thu 7' cho TOAN BO nhom BAO VE / TAP VU (nhan dien theo chuc danh/Grade ho so), tren MOI phien ban the office hien co. Co la CHE DO LAM VIEC - khong doi mot dong tien nao (an toan sua in-place; audit log sp_fullweek_auto ghi danh sach ten; idempotent - chay lai bo qua nguoi da bat). Toast bao ten tung nguoi da bat. Sau do moi ky Tinh ca bang: nhom nay tu dung chuan ngay thang - CN (27/24/26...). Ai thuoc nhom lam ca T7 nhung chuc danh KHAC 'bao ve/tap vu' (vd nhan vien SME2) -> bat tay qua form 1 lan hoac Sep gui danh sach de em them tu khoa. 7 engine SAME. 3 file dong bo."
 }

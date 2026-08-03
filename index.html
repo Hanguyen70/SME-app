@@ -3733,7 +3733,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.14.01';
+const APP_VERSION='3.14.03';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -6272,6 +6272,27 @@ async function authAction(){
           }
         }
       }catch(e){console.warn('[migrate KSD] failed:',e);}
+      /* v3.14.03 (Sếp: "sửa tay từng người?" — KHÔNG): tự bật cờ LÀM CẢ THỨ 7 cho toàn bộ nhóm
+         BẢO VỆ / TẠP VỤ (theo chức danh hồ sơ), trên MỌI phiên bản thẻ office hiện có.
+         Cờ là CHẾ ĐỘ LÀM VIỆC — không đổi một đồng nào trên thẻ (an toàn sửa in-place, có audit).
+         Idempotent: người đã bật bỏ qua. Chuẩn riêng từ đó tự tính = ngày tháng − CN mỗi kỳ. */
+      try{
+        const _isGuard=t=>{ const s=String(t||'').toUpperCase(); return s.indexOf('BẢO VỆ')>=0||s.indexOf('BAO VE')>=0||s.indexOf('TẠP VỤ')>=0||s.indexOf('TAP VU')>=0; };
+        const _gEmps=HRService.employees().filter(e=>_isGuard(e.title)||_isGuard(e.grade));
+        const _done=[];
+        _gEmps.forEach(e=>{
+          let hit=false;
+          (S.salaryProfiles||[]).forEach(v=>{
+            if(v.empId===e.id && v.engine==='office' && v.data && !v.data.workFullWeek){ v.data.workFullWeek=true; hit=true; }
+          });
+          if(hit) _done.push(e.fullName);
+        });
+        if(_done.length){
+          try{ logAuditEvent('sp_fullweek_auto',{count:_done.length, names:_done.join(', '), actor:actorName()}); }catch(e2){}
+          saveState();
+          setTimeout(()=>toast('📅 Đã bật "Làm cả Thứ 7" tự động cho '+_done.length+' bảo vệ/tạp vụ: '+_done.join(', '),'good'),2300);
+        }
+      }catch(e){console.warn('[migrate fullweek] failed:',e);}
       // Auto-migrate: add 16 default expense types if missing
       try{
         const n=migrateExpenseTypes();
@@ -75806,6 +75827,7 @@ function openSalaryProfileCard(empId, _ret){
               h+=money(d.taxWithhold10?'Lương NET cố định (khấu trừ 10% tại nguồn)':'Lương cơ bản (GROSS)', d.netBase||0);
             } else {
               h+=money('Lương cơ bản (NET)', d.netBase);
+              if(d.workFullWeek) h+='<div class="ds-t-sub" style="margin:2px 0 6px">📅 <b>Làm cả Thứ 7</b> — chuẩn ngày công riêng tự tính mỗi kỳ = ngày trong tháng − Chủ nhật (T1=27, T2=24, T3=26...). v3.14.02</div>';
             }
 
             if(eng==='office_gross'){   /* v3.13.85 GĐ2 — GROSS: thuế + BHXH NV trừ VÀO lương khi tính kỳ */
