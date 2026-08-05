@@ -3766,7 +3766,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.14.24';
+const APP_VERSION='3.14.25';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -23564,7 +23564,10 @@ function _paySpBuildDiff(p){
     if(!inp){ items.push({empId:row.empId,name:row.name,status:'CHƯA CÓ THẺ LƯƠNG',changes:{},ver:''}); return; }
     const changes={}; let n=0;
     Object.keys(inp).forEach(F=>{
-      if(F.startsWith('_')) return;
+      /* v3.14.25 FIX (Sếp báo 05/8 — thẻ điền đủ nền nhưng cột BHXH '—'): _bhxhBase bắt đầu bằng '_'
+         nên bị luật bỏ-field-meta chặn → NỀN BHXH CHƯA TỪNG được kéo từ thẻ vào kỳ, engine nhận nền 0,
+         AL=0 trên MỌI kỳ. Cho _bhxhBase đi qua như field thật; các field '_' khác (_v...) vẫn bỏ. */
+      if(F.startsWith('_') && F!=='_bhxhBase') return;
       const to=+inp[F]||0, from=(row.inputs||{})[F];
       const manual=Array.isArray(row._manualFields)&&row._manualFields.indexOf(F)>=0;
       if((+from||0)!==to || from==null){ changes[F]={from:(from==null?null:+from), to:to, manual:manual}; n++; }
@@ -23587,7 +23590,8 @@ function payPullSalaryProfiles(periodId){
   const rowsH=items.map(it=>{
     const ch=Object.keys(it.changes).map(F=>{
       const c=it.changes[F];
-      return `<span style="margin-right:8px;white-space:nowrap">${F}: <b style="color:${c.manual?'#9a5b12':'#1e7d44'}">${(+c.to).toLocaleString('vi-VN')}</b>${c.from!=null?` <s style="color:var(--muted)">${(+c.from).toLocaleString('vi-VN')}</s>`:''}${c.manual?` <label style="color:#9a5b12"><input type="checkbox" data-spov="${esc(it.empId)}|${F}"> đè tay</label>`:''}</span>`;
+      const _Flb=(F==='_bhxhBase')?'NềnBH':F;   /* v3.14.25: nhãn dễ đọc cho nền BHXH */
+      return `<span style="margin-right:8px;white-space:nowrap">${_Flb}: <b style="color:${c.manual?'#9a5b12':'#1e7d44'}">${(+c.to).toLocaleString('vi-VN')}</b>${c.from!=null?` <s style="color:var(--muted)">${(+c.from).toLocaleString('vi-VN')}</s>`:''}${c.manual?` <label style="color:#9a5b12"><input type="checkbox" data-spov="${esc(it.empId)}|${F}"> đè tay</label>`:''}</span>`;
     }).join('');
     const col=it.status==='KHỚP'?'var(--muted)':(it.status==='CHƯA CÓ THẺ LƯƠNG'?'#b3261e':'inherit');
     return `<tr style="border-bottom:1px solid var(--rule)"><td style="padding:4px 6px;font-size:12px">${esc(it.name)}<div style="font-size:9px;color:var(--muted)">${esc(it.ver||'')}</div></td><td style="padding:4px 6px;font-size:11px;color:${col}">${esc(it.status)}</td><td style="padding:4px 6px;font-size:11px">${ch||'—'}</td></tr>`;
