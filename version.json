@@ -1,5 +1,5 @@
 {
-  "version": "3.14.11",
-  "swVersion": "v3.14.11",
-  "notes": "Gop 3.14.05-10 (chua deploy) + chinh phan loai (Sep 04/8): Doan Tan Canh SME0029 + Doan Tan Can SME0030 thuoc nhom NHAN SU KHOAN, khong phai Doi tau. Cach tinh GIU NGUYEN (engine crew_khoan, don gia/ngay theo thang — file import da xuat van dung, key engine khong doi). Doi 2 cho phan loai: (1) nhan nhom ky crew_khoan 'Doi tau — Khoan' → 'Nhan su khoan (Khoan)' — hien thi o danh sach ky, toast cong the, bao cao; (2) ban do nhom NSNN/phan bo (2 vi tri): crew_khoan CREW → DRILL — bao cao NSNN va phan bo nhan su tach rieng nhom DRILL tu nay (bao cao ky cu render lai cung theo nhom moi — phan loai to chuc, so tien khong doi). 6 engine cong thuc hash SAME; payComputeRow giu cong the 3.14.09. Regression: 9/9 + 13/13 VM test pass."
+  "version": "3.14.17",
+  "swVersion": "v3.14.17",
+  "notes": "Gop 3.14.05-16 (chua deploy) + bang '📜 So sanh khoan vay 2025 ↔ 2026' (Sep 05/8: 'co cac khoan vay cu 2025 — tong ket va so sanh'): cuoi khoi Danh gia tin dung, moi NH×ccy mot dong voi 2 cum nam — [2025: so khoan vay moi (theo NGAY VAY) · tong goc vay moi · LS BQ phat sinh · lai da tra] | [2026: nt + con phai tra] | Δ LS BQ (▲do/▼xanh) | Δ lai da tra. Helper them newLoans/newPrincipal theo startDate; goi cung helper cho tung nam tren cung danh sach khoan active — mot phuong phap duy nhat, so duoc thang. Ghi chu trung thuc: chi tong ket duoc khoan CON trong app; khoan 2025 da tat toan va xoa ho so se khong hien. VM test 6/6 (2025: 2 khoan 30 ty LS 8,5% lai 550tr · 2026: 1 khoan 15 ty LS 6,5% lai 590tr → ΔLS ▼2,00 d%, Δlai +40tr). 6 engine cong thuc hash SAME; payComputeRow giu cong the."
 }
