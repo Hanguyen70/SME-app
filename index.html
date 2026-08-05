@@ -2242,6 +2242,8 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
       <span id="loan-filter-count" style="color:var(--muted);margin-left:auto"></span>
     </div>
     <div id="loans-list"></div>
+    <!-- v3.14.08: Đánh giá tín dụng ngân hàng — lãi & lãi suất -->
+    <div id="credit-assess" style="margin-top:18px"></div>
   </div>
 </section>
 
@@ -2280,10 +2282,19 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
     <div class="section-body"><div class="tbl-scroll"><table class="tbl" id="cf-forecast"></table></div></div>
   </div>
 
+  <!-- v3.14.07: Phải trả ngân hàng — gốc & lãi theo kỳ (Sếp yêu cầu 03/8) -->
+  <div class="section">
+    <div class="section-head">
+      <div class="section-title"><span class="tag">B.</span>🏦 Phải trả ngân hàng — GỐC &amp; LÃI</div>
+      <span style="font-size:11px;color:var(--muted);font-style:normal">Lịch trả nợ vay chưa thanh toán trong khung thời gian đang chọn · nguồn: Tab 05 Ngân hàng</span>
+    </div>
+    <div class="section-body"><div class="tbl-scroll"><table class="tbl compact" id="cf-loan-table"></table></div></div>
+  </div>
+
   <!-- Detail break-down -->
   <div class="section">
     <div class="section-head">
-      <div class="section-title"><span class="tag">B.</span>Chi tiết phát sinh trong khung thời gian</div>
+      <div class="section-title"><span class="tag">C.</span>Chi tiết phát sinh trong khung thời gian</div>
       <span style="font-size:11px;color:var(--muted);font-style:normal">Tất cả AR/AP/NSNN đến hạn + lịch trả vay trong khung được chọn</span>
     </div>
     <div class="section-body"><div class="tbl-scroll"><table class="tbl compact" id="cf-detail"></table></div></div>
@@ -2292,7 +2303,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
   <!-- v3.07.64: MODULE Hồ sơ thanh toán đã duyệt (GĐ duyệt → theo dõi đã chi/chưa chi) -->
   <div class="section" id="cf-paybatch-section" style="display:none">
     <div class="section-head">
-      <div class="section-title"><span class="tag">C.</span>Hồ sơ thanh toán đã duyệt <span style="font-weight:400;color:var(--muted);font-size:11px;text-transform:none">(Giám đốc đã duyệt chi — theo dõi đã chi / chưa chi theo ngày)</span></div>
+      <div class="section-title"><span class="tag">D.</span>Hồ sơ thanh toán đã duyệt <span style="font-weight:400;color:var(--muted);font-size:11px;text-transform:none">(Giám đốc đã duyệt chi — theo dõi đã chi / chưa chi theo ngày)</span></div>
     </div>
     <div class="section-body" id="cf-paybatch-body"></div>
   </div>
@@ -3733,7 +3744,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.14.04';
+const APP_VERSION='3.14.10';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -6239,6 +6250,34 @@ async function authAction(){
     }
     // v3.06.16: welcome onboarding KHÔNG gọi rời rạc ở đây nữa — đã nối SAU popup chào
     //   trong _postLoginGreet (tránh 2 modal đè nhau làm mất popup chào).
+    /* v3.14.05 (Sếp duyệt 03/8: "Hệ số theo đúng thực tế"): profile office LƯU TRONG DỮ LIỆU
+       đang lệch bảng lương thật — sea ×2 (bảng ×1.8), dockOt ×2 (bảng ×3). payrollEngine là object
+       config, merge kiểu LOCAL-THẮNG → phải tự sửa trên MỌI MÁY lúc đăng nhập (không chỉ admin),
+       nếu không máy cũ đè ngược như bài học 3.14.04. Idempotent: chỉ đổi đúng giá trị sai;
+       sea/dockOt đã đúng không đụng. Không đụng 7 engine. */
+    try{
+      const _peOff=(S.payrollEngine&&S.payrollEngine.profiles)?S.payrollEngine.profiles.office:null;
+      if(_peOff && _peOff.coef){
+        /* v3.14.06 — SỬA THEO KẾT LUẬN ĐỐI CHIẾU FILE 03/8 (6 tháng, đọc công thức gốc):
+           dock ngoài giờ VP ×3 chỉ đúng T01–T05; TỪ T06 quy chế đổi ×1.8 (header ghi "(*1.8)",
+           công thức P9*1.8). Profile = hiện hành → 1.8; kỳ hồi tố T01–T05 cần ×3 — chờ Sếp
+           duyệt cơ chế hệ số theo KỲ (chưa làm ở bản này). Gộp cả 3 (nếu 3.14.05 đã lỡ chạy). */
+        const _cfix=[];
+        if(+_peOff.coef.sea===2) _cfix.push('sea 2→1.8');
+        if(+_peOff.coef.dockOt===2||+_peOff.coef.dockOt===3) _cfix.push('dockOt '+_peOff.coef.dockOt+'→1.8');
+        if(_cfix.length){
+          commitMutation(()=>{
+            if(+_peOff.coef.sea===2) _peOff.coef.sea=1.8;
+            if(+_peOff.coef.dockOt===2||+_peOff.coef.dockOt===3) _peOff.coef.dockOt=1.8;
+            _peOff.updatedAt=new Date().toISOString();
+            _peOff.updatedBy='migration-3.14.06';
+          }, {module:'payroll', action:'pay_coef_fix_31405', label:'Sửa hệ số office theo bảng thực tế (đối chiếu 6T)'});
+          try{ logAuditEvent('pay_coef_fix_31405',{changes:_cfix.join(', '), actor:actorName()}); }catch(e2){}
+          saveState();
+          if(CURRENT_ROLE==='admin') setTimeout(()=>toast('⚖️ Đã sửa hệ số office theo bảng thực trả: '+_cfix.join(' · ')+' (v3.14.06)','good'),2500);
+        }
+      }
+    }catch(e){console.warn('[migrate coef 3.14.05] failed:',e);}
     // Reminder backup if last export >7 days ago (admin only)
     if(CURRENT_ROLE==='admin'){
       // Auto-migrate: vendors from AR/AP (one-time, safe to re-run)
@@ -18073,6 +18112,21 @@ function _payProfForPeriod(profile, period){
   if(+base.standardDays === sd) return base;              // trùng → khỏi chép
   return Object.assign({}, base, { standardDays: sd });   // chép nông + ghi đè 1 trường
 }
+/* v3.14.09 (Sếp 04/8 — "căn cứ phân loại NV lấy từ THẺ LƯƠNG, không chọn tay"):
+   Map nhóm kỳ → engine thẻ hợp lệ. NGUỒN THẬT DUY NHẤT = engine trên thẻ lương hiệu lực tại kỳ
+   (salaryProfileAt). Nạp NV khi tạo kỳ đã theo thẻ từ 3.13.61; hằng này nâng map đó lên toàn cục
+   để dùng thêm ở CỔNG TÍNH + VALIDATE — NV đổi thẻ SAU khi kỳ đã nạp sẽ bị máy phát hiện,
+   không tính bằng engine sai nhóm một cách âm thầm. */
+const PAY_PERIOD_ENGINES={office:['office'],crew:['crew'],crew_khoan:['crew_khoan'],tech:['tech'],
+  project:['project','expert','expert_om'],expat:['expat'],office_gross:['office_gross']};
+/* Kiểm 1 NV trong kỳ: thẻ hiệu lực có đúng nhóm kỳ không.
+   → {ok:true, cardEngine} | {ok:false, cardEngine|null (null = chưa có thẻ)} */
+function _payRowEngineCheck(p, empId){
+  let v=null; try{ v=salaryProfileAt(empId, p.period); }catch(e){}
+  const allowed=PAY_PERIOD_ENGINES[p.profile]||[];
+  if(!v) return {ok:false, cardEngine:null};
+  return {ok:allowed.indexOf(v.engine)>=0, cardEngine:v.engine};
+}
 function payDispatchCompute(profile, inputs, period){
   let prof = _payProfForPeriod(profile, period);
   /* v3.13.99 (Sếp kiểm từng ca T01 30/7): bảng Excel dùng 2 NGÀY CHUẨN SONG SONG trong 1 kỳ —
@@ -18199,7 +18253,14 @@ function payPeriodDelete(id){
   const _lbl=(PAY_PROFILE_LABEL[p.profile]||p.profile)+' · '+p.period+((typeof companyName==='function'&&p.companyId)?(' · '+companyName(p.companyId)):'');
   if(!confirm('XÓA kỳ lương "'+_lbl+'" ('+(p.rows||[]).length+' người)?')) return;
   if(!confirm('Chắc chắn? Toàn bộ dữ liệu nhập trong kỳ này mất vĩnh viễn (thẻ lương/BCC gốc KHÔNG bị ảnh hưởng).')) return;
-  commitMutation(()=>{ S.payrollPeriods=(S.payrollPeriods||[]).filter(x=>x.id!==id); },
+  commitMutation(()=>{
+    S.payrollPeriods=(S.payrollPeriods||[]).filter(x=>x.id!==id);
+    /* v3.14.06 (Sếp báo 03/8: "kỳ đã xóa mở lại app vẫn có"): 3.13.98 thiếu BIA MỘ — payrollPeriods
+       merge theo mergeByID, bản còn trên cloud/máy khác hồi sinh kỳ đã xóa. Chuẩn đã có sẵn
+       (hrmAttDelete v3.08.64, bài học 3.13.44): markDeleted trước saveState — bia mộ vào union
+       deletedIds ngay đầu mọi lần merge → kỳ chết hẳn trên mọi máy. */
+    try{ markDeleted(id,'payrollPeriods'); }catch(e){}
+  },
     {module:'payroll', action:'period_delete', label:'Xóa kỳ '+_lbl});
   try{ logAuditEvent('pay_period_delete',{id:id, period:p.period, profile:p.profile, companyId:p.companyId||'', rows:(p.rows||[]).length, actor:actorName()}); }catch(e){}
   closeModal(); if(typeof renderPayroll==='function'){renderPayroll();}else if(typeof renderAll==='function'){renderAll();}
@@ -18672,8 +18733,7 @@ function payPeriodCreateCommit(){
   /* v3.13.61 FIX GỐC: typeMap cũ dựa employee.type — THIẾU crew_khoan (rơi vào nhánh "!e.type" sai),
      tech/expat cũng sai tương tự (không NV nào có type đó qua dropdown 4 giá trị). Nạp trực tiếp theo
      engine THẺ LƯƠNG hiệu lực (nguồn thật duy nhất, khớp payDispatchCompute) — không qua employee.type nữa. */
-  const engForProfile={office:['office'],crew:['crew'],crew_khoan:['crew_khoan'],tech:['tech'],
-    project:['project','expert','expert_om'],expat:['expat'],office_gross:['office_gross']}[profile]||[];   /* v3.13.97 GĐ3 */
+  const engForProfile=PAY_PERIOD_ENGINES[profile]||[];   /* v3.14.09: dùng hằng toàn cục — 1 nguồn map duy nhất */
   /* v3.13.86 (Sếp kiểm tra 30/7 — "tính lương và chuyển ngân hàng từ các công ty, không trộn chung 1 bảng"):
      LỌC PHÁP NHÂN khi nạp NV vào kỳ. Nguồn xác định NV thuộc pháp nhân nào (theo thứ tự tin cậy):
      (1) Quan hệ lao động hiệu lực tại kỳ (hrEmploymentAssignments — nguồn sự thật, màn 🏛);
@@ -18789,6 +18849,14 @@ function _payPeriodExceptions(p){
     const hasInput=Object.keys(inp).length>0;
     const computed=(res.takeHome!=null||res.total!=null);
     // LỖI CHẶN
+    /* v3.14.09: căn cứ phân loại = THẺ LƯƠNG hiệu lực — thẻ đổi nhóm/thiếu thẻ là lỗi chặn */
+    try{
+      const chk=_payRowEngineCheck(p, r.empId);
+      if(!chk.ok) errors.push({type: chk.cardEngine?'Khác nhóm thẻ':'Chưa có thẻ lương', who,
+        msg: chk.cardEngine
+          ? ('Thẻ lương hiệu lực thuộc nhóm "'+(PAY_PROFILE_LABEL[chk.cardEngine]||chk.cardEngine)+'" ≠ nhóm kỳ — chuyển NV sang kỳ đúng nhóm hoặc sửa thẻ')
+          : 'Không có thẻ lương hiệu lực tại kỳ — tạo thẻ trước khi tính'});
+    }catch(e){}
     if(!computed) errors.push({type:'Chưa tính', who, msg:'Chưa có kết quả lương'});
     const th=res.takeHome!=null?res.takeHome:res.total;
     if(th!=null && th<0) errors.push({type:'Thực lĩnh âm', who, msg:'Thực lĩnh = '+Math.round(th).toLocaleString('vi-VN')});
@@ -19371,6 +19439,12 @@ function _meTaxableBase(profile, res){
   return null;   // expat/expert/khác: chưa hỗ trợ → BLOCKING
 }
 function payComputeRow(p, row){
+  /* v3.14.09: CỔNG THẺ — engine thẻ hiệu lực phải đúng nhóm kỳ, sai thì KHÔNG tính (không tính bừa
+     bằng engine sai; inputs kỳ theo layout nhóm kỳ, đưa vào engine khác chỉ ra số rác). */
+  {
+    const chk=_payRowEngineCheck(p, row.empId);
+    if(!chk.ok) return {_engineMismatch:true, _cardEngine:chk.cardEngine};
+  }
   const F=PAY_EXTRA_TAXFIELD[p.profile];
   const ex=payExtrasFor(row.empId, p.period);
   const taxSum=ex.filter(x=>x.taxable).reduce((t,x)=>t+(x.sign<0?-1:1)*(+x.amount||0),0);
@@ -19502,12 +19576,31 @@ function payAdjustLocked(periodId){
   payExtraForm({period:next, desc:'Điều chỉnh kỳ '+p.period+': ', sourceType:'adjustment', sourceId:p.id});
   _payAudit(p,'open_adjust_slip','Mở phiếu điều chỉnh (ghi vào kỳ '+next+')');
 }
-function payExtraForm(pref){
+/* v3.14.05 (Sếp 03/8): Khoản PS — chọn NV bằng Ô GÕ TÌM (tên hoặc mã) thay dropdown cuộn.
+   Resolve về empId lúc LƯU: khớp đúng chuỗi gợi ý "Tên (MÃ)" → ưu tiên; sau đó MÃ đúng tuyệt đối;
+   tên đúng tuyệt đối; cuối cùng chuỗi con DUY NHẤT (tên/mã). 0 hoặc nhiều kết quả → '' (bắt chọn lại,
+   KHÔNG tự đoán — nguyên tắc không suy diễn). */
+function _pexResolveEmp(txt){
+  if(!txt) return '';
   const emps=(HRService.employees()||[]).filter(e=>e.status!=='inactive');
-  const opts=emps.map(e=>`<option value="${e.id}">${esc(e.fullName)} (${esc(e.smartId||'')})</option>`).join('');
+  const norm=v=>String(v||'').trim().toUpperCase().replace(/\s+/g,' ');
+  const q=norm(txt);
+  let hit=emps.find(e=>norm(e.fullName+' ('+(e.smartId||'')+')')===q);
+  if(hit) return hit.id;
+  hit=emps.find(e=>norm(e.smartId)===q);
+  if(hit) return hit.id;
+  const byName=emps.filter(e=>norm(e.fullName)===q);
+  if(byName.length===1) return byName[0].id;
+  const sub=emps.filter(e=>norm(e.fullName).indexOf(q)>=0 || (e.smartId&&norm(e.smartId).indexOf(q)>=0));
+  return sub.length===1 ? sub[0].id : '';
+}
+function payExtraForm(pref){
+  const emps=(HRService.employees()||[]).filter(e=>e.status!=='inactive')
+    .slice().sort((a,b)=>String(a.smartId||'').localeCompare(String(b.smartId||'')));   /* v3.14.05: mã SME trước, dễ dò */
+  const opts=emps.map(e=>`<option value="${esc(e.fullName)} (${esc(e.smartId||'')})"></option>`).join('');   /* v3.14.05: datalist gõ-tìm */
   openModal('➕ Khoản phát sinh', `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px">
-      <label>Nhân viên<select id="pex-emp" style="width:100%;padding:6px;border:1px solid var(--rule);border-radius:5px">${opts}</select></label>
+      <label>Nhân viên<input id="pex-emp" list="pex-emp-list" placeholder="Gõ tên hoặc mã NV (vd: Phong / SME0003)…" autocomplete="off" style="width:100%;padding:6px;border:1px solid var(--rule);border-radius:5px"><datalist id="pex-emp-list">${opts}</datalist></label>
       <label>Kỳ áp dụng<input id="pex-per" value="${(pref&&pref.period)||new Date().toISOString().slice(0,7)}" style="width:100%;padding:6px;border:1px solid var(--rule);border-radius:5px"></label>
       <label>Loại<select id="pex-sign" style="width:100%;padding:6px;border:1px solid var(--rule);border-radius:5px"><option value="1">＋ Thu nhập</option><option value="-1">− Khấu trừ</option></select></label>
       <label>Số tiền (VND)<input id="pex-amt" type="number" style="width:100%;padding:6px;border:1px solid var(--rule);border-radius:5px"></label>
@@ -19524,8 +19617,10 @@ function payExtraForm(pref){
 function payExtraSave(){
   if(!pexCanCreate_()){ toast('Tạo khoản: NS tiền lương / KT / Admin','bad'); return; }   /* v3.13.50: 2 vai nhập */
   const g=id=>document.getElementById(id);
-  const empId=g('pex-emp').value, per=(g('pex-per').value||'').trim(), amt=+g('pex-amt').value||0;
+  const per=(g('pex-per').value||'').trim(), amt=+g('pex-amt').value||0;
   const err=g('pex-err');
+  const empId=_pexResolveEmp((g('pex-emp').value||'').trim());   /* v3.14.05: ô gõ-tìm → resolve id */
+  if(!empId){ err.textContent='Không nhận diện được nhân viên — gõ tên hoặc MÃ rồi chọn từ gợi ý'; return; }
   if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(per)){ err.textContent='Kỳ phải dạng YYYY-MM (tháng 01-12)'; return; }
   if(amt<=0){ err.textContent='Số tiền > 0'; return; }
   if(!(g('pex-desc').value||'').trim()){ err.textContent='Mô tả BẮT BUỘC (nội dung khoản — người duyệt cần biết duyệt gì)'; return; }
@@ -19573,7 +19668,9 @@ function payExtraRollbackBatch(){
   const kept=[], removed=[];
   (S.payExtras||[]).forEach(x=>{ (x.batchId===b.trim() && x.status==='draft') ? removed.push(x) : kept.push(x); });
   const approvedLeft=(kept.filter(x=>x.batchId===b.trim())).length;
-  S.payExtras=kept; saveState();
+  S.payExtras=kept;
+  try{ markDeleted(removed.map(x=>x.id),'payExtras'); }catch(e){}   /* v3.14.06: cùng lớp lỗi xóa kỳ — hard-delete thiếu bia mộ sống lại sau sync */
+  saveState();
   toast('Rollback batch '+b+': xóa '+removed.length+' khoản nháp'+(approvedLeft?(' · '+approvedLeft+' khoản đã duyệt GIỮ (cần đảo tay)'):''),'good');
   payExtrasOpen();
 }
@@ -19655,9 +19752,12 @@ const PAY_ATT_MAP={
   /* v3.11.94 — Sếp chỉnh nghiệp vụ: VP công thường = đi làm + phép năm + nghỉ lễ hưởng lương + công tác
      trong nước (M=N+P+NL+N1); S (công LÀM ngày lễ) và OT (thường ×1.5 / N4 cuối tuần ×2) NHẬP TAY từ
      giấy ĐK OT như hiện hành. Kỹ thuật: N4 = tăng ca cuối tuần → W (engine I*W*2 ✓ khớp quy chế ×2);
-     dock=D→R (engine mức J=I×1.5 ✓); D1 bỏ (quy chế không có). */
+     dock=D→R (engine mức J=I×1.5 ✓); D1 bỏ (quy chế không có).
+     v3.14.05 (Sếp XÁC NHẬN QUY CHẾ 03/8 — ca Koóng KT T01 lệch đúng 2 công dock ngoài giờ ×1.8
+     = 5.236.365đ): dock ngoài giờ CÓ trả thật → nối lại D1→S. Engine tech KHÔNG sửa một ký tự
+     (đã có sẵn K×S với K=I×1.8 + miễn thuế I×S×1.8 — khớp bảng thực trả). Hash 7 engine SAME. */
   office:{ M:['N','P','NL','N1'], N:['N3'] },
-  tech:  { Q:['N3'], R:['D'], T:['N'], U:['P'], W:['N4'], Y:['N1'], Z:['N2'] },
+  tech:  { Q:['N3'], R:['D'], S:['D1'], T:['N'], U:['P'], W:['N4'], Y:['N1'], Z:['N2'] },   /* v3.14.05: +S:['D1'] */
   crew:  { G:['DB1'], H:['DB2'], I:['DOCK'], J:['BO'], K:['NGHICA'], L:['BO2'], M:['DP'] },
   /* v3.13.72 FIX: crew_khoan THIẾU hẳn trong map này — dùng chung payComputeCrew với crew (chỉ khác
      profile hệ số, không khác cột chấm công), nhưng trước đây "Kéo chấm công" bị chặn với thông báo
@@ -20278,6 +20378,56 @@ const PAYROLL_HEALTH_CHECKS=[
       if(neg) items.push(_phItem({checkId:'n2_workdays_over', periodId:p.id, empId:r.empId, field:'inputs', current:'có cột ÂM', expected:'≥ 0', source:'period.rows', openTarget:{type:'periodRow',id:p.id,subId:r.empId}}));
       if(tot>dim) items.push(_phItem({checkId:'n2_workdays_over', periodId:p.id, empId:r.empId, field:'tổng công', current:tot+' công', expected:'≤ '+dim+' ngày', source:'period.rows', openTarget:{type:'periodRow',id:p.id,subId:r.empId}}));
     }); return items; } },
+/* ═══ v3.14.10 (Sếp duyệt 04/8) — 3 phép kiểm "1 người nhiều nơi": trùng dòng trong bảng công ·
+   nhiều nguồn công cùng kỳ · nhiều kỳ lương cùng tháng. CHỈ ĐỌC + cảnh báo — không đổi cách tính,
+   không tự sửa số (máy phát hiện, Sếp quyết). Nền tảng: kéo công hiện lập chỉ mục byEmp nên dòng
+   sau ĐÈ dòng trước (mất công trong im lặng) — 3 phép này bắt trước khi hậu quả xảy ra. */
+{ id:'n2_bcc_dup_rows', group:'N2', severity:'RED', blocking:['compute','approve','lock'], needs:['period'],
+  label:'Một người có ≥2 dòng trong CÙNG một bảng chấm công (2 tàu/2 bộ phận) — kéo công sẽ đè mất dòng',
+  run(ctx){ const items=[]; const p=ctx.p; if(!p) return items;
+    (S.hrAttendance||[]).filter(a=>a.period===p.period && a.status==='locked').forEach(a=>{
+      const cnt={};
+      (a.rows||[]).forEach(r=>{ const k=r._empId||String(r.msnv||'').trim().toUpperCase()||String(r.name||'').trim().toUpperCase(); if(!k) return; cnt[k]=cnt[k]||{n:0,name:r.name||k}; cnt[k].n++; });
+      Object.keys(cnt).forEach(k=>{ if(cnt[k].n>=2) items.push(_phItem({checkId:'n2_bcc_dup_rows', periodId:p.id, empId:k, field:'BCC '+((HRM_BCC_PROFILES[a.profile]||{}).label||a.profile),
+        current:cnt[k].name+' xuất hiện '+cnt[k].n+' dòng', expected:'1 người 1 dòng/bảng — gộp tay ở BCC trước khi kéo (2 mức khác nhau: thẻ theo mức chính + Khoản PS phần chênh)', source:'hrAttendance', openTarget:{type:'period',id:p.id}})); });
+    }); return items; } },
+{ id:'n2_multi_att_source', group:'N2', severity:'YELLOW', blocking:[], needs:['period'],
+  label:'Một người có công ở ≥2 bảng chấm công cùng tháng (VP + tàu / 2 bộ phận) — kéo bảng sau sẽ đè bảng trước',
+  run(ctx){ const items=[]; const p=ctx.p; if(!p) return items;
+    const OT=new Set(['N4','OT15','OT2','OT3','OT']);
+    const dim=_phDaysInMonth(p.period);
+    const srcByEmp={};
+    (S.hrAttendance||[]).filter(a=>a.period===p.period && a.status==='locked').forEach(a=>{
+      (a.rows||[]).forEach(r=>{ const k=r._empId; if(!k) return;
+        let days=0, any=false;
+        Object.keys(r.cols||{}).forEach(c=>{ const v=+r.cols[c]||0; if(v>0){ any=true; if(!OT.has(c)) days+=v; } });
+        if(!any) return;
+        (srcByEmp[k]=srcByEmp[k]||[]).push({src:((HRM_BCC_PROFILES[a.profile]||{}).label||a.profile), days, name:r.name||k});
+      });
+    });
+    (p.rows||[]).forEach(row=>{
+      const list=srcByEmp[row.empId]; if(!list || list.length<2) return;
+      const tot=list.reduce((t,x)=>t+x.days,0);
+      items.push(_phItem({checkId:'n2_multi_att_source', periodId:p.id, empId:row.empId, field:'nguồn công',
+        current:list.map(x=>x.src+': '+x.days+' công').join(' + ')+' = '+tot+' công',
+        expected: tot>dim?('TỔNG VƯỢT '+dim+' ngày của tháng — dữ liệu sai, sửa BCC'):('kéo công chỉ nhận 1 bảng — cộng/đối chiếu tay phần còn lại'),
+        source:'hrAttendance', openTarget:{type:'periodRow',id:p.id,subId:row.empId}, severityOverride: tot>dim?'RED':null }));
+    }); return items; } },
+{ id:'n2_multi_period_month', group:'N2', severity:'YELLOW', blocking:[], needs:['period'],
+  label:'Một người nằm ≥2 kỳ lương cùng tháng (2 nhóm/2 pháp nhân) — GTGC chỉ được trừ 1 nơi',
+  run(ctx){ const items=[]; const p=ctx.p; if(!p) return items;
+    const GTGC_GROUPS=new Set(['office','tech','crew','crew_khoan','office_gross']);
+    const others=PayrollService.periods().filter(x=>x.id!==p.id && x.period===p.period);
+    if(!others.length) return items;
+    (p.rows||[]).forEach(row=>{
+      const hit=others.filter(x=>(x.rows||[]).some(r=>r.empId===row.empId));
+      if(!hit.length) return;
+      const both=GTGC_GROUPS.has(p.profile) && hit.some(x=>GTGC_GROUPS.has(x.profile));
+      items.push(_phItem({checkId:'n2_multi_period_month', periodId:p.id, empId:row.empId, field:'kỳ trùng',
+        current:'cũng nằm trong: '+hit.map(x=>(PAY_PROFILE_LABEL[x.profile]||x.profile)+(x.companyId?(' · '+x.companyId):'')).join(', '),
+        expected: both?'CẢ HAI kỳ đều nhóm có GTGC — giảm trừ đang bị trừ 2 lần, bỏ NPT/GTGC ở 1 kỳ (hoặc bật đa pháp nhân để chỉ định nơi trừ)':'kiểm tra thu nhập 2 nơi khi quyết toán',
+        source:'payrollPeriods', openTarget:{type:'periodRow',id:p.id,subId:row.empId}, severityOverride: both?'RED':null }));
+    }); return items; } },
 { id:'n2_work_outside_tenure', group:'N2', severity:'RED', blocking:['compute','approve','lock'], needs:['period'],
   label:'Có công trước ngày vào làm / sau ngày nghỉ việc',
   run(ctx){ const items=[]; const p=ctx.p; if(!p) return items;
@@ -20355,6 +20505,14 @@ PAYROLL_HEALTH_CHECKS.push(
       if(!r.result || r.result.grossTotal==null) return;
       let fresh=null; try{ fresh=phRecalc(p, r); }catch(e){ return; }
       if(!fresh) return;
+      /* v3.14.09: ghost bị CỔNG THẺ chặn (thẻ hiệu lực TẠI KỲ khác nhóm kỳ — thường do import/sửa thẻ
+         hồi tố SAU khi kỳ đã tính) → báo đúng bản chất, KHÔNG so số (so undefined sẽ hô sai "lệch engine"). */
+      if(fresh._engineMismatch){
+        items.push(_phItem({checkId:'n3_recalc', periodId:p.id, empId:r.empId, field:'engine',
+          current:'thẻ tại kỳ: '+(fresh._cardEngine?((PAY_PROFILE_LABEL||{})[fresh._cardEngine]||fresh._cardEngine):'KHÔNG CÓ THẺ'),
+          expected:'nhóm kỳ '+(((PAY_PROFILE_LABEL||{})[p.profile])||p.profile)+' — thẻ/kỳ mâu thuẫn, kiểm tra lại thẻ hoặc kỳ', source:'salaryProfiles', openTarget:{type:'periodRow',id:p.id,subId:r.empId}}));
+        return;
+      }
       PH_RESULT_KEYS.forEach(k=>{
         const a=Math.round(+r.result[k]||0), b=Math.round(+fresh[k]||0);
         if(a!==b) items.push(_phItem({checkId:'n3_recalc', periodId:p.id, empId:r.empId, field:k,
@@ -20668,7 +20826,7 @@ async function phRun(periodId, force){
     const hard=items.filter(i=>!i._info);
     results.push({checkId:chk.id, group:chk.group, label:chk.label, severity:chk.severity,
       blocking:FLAG_PH_BLOCKING?chk.blocking:[],   /* warn-only tới Phase 4 */
-      level: err?'YELLOW':(hard.length? chk.severity : (items.length?'INFO':'GREEN')),
+      level: err?'YELLOW':(hard.length? (hard.some(i=>i.severityOverride==='RED')?'RED':chk.severity) : (items.length?'INFO':'GREEN')),   /* v3.14.10: item nặng được nâng mức (VD tổng công nhiều nguồn VƯỢT ngày tháng) */
       count:hard.length, infoCount:items.length-hard.length,
       summary: err?('Phép lỗi: '+err):(hard.length+' mục'+(items.length-hard.length?(' · '+(items.length-hard.length)+' hợp lệ'):'')), items});
   }
@@ -23460,11 +23618,18 @@ function payRowSave(periodId, empId){
 function payPeriodComputeAll(id){
   const p=payPeriodById(id); if(!p||p.status==='locked') return;
   let cnt=0;
-  (p.rows||[]).forEach(r=>{ if(r.inputs && Object.keys(r.inputs).length){ r.result=payDispatchCompute(p.profile, r.inputs, p); cnt++; } });
-  _payAudit(p,'compute_all','Tính cả bảng ('+cnt+' NV)');
+  const _blocked=[];
+  (p.rows||[]).forEach(r=>{ if(r.inputs && Object.keys(r.inputs).length){
+    /* v3.14.09: qua CỔNG THẺ trước khi tính */
+    const chk=_payRowEngineCheck(p, r.empId);
+    if(!chk.ok){ r.result={_engineMismatch:true,_cardEngine:chk.cardEngine}; _blocked.push((r.name||r.empId)+(chk.cardEngine?' (thẻ: '+(PAY_PROFILE_LABEL[chk.cardEngine]||chk.cardEngine)+')':' (chưa có thẻ)')); return; }
+    r.result=payDispatchCompute(p.profile, r.inputs, p); cnt++;
+  } });
+  _payAudit(p,'compute_all','Tính cả bảng ('+cnt+' NV)'+(_blocked.length?' · CHẶN '+_blocked.length+' NV khác nhóm thẻ: '+_blocked.join(', '):''));
   saveState();
   openPayPeriodDetail(id);
-  toast('Đã tính '+cnt+' NV','good');
+  if(_blocked.length) toast('Đã tính '+cnt+' NV · ⛔ '+_blocked.length+' NV KHÔNG tính vì thẻ lương khác nhóm kỳ: '+_blocked.slice(0,3).join(', ')+(_blocked.length>3?'…':'')+' — xem Báo cáo ngoại lệ','warn');
+  else toast('Đã tính '+cnt+' NV','good');
 }
 function payPeriodLock(id){ payPreCloseOpen(id); }   /* v3.12.13: khóa đi qua Pre-close */
 /* ════════════════════════════════════════════════════════════════════════
@@ -41314,6 +41479,51 @@ function renderBanking(){
   }
 
   // Loans list
+  /* v3.14.08 (Sếp 03/8 — đánh giá tín dụng NH): LÃI (đồng) vs LÃI SUẤT (%/năm) theo từng lender.
+     - paidY/dueY: lãi ĐÃ TRẢ / CÒN PHẢI TRẢ trong năm `year` (theo paymentSchedule, tách ccy)
+     - prevPaid : lãi đã trả năm trước (so cùng kỳ mức năm)
+     - wRate    : lãi suất DANH NGHĨA bình quân gia quyền theo dư nợ còn lại (tách ccy)
+     - quarters : lãi suất THỰC (implied) theo quý = Σlãi ÷ Σ(dư_nợ×ngày/365) — ưu tiên
+                  _outstanding/_interestDays lưu sẵn trong lịch ACT/365; lịch cũ suy gần đúng
+     - adjust   : sự kiện "Đổi lãi suất" (loan.reschedules action=change_rate) trong năm
+     Helper THUẦN — không DOM, test được. */
+  function _creditLenderInterestStats(lenderLoans, year){
+    const byCcy={}, qBase={}, qInt={}, adjust=[];
+    const Y=String(year), Yprev=String(+year-1);
+    lenderLoans.forEach(l=>{
+      const c=l.ccy||'VND';
+      byCcy[c]=byCcy[c]||{paidY:0,dueY:0,remaining:0,wSum:0,prevPaid:0};
+      const rem=(typeof loanRemainingPrincipal==='function')?loanRemainingPrincipal(l):0;
+      byCcy[c].remaining+=rem; byCcy[c].wSum+=rem*(+l.interestRate||0);
+      (l.reschedules||[]).forEach(rs=>{
+        if(rs.action==='change_rate'&&String(rs.date||'').slice(0,4)===Y)
+          adjust.push({contract:l.contractNo||'', date:rs.date, rate:+rs.rate||0});
+      });
+      let prevDue=l.startDate||null, out0=+l.principal||0, paidPrin=0;
+      (l.paymentSchedule||[]).forEach(p=>{
+        const dd=String(p.dueDate||''), y=dd.slice(0,4);
+        const interest=+p.interest||0, prin=+p.principal||0;
+        if(y===Y){
+          if(p.paidDate) byCcy[c].paidY+=interest; else byCcy[c].dueY+=interest;
+          const q=Math.floor((+dd.slice(5,7)-1)/3)+1;
+          const outk=(p._outstanding!=null)?+p._outstanding:(out0-paidPrin);
+          const days=(p._interestDays!=null)?+p._interestDays:(prevDue?Math.max(1,Math.round((new Date(dd)-new Date(prevDue))/86400000)):30);
+          if(outk>0&&days>0&&interest>0){
+            const k=c+q; qBase[k]=(qBase[k]||0)+outk*days/365; qInt[k]=(qInt[k]||0)+interest;
+          }
+        }
+        if(y===Yprev && p.paidDate) byCcy[c].prevPaid+=interest;
+        paidPrin+=prin; if(dd) prevDue=dd;
+      });
+    });
+    const quarters={};
+    Object.keys(byCcy).forEach(c=>{
+      quarters[c]=[1,2,3,4].map(q=>{ const k=c+q; return qBase[k]?{q, rate:qInt[k]/qBase[k]*100}:null; });
+      const b=byCcy[c]; b.wRate=b.remaining>0?b.wSum/b.remaining:0;
+    });
+    return {byCcy, quarters, adjust};
+  }
+  window._creditLenderInterestStats=_creditLenderInterestStats;   /* v3.14.08: xuất global cho _renderCreditAssess */
   const loanBox = document.getElementById('loans-list');
   if(loanBox){
     if(loans.length===0){
@@ -41415,6 +41625,13 @@ function renderBanking(){
               <label onclick="event.stopPropagation()" title="Bật: app tự ghi giảm gốc + chi phí lãi NGAY khi kỳ tới ngày đáo hạn. Tắt: KT tự tích xác nhận." style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;cursor:pointer;color:${_autoOn?'var(--teal)':'var(--muted)'}">
                 <input type="checkbox" ${_autoOn?'checked':''} onclick="event.stopPropagation();toggleLoanAuto('${_lenderB64}')" style="cursor:pointer"> 🔄 Auto tự thu
               </label>
+              ${(()=>{ /* v3.14.08: ô TỔNG LÃI năm hiện tại — đã trả · còn phải trả (tách ccy) */
+                const _Y=new Date().getFullYear();
+                const _st=_creditLenderInterestStats(lenderLoans,_Y);
+                const _fmtByCcy=f=>Object.entries(_st.byCcy).filter(([_,b])=>f(b)>0).map(([c,b])=>`${_locN(f(b),c)} ${c}`).join(' + ');
+                const _p=_fmtByCcy(b=>b.paidY), _d=_fmtByCcy(b=>b.dueY);
+                return (_p||_d)?`<span style="font-size:11px;font-weight:600" title="Tổng LÃI năm ${_Y} theo lịch trả nợ — đã trả (kỳ có ngày trả) · còn phải trả (kỳ chưa trả)">Lãi ${_Y}: <span style="color:var(--good)">đã trả ${_p||'0'}</span> · <span style="color:var(--warn)">còn ${_d||'0'}</span></span>`:'';
+              })()}
               <span style="font-size:13px;color:var(--warn);font-weight:600">Còn nợ: ${lenderRemTxt}</span>
             </span>
           </summary>
@@ -41509,6 +41726,7 @@ function renderBanking(){
              + '<button class="btn-primary" style="margin-top:10px;font-size:13px" onclick="loanFilterReset()">↺ Xóa lọc — xem tất cả '+loans.length+' khoản</button></div>';
       }
       loanBox.innerHTML = html;
+      _renderCreditAssess();   /* v3.14.08: khối Đánh giá tín dụng NH */
     }
   }
 }
@@ -67624,7 +67842,11 @@ function _cfOutflowsInWindow(start, end){
         const interest=+p.interest||0;
         const total=principal+interest;
         if(total>0){
-          out.push({date:d, kind:'LOAN', record:loan, scheduleItem:p, amount:toDisplay(total, loan.ccy||'VND', loan.fxToUsd)});
+          out.push({date:d, kind:'LOAN', record:loan, scheduleItem:p,
+            amount:toDisplay(total, loan.ccy||'VND', loan.fxToUsd),
+            /* v3.14.07: tách gốc/lãi để hiển thị — amount (tổng) GIỮ NGUYÊN, không đổi số dư dự báo */
+            principalDisp:toDisplay(principal, loan.ccy||'VND', loan.fxToUsd),
+            interestDisp:toDisplay(interest, loan.ccy||'VND', loan.fxToUsd)});
         }
       }
     });
@@ -67977,6 +68199,115 @@ function _cfSaveMonthlySalary(){
   renderCashflow();
 }
 
+/* v3.14.08 — Khối "Đánh giá tín dụng ngân hàng" cuối tab Tín dụng & Vay.
+   LÃI (đồng): đã trả / còn phải trả năm nay + năm trước. LÃI SUẤT (%/năm): danh nghĩa BQ gia quyền
+   + lãi suất THỰC theo quý (implied từ lịch ACT/365) + biến động (max−min) + số lần "Đổi lãi suất".
+   Dùng TOÀN BỘ khoản vay active (không theo bộ lọc màn hình) để đánh giá công bằng giữa các NH. */
+function _renderCreditAssess(){
+  const el=document.getElementById('credit-assess');
+  if(!el) return;
+  if(typeof _creditLenderInterestStats!=='function'){ el.innerHTML=''; return; }
+  const Y=new Date().getFullYear();
+  const loans=AccountingService.loans().filter(l=>l && (l.status==='active'||!l.status));
+  if(!loans.length){ el.innerHTML=''; return; }
+  const byLender={};
+  loans.forEach(l=>{ const ld=(l.lender||l.bankName||'(Chưa rõ)').trim(); (byLender[ld]=byLender[ld]||[]).push(l); });
+  const fmtQ=v=>v==null?'<span style="color:var(--muted)">—</span>':v.rate.toFixed(2)+'%';
+  let rows='';
+  Object.entries(byLender).sort((a,b)=>b[1].length-a[1].length).forEach(([lender,ls])=>{
+    const st=_creditLenderInterestStats(ls,Y);
+    Object.entries(st.byCcy).forEach(([ccy,b])=>{
+      if(b.remaining<=0 && b.paidY<=0 && b.dueY<=0) return;
+      const qs=st.quarters[ccy]||[];
+      const have=qs.filter(x=>x);
+      const vol=have.length>=2?(Math.max(...have.map(x=>x.rate))-Math.min(...have.map(x=>x.rate))):null;
+      rows+='<tr>'+
+        '<td><b>'+esc(lender)+'</b></td>'+
+        '<td>'+ccy+'</td>'+
+        '<td class="r num">'+_locN(b.remaining,ccy)+'</td>'+
+        '<td class="r num">'+(b.wRate?b.wRate.toFixed(2)+'%':'—')+'</td>'+
+        '<td class="r num">'+fmtQ(qs[0])+'</td><td class="r num">'+fmtQ(qs[1])+'</td>'+
+        '<td class="r num">'+fmtQ(qs[2])+'</td><td class="r num">'+fmtQ(qs[3])+'</td>'+
+        '<td class="r num" style="'+(vol!=null&&vol>=1?'color:var(--bad);font-weight:700':vol!=null&&vol>=0.5?'color:var(--warn);font-weight:600':'')+'">'+(vol==null?'—':vol.toFixed(2)+' đ%')+'</td>'+
+        '<td class="r num" style="color:var(--good)">'+(b.paidY?_locN(b.paidY,ccy):'—')+'</td>'+
+        '<td class="r num" style="color:var(--warn)">'+(b.dueY?_locN(b.dueY,ccy):'—')+'</td>'+
+        '<td class="r num" style="color:var(--muted)">'+(b.prevPaid?_locN(b.prevPaid,ccy):'—')+'</td>'+
+        '<td class="r num"'+(st.adjust.length?' title="'+esc(st.adjust.map(a=>a.date+' → '+a.rate+'%'+(a.contract?' ('+a.contract+')':'')).join(' · '))+'"':'')+'>'+(st.adjust.length||'—')+'</td>'+
+      '</tr>';
+    });
+  });
+  if(!rows){ el.innerHTML=''; return; }
+  el.innerHTML=
+    '<div class="section-head"><div class="section-title">📊 Đánh giá tín dụng ngân hàng <span style="font-weight:400;color:var(--muted);font-size:11px;text-transform:none">— lãi (đồng) &amp; lãi suất (%/năm) · năm '+Y+'</span></div></div>'+
+    '<div class="tbl-scroll"><table class="tbl compact">'+
+    '<thead><tr><th>Ngân hàng</th><th>CCY</th><th class="r">Dư nợ</th><th class="r">LS BQ<br>hiện hành</th>'+
+    '<th class="r">LS thực Q1</th><th class="r">Q2</th><th class="r">Q3</th><th class="r">Q4</th><th class="r">Biến động</th>'+
+    '<th class="r">Lãi đã trả '+Y+'</th><th class="r">Còn phải trả '+Y+'</th><th class="r">Đã trả '+(Y-1)+'</th><th class="r">Điều chỉnh LS</th></tr></thead>'+
+    '<tbody>'+rows+'</tbody></table></div>'+
+    '<div style="font-size:10px;color:var(--muted);margin-top:6px;line-height:1.5">'+
+    'Đọc số: <b>LS BQ hiện hành</b> = lãi suất danh nghĩa bình quân gia quyền theo dư nợ. <b>LS thực theo quý</b> = Σlãi ÷ Σ(dư nợ×ngày/365) suy từ lịch trả — phản ánh cả các lần điều chỉnh. '+
+    '<b>Biến động</b> = chênh max−min các quý có số (≥1 điểm % trong năm là NH kém ổn định). <b>Điều chỉnh LS</b> đếm sự kiện "Đổi lãi suất" — muốn thống kê đủ, mọi lần NH báo đổi lãi hãy dùng nút Đổi lãi suất (không sửa tay form khoản vay). '+
+    'Xếp hạng NH bằng <b>lãi suất</b>, không bằng tổng lãi tuyệt đối (vay nhiều thì lãi nhiều là đương nhiên); USD so cùng USD, VND so cùng VND.</div>';
+}
+
+/* v3.14.07 — Phải trả ngân hàng theo kỳ: helper THUẦN (không DOM) để test.
+   Trả về {rows[], sumP, sumI, sumT (display ccy), noSchedule[]} trong đúng các kỳ truyền vào. */
+function _cfLoanDueRows(periods){
+  const rows=[]; let sumP=0,sumI=0,sumT=0;
+  const loans=(typeof AccountingService!=='undefined'&&AccountingService.loans)?AccountingService.loans():((S&&S.loans)||[]);
+  const active=loans.filter(l=>l.status!=='paid_off'&&l.status!=='closed');
+  const t0=periods.length?periods[0].start:null, t1=periods.length?periods[periods.length-1].end:null;
+  active.forEach(loan=>{
+    (loan.paymentSchedule||[]).forEach(p=>{
+      if(p.paidDate) return;
+      if(!p.dueDate) return;
+      const d=new Date(p.dueDate);
+      if(!(t0&&t1&&d>=t0&&d<t1)) return;
+      const per=periods.find(x=>d>=x.start&&d<x.end);
+      const principal=+p.principal||0, interest=+p.interest||0;
+      if(principal+interest<=0) return;
+      const pd=toDisplay(principal, loan.ccy||'VND', loan.fxToUsd);
+      const idd=toDisplay(interest, loan.ccy||'VND', loan.fxToUsd);
+      rows.push({periodLabel:per?per.label:'', dueDate:p.dueDate, bankName:loan.bankName||'?', contractNo:loan.contractNo||'',
+        ccy:loan.ccy||'VND', principal, interest, total:principal+interest,
+        principalDisp:pd, interestDisp:idd, totalDisp:pd+idd});
+      sumP+=pd; sumI+=idd; sumT+=pd+idd;
+    });
+  });
+  rows.sort((a,b)=>a.dueDate<b.dueDate?-1:1);
+  const noSchedule=active.filter(l=>!(l.paymentSchedule||[]).some(p=>!p.paidDate&&p.dueDate));
+  return {rows, sumP, sumI, sumT, noSchedule};
+}
+function _cfRenderLoanSection(periods){
+  const el=document.getElementById('cf-loan-table');
+  if(!el) return;
+  const {rows,sumP,sumI,sumT,noSchedule}=_cfLoanDueRows(periods);
+  let html='<thead><tr><th>Kỳ</th><th>Ngày đến hạn</th><th>Ngân hàng · HĐ/Khế ước</th><th class="r">Gốc</th><th class="r">Lãi</th><th class="r">Tổng trả</th></tr></thead><tbody>';
+  if(!rows.length){
+    const why=((S&&S.loans&&S.loans.length)?'Không có kỳ trả nợ nào đến hạn trong khung thời gian này':'Chưa có dữ liệu khoản vay — hoặc tài khoản không có quyền xem Tab Ngân hàng');
+    html+='<tr><td colspan="6" style="color:var(--muted);text-align:center;padding:14px">'+why+'</td></tr>';
+  } else {
+    rows.forEach(r=>{
+      html+='<tr><td>'+esc(r.periodLabel)+'</td>'+
+        '<td class="num">'+new Date(r.dueDate).toLocaleDateString('vi-VN')+'</td>'+
+        '<td>'+esc(r.bankName)+(r.contractNo?' · <span style="color:var(--muted)">'+esc(r.contractNo)+'</span>':'')+'</td>'+
+        '<td class="r num">'+fmt(r.principalDisp)+'</td>'+
+        '<td class="r num">'+fmt(r.interestDisp)+'</td>'+
+        '<td class="r num" style="font-weight:600">'+fmt(r.totalDisp)+'</td></tr>';
+    });
+    html+='<tr style="border-top:2px solid var(--rule);background:rgba(var(--accent-rgb,65,65,65),.05)">'+
+      '<td colspan="3"><b>TỔNG trong khung thời gian</b></td>'+
+      '<td class="r num" style="font-weight:700">'+fmt(sumP)+'</td>'+
+      '<td class="r num" style="font-weight:700">'+fmt(sumI)+'</td>'+
+      '<td class="r num" style="font-weight:700;color:var(--bad)">'+fmt(sumT)+'</td></tr>';
+  }
+  html+='</tbody>';
+  if(noSchedule.length){
+    html+='<tfoot><tr><td colspan="6" style="font-size:11px;color:var(--warn);padding-top:8px">⚠ '+noSchedule.length+' khoản vay đang hoạt động chưa có lịch trả (hoặc đã trả hết các kỳ nhập): '+
+      noSchedule.map(l=>esc(l.bankName||'?')).join(', ')+' — nhập lịch ở Tab 05 Ngân hàng để dự báo đủ.</td></tr></tfoot>';
+  }
+  el.innerHTML=html;
+}
 function renderCashflow(){
   if(!document.getElementById('page-cashflow')) return;
   _nsnnInit();
@@ -68046,6 +68377,8 @@ function renderCashflow(){
       </div>`;
   }
 
+  _cfRenderLoanSection(periods);   /* v3.14.07: bảng Phải trả NH gốc & lãi — cùng khung thời gian */
+
   // Forecast table
   const fcEl=document.getElementById('cf-forecast');
   if(fcEl){
@@ -68062,9 +68395,11 @@ function renderCashflow(){
       const loanAmt=r.outflows.filter(o=>o.kind==='LOAN').reduce((s,o)=>s+o.amount,0);
       const taxAmt=r.outflows.filter(o=>o.kind==='TAX').reduce((s,o)=>s+o.amount,0);
       const salAmt=r.outflows.filter(o=>o.kind==='SALARY').reduce((s,o)=>s+o.amount,0);  // v2.99.15
+      const loanP=r.outflows.filter(o=>o.kind==='LOAN').reduce((s,o)=>s+(+o.principalDisp||0),0);
+      const loanI=r.outflows.filter(o=>o.kind==='LOAN').reduce((s,o)=>s+(+o.interestDisp||0),0);
       const outDetail = [
         apAmt?`AP ${fmt(apAmt)}`:null,
-        loanAmt?`Vay ${fmt(loanAmt)}`:null,
+        loanAmt?`NH ${fmt(loanAmt)} <span style="font-style:normal;color:var(--muted)">(gốc ${fmt(loanP)} · lãi ${fmt(loanI)})</span>`:null,
         salAmt?`Lương ${fmt(salAmt)}`:null,
         taxAmt?`NSNN ${fmt(taxAmt)}`:null
       ].filter(Boolean).join(' · ')||'—';
