@@ -3744,7 +3744,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.14.17';
+const APP_VERSION='3.14.19';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -68219,6 +68219,13 @@ function _cfSaveMonthlySalary(){
    LÃI (đồng): đã trả / còn phải trả năm nay + năm trước. LÃI SUẤT (%/năm): danh nghĩa BQ gia quyền
    + lãi suất THỰC theo quý (implied từ lịch ACT/365) + biến động (max−min) + số lần "Đổi lãi suất".
    Dùng TOÀN BỘ khoản vay active (không theo bộ lọc màn hình) để đánh giá công bằng giữa các NH. */
+/* v3.14.19 (Sếp 05/8): phân loại KỲ HẠN vay — Ngắn hạn ≤12 tháng · Trung–dài hạn >12 (chuẩn TCTD,
+   gộp trung+dài theo lệnh). Chưa khai termMonths → nhóm riêng "Chưa khai kỳ hạn", KHÔNG đoán. */
+function _loanTermBucket(l){
+  const t=+l.termMonths;
+  if(!t||t<=0) return 'Chưa khai kỳ hạn';
+  return t<=12?'Ngắn hạn':'Trung–dài hạn';
+}
 function _renderCreditAssess(){
   const el=document.getElementById('credit-assess');
   if(!el) return;
@@ -68235,7 +68242,11 @@ function _renderCreditAssess(){
      QUÝ TRƯỚC GẦN NHẤT CÓ PHÁT SINH (tăng = đỏ, giảm = xanh); cột năm kèm so năm trước. */
   const fmtQ=(v,prevRate)=>v==null?'<span style="color:var(--muted)">—</span>':(v.rate.toFixed(2)+'%'+_dArrow(v.rate,prevRate));
   let rows='';
-  Object.entries(byLender).sort((a,b)=>b[1].length-a[1].length).forEach(([lender,ls])=>{
+  const TB_ORDER=['Ngắn hạn','Trung–dài hạn','Chưa khai kỳ hạn'];
+  Object.entries(byLender).sort((a,b)=>b[1].length-a[1].length).forEach(([lender,lsAll])=>{
+    const byTerm={}; lsAll.forEach(l=>{ const k=_loanTermBucket(l); (byTerm[k]=byTerm[k]||[]).push(l); });
+    TB_ORDER.filter(tb=>byTerm[tb]).forEach(tb=>{
+    const ls=byTerm[tb];
     const st=_creditLenderInterestStats(ls,Y);
     Object.entries(st.byCcy).forEach(([ccy,b])=>{
       if(b.remaining<=0 && b.paidY<=0 && b.dueY<=0) return;
@@ -68245,8 +68256,10 @@ function _renderCreditAssess(){
 
       rows+='<tr>'+
         '<td><b>'+esc(lender)+'</b></td>'+
+        '<td style="'+(tb==='Ngắn hạn'?'color:var(--good)':tb==='Trung–dài hạn'?'color:var(--warn)':'color:var(--bad);font-weight:600')+'">'+tb+'</td>'+
         '<td>'+ccy+'</td>'+
         '<td class="r num">'+_locN(b.remaining,ccy)+'</td>'+
+        '<td class="r num" style="font-weight:600">'+(b.wRate?b.wRate.toFixed(2)+'%':'—')+'</td>'+
         '<td class="r num">'+(b.yearAvg?(b.yearAvg.toFixed(2)+'%'+_dArrow(b.yearAvg, b.prevYearAvg||null)):'—')+((b.yCnt)?('<div style="font-size:9px;color:var(--muted)">'+b.yCnt+' phát sinh'+(b.prevYearAvg?(' · năm trước '+b.prevYearAvg.toFixed(2)+'%'):'')+'</div>'):'')+'</td>'+
         (()=>{ let prev=null, cells='';
           for(let qi=0;qi<4;qi++){ const cur=qs[qi];
@@ -68260,6 +68273,7 @@ function _renderCreditAssess(){
         '<td class="r num"'+(st.adjust.length?' title="'+esc(st.adjust.map(a=>a.date+' → '+a.rate+'%'+(a.contract?' ('+a.contract+')':'')).join(' · '))+'"':'')+'>'+(st.adjust.length||'—')+'</td>'+
       '</tr>';
     });
+    });
   });
   if(!rows){ el.innerHTML=''; return; }
   /* v3.14.17 (Sếp 05/8: "có các khoản vay cũ 2025 — tổng kết và so sánh"): bảng SO SÁNH NĂM.
@@ -68267,7 +68281,10 @@ function _renderCreditAssess(){
      khoản mới (số + tổng gốc theo ngày vay), LS BQ phát sinh, lãi (đồng) đã trả/còn phải trả từng năm. */
   const Yn=Y, Yp=Y-1;
   let cmpRows='';
-  Object.entries(byLender).sort((a,b)=>b[1].length-a[1].length).forEach(([lender,ls])=>{
+  Object.entries(byLender).sort((a,b)=>b[1].length-a[1].length).forEach(([lender,lsAll2])=>{
+    const byTerm2={}; lsAll2.forEach(l=>{ const k=_loanTermBucket(l); (byTerm2[k]=byTerm2[k]||[]).push(l); });
+    ['Ngắn hạn','Trung–dài hạn','Chưa khai kỳ hạn'].filter(tb=>byTerm2[tb]).forEach(tb=>{
+    const ls=byTerm2[tb];
     const sN=_creditLenderInterestStats(ls,Yn), sP=_creditLenderInterestStats(ls,Yp);
     const ccys={}; Object.keys(sN.byCcy).forEach(c=>ccys[c]=1); Object.keys(sP.byCcy).forEach(c=>ccys[c]=1);
     Object.keys(ccys).forEach(ccy=>{
@@ -68275,7 +68292,7 @@ function _renderCreditAssess(){
       if(!((n.newLoans||0)+(p.newLoans||0)+(n.paidY||0)+(p.paidY||0)+(n.dueY||0))) return;
       const dRate=(n.yearAvg&&p.yearAvg)?(n.yearAvg-p.yearAvg):null;
       const dInt=(n.paidY||0)-(p.paidY||0);
-      cmpRows+='<tr><td><b>'+esc(lender)+'</b></td><td>'+ccy+'</td>'+
+      cmpRows+='<tr><td><b>'+esc(lender)+'</b></td><td>'+tb+'</td><td>'+ccy+'</td>'+
         '<td class="r num">'+(p.newLoans||0)+'</td><td class="r num">'+(p.newPrincipal?_locN(p.newPrincipal,ccy):'—')+'</td>'+
         '<td class="r num">'+(p.yearAvg?p.yearAvg.toFixed(2)+'%':'—')+'</td><td class="r num">'+(p.paidY?_locN(p.paidY,ccy):'—')+'</td>'+
         '<td class="r num" style="border-left:2px solid var(--rule)">'+(n.newLoans||0)+'</td><td class="r num">'+(n.newPrincipal?_locN(n.newPrincipal,ccy):'—')+'</td>'+
@@ -68284,11 +68301,12 @@ function _renderCreditAssess(){
         '<td class="r num" style="'+(dRate!=null?(dRate>0?'color:var(--bad);font-weight:700':'color:var(--good);font-weight:700'):'')+'">'+(dRate==null?'—':((dRate>0?'▲':'▼')+Math.abs(dRate).toFixed(2)+' đ%'))+'</td>'+
         '<td class="r num" style="'+(dInt>0?'color:var(--bad)':'color:var(--good)')+'">'+(dInt?((dInt>0?'+':'−')+_locN(Math.abs(dInt),ccy)):'—')+'</td></tr>';
     });
+    });
   });
   const cmpHtml=cmpRows?(
     '<div class="section-head" style="margin-top:16px"><div class="section-title">📜 So sánh khoản vay '+Yp+' ↔ '+Yn+'</div></div>'+
     '<div class="tbl-scroll"><table class="tbl compact">'+
-    '<thead><tr><th rowspan="2">Ngân hàng</th><th rowspan="2">CCY</th>'+
+    '<thead><tr><th rowspan="2">Ngân hàng</th><th rowspan="2">Loại vay</th><th rowspan="2">CCY</th>'+
     '<th colspan="4" style="text-align:center">'+Yp+'</th>'+
     '<th colspan="5" style="text-align:center;border-left:2px solid var(--rule)">'+Yn+'</th>'+
     '<th rowspan="2" class="r">Δ LS BQ</th><th rowspan="2" class="r">Δ lãi đã trả</th></tr>'+
@@ -68301,12 +68319,12 @@ function _renderCreditAssess(){
   el.innerHTML=
     '<div class="section-head"><div class="section-title">📊 Đánh giá tín dụng ngân hàng <span style="font-weight:400;color:var(--muted);font-size:11px;text-transform:none">— lãi (đồng) &amp; lãi suất (%/năm) · năm '+Y+'</span></div></div>'+
     '<div class="tbl-scroll"><table class="tbl compact">'+
-    '<thead><tr><th>Ngân hàng</th><th>CCY</th><th class="r">Dư nợ</th><th class="r" title="Σ lãi suất các kỳ trong năm ÷ tổng số kỳ (trung bình đơn — phương pháp Sếp chốt 05/8)">LS BQ năm<br>(Σls÷kỳ)</th>'+
+    '<thead><tr><th>Ngân hàng</th><th title="Ngắn hạn ≤12 tháng · Trung–dài hạn >12 tháng (theo termMonths khoản vay)">Loại vay</th><th>CCY</th><th class="r">Dư nợ</th><th class="r" title="WAIR — Weighted Average Interest Rate: Σ(dư nợ × lãi suất hiện hành) ÷ Σ dư nợ. Chuẩn thuyết minh BCTC/hồ sơ tín dụng — trả lời: vốn vay đang đắt bao nhiêu.">LS BQ dư nợ<br>(WAIR)</th><th class="r" title="Σ lãi suất PHÁT SINH trong năm (vay mới + Đổi lãi suất) ÷ số phát sinh — trả lời: NH đang chào đắt lên hay rẻ đi.">LS BQ năm<br>(phát sinh)</th>'+
     '<th class="r" title="Σ lãi suất các kỳ trong quý ÷ số kỳ trong quý">LS BQ Q1</th><th class="r">Q2</th><th class="r">Q3</th><th class="r">Q4</th><th class="r">Biến động</th>'+
     '<th class="r">Lãi đã trả '+Y+'</th><th class="r">Còn phải trả '+Y+'</th><th class="r">Đã trả '+(Y-1)+'</th><th class="r">Điều chỉnh LS</th></tr></thead>'+
     '<tbody>'+rows+'</tbody></table></div>'+
     '<div style="font-size:10px;color:var(--muted);margin-top:6px;line-height:1.5">'+
-    'Đọc số: lãi suất ghi nhận MỘT LẦN tại thời điểm PHÁT SINH — khoản vay mới (ngày vay, mức gốc) và mỗi lần Đổi lãi suất (ngày đổi, mức mới); KHÔNG cộng khoản cũ vào các kỳ tiếp theo. <b>LS BQ quý</b> = Σ lãi suất phát sinh trong quý ÷ số phát sinh (VD Q1 có 3 khoản 6%·6,5%·7% → 6,5%); <b>LS BQ năm</b> = Σ phát sinh trong năm ÷ số phát sinh. Quý không có phát sinh → "—". Mũi tên = chênh so QUÝ TRƯỚC gần nhất có phát sinh (▲ tăng đỏ · ▼ giảm xanh · ＝ đi ngang); cột năm so cùng phương pháp với NĂM TRƯỚC. '+
+    'Phân loại kỳ hạn: <b>Ngắn hạn</b> ≤12 tháng (vốn lưu động) · <b>Trung–dài hạn</b> >12 tháng (đầu tư) — hai thị trường giá khác nhau, so trong cùng loại; khoản "Chưa khai kỳ hạn" cần bổ sung termMonths ở hồ sơ vay. Đọc số: <b>LS BQ dư nợ (WAIR)</b> = Σ(dư nợ × lãi suất hiện hành) ÷ Σ dư nợ — chuẩn tài chính, cho biết vốn vay tại NH đó đang đắt bao nhiêu; xếp hạng chi phí vốn dùng cột này. Các cột PHÁT SINH cho biết NH chào đắt lên hay rẻ đi theo thời điểm: lãi suất ghi nhận MỘT LẦN tại thời điểm PHÁT SINH — khoản vay mới (ngày vay, mức gốc) và mỗi lần Đổi lãi suất (ngày đổi, mức mới); KHÔNG cộng khoản cũ vào các kỳ tiếp theo. <b>LS BQ quý</b> = Σ lãi suất phát sinh trong quý ÷ số phát sinh (VD Q1 có 3 khoản 6%·6,5%·7% → 6,5%); <b>LS BQ năm</b> = Σ phát sinh trong năm ÷ số phát sinh. Quý không có phát sinh → "—". Mũi tên = chênh so QUÝ TRƯỚC gần nhất có phát sinh (▲ tăng đỏ · ▼ giảm xanh · ＝ đi ngang); cột năm so cùng phương pháp với NĂM TRƯỚC. '+
     '<b>Biến động</b> = chênh max−min các quý có số (≥1 điểm % trong năm là NH kém ổn định). <b>Điều chỉnh LS</b> đếm sự kiện "Đổi lãi suất" — muốn thống kê đủ, mọi lần NH báo đổi lãi hãy dùng nút Đổi lãi suất (không sửa tay form khoản vay). '+
     'Xếp hạng NH bằng <b>lãi suất</b>, không bằng tổng lãi tuyệt đối (vay nhiều thì lãi nhiều là đương nhiên); USD so cùng USD, VND so cùng VND.</div>'+cmpHtml;
 }

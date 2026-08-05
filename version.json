@@ -1,5 +1,5 @@
 {
-  "version": "3.14.17",
-  "swVersion": "v3.14.17",
-  "notes": "Gop 3.14.05-16 (chua deploy) + bang '📜 So sanh khoan vay 2025 ↔ 2026' (Sep 05/8: 'co cac khoan vay cu 2025 — tong ket va so sanh'): cuoi khoi Danh gia tin dung, moi NH×ccy mot dong voi 2 cum nam — [2025: so khoan vay moi (theo NGAY VAY) · tong goc vay moi · LS BQ phat sinh · lai da tra] | [2026: nt + con phai tra] | Δ LS BQ (▲do/▼xanh) | Δ lai da tra. Helper them newLoans/newPrincipal theo startDate; goi cung helper cho tung nam tren cung danh sach khoan active — mot phuong phap duy nhat, so duoc thang. Ghi chu trung thuc: chi tong ket duoc khoan CON trong app; khoan 2025 da tat toan va xoa ho so se khong hien. VM test 6/6 (2025: 2 khoan 30 ty LS 8,5% lai 550tr · 2026: 1 khoan 15 ty LS 6,5% lai 590tr → ΔLS ▼2,00 d%, Δlai +40tr). 6 engine cong thuc hash SAME; payComputeRow giu cong the."
+  "version": "3.14.19",
+  "swVersion": "v3.14.19",
+  "notes": "Gop 3.14.05-18 (chua deploy) + phan loai KY HAN vay (Sep 05/8): Ngan han ≤12 thang (von luu dong) · Trung-dai han >12 thang (dau tu, gop trung+dai theo lenh) · 'Chua khai ky han' rieng khi thieu termMonths (khong doan). Ap dung ca 2 bang: Danh gia tin dung (them cot Loai vay — WAIR/phat sinh/bien dong/lai tinh RIENG tung loai, vi 2 thi truong gia khac nhau) va So sanh 2025↔2026. Tooltip + chu thich giai thich; khoan chua khai ky han to do de Sep bo sung ho so vay. VM test 7/7 bucket (bien 12 thang → ngan han; 0/thieu → chua khai) + regression 7/7·5/5·6/6 cac phep truoc. 6 engine cong thuc hash SAME; payComputeRow giu cong the."
 }
