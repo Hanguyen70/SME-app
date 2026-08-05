@@ -3766,7 +3766,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.14.23';
+const APP_VERSION='3.14.24';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -76228,6 +76228,18 @@ function _tbNsCompanyId(tag){
   return hit?hit.id:'';
 }
 function tbNsImportOpen(){ var el=document.getElementById('tbns-import-file'); if(el) el.click(); }
+/* v3.14.24: tải MẪU TRỐNG ngay trong app — template đã nhúng, không cần pdf-lib, không cần mạng */
+function tbNsDownloadBlank(){
+  try{
+    var bytes=_tbNsTemplateBytes();
+    var blob=new Blob([bytes],{type:'application/pdf'});
+    var a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+    a.download='SME-HR01-FRM-2026_ThongBao_NhanSu_Moi.pdf';
+    document.body.appendChild(a); a.click();
+    setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); },2000);
+    toast('✓ Đã tải mẫu trống SME-HR01-FRM-2026 — HR điền trên máy (Acrobat/trình duyệt) rồi import lại','good');
+  }catch(e){ toast('Tải mẫu lỗi: '+(e&&e.message||e),'bad'); }
+}
 function tbNsImportFile(input){
   var file=input.files&&input.files[0]; input.value='';
   if(!file) return;
@@ -79317,6 +79329,11 @@ function hrmUpdateMenu(){
       <span style="font-size:20px">📥</span>
       <div><div style="font-weight:600;font-size:13px">Import danh sách (Excel)</div>
         <div style="font-size:11px;color:var(--muted)">Nạp nhiều nhân viên cùng lúc từ file Excel (cách cũ).</div></div>
+    </div>
+    <div onclick="tbNsDownloadBlank()" style="cursor:pointer;border:1px dashed var(--rule);border-radius:10px;padding:10px 16px;display:flex;gap:12px;align-items:center">
+      <span style="font-size:20px">📃</span>
+      <div><div style="font-weight:600;font-size:13px">Tải mẫu trống Thông báo nhân sự (PDF)</div>
+        <div style="font-size:11px;color:var(--muted)">SME-HR01-FRM-2026 song ngữ — phát cho HR điền trên máy tính, hoạt động cả offline.</div></div>
     </div>
     <div onclick="closeModal();document.getElementById('tbns-import-file').click()" style="cursor:pointer;border:1.5px solid var(--rule);border-radius:10px;padding:14px 16px;display:flex;gap:12px;align-items:center" onmouseover="this.style.borderColor='#1e5aa0'" onmouseout="this.style.borderColor='var(--rule)'">
       <span style="font-size:28px">📄</span>
