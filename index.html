@@ -3744,7 +3744,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.14.10';
+const APP_VERSION='3.14.11';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -18157,7 +18157,7 @@ function payDispatchCompute(profile, inputs, period){
     default: return {takeHome:0};
   }
 }
-const PAY_PROFILE_LABEL={office:'Văn phòng',crew:'Đội tàu',crew_khoan:'Đội tàu — Khoán',project:'Chuyên gia/Dự án',expat:'Chuyên gia VP (Expat)',tech:'Bộ phận Kỹ thuật',office_gross:'Lương GROSS — công ty con (STER)'};  /* v3.13.97 GĐ3 */
+const PAY_PROFILE_LABEL={office:'Văn phòng',crew:'Đội tàu',crew_khoan:'Nhân sự khoan (Khoán)',project:'Chuyên gia/Dự án',expat:'Chuyên gia VP (Expat)',tech:'Bộ phận Kỹ thuật',office_gross:'Lương GROSS — công ty con (STER)'};  /* v3.14.11 (Sếp 04/8): Cảnh/Cẩn thuộc NHÂN SỰ KHOAN, không phải Đội tàu — đổi nhãn phân loại, engine khoán GIỮ NGUYÊN */
 // v3.07.78: máy trạng thái vòng đời kỳ lương
 const PAY_STATUS_FLOW=['draft','validated','preview','submitted','approved','locked','posted','paid','closed'];
 const PAY_STATUS_META={
@@ -21622,7 +21622,7 @@ window.hrmAllocBackfill=function(){
   var co=pfCompanyOfEnt('SMEJSC'); if(!co){ toast('Danh mục thiếu công ty mẹ','bad'); return; }
   var nowD=new Date().toISOString().slice(0,10), nowPer=nowD.slice(0,7);
   var has={}; (S.hrEmploymentAssignments||[]).forEach(function(a){ if(a&&a.status!=='ended') has[a.empId]=1; });
-  var G={office:'OFFICE', crew:'CREW', crew_khoan:'CREW', tech:'TECH', 'tech-daily':'TECH', 'tech_daily':'TECH', drill:'DRILL', project:'EXPERT', expert:'EXPERT', expert_om:'EXPERT_OM', expat:'EXPAT'};
+  var G={office:'OFFICE', crew:'CREW', crew_khoan:'DRILL' /* v3.14.11: Nhân sự khoan — Sếp chỉnh 04/8 */, tech:'TECH', 'tech-daily':'TECH', 'tech_daily':'TECH', drill:'DRILL', project:'EXPERT', expert:'EXPERT', expert_om:'EXPERT_OM', expat:'EXPAT'};
   var list=HRService.employees().filter(function(e){ return e&&!e._deleted&&e.status!=='inactive'&&!has[e.id]; })
     .map(function(e){ var v=salaryProfileAt(e.id, nowPer);
       return {e:e, g:(v&&G[v.engine])||'', from:(e.startDate&&/^\d{4}-\d{2}-\d{2}$/.test(e.startDate))?e.startDate:'2026-01-01'}; });
@@ -21728,7 +21728,7 @@ window.hrmAllocDedupeGo=function(){
 window.hrmAllocSyncGroup=function(){
   if(!hrAllocCanEdit_()){ toast('Chỉ HR/Admin','bad'); return; }
   var nowPer=new Date().toISOString().slice(0,7);
-  var G={office:'OFFICE', crew:'CREW', crew_khoan:'CREW', tech:'TECH', 'tech-daily':'TECH', 'tech_daily':'TECH', drill:'DRILL', project:'EXPERT', expert:'EXPERT', expert_om:'EXPERT_OM', expat:'EXPAT'};
+  var G={office:'OFFICE', crew:'CREW', crew_khoan:'DRILL' /* v3.14.11: Nhân sự khoan — Sếp chỉnh 04/8 */, tech:'TECH', 'tech-daily':'TECH', 'tech_daily':'TECH', drill:'DRILL', project:'EXPERT', expert:'EXPERT', expert_om:'EXPERT_OM', expat:'EXPAT'};
   var byId={}; HRService.employees().forEach(function(e){ if(e&&!e._deleted) byId[e.id]=e; });
   var list=(S.hrEmploymentAssignments||[]).filter(function(a){
     if(!a||a.status==='ended') return false;
