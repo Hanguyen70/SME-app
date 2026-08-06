@@ -3766,7 +3766,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.14.25';
+const APP_VERSION='3.14.28';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -18779,6 +18779,7 @@ function payPeriodCreateCommit(){
   const _sd=+((document.getElementById('pp-stddays')||{}).value)||0;
   if(!_sd || _sd<1 || _sd>31){ toast('Nhập Ngày công chuẩn của kỳ (1–31)','bad'); return; }
   const p={ id:uid(), period, profile, status:'draft', companyId:_coId||'', versionId:(payEngine().activeVersion||''),
+    projAllow:(profile==='office')?false:undefined,   /* v3.14.26: kỳ VP mới mặc định TẮT PC dự án — bật chủ động từng tháng */
     standardDays:_sd,
     rows:emps, audit:[], createdBy:(CURRENT_USER&&CURRENT_USER.name)||'admin', createdAt:new Date().toISOString() };
   _payAudit(p,'create','Tạo kỳ '+period+' nhóm '+PAY_PROFILE_LABEL[profile]+' ('+emps.length+' NV · ngày công chuẩn '+_sd+')');
@@ -18844,8 +18845,9 @@ function openPayPeriodDetail(id){
   let actions='';
   const btn=(fn,label,style)=>`<button class="btn-${style||'sec'}" style="font-size:11px;${style==='danger'?'background:var(--bad);border-color:var(--bad);color:var(--paper-2)':''}" onclick="${fn}('${id}')">${label}</button>`;
   const btn2=(onclick,label,style)=>`<button class="btn-${style||'sec'}" style="font-size:11px;${style==='danger'?'background:var(--bad);border-color:var(--bad);color:var(--paper-2)':''}" onclick="${onclick}">${label}</button>`;
-  if(st==='draft'){ actions=btn('payPeriodComputeAll','⚡ Tính cả bảng')+btn('payPeriodValidate','✔ Kiểm tra (Validate)','primary')+btn('payPeriodDelete','🗑 Xóa kỳ','danger'); }
-  else if(st==='validated'){ actions=btn('payPeriodComputeAll','⚡ Tính lại')+btn('payPeriodToPreview','👁 Xem trước','primary')+btn('payPeriodBack','↩ Về Nháp'); }
+  const projBtn=(p.profile==='office')?('<button class="btn-ghost" style="border:1.5px solid '+(p.projAllow===true?'#1e7d44;color:#1e7d44':'var(--rule);color:var(--muted)')+';font-weight:600" onclick="payToggleProjAllow(\''+p.id+'\')" title="PC dự án hưởng THEO THÁNG — mức từng người lấy từ ô PC dự án trên THẺ LƯƠNG; bật/tắt cho CẢ KỲ, không chọn từng người">💼 PC dự án: '+(p.projAllow===true?'ĐANG BẬT':'TẮT')+'</button>'):'';
+  if(st==='draft'){ actions=btn('payPeriodComputeAll','⚡ Tính cả bảng')+btn('payPeriodValidate','✔ Kiểm tra (Validate)','primary')+projBtn+btn('payPeriodDelete','🗑 Xóa kỳ','danger'); }
+  else if(st==='validated'){ actions=btn('payPeriodComputeAll','⚡ Tính lại')+btn('payPeriodToPreview','👁 Xem trước','primary')+projBtn+btn('payPeriodBack','↩ Về Nháp'); }
   else if(st==='preview'){ actions=btn('payPeriodSubmit','📤 Trình duyệt','primary')+btn('payPeriodBack','↩ Về Nháp'); }
   else if(st==='submitted'){
     p.approvals=p.approvals||{};
@@ -19498,6 +19500,9 @@ function payComputeRow(p, row){
   const ex=payExtrasFor(row.empId, p.period);
   const taxSum=ex.filter(x=>x.taxable).reduce((t,x)=>t+(x.sign<0?-1:1)*(+x.amount||0),0);
   const inp=Object.assign({}, row.inputs||{});
+  /* v3.14.26: CÔNG TẮC PC DỰ ÁN theo KỲ (chỉ nhóm Văn phòng): kỳ không BẬT → W=0 với mọi người.
+     Mức từng người nằm trên thẻ (allow_duAn→W qua Kéo thẻ); kỳ nào trả thì bật 1 nút — không chọn từng người. */
+  if(p && p.profile==='office' && p.projAllow!==true) inp.W=0;
   if(F && taxSum) inp[F]=(+inp[F]||0)+taxSum;
   row._extrasTaxApplied=taxSum||0;
   // non-taxable → adjustments (thay toàn bộ entries nguồn payExtra — idempotent)
@@ -23576,6 +23581,18 @@ function _paySpBuildDiff(p){
       status:n?(Object.values(changes).some(c=>c.manual)?'CÓ GIỮ TAY':'ĐỔI'):'KHỚP', changes:changes, _pid:(inp._v&&inp._v.id)||'', _pver:(inp._v&&inp._v.version)||0});
   });
   return items;
+}
+/* v3.14.26: công tắc PC dự án theo kỳ (VP) — bật/tắt cả kỳ, tự tính lại toàn bảng */
+function payToggleProjAllow(periodId){
+  const p=payPeriodById(periodId); if(!p) return;
+  if(p.profile!=='office'){ toast('PC dự án theo tháng chỉ áp dụng nhóm Văn phòng','warn'); return; }
+  if(payStatusIdx(p.status)>=payStatusIdx('approved')){ toast('Kỳ đã duyệt/khóa — không đổi được','bad'); return; }
+  const on=!(p.projAllow===true);
+  p.projAllow=on;
+  (p.rows||[]).forEach(row=>{ try{ row.result=payComputeRow(p,row); }catch(e){} });
+  _payAudit(p,'proj_allow', (on?'BẬT':'TẮT')+' PC dự án tháng cho cả kỳ (mức theo thẻ từng người, W engine)');
+  saveState(); openPayPeriodDetail(p.id);
+  toast((on?'💼 ĐÃ BẬT':'💼 Đã TẮT')+' PC dự án cho kỳ '+p.period+' — đã tính lại cả bảng'+(on?'. Nếu cột chưa lên số: 🪪 KÉO THẺ LƯƠNG để đổ mức W từ thẻ':''), on?'good':'warn');
 }
 function payPullSalaryProfiles(periodId){
   const p=payPeriodById(periodId); if(!p) return;
@@ -77093,7 +77110,13 @@ function spImportParse_(aoa, empBySmart, empByName){
     expatSal:col(['lương/tháng usd','luong/thang usd','expat_monthlysalary']), expatDays:col(['hệ số ngày công','he so ngay cong','expat_stddayscoef']),
     expatTr:col(['pc di chuyển','pc di chuyen','expat_transport']), expatLu:col(['pc ăn trưa','pc an trua','expat_lunchperday']),
     grHouse:col(['tiền thuê nhà','tien thue nha','grosshousing']), grT10:col(['khấu trừ 10','khau tru 10','taxwithhold10']),   /* v3.13.85 GĐ2 */
-    dp:col(['mức dp','muc dp','dp /ngày','dp/ngày','crewdprate']) };   /* v3.13.90: khoán NGÀY (SDPO) — cột Mức DP /ngày */
+    dp:col(['mức dp','muc dp','dp /ngày','dp/ngày','crewdprate']),   /* v3.13.90: khoán NGÀY (SDPO) — cột Mức DP /ngày */
+    duAn:col(['pc dự án','pc du an','trợ cấp dự án','tro cap du an','allow_duan']) };   /* v3.14.27: PC dự án tháng (VP) */
+  /* v3.14.28 (Sếp 05/8 — "áp từ tháng 1"): file CHỈ có cột PC dự án (không có Lương cơ bản)
+     → chế độ PATCH: chỉ cập nhật allow_duAn, GIỮ NGUYÊN mọi mức khác của thẻ. Giải cả bài trùng
+     hiệu lực: bản trùng chưa bị kỳ KHÓA dùng → sửa tại chỗ; chưa có bản đúng mốc → nhân bản
+     thẻ đang hiệu lực tại mốc + set PC dự án, tạo phiên bản mới. */
+  if(ix.net<0 && ix.duAn>=0){ return _spPatchDuAnParse_(aoa, hi, ix, empBySmart, empByName); }
   var _normName=function(s){ return String(s||'').trim().toUpperCase().replace(/\s+/g,' '); };
   for(var r=hi+1;r<aoa.length;r++){
     var row=aoa[r]||[];
@@ -77110,7 +77133,7 @@ function spImportParse_(aoa, empBySmart, empByName){
     function num(j){ if(j<0) return 0; var v=String(row[j]==null?'':row[j]).replace(/[., ]/g,''); return Math.round(+v||+row[j]||0); }
     var d={ salaryType:'NET', ccy:'VND',
       netBase:num(ix.net), allow_trachNhiem:num(ix.tn), allow_kpi:num(ix.kpi),
-      allow_duAn:0, allow_thamNien:0, allow_khac:0,
+      allow_duAn:num(ix.duAn), allow_thamNien:0, allow_khac:0,   /* v3.14.27: cột PC dự án tháng — mức từng người cho công tắc kỳ VP */
       bhxhBase:num(ix.bh), dependents:num(ix.npt), isUnionMember:false,
       techSeaRate:num(ix.sea), techOfficeRate:num(ix.vp), techDockRate:num(ix.dock) };
     var eng=String(ix.eng>=0?(row[ix.eng]||''):'').trim().toLowerCase();
@@ -77164,6 +77187,25 @@ window.spImportOpen=function(){
         var aoa=XLSX.utils.sheet_to_json(wbk.Sheets[wbk.SheetNames[0]],{header:1,raw:false});
         var bm={}; var bn={}; HRService.employees().forEach(function(e){ if(e&&!e._deleted){ bm[String(e.smartId||'').trim().toUpperCase()]=e; bn[String(e.fullName||'').trim().toUpperCase().replace(/\s+/g,' ')]=e; } });
         var pr=spImportParse_(aoa, bm, bn);
+        if(pr.mode==='patch'){
+          var acts=pr.ok, nU=acts.filter(function(x){return x.action==='UPDATE';}).length,
+              nC=acts.filter(function(x){return x.action==='CREATE';}).length,
+              nS=acts.filter(function(x){return x.action==='SKIP_LOCKED';}).length;
+          var hp='<div style="font-size:12px"><div>💼 <b>Chế độ PATCH PC dự án</b> — chỉ sửa ô PC dự án, GIỮ NGUYÊN mọi mức khác của thẻ.</div>'
+            +'<div>✏️ <b>'+nU+'</b> bản trùng hiệu lực sẽ CẬP NHẬT tại chỗ · ➕ <b>'+nC+'</b> bản mới (nhân bản thẻ hiệu lực) · ⛔ <b>'+nS+'</b> bỏ qua (kỳ KHÓA đang dùng) · <b style="color:#c0392b">'+pr.err.length+'</b> lỗi</div>'
+            +(pr.err.length?('<div style="max-height:14vh;overflow:auto;font-size:10.5px;color:#c0392b;margin:4px 0">'+pr.err.map(esc).join('<br>')+'</div>'):'')
+            +'<div style="max-height:36vh;overflow:auto"><table class="tbl" style="font-size:11px"><tr><th>MSNV</th><th>Họ tên</th><th>Hiệu lực</th><th>PC dự án cũ</th><th>PC dự án MỚI</th><th>Hành động</th></tr>'
+            +acts.map(function(x){ return '<tr'+(x.action==='SKIP_LOCKED'?' style="opacity:.5"':'')+'><td>'+esc(x.smartId||'')+'</td><td>'+esc(x.name)+'</td><td>'+x.eff+'</td>'
+              +'<td style="text-align:right;color:var(--muted)">'+(x.cur?x.cur.toLocaleString('vi-VN'):'—')+'</td>'
+              +'<td style="text-align:right;font-weight:600">'+(x.duAn?x.duAn.toLocaleString('vi-VN'):'0')+'</td>'
+              +'<td>'+(x.action==='UPDATE'?'✏️ Sửa bản '+x.eff:x.action==='CREATE'?'➕ Bản mới (từ '+esc(x.baseEff||'?')+')':'⛔ Kỳ khóa')+'</td></tr>'; }).join('')
+            +'</table></div><div style="font-size:10.5px;color:var(--muted);margin-top:6px">Kỳ ĐÃ KHÓA không bị đụng · sau khi áp: mở kỳ nháp → 🪪 Kéo thẻ lương → 💼 BẬT PC dự án → ⚡ Tính cả bảng</div></div>';
+          window._spPatch=acts.filter(function(x){return x.action!=='SKIP_LOCKED';});
+          openModal('💼 Patch PC dự án — xem trước', hp,
+            '<button class="btn-ghost" onclick="window._spPatch=null;closeModal()">✖ Hủy</button>'
+            +((nU+nC)?('<button class="btn-primary" onclick="spPatchGo()">✓ Áp dụng ('+(nU+nC)+')</button>'):''));
+          return;
+        }
         var fresh=pr.ok.filter(function(x){return !x.dup;}), dups=pr.ok.length-fresh.length;
         var h='<div style="font-size:12px"><div>📥 <b>'+fresh.length+'</b> phiên bản sẽ TẠO · <b style="color:#8a6d3b">'+dups+'</b> trùng kỳ (BỎ QUA — đã tồn tại) · <b style="color:#c0392b">'+pr.err.length+'</b> dòng lỗi</div>'
           +(pr.err.length?('<div style="max-height:16vh;overflow:auto;font-size:10.5px;color:#c0392b;margin:4px 0">'+pr.err.map(esc).join('<br>')+'</div>'):'')
@@ -77380,6 +77422,74 @@ function salaryReconcileOpen(){
 function salaryProfileCanEdit(){ return isAdmin() || canApproveL1(); }   // KTT + Admin (chốt thiết kế)
 function _spList(empId){ return (S.salaryProfiles||[]).filter(x=>x.empId===empId).sort((a,b)=>(a.effectiveFrom||'').localeCompare(b.effectiveFrom||'')); }
 /* Bản hiệu lực tại kỳ 'YYYY-MM': effectiveFrom ≤ kỳ, mới nhất */
+/* v3.14.28: parse chế độ PATCH PC dự án — mỗi dòng: MSNV/Họ tên · Hiệu lực từ · PC dự án */
+function _spPatchDuAnParse_(aoa, hi, ix, empBySmart, empByName){
+  var out={mode:'patch', ok:[], err:[]};
+  for(var i=hi+1;i<aoa.length;i++){
+    var row=aoa[i]||[]; if(!row.length) continue;
+    var ms=String(ix.ms>=0?(row[ix.ms]||''):'').trim().toUpperCase();
+    var nameRaw=String(ix.name>=0?(row[ix.name]||''):'').trim();
+    if(!ms && !nameRaw) continue;
+    if(/TỔNG|TONG CONG/i.test(nameRaw)) continue;
+    var e=ms?empBySmart[ms]:null;
+    if(!e && nameRaw){ e=empByName[nameRaw.toUpperCase().replace(/\s+/g,' ')]; }
+    if(!e){ out.err.push('Dòng '+(i+1)+': không khớp NV "'+(ms||nameRaw)+'"'); continue; }
+    var eff=String(ix.eff>=0?(row[ix.eff]||''):'').trim().slice(0,7).replace('/','-');
+    if(!/^\d{4}-\d{2}$/.test(eff)){ out.err.push('Dòng '+(i+1)+' ('+nameRaw+'): Hiệu lực từ phải YYYY-MM, nhận "'+eff+'"'); continue; }
+    var raw=String(row[ix.duAn]==null?'':row[ix.duAn]).replace(/[., ]/g,'');
+    var duAn=Math.round(+raw||0);
+    var existing=(S.salaryProfiles||[]).filter(function(x){return x&&!x._deleted&&x.empId===e.id&&x.effectiveFrom===eff;})[0];
+    if(existing){
+      if(!(existing.engine==='office'||existing.engine==='tech')){ out.err.push(nameRaw+' ('+eff+'): thẻ engine '+existing.engine+' không có ô PC dự án'); continue; }
+      var locked=false; try{ locked=_spVersionUsedByLockedPeriod(existing); }catch(err){}
+      if(locked){ out.ok.push({empId:e.id,smartId:e.smartId||ms,name:e.fullName,eff:eff,duAn:duAn,action:'SKIP_LOCKED',verId:existing.id,engine:existing.engine,cur:+((existing.data||{}).allow_duAn)||0}); }
+      else { out.ok.push({empId:e.id,smartId:e.smartId||ms,name:e.fullName,eff:eff,duAn:duAn,action:'UPDATE',verId:existing.id,engine:existing.engine,cur:+((existing.data||{}).allow_duAn)||0}); }
+    } else {
+      var base=salaryProfileAt(e.id, eff);
+      if(!base){ out.err.push(nameRaw+' ('+eff+'): chưa có thẻ nào hiệu lực tại mốc này — tạo thẻ trước'); continue; }
+      if(!(base.engine==='office'||base.engine==='tech')){ out.err.push(nameRaw+' ('+eff+'): thẻ engine '+base.engine+' không có ô PC dự án'); continue; }
+      out.ok.push({empId:e.id,smartId:e.smartId||ms,name:e.fullName,eff:eff,duAn:duAn,action:'CREATE',engine:base.engine,baseEff:base.effectiveFrom,baseId:base.id,cur:+((base.data||{}).allow_duAn)||0});
+    }
+  }
+  return out;
+}
+window.spPatchGo=function(){
+  var list=window._spPatch||[]; window._spPatch=null;
+  if(!list.length){ closeModal(); return; }
+  var upd=0, made=0, skip=0, batch='pda_'+Date.now().toString(36);
+  commitMutation(function(){
+    list.forEach(function(x){
+      if(x.action==='SKIP_LOCKED'){ skip++; return; }
+      if(x.action==='UPDATE'){
+        var v=(S.salaryProfiles||[]).filter(function(p){return p&&p.id===x.verId;})[0];
+        if(!v){ skip++; return; }
+        v.data=v.data||{}; v.data.allow_duAn=x.duAn;
+        v.reason=((v.reason||'')+' · Patch PC dự án '+x.duAn.toLocaleString('vi-VN')+' (lô '+batch+')').slice(0,400);
+        try{touchRecord(v);}catch(e){}
+        upd++; return;
+      }
+      /* CREATE: nhân bản thẻ đang hiệu lực + set PC dự án */
+      var base=(S.salaryProfiles||[]).filter(function(p){return p&&p.id===x.baseId;})[0];
+      if(!base){ skip++; return; }
+      var d=JSON.parse(JSON.stringify(base.data||{})); d.allow_duAn=x.duAn;
+      var v2=salaryProfileAddVersion(x.empId,{effectiveFrom:x.eff, engine:base.engine, data:d,
+        reason:'Patch PC dự án theo tháng — nhân bản từ thẻ '+ (base.effectiveFrom||'?') +' (lô '+batch+')',
+        source:'import', versionType:'BUSINESS_CHANGE'});
+      if(!v2){ skip++; return; }
+      made++;
+      var next=_spList(x.empId).filter(function(p){return p.effectiveFrom>x.eff;})
+        .sort(function(a,b){return a.effectiveFrom.localeCompare(b.effectiveFrom);})[0];
+      if(next && next.id!==v2.id){
+        var y=+next.effectiveFrom.slice(0,4), m=+next.effectiveFrom.slice(5,7);
+        v2.effectiveTo=(m===1?(y-1)+'-12':y+'-'+String(m-1).padStart(2,'0'));
+        try{touchRecord(v2);}catch(e){}
+      }
+    });
+  },{action:'sp_patch_duan', fields:['salaryProfiles']});
+  try{ logAuditEvent('sp_patch_duan',{batch:batch, updated:upd, created:made, skipped:skip}); }catch(e){}
+  closeModal(); toast('💼 PC dự án: cập nhật '+upd+' bản · tạo mới '+made+' bản'+(skip?(' · bỏ qua '+skip):''), 'good');
+  try{ renderAll(); }catch(e){}
+};
 function salaryProfileAt(empId, period){
   const list=_spList(empId); let hit=null;
   list.forEach(v=>{ if((v.effectiveFrom||'')<=period) hit=v; });
@@ -78069,6 +78179,10 @@ function salaryProfileBuildInp(empId, period){
              xuyên, theo tháng/từng NV, KTT/Admin duyệt → đi đường Khoản PS (preset 'duan'), J=0 để U*J
              không cộng từ thẻ. Engine KHÔNG đổi một ký tự. */
           I:0, J:0, _bhxhBase:R('bhxhBase'),
+          W:R('allow_duAn'),   /* v3.14.26 (Sếp 05/8 — PC DỰ ÁN THEO THÁNG): mức từng người lấy từ Ô "PC dự án"
+             sẵn có trên thẻ (allow_duAn), đổ vào W — engine cộng THẲNG theo tháng (AB=…+W+V), không theo công.
+             Có TRẢ hay không do CÔNG TẮC trên KỲ (p.projAllow) quyết — xem payComputeRow. Thay đường Khoản PS
+             preset 'duan' (3.13.52) cho khoản đều-theo-tháng; Khoản PS vẫn dùng cho ca đột xuất. */
           _sdAuto:(d.workFullWeek?1:0),   /* v3.14.01: thẻ đánh dấu "làm cả T7" -> kỳ tự tính chuẩn riêng = ngày tháng − CN */
           _v:v};
 }
