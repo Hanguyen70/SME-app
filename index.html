@@ -3766,7 +3766,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.14.30';
+const APP_VERSION='3.14.32';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -76532,12 +76532,20 @@ function spCardBack(){
 function spCardReopen(empId){
   var r=window._spCardRet; closeModal(); openSalaryProfileCard(empId, r);
 }
-function openSalaryProfileCard(empId, _ret){
+/* v3.14.31: xem chi tiết 1 phiên bản trong lịch sử (verId rỗng = về bản hiệu lực). Chỉ đổi panel hiển thị. */
+function spCardViewVer(empId, verId){
+  var r=window._spCardRet; closeModal(); openSalaryProfileCard(empId, r, verId||null);
+}
+function openSalaryProfileCard(empId, _ret, viewVerId){
   window._spCardRet=(_ret===undefined)?null:_ret;
   const e=hrmEmpById(empId); if(!e){ toast('Không tìm thấy hồ sơ','bad'); return; }
   const list=_spList(empId);
   const nowPer=new Date().toISOString().slice(0,7);
   const cur=salaryProfileAt(empId, nowPer);
+  /* v3.14.31 (Sếp 06/8): bấm 1 phiên bản CŨ trong lịch sử → panel phải hiển thị CHI TIẾT ĐẦY ĐỦ
+     của phiên bản đó (như bản hiệu lực). sel = phiên bản đang xem; mặc định = bản hiệu lực. CHỈ ĐỌC —
+     không đổi cur (timeline vẫn đánh dấu HIỆU LỰC đúng), không đụng engine/data. */
+  const sel=(viewVerId&&list.find(v=>v.id===viewVerId))||cur;
   const canE=salaryProfileCanEdit();
   /* v3.13.66 FIX NGHIÊM TRỌNG: fmtFull(val,ccy) KHÔNG chỉ định dạng — nó QUY ĐỔI val từ ccy sang
      displayCcy() (cấu hình hiển thị toàn hệ thống VND/USD, S.displayCcy) rồi mới format. Thẻ lương
@@ -76552,24 +76560,25 @@ function openSalaryProfileCard(empId, _ret){
     const live=cur&&cur.id===v.id;
     const lockUse=_spVersionUsedByLockedPeriod(v);
     const _vCcy=_slIsUsd(v)?'USD':((v.data&&v.data.ccy)||'VND');
-    return `<div style="padding:8px 12px;border-left:3px solid ${live?'var(--accent)':'var(--rule)'};margin-bottom:6px;background:${live?'var(--paper-2)':'var(--paper-2)'}">
+    const isSel=sel&&sel.id===v.id;   /* v3.14.31: phiên bản đang XEM chi tiết */
+    return `<div style="padding:8px 12px;border-left:3px solid ${live?'var(--accent)':'var(--rule)'};margin-bottom:6px;background:var(--paper-2);cursor:pointer;${isSel?'outline:2px solid var(--accent);outline-offset:-2px;':''}" onclick="spCardViewVer('${empId}','${v.id}')" title="Bấm để xem chi tiết đầy đủ phiên bản này">
       <div style="font-family:var(--font-mono);font-weight:700;font-size:12.5px">V${v.version} ${live?'<span class="ds-need" data-dot="good">HIỆU LỰC</span>':''} ${lockUse?'<span title="Đã dùng cho kỳ lương khóa — bất biến">🔒</span>':''}</div>
       <div style="font-size:11px;color:var(--muted)">${v.effectiveFrom} → ${v.effectiveTo||'nay'} · ${esc(v.createdBy||'')} · ${(v.createdAt||'').slice(0,10)}</div>
       ${v.reason?`<div style="font-size:11px;color:var(--warn)">${esc(v.reason)}</div>`:''}
       <div style="font-size:12px;font-family:var(--font-mono);margin-top:3px">NET cố định: <b>${_spFmt(_spFixedTotal(v), _vCcy)}</b>${_spVarTotal(v)?` <span class="ds-t-sub" title="Đơn giá PC không thường xuyên — chỉ tính khi có ngày công/dự án/KPI">+ ${_spFmt(_spVarTotal(v),_vCcy)} (không TX)</span>`:''} · Lương BH: ${_spFmt(+(v.data&&v.data.bhxhBase)||0,'VND')} · NPT: ${+(v.data&&v.data.dependents)||0}</div>
-      <div style="font-size:11px;margin-top:2px">🏷 Grade quản trị: <b style="font-family:var(--font-mono)">${(typeof resolveEmployeeGrade==='function')?esc(resolveEmployeeGrade(empId).code):'—'}</b> <span style="color:var(--muted);font-size:10px">(tự theo chức vụ — không ảnh hưởng tiền)</span>${canE?` <a href="javascript:void(0)" onclick="gradeOverrideForm('${empId}')" style="font-size:10px">⚙ override</a>`:''}</div>
+      <div style="font-size:11px;margin-top:2px">🏷 Grade quản trị: <b style="font-family:var(--font-mono)">${(typeof resolveEmployeeGrade==='function')?esc(resolveEmployeeGrade(empId).code):'—'}</b> <span style="color:var(--muted);font-size:10px">(tự theo chức vụ — không ảnh hưởng tiền)</span>${canE?` <a href="javascript:void(0)" onclick="event.stopPropagation();gradeOverrideForm('${empId}')" style="font-size:10px">⚙ override</a>`:''}</div>
       <div style="font-size:11px;margin-top:2px">🏦 ${(function(){var b=pfBankInfo(e);
         if(!b.acc) return '<span style="color:#c0392b;font-weight:600">THIẾU SỐ TK ngân hàng — không vào được file bank</span>';
         return 'STK <b style="font-family:var(--font-mono)">'+esc(b.acc)+'</b>'
           +(b.bank?' · '+esc(b.bank):' · <span style="color:#E37400">thiếu tên NH</span>')
           +(b.owner?' · '+esc(b.owner):' · <span style="color:#E37400">thiếu chủ TK</span>')
           +(b.branch?' <span style="color:var(--muted);font-size:10px">('+esc(b.branch)+')</span>':'');
-      })()} <a href="javascript:void(0)" onclick="hrmViewEmployee('${empId}')" style="font-size:10px">✎ hồ sơ</a> <span style="color:var(--muted);font-size:10px">(nguồn: hồ sơ NV — dùng khi tính lương &amp; file bank)</span></div>
-      ${(canE&&!lockUse)?`<button class="btn-ghost" style="font-size:10px;padding:1px 8px;margin-top:3px" onclick="salaryProfileDeleteVersion('${v.id}')">✕ Xóa (tạo nhầm)</button>`:''}
+      })()} <a href="javascript:void(0)" onclick="event.stopPropagation();hrmViewEmployee('${empId}')" style="font-size:10px">✎ hồ sơ</a> <span style="color:var(--muted);font-size:10px">(nguồn: hồ sơ NV — dùng khi tính lương &amp; file bank)</span></div>
+      ${(canE&&!lockUse)?`<button class="btn-ghost" style="font-size:10px;padding:1px 8px;margin-top:3px" onclick="event.stopPropagation();salaryProfileDeleteVersion('${v.id}')">✕ Xóa (tạo nhầm)</button>`:''}
     </div>`;
   }).join('')||'<div style="color:var(--muted);font-size:12px">Chưa có phiên bản nào — bấm ＋ Tạo phiên bản.</div>';
-  const d=(cur&&cur.data)||{};
-  const _curCcy=_slIsUsd(cur)?'USD':(d.ccy||'VND');   /* v3.13.64 FIX: thẻ expert/expert_om tạo trước 3.13.60 có d.ccy='VND' cứng (bug đã ghi chú 3.12.87) — suy theo engine như Sổ lương đã làm, không tin ccy lưu cũ */
+  const d=(sel&&sel.data)||{};   /* v3.14.31: panel chi tiết render theo sel (bản đang xem) */
+  const _curCcy=_slIsUsd(sel)?'USD':(d.ccy||'VND');   /* v3.13.64 FIX: thẻ expert/expert_om tạo trước 3.13.60 có d.ccy='VND' cứng (bug đã ghi chú 3.12.87) — suy theo engine như Sổ lương đã làm, không tin ccy lưu cũ */
   const kv=(k,val,money)=>`<div style="display:flex;justify-content:space-between;font-size:12.5px;padding:2px 0"><span style="color:var(--muted)">${k}</span><b style="font-family:var(--font-mono)">${money?_spFmt(+val||0,money===true?_curCcy:money):esc(String(val==null?'—':val))}</b></div>`;
   const extra=Object.keys(d).filter(k=>!['netBase','bhxhBase','dependents','isUnionMember','ccy','salaryType'].includes(k)&&!k.startsWith('allow_')&&!k.startsWith('crew')&&!k.startsWith('expert_')&&!k.startsWith('expat_')&&!k.startsWith('tech'))
     .map(k=>kv(k,d[k],false)).join('');
@@ -76579,21 +76588,21 @@ function openSalaryProfileCard(empId, _ret){
         <div style="font-weight:700;font-size:14px">${esc(e.fullName)} <span style="font-family:var(--font-mono);color:var(--muted)">· ${esc(e.smartId||'')}</span></div>
         <div style="font-size:11.5px;color:var(--muted)">${esc(e.title||'')} · ${esc(e.dept||'')} · vào làm ${esc(e.startDate||'—')} · ${e.status==='inactive'?'ĐÃ NGHỈ':'Đang làm việc'}</div>
         <div style="font-size:11px;color:var(--muted)">HĐLĐ: ${esc(e.contractType||'—')} · ký đầu ${esc(e.contractSignDate||'—')}${e.contractEndDate?(' · hết hạn '+esc(e.contractEndDate)):''}</div>
-        <div style="margin-top:4px"><span class="ds-need">LƯƠNG ${esc((d.salaryType||'NET').toUpperCase())}</span> <span class="ds-need">${esc((cur&&cur.engine||'—').toUpperCase())}</span>${d.isUnionMember?'<span class="ds-need" data-dot="warn">ĐOÀN VIÊN</span>':''}</div>
+        <div style="margin-top:4px"><span class="ds-need">LƯƠNG ${esc((d.salaryType||'NET').toUpperCase())}</span> <span class="ds-need">${esc((sel&&sel.engine||'—').toUpperCase())}</span>${d.isUnionMember?'<span class="ds-need" data-dot="warn">ĐOÀN VIÊN</span>':''}</div>
       </div>
       <div style="font-family:var(--font-mono);font-size:11px;text-align:right;color:var(--muted)">MST: <b>${esc(e.taxCode||e.mst||'—')}</b><br>CCCD: <b>${esc(e.idNo||'—')}</b></div><!-- v3.12.99: đọc taxCode (trường chuẩn form/Health/BHXH/thuế đều dùng) — trước đọc e.mst không tồn tại nên luôn ra '—' -->
     </div>
     <div style="display:grid;grid-template-columns:210px 1fr;gap:14px">
       <div><div style="font-size:9.5px;font-weight:800;letter-spacing:.1em;color:var(--muted);text-transform:uppercase;margin-bottom:6px">Lịch sử phiên bản (không ghi đè)</div>${tl}</div>
       <div>
-        <div style="font-size:9.5px;font-weight:800;letter-spacing:.1em;color:var(--accent);text-transform:uppercase;border-bottom:1px solid var(--rule);padding-bottom:4px;margin-bottom:6px">Bản hiệu lực ${cur?('V'+cur.version+' ('+cur.effectiveFrom+')'):'— chưa có'}</div>
-        ${cur?`${(function(){
+        <div style="font-size:9.5px;font-weight:800;letter-spacing:.1em;color:${(sel&&cur&&sel.id!==cur.id)?'var(--warn)':'var(--accent)'};text-transform:uppercase;border-bottom:1px solid var(--rule);padding-bottom:4px;margin-bottom:6px">${sel?((cur&&sel.id===cur.id)?('Bản hiệu lực V'+sel.version+' ('+sel.effectiveFrom+')'):('Bản cũ V'+sel.version+' ('+sel.effectiveFrom+' → '+(sel.effectiveTo||'nay')+') — chỉ xem <a href="javascript:void(0)" onclick="spCardViewVer(\''+empId+'\',\'\')" style="font-size:10px;text-transform:none;letter-spacing:0">↩ về bản hiệu lực</a>')):'Bản hiệu lực — chưa có'}</div>
+        ${sel?`${(function(){
             /* v3.12.84 GĐ1 (Sếp): HIỂN THỊ THEO ENGINE + TÁCH 2 NHÓM.
                · Engine 'crew'  : thuyền viên KHÔNG có PC trách nhiệm/dự án/KPI — chỉ lương bờ
                                   + mức đi biển/ngày + mức DP/ngày (hiện ở khối dưới).
                · Engine 'expert_om': chuyên gia — USD/ngày + phụ cấp sinh hoạt.
                · Engine office/tech: đủ 5 PC, nhưng TÁCH cố định vs không thường xuyên. */
-            const eng=cur.engine||'office';
+            const eng=sel.engine||'office';
             const money=(lbl,val)=>kv(lbl,val,true);
             let h='';
             /* v3.13.54 (Sếp 28/7 — "thẻ tech thiếu lương cơ bản"): nhóm kỹ thuật KHÔNG có netBase trong data
@@ -76601,10 +76610,10 @@ function openSalaryProfileCard(empId, _ret){
                LƯƠNG CƠ BẢN THÁNG = mức VP/ngày × 22 (Koóng 32tr · Thành 28tr · Tài 22tr · Hưng 16tr · Nam 14tr).
                CHỈ HIỂN THỊ — không ghi vào data, engine không đổi một ký tự. */
             if(eng==='tech'){
-              var _vpRate=(typeof _spResolve==='function')?(+_spResolve(cur,'techOfficeRate')||0):(+d.techOfficeRate||0);
+              var _vpRate=(typeof _spResolve==='function')?(+_spResolve(sel,'techOfficeRate')||0):(+d.techOfficeRate||0);
               h+=money('Lương cơ bản (= mức VP × 22)', _vpRate*22);
             } else if(eng==='expert_om'){   /* v3.13.68 (Sếp chốt 30/7): NET cơ bản = đơn giá ngày × 22 ngày công chuẩn — cùng nếp tech (mức VP × 22) */
-              h+=money('Lương NET cơ bản (= đơn giá ngày × 22)', _spFixedTotal(cur));
+              h+=money('Lương NET cơ bản (= đơn giá ngày × 22)', _spFixedTotal(sel));
             } else if(eng==='office_gross'){   /* v3.13.85 GĐ2 */
               h+=money(d.taxWithhold10?'Lương NET cố định (khấu trừ 10% tại nguồn)':'Lương cơ bản (GROSS)', d.netBase||0);
             } else {
@@ -76627,7 +76636,7 @@ function openSalaryProfileCard(empId, _ret){
             if(eng==='crew'){
               /* Thuyền viên: chỉ khoản cố định (nếu có), KHÔNG hiện PC office */
               _SP_FIXED_ALLOW.forEach(k=>{ if(+d[k]) h+=money(_SP_ALLOW_LABEL[k]||k, d[k]); });
-              h+=money('TỔNG thu nhập cố định', _spFixedTotal(cur));
+              h+=money('TỔNG thu nhập cố định', _spFixedTotal(sel));
               h+='<div style="border-top:1px dashed var(--rule);margin:6px 0"></div>';
               h+='<div class="ds-t-label" style="margin:4px 0 2px">Đơn giá theo ngày công (không cố định)</div>';
               h+=money('Mức đi biển / ngày', d.crewSeaRate);
@@ -76636,7 +76645,7 @@ function openSalaryProfileCard(empId, _ret){
             }
 
             if(eng==='expert_om'){
-              h+=money('TỔNG thu nhập cố định', _spFixedTotal(cur));
+              h+=money('TỔNG thu nhập cố định', _spFixedTotal(sel));
               h+='<div style="border-top:1px dashed var(--rule);margin:6px 0"></div>';
               h+='<div class="ds-t-label" style="margin:4px 0 2px">Đơn giá theo ngày (không cố định)</div>';
               h+=money('USD / ngày', d.expert_usdPerDay);
@@ -76646,7 +76655,7 @@ function openSalaryProfileCard(empId, _ret){
             }
 
             if(eng==='expat'){   /* v3.13.73: verify công thức khớp 100% bảng lương thật T6/2026 */
-              h+=money('TỔNG thu nhập cố định', _spFixedTotal(cur));
+              h+=money('TỔNG thu nhập cố định', _spFixedTotal(sel));
               h+='<div style="border-top:1px dashed var(--rule);margin:6px 0"></div>';
               h+=money('Lương/ngày (= lương tháng ÷ hệ số)', ((+d.expat_stdDaysCoef||22)>0?(+d.expat_monthlySalary||0)/(+d.expat_stdDaysCoef||22):0));
               h+=kv('Hệ số ngày công/tháng (riêng người này)', +d.expat_stdDaysCoef||22, false);
@@ -76657,7 +76666,7 @@ function openSalaryProfileCard(empId, _ret){
             }
 
             if(eng==='tech'){
-              h+=money('TỔNG lương NET cố định', _spFixedTotal(cur));
+              h+=money('TỔNG lương NET cố định', _spFixedTotal(sel));
               return h;
             }
 
@@ -76666,7 +76675,7 @@ function openSalaryProfileCard(empId, _ret){
             h+=money(_SP_ALLOW_LABEL.allow_kpi,        d.allow_kpi);
             h+=money(_SP_ALLOW_LABEL.allow_thamNien,   d.allow_thamNien);
             h+=money(_SP_ALLOW_LABEL.allow_khac,       d.allow_khac);
-            h+=money('TỔNG lương NET cố định', _spFixedTotal(cur));
+            h+=money('TỔNG lương NET cố định', _spFixedTotal(sel));
             h+='<div style="border-top:1px dashed var(--rule);margin:6px 0"></div>';
             h+='<div class="ds-t-label" style="margin:4px 0 2px" title="PC dự án CHỈ phát sinh khi công ty có dự án và được KTT/Admin xác nhận — KHÔNG nằm trong lương NET cố định">Khoản KHÔNG thường xuyên</div>';
             h+=money(_SP_ALLOW_LABEL.allow_duAn, d.allow_duAn);
@@ -76676,13 +76685,13 @@ function openSalaryProfileCard(empId, _ret){
           <div style="border-top:1px dashed var(--rule);margin:6px 0"></div>
           ${kv('Lương đóng BHXH (luôn VNĐ)',d.bhxhBase,'VND')}
           ${(function(){ /* v3.12.34: rate BH đọc từ NGUỒN DUY NHẤT payrollEngine.profiles — không hard-code */
-            const _pr=(typeof PayrollService!=='undefined'&&PayrollService.profileByKey&&PayrollService.profileByKey(cur.engine))||{};
+            const _pr=(typeof PayrollService!=='undefined'&&PayrollService.profileByKey&&PayrollService.profileByKey(sel.engine))||{};
             const _rNV=_pr.insEmployee!=null?+_pr.insEmployee:((+_pr.rateBHXHYT||0)+(+_pr.rateBHTN||0))||0.105;
             const _rDN=_pr.insEmployer!=null?+_pr.insEmployer:((+_pr.rateBHXHYTco||0)+(+_pr.rateBHTNco||0))||0.215;
             return kv('BH phần NV '+(Math.round(_rNV*1000)/10)+'% (cty trả)',Math.round((+d.bhxhBase||0)*_rNV),'VND')
                  + kv('BH phần DN '+(Math.round(_rDN*1000)/10)+'% (cty trả)',Math.round((+d.bhxhBase||0)*_rDN),'VND'); })()}
           ${kv('Người phụ thuộc',+d.dependents||0,false)}
-          ${(cur.engine==='crew'||cur.engine==='crew_khoan')?kv(cur.engine==='crew_khoan'?'Mức khoán /ngày':'Mức đi biển /ngày',d.crewSeaRate,true)+kv('Mức DP /ngày',d.crewDpRate,true):''}
+          ${(sel.engine==='crew'||sel.engine==='crew_khoan')?kv(sel.engine==='crew_khoan'?'Mức khoán /ngày':'Mức đi biển /ngày',d.crewSeaRate,true)+kv('Mức DP /ngày',d.crewDpRate,true):''}
           ${extra?'<div style="border-top:1px dashed var(--rule);margin:6px 0"></div><div style="font-size:10px;color:var(--muted)">Tham số mở rộng</div>'+extra:''}`:'<div style="color:var(--muted);font-size:12px">Tạo phiên bản đầu tiên để engine dùng.</div>'}
       </div>
     </div>`;
@@ -77200,17 +77209,18 @@ window.spImportOpen=function(){
         if(pr.mode==='patch'){
           var acts=pr.ok, nU=acts.filter(function(x){return x.action==='UPDATE';}).length,
               nC=acts.filter(function(x){return x.action==='CREATE';}).length,
-              nS=acts.filter(function(x){return x.action==='SKIP_LOCKED';}).length;
+              nS=acts.filter(function(x){return x.action==='SKIP_LOCKED';}).length,
+              nQ=acts.filter(function(x){return x.action==='SKIP_SAME';}).length;   /* v3.14.32 */
           var hp='<div style="font-size:12px"><div>💼 <b>Chế độ PATCH PC dự án</b> — chỉ sửa ô PC dự án, GIỮ NGUYÊN mọi mức khác của thẻ.</div>'
-            +'<div>✏️ <b>'+nU+'</b> bản trùng hiệu lực sẽ CẬP NHẬT tại chỗ · ➕ <b>'+nC+'</b> bản mới (nhân bản thẻ hiệu lực) · ⛔ <b>'+nS+'</b> bỏ qua (kỳ KHÓA đang dùng) · <b style="color:#c0392b">'+pr.err.length+'</b> lỗi</div>'
+            +'<div>✏️ <b>'+nU+'</b> phiên bản sẽ CẬP NHẬT (lan tỏa từ mốc — v3.14.32) · ➕ <b>'+nC+'</b> bản mới (nhân bản thẻ hiệu lực) · ⛔ <b>'+nS+'</b> kỳ KHÓA · <b>'+nQ+'</b> đã đúng giữ nguyên · <b style="color:#c0392b">'+pr.err.length+'</b> lỗi</div>'
             +(pr.err.length?('<div style="max-height:14vh;overflow:auto;font-size:10.5px;color:#c0392b;margin:4px 0">'+pr.err.map(esc).join('<br>')+'</div>'):'')
             +'<div style="max-height:36vh;overflow:auto"><table class="tbl" style="font-size:11px"><tr><th>MSNV</th><th>Họ tên</th><th>Hiệu lực</th><th>PC dự án cũ</th><th>PC dự án MỚI</th><th>Hành động</th></tr>'
             +acts.map(function(x){ return '<tr'+(x.action==='SKIP_LOCKED'?' style="opacity:.5"':'')+'><td>'+esc(x.smartId||'')+'</td><td>'+esc(x.name)+'</td><td>'+x.eff+'</td>'
               +'<td style="text-align:right;color:var(--muted)">'+(x.cur?x.cur.toLocaleString('vi-VN'):'—')+'</td>'
               +'<td style="text-align:right;font-weight:600">'+(x.duAn?x.duAn.toLocaleString('vi-VN'):'0')+(x.duAnDay?('<div style="font-size:9px;color:#1e5aa0">+ '+x.duAnDay.toLocaleString('vi-VN')+' /ngày × số ngày tháng</div>'):'')+'</td>'
-              +'<td>'+(x.action==='UPDATE'?'✏️ Sửa bản '+x.eff:x.action==='CREATE'?'➕ Bản mới (từ '+esc(x.baseEff||'?')+')':'⛔ Kỳ khóa')+'</td></tr>'; }).join('')
+              +'<td>'+(x.action==='UPDATE'?('✏️ Sửa bản '+x.eff+(x.srcEff&&x.srcEff!==x.eff?' <span style="color:var(--muted);font-size:9px">(theo dòng '+x.srcEff+')</span>':'')):x.action==='CREATE'?'➕ Bản mới (từ '+esc(x.baseEff||'?')+')':x.action==='SKIP_SAME'?'✓ Đã đúng — giữ nguyên':'⛔ Kỳ khóa')+'</td></tr>'; }).join('')
             +'</table></div><div style="font-size:10.5px;color:var(--muted);margin-top:6px">Kỳ ĐÃ KHÓA không bị đụng · sau khi áp: mở kỳ nháp → 🪪 Kéo thẻ lương → 💼 BẬT PC dự án → ⚡ Tính cả bảng</div></div>';
-          window._spPatch=acts.filter(function(x){return x.action!=='SKIP_LOCKED';});
+          window._spPatch=acts.filter(function(x){return x.action==='UPDATE'||x.action==='CREATE';});   /* v3.14.32: SKIP_SAME cũng loại */
           openModal('💼 Patch PC dự án — xem trước', hp,
             '<button class="btn-ghost" onclick="window._spPatch=null;closeModal()">✖ Hủy</button>'
             +((nU+nC)?('<button class="btn-primary" onclick="spPatchGo()">✓ Áp dụng ('+(nU+nC)+')</button>'):''));
@@ -77435,6 +77445,14 @@ function _spList(empId){ return (S.salaryProfiles||[]).filter(x=>x.empId===empId
 /* v3.14.28: parse chế độ PATCH PC dự án — mỗi dòng: MSNV/Họ tên · Hiệu lực từ · PC dự án */
 function _spPatchDuAnParse_(aoa, hi, ix, empBySmart, empByName){
   var out={mode:'patch', ok:[], err:[]};
+  /* v3.14.32 FIX GỐC (Sếp 06/8 — "PC dự án chưa vào được thẻ"): bản 3.14.28 chỉ vá ĐÚNG phiên bản
+     trùng mốc "Hiệu lực từ" — nhưng NV có NHIỀU phiên bản thẻ (lô import hồi tố: VD Thủy V1 2026-01 ·
+     V2 2026-02 · V3 2026-06) → các bản SAU mốc vẫn 0đ, thẻ HIỆU LỰC không nhận PC dự án, Kéo thẻ ra 0.
+     FIX: dòng patch = HÀM BẬC THANG theo thời gian — giá trị áp cho MỌI phiên bản office/tech có
+     effectiveFrom ≥ mốc, đến khi gặp dòng patch kế tiếp của cùng người (Trọng: 1tr/ngày áp bản thuộc
+     [2026-01, 2026-02) · 2tr/ngày áp bản ≥ 2026-02). Bản đã đúng giá trị → giữ nguyên (idempotent);
+     bản kỳ KHÓA dùng → SKIP; mốc chưa có bản đúng effectiveFrom → nhân bản thẻ hiệu lực tại mốc như cũ. */
+  var perEmp={}, order=[];
   for(var i=hi+1;i<aoa.length;i++){
     var row=aoa[i]||[]; if(!row.length) continue;
     var ms=String(ix.ms>=0?(row[ix.ms]||''):'').trim().toUpperCase();
@@ -77447,22 +77465,41 @@ function _spPatchDuAnParse_(aoa, hi, ix, empBySmart, empByName){
     var eff=String(ix.eff>=0?(row[ix.eff]||''):'').trim().slice(0,7).replace('/','-');
     if(!/^\d{4}-\d{2}$/.test(eff)){ out.err.push('Dòng '+(i+1)+' ('+nameRaw+'): Hiệu lực từ phải YYYY-MM, nhận "'+eff+'"'); continue; }
     var _nv=function(j){ if(j<0) return 0; var t=String(row[j]==null?'':row[j]).replace(/[., ]/g,''); return Math.round(+t||0); };
-    var duAn=_nv(ix.duAn), duAnDay=_nv(ix.duAnDay);
-    var existing=(S.salaryProfiles||[]).filter(function(x){return x&&!x._deleted&&x.empId===e.id&&x.effectiveFrom===eff;})[0];
-    if(existing){
-      if(!(existing.engine==='office'||existing.engine==='tech')){ out.err.push(nameRaw+' ('+eff+'): thẻ engine '+existing.engine+' không có ô PC dự án'); continue; }
-      var locked=false; try{ locked=_spVersionUsedByLockedPeriod(existing); }catch(err){}
-      if(locked){ out.ok.push({empId:e.id,smartId:e.smartId||ms,name:e.fullName,eff:eff,duAn:duAn,duAnDay:duAnDay,action:'SKIP_LOCKED',verId:existing.id,engine:existing.engine,cur:+((existing.data||{}).allow_duAn)||0}); }
-      else { out.ok.push({empId:e.id,smartId:e.smartId||ms,name:e.fullName,eff:eff,duAn:duAn,duAnDay:duAnDay,action:'UPDATE',verId:existing.id,engine:existing.engine,cur:+((existing.data||{}).allow_duAn)||0}); }
-    } else {
-      var base=salaryProfileAt(e.id, eff);
-      if(!base){ out.err.push(nameRaw+' ('+eff+'): chưa có thẻ nào hiệu lực tại mốc này — tạo thẻ trước'); continue; }
-      if(!(base.engine==='office'||base.engine==='tech')){ out.err.push(nameRaw+' ('+eff+'): thẻ engine '+base.engine+' không có ô PC dự án'); continue; }
-      out.ok.push({empId:e.id,smartId:e.smartId||ms,name:e.fullName,eff:eff,duAn:duAn,duAnDay:duAnDay,action:'CREATE',engine:base.engine,baseEff:base.effectiveFrom,baseId:base.id,cur:+((base.data||{}).allow_duAn)||0});
-    }
+    if(!perEmp[e.id]){ perEmp[e.id]={e:e, ms:ms, rows:[]}; order.push(e.id); }
+    perEmp[e.id].rows.push({eff:eff, duAn:_nv(ix.duAn), duAnDay:_nv(ix.duAnDay), line:i+1});
   }
+  order.forEach(function(eid){
+    var P=perEmp[eid], e=P.e;
+    P.rows.sort(function(a,b){ return a.eff.localeCompare(b.eff); });
+    var valAt=function(m){ var v=null; P.rows.forEach(function(r){ if(r.eff<=m) v=r; }); return v; };
+    var vers=(S.salaryProfiles||[]).filter(function(x){ return x&&!x._deleted&&x.empId===eid; })
+      .sort(function(a,b){ return String(a.effectiveFrom||'').localeCompare(String(b.effectiveFrom||'')); });
+    /* 1) Mốc patch CHƯA có phiên bản đúng effectiveFrom → nhân bản thẻ hiệu lực tại mốc (như 3.14.28) */
+    P.rows.forEach(function(r){
+      var exact=vers.filter(function(v){ return v.effectiveFrom===r.eff; })[0];
+      if(exact) return;
+      var base=salaryProfileAt(eid, r.eff);
+      if(!base){ out.err.push(e.fullName+' ('+r.eff+'): chưa có thẻ nào hiệu lực tại mốc này — tạo thẻ trước'); return; }
+      if(!(base.engine==='office'||base.engine==='tech')){ out.err.push(e.fullName+' ('+r.eff+'): thẻ engine '+base.engine+' không có ô PC dự án'); return; }
+      out.ok.push({empId:eid,smartId:e.smartId||P.ms,name:e.fullName,eff:r.eff,duAn:r.duAn,duAnDay:r.duAnDay,
+        action:'CREATE',engine:base.engine,baseEff:base.effectiveFrom,baseId:base.id,cur:+((base.data||{}).allow_duAn)||0});
+    });
+    /* 2) LAN TỎA: mọi phiên bản ĐÃ CÓ từ mốc đầu trở đi nhận giá trị bậc thang */
+    var first=P.rows[0].eff;
+    vers.forEach(function(v){
+      if(String(v.effectiveFrom||'')<first) return;
+      var r=valAt(v.effectiveFrom); if(!r) return;
+      if(!(v.engine==='office'||v.engine==='tech')){ out.err.push(e.fullName+' ('+v.effectiveFrom+'): thẻ engine '+v.engine+' không có ô PC dự án — bỏ qua bản này'); return; }
+      var d0=v.data||{}, same=((+d0.allow_duAn||0)===r.duAn && (+d0.allow_duAnPerDay||0)===(r.duAnDay||0));
+      var locked=false; try{ locked=_spVersionUsedByLockedPeriod(v); }catch(err){}
+      var act=same?'SKIP_SAME':(locked?'SKIP_LOCKED':'UPDATE');
+      out.ok.push({empId:eid,smartId:e.smartId||P.ms,name:e.fullName,eff:v.effectiveFrom,srcEff:r.eff,
+        duAn:r.duAn,duAnDay:r.duAnDay,action:act,verId:v.id,engine:v.engine,cur:+(d0.allow_duAn)||0});
+    });
+  });
   return out;
 }
+
 window.spPatchGo=function(){
   var list=window._spPatch||[]; window._spPatch=null;
   if(!list.length){ closeModal(); return; }
