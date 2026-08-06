@@ -3766,7 +3766,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.14.45';
+const APP_VERSION='3.14.47';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -19908,7 +19908,10 @@ const PAY_ATT_MAP={
      cuối tuần theo tiền lệ tech), OT3→S (lễ ×3), N1→T + N2→U (đếm ngày tính PC công tác I×T + J×U;
      N1 vẫn đồng thời nằm trong M — khớp bảng thật: ngày công tác vừa ăn công vừa ăn PC).
      Công dự án WN: BCC không có cột — vẫn nhập tay theo phương án A đã chốt. */
-  office:{ M:['N','P','NL','N1'], N:['N3'], O:['D'], P:['D1'], Q:['OT15'], R:['OT2','N4'], S:['OT3'], T:['N1'], U:['N2'] },
+  /* v3.14.47 (đối chiếu 2 BCC 06/8): VP trả dock-OT (D1) theo hệ số ×2 — bảng lương thật Tuấn NM
+     107.727.273 = base×(7 + 15×1.5 + 5×2), KHÔNG phải ×1.8 (×1.8 là quy chế TECH, Koóng đã nghiệm).
+     → D1 chuyển sang R (OT×2); ô P (dockOt 1.8) của VP không nhận từ BCC nữa. */
+  office:{ M:['N','P','NL','N1'], N:['N3'], O:['D'], Q:['OT15'], R:['OT2','N4','D1'], S:['OT3'], T:['N1'], U:['N2'] },
   tech:  { Q:['N3'], R:['D'], S:['D1'], T:['N'], U:['P'], W:['N4'], Y:['N1'], Z:['N2'] },   /* v3.14.05: +S:['D1'] */
   crew:  { G:['DB1'], H:['DB2'], I:['DOCK'], J:['BO'], K:['NGHICA'], L:['BO2'], M:['DP'] },
   /* v3.13.72 FIX: crew_khoan THIẾU hẳn trong map này — dùng chung payComputeCrew với crew (chỉ khác
@@ -19937,7 +19940,7 @@ function _payAttBuildDiff(p, att, map){
       const to=map[F].reduce((t,c)=>t+(+((ar.cols||{})[c])||0),0);
       const from=(row.inputs||{})[F];
       const manual=Array.isArray(row._manualFields)&&row._manualFields.indexOf(F)>=0;
-      if((+from||0)!==to || from==null){ changes[F]={from:(from==null?null:+from), to:to, manual:manual}; n++; }
+      if((+from||0)!==to){ changes[F]={from:(from==null?null:+from), to:to, manual:manual}; n++; }   /* v3.14.46: null→0 = KHỚP (engine coi trống = 0) — hết nhiễu 'ĐỔI …:0' cả bảng */
     });
     items.push({empId:row.empId,name:row.name,status:n? (Object.values(changes).some(c=>c.manual)?'CÓ GIỮ TAY':'ĐỔI') :'KHỚP',changes:changes});
   });
@@ -19985,9 +19988,10 @@ function _payPullPreview(periodId){
         }
       }catch(e){}
     }
+    const _lbm={}; ((typeof PAY_ROW_FORM_FIELDS!=='undefined'&&PAY_ROW_FORM_FIELDS[p.profile])||[]).forEach(f=>{ _lbm[f[0]]=String(f[1]).split('(')[0].split('—')[0].trim(); });   /* v3.14.46: nhãn dễ đọc */
     const ch=Object.keys(it.changes).map(F=>{
       const c=it.changes[F];
-      return `<span style="margin-right:8px;white-space:nowrap">${F}: <b style="color:${c.manual?'#9a5b12':'#1e7d44'}">${c.to}</b>${c.from!=null?` <s style="color:var(--muted)">${c.from}</s>`:''}${c.manual?` <label style="color:#9a5b12"><input type="checkbox" data-ov="${esc(it.empId)}|${F}"> đè tay</label>`:''}</span>`;
+      return `<span style="margin-right:8px;white-space:nowrap">${esc(_lbm[F]||F)}: <b style="color:${c.manual?'#9a5b12':'#1e7d44'}">${c.to}</b>${c.from!=null?` <s style="color:var(--muted)">${c.from}</s>`:''}${c.manual?` <label style="color:#9a5b12"><input type="checkbox" data-ov="${esc(it.empId)}|${F}"> đè tay</label>`:''}</span>`;
     }).join('');
     const col=it.status==='KHỚP'?'var(--muted)':(it.status==='KHÔNG CÓ TRONG BCC'?'#b3261e':'inherit');
     return `<tr style="border-bottom:1px solid var(--rule)"><td style="padding:4px 6px;font-size:12px">${esc(it.name)}</td><td style="padding:4px 6px;font-size:11px;color:${col}">${esc(it.status)}</td><td style="padding:4px 6px;font-size:11px">${ch||'—'}</td></tr>`;
@@ -23676,7 +23680,7 @@ function _paySpBuildDiff(p){
       if(F.startsWith('_') && F!=='_bhxhBase' && F!=='_sdAuto') return;
       const to=+inp[F]||0, from=(row.inputs||{})[F];
       const manual=Array.isArray(row._manualFields)&&row._manualFields.indexOf(F)>=0;
-      if((+from||0)!==to || from==null){ changes[F]={from:(from==null?null:+from), to:to, manual:manual}; n++; }
+      if((+from||0)!==to){ changes[F]={from:(from==null?null:+from), to:to, manual:manual}; n++; }   /* v3.14.46: null→0 = KHỚP (engine coi trống = 0) — hết nhiễu 'ĐỔI …:0' cả bảng */
     });
     items.push({empId:row.empId,name:row.name,ver:'V'+((inp._v&&inp._v.version)||'?')+' từ '+((inp._v&&inp._v.effectiveFrom)||''),
       status:n?(Object.values(changes).some(c=>c.manual)?'CÓ GIỮ TAY':'ĐỔI'):'KHỚP', changes:changes, _pid:(inp._v&&inp._v.id)||'', _pver:(inp._v&&inp._v.version)||0});
@@ -23745,20 +23749,27 @@ function _payPullSpApply(){
   toast('Đã kéo thẻ lương: '+nSet+' ô'+(nKeep?(' · '+nKeep+' giữ tay'):'')+(nNoCard?(' · ⚠ '+nNoCard+' NV chưa có thẻ lương'):''),'good');
 }
 
+/* v3.14.46 (Sếp 06/8): MỘT NGUỒN field form kỳ — trước đây payRowEdit (render) và payRowSave (keys)
+   mỗi hàm một bảng RIÊNG lệch nhau → WN/_sd có ô mà không được lưu; office thiếu O/P/R/T/U/V;
+   office_gross/crew_khoan không có trong bảng save → keys=[] → payRowSave reset inputs={} XÓA TRẮNG. */
+const PAY_ROW_FORM_FIELDS={
+  office:[['G','Lương CB'],['H','PC trách nhiệm'],['K','KPI 100%'],['F','Người phụ thuộc'],['X','Hiệu quả (1=100%)'],['M','Công thường'],['N','Công biển'],['O','Công dock (×1.5)'],['P','Dock OT (×1.8)'],['Q','OT×1.5'],['R','OT×2'],['S','Công lễ (×3)'],['T','Ctác TN (ngày)'],['U','Ctác NN (ngày)'],['V','Bổ sung khác'],['WN','Công dự án (ngày) — × đơn giá PC dự án/NGÀY trên thẻ, chỉ tính khi kỳ BẬT 💼'],['_sd','Ngày chuẩn RIÊNG (bỏ trống = theo kỳ; bảo vệ/tạp vụ cả T7 = 27/26)']],
+  office_gross:[['F','Lương CB (GROSS)'],['E','Ngày chuẩn tháng'],['G','Công thực'],['I','Thưởng NS (chịu thuế)'],['K','Thưởng dịp 1'],['L','Thưởng dịp 2'],['M','Thưởng dịp 3'],['EX','Khoản miễn thuế (tổng)'],['W','Người phụ thuộc']],
+  crew:[['N','Lương cơ bản HĐLĐ'],['O','Mức lương biển'],['T','Mức lương DP'],['F','Người phụ thuộc'],['G','Công biển VN'],['H','Công biển NN'],['I','Công dock'],['J','Nằm bờ VN'],['L','Nằm bờ NN'],['M','Công DP'],['AR','Khoản thu khác']],
+  project:[['G','Rate/ngày USD'],['J','Giờ thường'],['K','OT×1.2 giờ'],['L','OT×1.5 giờ'],['Q','Ngày trợ cấp'],['R','Mức trợ cấp/ngày'],['T','Mob/Demob'],['U','Hoàn phí'],['V','Khoản khác±']],
+  tech:[['H','Mức biển/ngày'],['I','Mức VP/ngày'],['J','Mức dock/ngày (auto I×1.5 nếu trống)'],['K','Mức ngoài giờ (auto I×1.8)'],['L','Mức nghỉ ca'],['M','PC công tác TN'],['N','PC công tác NN'],['O','Bổ sung'],['P','Trợ cấp dự án'],['G','Lương đóng BHXH'],['Q','Công biển'],['R','Công dock'],['S','Công ngoài giờ'],['T','Công VP'],['U','Phép'],['W','Tăng ca cuối tuần'],['X','Tăng ca lễ'],['Y','Công tác TN'],['Z','Công tác NN'],['F','Người phụ thuộc']],
+  expat:[['E','Lương/tháng'],['F','Mức/ngày (auto nếu trống)'],['H','Công thường'],['I','Phép'],['K','OT×1.5 giờ'],['L','OT×2 giờ'],['N','Thưởng'],['O','PC đi lại'],['P','PC ăn trưa'],['Q','Hoàn trả']]
+};
+PAY_ROW_FORM_FIELDS.crew_khoan=PAY_ROW_FORM_FIELDS.crew;
+PAY_ROW_FORM_FIELDS.expert_om=PAY_ROW_FORM_FIELDS.project;
+PAY_ROW_FORM_FIELDS.expert=PAY_ROW_FORM_FIELDS.project;
 function payRowEdit(periodId, empId){
   /* v3.11.96 GĐ3: chặn từ APPROVED (trước chỉ chặn chuỗi 'locked' → kỳ approved/posted/paid/closed vẫn sửa được) */
   const p=payPeriodById(periodId); if(!p) return;
   if(payStatusIdx(p.status)>=payStatusIdx('approved')){ toast('Kỳ đã duyệt/khóa — dùng ➕ Phiếu điều chỉnh (ghi vào kỳ sau)','warn'); return; }
   const row=(p.rows||[]).find(r=>r.empId===empId); if(!row) return;
   // bộ field theo profile
-  const fieldsByProfile={
-    office:[['G','Lương CB'],['H','PC trách nhiệm'],['K','KPI 100%'],['F','Người phụ thuộc'],['X','Hiệu quả (1=100%)'],['M','Công thường'],['N','Công biển'],['Q','OT×1.5'],['S','Công lễ'],['WN','Công dự án (ngày) — × đơn giá PC dự án/NGÀY trên thẻ, chỉ tính khi kỳ BẬT 💼'],['_sd','Ngày chuẩn RIÊNG (bỏ trống = theo kỳ; bảo vệ/tạp vụ cả T7 = 27/26)']],
-    office_gross:[['F','Lương CB (GROSS)'],['E','Ngày chuẩn tháng'],['G','Công thực'],['I','Thưởng NS (chịu thuế)'],['K','Thưởng dịp 1'],['L','Thưởng dịp 2'],['M','Thưởng dịp 3'],['EX','Khoản miễn thuế (tổng)'],['W','Người phụ thuộc']],   /* v3.13.99 GĐ3b */
-    crew:[['N','Lương cơ bản HĐLĐ'],['O','Mức lương biển'],['T','Mức lương DP'],['F','Người phụ thuộc'],['G','Công biển VN'],['H','Công biển NN'],['I','Công dock'],['J','Nằm bờ VN'],['L','Nằm bờ NN'],['M','Công DP'],['AR','Khoản thu khác']],
-    project:[['G','Rate/ngày USD'],['J','Giờ thường'],['K','OT×1.2 giờ'],['L','OT×1.5 giờ'],['Q','Ngày trợ cấp'],['R','Mức trợ cấp/ngày'],['T','Mob/Demob'],['U','Hoàn phí'],['V','Khoản khác±']],
-    tech:[['H','Mức biển/ngày'],['I','Mức VP/ngày'],['J','Mức dock/ngày (auto I×1.5 nếu trống)'],['K','Mức ngoài giờ (auto I×1.8)'],['L','Mức nghỉ ca'],['M','PC công tác TN'],['N','PC công tác NN'],['O','Bổ sung'],['P','Trợ cấp dự án'],['G','Lương đóng BHXH'],['Q','Công biển'],['R','Công dock'],['S','Công ngoài giờ'],['T','Công VP'],['U','Phép'],['W','Tăng ca cuối tuần'],['X','Tăng ca lễ'],['Y','Công tác TN'],['Z','Công tác NN'],['F','Người phụ thuộc']],
-    expat:[['E','Lương/tháng'],['F','Mức/ngày (auto nếu trống)'],['H','Công thường'],['I','Phép'],['K','OT×1.5 giờ'],['L','OT×2 giờ'],['N','Thưởng'],['O','PC đi lại'],['P','PC ăn trưa'],['Q','Hoàn trả']]
-  };
+  const fieldsByProfile=PAY_ROW_FORM_FIELDS;   /* v3.14.46: một nguồn */
   const flds=fieldsByProfile[p.profile]||[];
   const body=`<div style="font-size:13px;margin-bottom:8px"><b>${esc(row.name)}</b> · ${esc(PAY_PROFILE_LABEL[p.profile])}</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;font-size:11px">
@@ -23770,14 +23781,16 @@ function payRowSave(periodId, empId){
   const p=payPeriodById(periodId); if(!p) return;
   if(payStatusIdx(p.status)>=payStatusIdx('approved')){ toast('Kỳ đã duyệt/khóa — không ghi','warn'); return; }  /* v3.11.96 GĐ3 */
   const row=(p.rows||[]).find(r=>r.empId===empId); if(!row) return;
-  const fieldsByProfile={
-    office:['G','H','K','F','X','M','N','Q','S'], crew:['N','O','T','F','G','H','I','J','L','M','AR'],
-    project:['G','J','K','L','Q','R','T','U','V'], expat:['E','F','H','I','K','L','N','O','P','Q'],
-    tech:['H','I','J','K','L','M','N','O','P','G','Q','R','S','T','U','W','X','Y','Z','F']   /* v3.11.93: form tech trước đây THIẾU */
-  };
-  const keys=fieldsByProfile[p.profile]||[];
+  const keys=(PAY_ROW_FORM_FIELDS[p.profile]||[]).map(f=>f[0]);   /* v3.14.46: cùng nguồn với form render */
   const _old=Object.assign({}, row.inputs||{});
-  row.inputs={}; keys.forEach(k=>{ const el=document.getElementById('prow-'+k); if(el && el.value!==''){ row.inputs[k]=p.profile==='expat'&&k==='F'?+el.value:(+el.value||0); } });
+  /* v3.14.46 FIX MẤT DỮ LIỆU: trước đây row.inputs={} reset rồi chỉ ghi key trong bảng cứng →
+     mọi field ngoài form BAY SẠCH (_bhxhBase nền BHXH, _sdAuto chuẩn T7, W/WD PC dự án từ thẻ,
+     O/P/R/T/U dock-OT vừa kéo BCC); office_gross/crew_khoan keys=[] → xóa trắng inputs.
+     Nay MERGE: field không có ô trên form GIỮ NGUYÊN; ô bỏ trống = xóa key đó. */
+  row.inputs=Object.assign({}, _old);
+  keys.forEach(k=>{ const el=document.getElementById('prow-'+k); if(!el) return;
+    if(el.value===''){ delete row.inputs[k]; }
+    else { row.inputs[k]=p.profile==='expat'&&k==='F'?+el.value:(+el.value||0); } });
   // v3.11.93 GĐ1: field đổi bằng TAY → ghi _manualFields (kéo chấm công sẽ không đè âm thầm)
   row._manualFields=row._manualFields||[];
   keys.forEach(k=>{ if((+_old[k]||0)!==(+row.inputs[k]||0) && row._manualFields.indexOf(k)<0) row._manualFields.push(k); });
