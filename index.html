@@ -3766,7 +3766,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.14.32';
+const APP_VERSION='3.14.33';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -24033,13 +24033,13 @@ function _payslipHtml(p, row, opts){
         <tbody>
           <tr><td colspan="2" style="padding-top:2px;font-weight:600;color:#1c3a5c">A · Lương của bạn</td></tr>
           <tr><td style="padding:4px 0;color:#333;padding-left:12px">Lương NET theo thỏa thuận</td><td style="text-align:right;font-family:monospace">${fm(NETv)}</td></tr>
-          ${adjLines.length?adjLines.map(l=>`<tr><td style="padding:4px 0;color:#333;padding-left:12px">${esc(l[0])}</td><td style="text-align:right;font-family:monospace;color:${l[1]<0?'#c0392b':'#1e7d44'}">${l[1]>0?'+':''}${fm(l[1])}</td></tr>`).join(''):''}
+
           <tr><td colspan="2" style="padding-top:8px;font-weight:600;color:#1e7d44">B · Công ty chịu — KHÔNG trừ vào lương của bạn</td></tr>
           <tr><td style="padding:4px 0;color:#333;padding-left:12px">Thuế TNCN (công ty nộp thay)</td><td style="text-align:right;font-family:monospace">${fm(PITv)}</td></tr>
           <tr><td style="padding:4px 0;color:#333;padding-left:12px">BHXH/BHYT/BHTN phần người lao động (công ty chịu)</td><td style="text-align:right;font-family:monospace">${fm(INSe)}</td></tr>
           <tr><td style="padding:4px 0;color:#333;padding-left:12px">Quy đổi gross-up (tham khảo: gross ${fm(GRv)})</td><td style="text-align:right;font-family:monospace;color:#666">${fm(grossUp)}</td></tr>
-          <tr><td colspan="2" style="padding-top:8px;font-weight:600;color:#666">C · Chi phí doanh nghiệp (không liên quan thực nhận)</td></tr>
-          <tr><td style="padding:4px 0;color:#333;padding-left:12px">BHXH/BHYT/BHTN phần doanh nghiệp</td><td style="text-align:right;font-family:monospace;color:#666">${fm(INSc)}</td></tr>
+          <tr><td colspan="2" style="padding-top:8px;font-weight:600;color:#1c3a5c">C · Các khoản phải thu / phải trả khác</td></tr>
+          ${adjLines.length?adjLines.map(l=>`<tr><td style="padding:4px 0;color:#333;padding-left:12px">${esc(l[0])} <span style="font-size:10px;color:#999">${l[1]<0?'(phải thu / khấu trừ)':'(phải trả thêm)'}</span></td><td style="text-align:right;font-family:monospace;color:${l[1]<0?'#c0392b':'#1e7d44'}">${l[1]>0?'+':''}${fm(l[1])}</td></tr>`).join(''):'<tr><td style="padding:4px 0;color:#999;padding-left:12px;font-style:italic" colspan="2">Không phát sinh</td></tr>'}
         </tbody>
         <tfoot><tr style="border-top:2px solid #1c3a5c"><td style="padding:8px 0;font-weight:700">THỰC NHẬN</td><td style="text-align:right;font-weight:700;font-family:monospace;font-size:16px;color:#1e7d44">${fm(take)} đ</td></tr></tfoot>
       </table>

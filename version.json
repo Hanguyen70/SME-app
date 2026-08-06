@@ -1,5 +1,5 @@
 {
-  "version": "3.14.32",
-  "swVersion": "v3.14.32",
-  "notes": "FIX GOC (Sep 06/8 'PC du an chua vao duoc the'): patch 3.14.28 chi va DUNG phien ban trung moc Hieu luc tu — NV co NHIEU phien ban the (lo import hoi to: Thuy V1 2026-01 · V2 2026-02 · V3 2026-06) nen cac ban SAU moc van 0d, the HIEU LUC khong nhan PC du an, Keo the ra 0. FIX: dong patch = HAM BAC THANG theo thoi gian — ap cho MOI phien ban office/tech co effectiveFrom >= moc, den khi gap dong patch ke tiep cung nguoi (Trong: 1tr/ngay ap ban [2026-01,2026-02) · 2tr/ngay ap ban >= 2026-02); ban da dung gia tri -> SKIP_SAME (idempotent); ky KHOA -> SKIP; moc chua co ban -> nhan ban the hieu luc nhu cu. Preview them dem 'da dung giu nguyen' + ghi dong nguon. Test end-to-end file that (21 dong): 13/13 PASS gom Thuy V3 hieu luc =5tr, Trong bac thang 1tr->2tr, Tan tat=0 tu T02 giu nguyen muc khac, chay lai idempotent. Kem 3.14.31 (bam phien ban cu trong the -> xem chi tiet day du). 6 engine + payComputeRow hash SAME."
+  "version": "3.14.33",
+  "swVersion": "v3.14.33",
+  "notes": "Phieu luong VND (Sep 06/8): BO muc 'C · Chi phi doanh nghiep' (dong BHXH DN); thay bang 'C · Cac khoan phai thu / phai tra khac' — liet ke row.adjustments (dieu chinh + khoan PS khong chiu thue): duong = phai tra them (xanh), am = phai thu/khau tru (do, ghi nhan); rong -> 'Khong phat sinh'; dong dieu chinh KHONG con lap o muc A; khoan _hidePayslip van an nhung nam trong tong; THUC NHAN giu nguyen cong thuc (NET + dieu chinh). Muc A/B va payslip USD khong doi. Kem 3.14.32 (patch PC du an bac thang) + 3.14.31 (xem chi tiet phien ban cu). Smoke test 9/9 PASS. 6 engine + payComputeRow hash SAME."
 }
