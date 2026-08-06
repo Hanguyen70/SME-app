@@ -3766,7 +3766,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.14.28';
+const APP_VERSION='3.14.30';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -19502,7 +19502,14 @@ function payComputeRow(p, row){
   const inp=Object.assign({}, row.inputs||{});
   /* v3.14.26: CÔNG TẮC PC DỰ ÁN theo KỲ (chỉ nhóm Văn phòng): kỳ không BẬT → W=0 với mọi người.
      Mức từng người nằm trên thẻ (allow_duAn→W qua Kéo thẻ); kỳ nào trả thì bật 1 nút — không chọn từng người. */
-  if(p && p.profile==='office' && p.projAllow!==true) inp.W=0;
+  /* v3.14.30 FIX (Sếp 05/8 — "không tự suy diễn, không căn cứ số ngày tháng"): kiểm 6 bảng lương +
+     BCC — cột "Công dự án (ngày)" là SỐ CÔNG NHẬP TAY từng tháng (T02 đơn giá 2tr nhưng 0 công → 0đ;
+     BCC không có mã công dự án). Kỳ BẬT → W = mức THÁNG + đơn giá/ngày (WD, thẻ) × SỐ CÔNG DỰ ÁN
+     (WN, Ô NHẬP trong kỳ — mặc định 0). Bản 3.14.29 nhân số ngày dương lịch là SAI, đã bỏ. */
+  if(p && p.profile==='office'){
+    if(p.projAllow!==true){ inp.W=0; }
+    else{ inp.W=(+inp.W||0)+((+inp.WD||0)*(+inp.WN||0)); }
+  }
   if(F && taxSum) inp[F]=(+inp[F]||0)+taxSum;
   row._extrasTaxApplied=taxSum||0;
   // non-taxable → adjustments (thay toàn bộ entries nguồn payExtra — idempotent)
@@ -23650,7 +23657,7 @@ function payRowEdit(periodId, empId){
   const row=(p.rows||[]).find(r=>r.empId===empId); if(!row) return;
   // bộ field theo profile
   const fieldsByProfile={
-    office:[['G','Lương CB'],['H','PC trách nhiệm'],['K','KPI 100%'],['F','Người phụ thuộc'],['X','Hiệu quả (1=100%)'],['M','Công thường'],['N','Công biển'],['Q','OT×1.5'],['S','Công lễ'],['_sd','Ngày chuẩn RIÊNG (bỏ trống = theo kỳ; bảo vệ/tạp vụ cả T7 = 27/26)']],
+    office:[['G','Lương CB'],['H','PC trách nhiệm'],['K','KPI 100%'],['F','Người phụ thuộc'],['X','Hiệu quả (1=100%)'],['M','Công thường'],['N','Công biển'],['Q','OT×1.5'],['S','Công lễ'],['WN','Công dự án (ngày) — × đơn giá PC dự án/NGÀY trên thẻ, chỉ tính khi kỳ BẬT 💼'],['_sd','Ngày chuẩn RIÊNG (bỏ trống = theo kỳ; bảo vệ/tạp vụ cả T7 = 27/26)']],
     office_gross:[['F','Lương CB (GROSS)'],['E','Ngày chuẩn tháng'],['G','Công thực'],['I','Thưởng NS (chịu thuế)'],['K','Thưởng dịp 1'],['L','Thưởng dịp 2'],['M','Thưởng dịp 3'],['EX','Khoản miễn thuế (tổng)'],['W','Người phụ thuộc']],   /* v3.13.99 GĐ3b */
     crew:[['N','Lương cơ bản HĐLĐ'],['O','Mức lương biển'],['T','Mức lương DP'],['F','Người phụ thuộc'],['G','Công biển VN'],['H','Công biển NN'],['I','Công dock'],['J','Nằm bờ VN'],['L','Nằm bờ NN'],['M','Công DP'],['AR','Khoản thu khác']],
     project:[['G','Rate/ngày USD'],['J','Giờ thường'],['K','OT×1.2 giờ'],['L','OT×1.5 giờ'],['Q','Ngày trợ cấp'],['R','Mức trợ cấp/ngày'],['T','Mob/Demob'],['U','Hoàn phí'],['V','Khoản khác±']],
@@ -76974,7 +76981,8 @@ function salaryProfileNewVersionForm(empId){
       <div style="font-size:10.5px;color:var(--muted);margin:4px 0">🏷 Grade tự phân loại theo chức vụ (quản lý ở màn 🏷 Grade quản trị) — không chọn trên thẻ. Grade không ảnh hưởng tiền lương/BH/thuế.</div>
       <div class="field"><label>Lương cơ bản NET</label><input type="number" id="sp-net" value="${val('netBase')}" step="any"></div>
       <div class="field"><label>PC trách nhiệm</label><input type="number" id="sp-a1" value="${val('allow_trachNhiem')}" step="any"></div>
-      <div class="field"><label>PC dự án</label><input type="number" id="sp-a2" value="${val('allow_duAn')}" step="any"></div>
+      <div class="field"><label>PC dự án /tháng</label><input type="number" id="sp-a2" value="${val('allow_duAn')}" step="any" title="Mức cố định theo tháng — trả khi kỳ BẬT công tắc PC dự án"></div>
+      <div class="field"><label>PC dự án /NGÀY</label><input type="number" id="sp-a2d" value="${val('allow_duAnPerDay')}" step="any" title="Đơn giá/ngày × SỐ CÔNG DỰ ÁN nhập trong kỳ (ô 'Công dự án' khi Nhập dòng — nhập tay từng tháng, KHÔNG tự theo lịch). VD SDPO 2.000.000/ngày × 31 công = 62tr; tháng không có công = 0. Cộng dồn với mức /tháng nếu có cả hai."></div>
       <div class="field"><label>Thưởng KPI (100%)</label><input type="number" id="sp-a3" value="${val('allow_kpi')}" step="any"></div>
       <div class="field"><label>PC thâm niên</label><input type="number" id="sp-a4" value="${val('allow_thamNien')}" step="any"></div>
       <div class="field"><label>PC khác</label><input type="number" id="sp-a5" value="${val('allow_khac')}" step="any"></div>
@@ -77015,7 +77023,7 @@ function salaryProfileSaveVersion(empId){
     workFullWeek:((g('sp-fullweek')||{}).value)==='1',   /* v3.14.01 */
     netBase:+g('sp-net').value||0, bhxhBase:+g('sp-bhs').value||0, dependents:+g('sp-npt').value||0,
     isUnionMember:g('sp-union').value==='1',
-    allow_trachNhiem:+g('sp-a1').value||0, allow_duAn:+g('sp-a2').value||0, allow_kpi:+g('sp-a3').value||0,
+    allow_trachNhiem:+g('sp-a1').value||0, allow_duAn:+g('sp-a2').value||0, allow_duAnPerDay:+((g('sp-a2d')||{}).value)||0, allow_kpi:+g('sp-a3').value||0,
     allow_thamNien:+g('sp-a4').value||0, allow_khac:+g('sp-a5').value||0,
     crewSeaRate:+g('sp-sea').value||0, crewDpRate:+g('sp-dp').value||0,
     /* v3.13.58 (Sếp 28/7 "chỉnh ở đâu?"): form tay có đủ 3 đơn giá TECH — trước chỉ vào được qua 📥 import */
@@ -77111,12 +77119,14 @@ function spImportParse_(aoa, empBySmart, empByName){
     expatTr:col(['pc di chuyển','pc di chuyen','expat_transport']), expatLu:col(['pc ăn trưa','pc an trua','expat_lunchperday']),
     grHouse:col(['tiền thuê nhà','tien thue nha','grosshousing']), grT10:col(['khấu trừ 10','khau tru 10','taxwithhold10']),   /* v3.13.85 GĐ2 */
     dp:col(['mức dp','muc dp','dp /ngày','dp/ngày','crewdprate']),   /* v3.13.90: khoán NGÀY (SDPO) — cột Mức DP /ngày */
-    duAn:col(['pc dự án','pc du an','trợ cấp dự án','tro cap du an','allow_duan']) };   /* v3.14.27: PC dự án tháng (VP) */
+    duAnDay:col(['pc dự án /ngày','pc du an /ngay','dự án /ngày','du an /ngay','allow_duanperday']),
+    duAn:col(['pc dự án','pc du an','trợ cấp dự án','tro cap du an','allow_duan']) };   /* v3.14.27/29: PC dự án tháng + đơn giá/ngày */
+  if(ix.duAnDay>=0 && ix.duAn===ix.duAnDay) ix.duAn=-1;   /* file chỉ có cột /ngày: cột tháng không được bắt nhầm */
   /* v3.14.28 (Sếp 05/8 — "áp từ tháng 1"): file CHỈ có cột PC dự án (không có Lương cơ bản)
      → chế độ PATCH: chỉ cập nhật allow_duAn, GIỮ NGUYÊN mọi mức khác của thẻ. Giải cả bài trùng
      hiệu lực: bản trùng chưa bị kỳ KHÓA dùng → sửa tại chỗ; chưa có bản đúng mốc → nhân bản
      thẻ đang hiệu lực tại mốc + set PC dự án, tạo phiên bản mới. */
-  if(ix.net<0 && ix.duAn>=0){ return _spPatchDuAnParse_(aoa, hi, ix, empBySmart, empByName); }
+  if(ix.net<0 && (ix.duAn>=0||ix.duAnDay>=0)){ return _spPatchDuAnParse_(aoa, hi, ix, empBySmart, empByName); }
   var _normName=function(s){ return String(s||'').trim().toUpperCase().replace(/\s+/g,' '); };
   for(var r=hi+1;r<aoa.length;r++){
     var row=aoa[r]||[];
@@ -77133,7 +77143,7 @@ function spImportParse_(aoa, empBySmart, empByName){
     function num(j){ if(j<0) return 0; var v=String(row[j]==null?'':row[j]).replace(/[., ]/g,''); return Math.round(+v||+row[j]||0); }
     var d={ salaryType:'NET', ccy:'VND',
       netBase:num(ix.net), allow_trachNhiem:num(ix.tn), allow_kpi:num(ix.kpi),
-      allow_duAn:num(ix.duAn), allow_thamNien:0, allow_khac:0,   /* v3.14.27: cột PC dự án tháng — mức từng người cho công tắc kỳ VP */
+      allow_duAn:num(ix.duAn), allow_duAnPerDay:num(ix.duAnDay), allow_thamNien:0, allow_khac:0,   /* v3.14.27+29: PC dự án tháng + đơn giá/ngày */
       bhxhBase:num(ix.bh), dependents:num(ix.npt), isUnionMember:false,
       techSeaRate:num(ix.sea), techOfficeRate:num(ix.vp), techDockRate:num(ix.dock) };
     var eng=String(ix.eng>=0?(row[ix.eng]||''):'').trim().toLowerCase();
@@ -77197,7 +77207,7 @@ window.spImportOpen=function(){
             +'<div style="max-height:36vh;overflow:auto"><table class="tbl" style="font-size:11px"><tr><th>MSNV</th><th>Họ tên</th><th>Hiệu lực</th><th>PC dự án cũ</th><th>PC dự án MỚI</th><th>Hành động</th></tr>'
             +acts.map(function(x){ return '<tr'+(x.action==='SKIP_LOCKED'?' style="opacity:.5"':'')+'><td>'+esc(x.smartId||'')+'</td><td>'+esc(x.name)+'</td><td>'+x.eff+'</td>'
               +'<td style="text-align:right;color:var(--muted)">'+(x.cur?x.cur.toLocaleString('vi-VN'):'—')+'</td>'
-              +'<td style="text-align:right;font-weight:600">'+(x.duAn?x.duAn.toLocaleString('vi-VN'):'0')+'</td>'
+              +'<td style="text-align:right;font-weight:600">'+(x.duAn?x.duAn.toLocaleString('vi-VN'):'0')+(x.duAnDay?('<div style="font-size:9px;color:#1e5aa0">+ '+x.duAnDay.toLocaleString('vi-VN')+' /ngày × số ngày tháng</div>'):'')+'</td>'
               +'<td>'+(x.action==='UPDATE'?'✏️ Sửa bản '+x.eff:x.action==='CREATE'?'➕ Bản mới (từ '+esc(x.baseEff||'?')+')':'⛔ Kỳ khóa')+'</td></tr>'; }).join('')
             +'</table></div><div style="font-size:10.5px;color:var(--muted);margin-top:6px">Kỳ ĐÃ KHÓA không bị đụng · sau khi áp: mở kỳ nháp → 🪪 Kéo thẻ lương → 💼 BẬT PC dự án → ⚡ Tính cả bảng</div></div>';
           window._spPatch=acts.filter(function(x){return x.action!=='SKIP_LOCKED';});
@@ -77436,19 +77446,19 @@ function _spPatchDuAnParse_(aoa, hi, ix, empBySmart, empByName){
     if(!e){ out.err.push('Dòng '+(i+1)+': không khớp NV "'+(ms||nameRaw)+'"'); continue; }
     var eff=String(ix.eff>=0?(row[ix.eff]||''):'').trim().slice(0,7).replace('/','-');
     if(!/^\d{4}-\d{2}$/.test(eff)){ out.err.push('Dòng '+(i+1)+' ('+nameRaw+'): Hiệu lực từ phải YYYY-MM, nhận "'+eff+'"'); continue; }
-    var raw=String(row[ix.duAn]==null?'':row[ix.duAn]).replace(/[., ]/g,'');
-    var duAn=Math.round(+raw||0);
+    var _nv=function(j){ if(j<0) return 0; var t=String(row[j]==null?'':row[j]).replace(/[., ]/g,''); return Math.round(+t||0); };
+    var duAn=_nv(ix.duAn), duAnDay=_nv(ix.duAnDay);
     var existing=(S.salaryProfiles||[]).filter(function(x){return x&&!x._deleted&&x.empId===e.id&&x.effectiveFrom===eff;})[0];
     if(existing){
       if(!(existing.engine==='office'||existing.engine==='tech')){ out.err.push(nameRaw+' ('+eff+'): thẻ engine '+existing.engine+' không có ô PC dự án'); continue; }
       var locked=false; try{ locked=_spVersionUsedByLockedPeriod(existing); }catch(err){}
-      if(locked){ out.ok.push({empId:e.id,smartId:e.smartId||ms,name:e.fullName,eff:eff,duAn:duAn,action:'SKIP_LOCKED',verId:existing.id,engine:existing.engine,cur:+((existing.data||{}).allow_duAn)||0}); }
-      else { out.ok.push({empId:e.id,smartId:e.smartId||ms,name:e.fullName,eff:eff,duAn:duAn,action:'UPDATE',verId:existing.id,engine:existing.engine,cur:+((existing.data||{}).allow_duAn)||0}); }
+      if(locked){ out.ok.push({empId:e.id,smartId:e.smartId||ms,name:e.fullName,eff:eff,duAn:duAn,duAnDay:duAnDay,action:'SKIP_LOCKED',verId:existing.id,engine:existing.engine,cur:+((existing.data||{}).allow_duAn)||0}); }
+      else { out.ok.push({empId:e.id,smartId:e.smartId||ms,name:e.fullName,eff:eff,duAn:duAn,duAnDay:duAnDay,action:'UPDATE',verId:existing.id,engine:existing.engine,cur:+((existing.data||{}).allow_duAn)||0}); }
     } else {
       var base=salaryProfileAt(e.id, eff);
       if(!base){ out.err.push(nameRaw+' ('+eff+'): chưa có thẻ nào hiệu lực tại mốc này — tạo thẻ trước'); continue; }
       if(!(base.engine==='office'||base.engine==='tech')){ out.err.push(nameRaw+' ('+eff+'): thẻ engine '+base.engine+' không có ô PC dự án'); continue; }
-      out.ok.push({empId:e.id,smartId:e.smartId||ms,name:e.fullName,eff:eff,duAn:duAn,action:'CREATE',engine:base.engine,baseEff:base.effectiveFrom,baseId:base.id,cur:+((base.data||{}).allow_duAn)||0});
+      out.ok.push({empId:e.id,smartId:e.smartId||ms,name:e.fullName,eff:eff,duAn:duAn,duAnDay:duAnDay,action:'CREATE',engine:base.engine,baseEff:base.effectiveFrom,baseId:base.id,cur:+((base.data||{}).allow_duAn)||0});
     }
   }
   return out;
@@ -77463,7 +77473,7 @@ window.spPatchGo=function(){
       if(x.action==='UPDATE'){
         var v=(S.salaryProfiles||[]).filter(function(p){return p&&p.id===x.verId;})[0];
         if(!v){ skip++; return; }
-        v.data=v.data||{}; v.data.allow_duAn=x.duAn;
+        v.data=v.data||{}; v.data.allow_duAn=x.duAn; v.data.allow_duAnPerDay=x.duAnDay||0;
         v.reason=((v.reason||'')+' · Patch PC dự án '+x.duAn.toLocaleString('vi-VN')+' (lô '+batch+')').slice(0,400);
         try{touchRecord(v);}catch(e){}
         upd++; return;
@@ -77471,7 +77481,7 @@ window.spPatchGo=function(){
       /* CREATE: nhân bản thẻ đang hiệu lực + set PC dự án */
       var base=(S.salaryProfiles||[]).filter(function(p){return p&&p.id===x.baseId;})[0];
       if(!base){ skip++; return; }
-      var d=JSON.parse(JSON.stringify(base.data||{})); d.allow_duAn=x.duAn;
+      var d=JSON.parse(JSON.stringify(base.data||{})); d.allow_duAn=x.duAn; d.allow_duAnPerDay=x.duAnDay||0;
       var v2=salaryProfileAddVersion(x.empId,{effectiveFrom:x.eff, engine:base.engine, data:d,
         reason:'Patch PC dự án theo tháng — nhân bản từ thẻ '+ (base.effectiveFrom||'?') +' (lô '+batch+')',
         source:'import', versionType:'BUSINESS_CHANGE'});
@@ -78183,6 +78193,9 @@ function salaryProfileBuildInp(empId, period){
              sẵn có trên thẻ (allow_duAn), đổ vào W — engine cộng THẲNG theo tháng (AB=…+W+V), không theo công.
              Có TRẢ hay không do CÔNG TẮC trên KỲ (p.projAllow) quyết — xem payComputeRow. Thay đường Khoản PS
              preset 'duan' (3.13.52) cho khoản đều-theo-tháng; Khoản PS vẫn dùng cho ca đột xuất. */
+          WD:R('allow_duAnPerDay'),   /* v3.14.29 (Sếp 05/8 — Trọng SDPO): PC dự án theo NGÀY (2tr/ngày) —
+             đơn giá trên thẻ, payComputeRow nhân SỐ NGÀY DƯƠNG LỊCH của tháng kỳ (T05=31→62tr, T06=30→60tr)
+             rồi cộng vào W khi kỳ BẬT. Engine không đọc key WD — 6 công thức không đổi. */
           _sdAuto:(d.workFullWeek?1:0),   /* v3.14.01: thẻ đánh dấu "làm cả T7" -> kỳ tự tính chuẩn riêng = ngày tháng − CN */
           _v:v};
 }
