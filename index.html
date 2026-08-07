@@ -855,6 +855,9 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
       Quên mật khẩu? — vui lòng báo Admin để được cấp lại. App không tự khôi phục mật khẩu.
     </div>
     <div style="text-align:center;margin-top:10px">
+      <a href="#" onclick="event.preventDefault();authDiagRun();" style="font-size:10px;color:var(--muted);text-decoration:underline;opacity:.85" title="Tự kiểm tra đường mạng tới máy chủ — dùng khi đăng nhập báo lỗi kết nối">🩺 Kiểm tra kết nối</a>
+      <span style="opacity:.4;font-size:10px"> · </span>
+      <div id="auth-diag-box" style="display:none;text-align:left;font-size:11px;background:var(--paper-2,#f6f4ee);border:1px solid var(--rule,#ccc);border-radius:8px;padding:10px 12px;margin:10px 0;line-height:1.5"></div>
       <a href="#" onclick="event.preventDefault();refreshConfigFromCloud();" style="font-size:10px;color:var(--muted);text-decoration:underline;opacity:.7" title="Chỉ dùng khi admin yêu cầu. Thao tác này XÓA cấu hình trên máy và cần MẠNG ỔN ĐỊNH để đăng nhập lại. Nếu chỉ đăng nhập trục trặc do mạng, hãy thử lại — KHÔNG cần bấm đây.">⚙ Sự cố cấu hình? (chỉ dùng khi admin yêu cầu)</a>
     </div>
     <div style="text-align:center;margin-top:12px;font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;color:#8a7a5c">
@@ -3766,7 +3769,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.14.49';
+const APP_VERSION='3.14.53';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -5520,6 +5523,55 @@ async function pushCfgToCloud(adminPassword, extraUserPasswords){
   return {wrapCount: wraps.length, wrappedNames: wraps.map(w=>w.name)};
 }
 
+/* ═══ v3.14.53 (Sếp 07/8 — máy Hằng lỗi kết nối, cần chẩn đoán TỪ XA): nút 🩺 trên màn đăng nhập.
+   NV bấm 1 nút → app tự chạy 3 phép thử → verdict tiếng Việt + hướng dẫn + nút Copy gửi admin.
+   Ma trận: [server OK] → mạng ổn; [server FAIL + internet OK] → riêng script.google.com bị chặn
+   (antivirus web-shield / DNS / proxy); [cả hai FAIL] → máy mất internet/proxy chặn toàn bộ.
+   Thời gian fail: <400ms = chặn chủ động tại máy; >4s = timeout (tường lửa im lặng/mạng đứt). ═══ */
+async function _authDiagFetch(url, opts, timeoutMs){
+  const t0=Date.now();
+  try{
+    const ctl=new AbortController();
+    const tm=setTimeout(()=>ctl.abort(), timeoutMs||8000);
+    const r=await fetch(url, Object.assign({signal:ctl.signal}, opts||{}));
+    clearTimeout(tm);
+    return {ok:true, ms:Date.now()-t0, status:r.status||0};
+  }catch(e){
+    return {ok:false, ms:Date.now()-t0, err:String(e && (e.name==='AbortError'?'TIMEOUT':e.message)||e)};
+  }
+}
+async function authDiagRun(){
+  const box=document.getElementById('auth-diag-box'); if(!box) return;
+  box.style.display='block';
+  box.innerHTML='⏳ Đang kiểm tra (tối đa ~10 giây)…';
+  const url=(typeof COMPANY_SCRIPT_URL!=='undefined'&&COMPANY_SCRIPT_URL)||'';
+  const L=[];
+  L.push('🩺 KẾT QUẢ KIỂM TRA — '+new Date().toLocaleString('vi-VN'));
+  L.push('Máy: '+(navigator.userAgent||'').slice(0,80));
+  L.push('navigator.onLine: '+(navigator.onLine?'CÓ mạng (theo Windows)':'KHÔNG — máy báo mất mạng'));
+  const sv=await _authDiagFetch(url+'?action=ping_diag', {method:'GET'}, 8000);
+  L.push('[1] Máy chủ Seahorse (script.google.com): '+(sv.ok?('✓ TRẢ LỜI sau '+sv.ms+'ms'):('✗ LỖI sau '+sv.ms+'ms — '+sv.err)));
+  const gg=await _authDiagFetch('https://www.gstatic.com/generate_204', {method:'GET', mode:'no-cors'}, 6000);
+  L.push('[2] Internet chung (gstatic.com): '+(gg.ok?('✓ OK '+gg.ms+'ms'):('✗ LỖI '+gg.ms+'ms — '+gg.err)));
+  const gh=await _authDiagFetch(location.origin+'/version.json?diag='+Date.now(), {method:'GET', cache:'no-store'}, 6000);
+  L.push('[3] Máy chủ app (GitHub Pages): '+(gh.ok?('✓ OK '+gh.ms+'ms'):('✗ LỖI '+gh.ms+'ms — '+gh.err)));
+  let verdict='';
+  if(sv.ok){
+    verdict='✅ ĐƯỜNG TỚI MÁY CHỦ BÌNH THƯỜNG. Thử đăng nhập lại ngay. Nếu vẫn báo lỗi: chụp màn hình này gửi admin (khả năng lỗi chỉ xảy ra với lệnh POST — antivirus chặn một nửa).';
+  } else if(gg.ok){
+    verdict='🎯 CHẨN ĐOÁN: Internet BÌNH THƯỜNG nhưng riêng script.google.com BỊ CHẶN trên máy này.\nThủ phạm thường gặp: (a) Antivirus có Web Protection/Web Shield → tắt thử 5 phút hoặc thêm ngoại lệ cho script.google.com; (b) DNS → đổi sang 8.8.8.8; (c) Proxy Windows → Settings > Network > Proxy: tắt "Use a proxy server".'
+      + (sv.ms<400?'\n(Lỗi trả về NHANH '+sv.ms+'ms → thiên về phần mềm chặn chủ động tại máy.)':'\n(Lỗi kiểu chờ lâu '+sv.ms+'ms → thiên về tường lửa/proxy nuốt gói.)');
+  } else {
+    verdict='🎯 CHẨN ĐOÁN: Máy KHÔNG ra được internet (hoặc bị chặn diện rộng) — kiểm tra Wi-Fi/dây mạng, thử hotspot 4G, hoặc gọi IT xem proxy/tường lửa.';
+  }
+  L.push(''); L.push(verdict);
+  const txt=L.join('\n');
+  box.innerHTML=L.map(s=>s?('<div>'+s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/\n/g,'<br>')+'</div>'):'<div style="height:6px"></div>').join('')
+    + '<div style="margin-top:8px;display:flex;gap:8px">'
+    + '<button class="btn-ghost" style="font-size:11px;padding:4px 10px" onclick="navigator.clipboard&&navigator.clipboard.writeText(this.parentNode.parentNode._diagTxt||\'\').then(()=>{this.textContent=\'✓ Đã copy\';})">📋 Copy kết quả gửi admin</button>'
+    + '<button class="btn-ghost" style="font-size:11px;padding:4px 10px" onclick="authDiagRun()">🔄 Chạy lại</button></div>';
+  box._diagTxt=txt;
+}
 /* Pull cfg from cloud — works for admin OR any NV.
    userName: 'admin' or NV name. password: their plaintext password. */
 async function pullCfgFromCloud(scriptUrl, userName, password){
@@ -18694,7 +18746,7 @@ function payrollPolicyUI(){
      <button class="btn-ghost" onclick="_ppSeed()">🌱 Seed Timeline</button>
      <button class="btn-ghost" onclick="_ppGenCal()">📅 Sinh lịch 2026</button>
      <button class="btn-ghost" onclick="_ppSelfCheck()">🔐 Self-check</button>
-     <button class="btn-ghost" onclick="if(typeof _seedTaxRules==='function'){const r=_seedTaxRules();toast(r.ok?('🌱 Đã seed '+r.count+' rule thuế PIT'):(r.reason||'Không seed'),r.ok?'good':'warn');window._ppActiveTab='tax';payrollPolicyUI();}">🌱 Seed thuế PIT</button>
+     <button class="btn-ghost" onclick="if(typeof _seedTaxRules==='function'){let r=_seedTaxRules();if(!r.ok&&/đã có dữ liệu/.test(r.reason||'')&&confirm('taxRules đã có bản nháp cũ. SEED LẠI bộ v2 (Sếp 07/8: GTGC hồi tố T01, biểu mới từ T07)?\nChỉ được khi chưa rule nào ACTIVE.')){r=_seedTaxRules(true);}toast(r.ok?('🌱 Đã seed '+r.count+' rule thuế PIT (v2)'):(r.reason||'Không seed'),r.ok?'good':'warn');window._ppActiveTab='tax';payrollPolicyUI();}">🌱 Seed thuế PIT</button>
      <button class="btn-primary" onclick="_ppRunTests()">🧪 Kiểm định</button>`);
 }
 function payDashboard(){
@@ -21227,7 +21279,23 @@ const SOLVER_CONFIG={ VND:{residualTolerance:1, maxIterations:64, minGross:0, ma
 function _seedTaxRules(force){
   if(!Array.isArray(S.taxRules)) S.taxRules=[];
   if(S.taxRules.length && !force){ return {ok:false, reason:'taxRules đã có dữ liệu — không seed đè (immutable: sửa bằng version mới)'}; }
+  /* v3.14.52 SEED v2 (Sếp chốt 07/8): GTGC 15,5/6,2 HỒI TỐ từ kỳ 01/2026; BIỂU 5 bậc từ kỳ 07/2026;
+     kỳ ≤06/2026 dùng BIỂU CŨ 7 bậc (rule riêng TR-PITBR-PRE). force = seed lại trọn bộ, CHỈ khi
+     chưa có rule nào active (immutable áp cho rule đã sống). */
+  if(force){
+    if((S.taxRules||[]).some(r=>r&&r.status==='active')) return {ok:false, reason:'Có rule đang ACTIVE — immutable, không seed đè. Sửa bằng version mới qua KTT.'};
+    S.taxRules=[];
+  }
   const now=new Date().toISOString();
+  const _pitLegacy=[   /* biểu 7 bậc TT 111/2013 — dùng cho kỳ tính thuế đến hết 06/2026 */
+    {upTo:5000000,   rate:0.05, sub:0},
+    {upTo:10000000,  rate:0.10, sub:250000},
+    {upTo:18000000,  rate:0.15, sub:750000},
+    {upTo:32000000,  rate:0.20, sub:1650000},
+    {upTo:52000000,  rate:0.25, sub:3250000},
+    {upTo:80000000,  rate:0.30, sub:5850000},
+    {upTo:null,      rate:0.35, sub:9850000}
+  ];
   const _pit2026=[
     {upTo:10000000,  rate:0.05, sub:0},
     {upTo:30000000,  rate:0.10, sub:500000},
@@ -21238,17 +21306,27 @@ function _seedTaxRules(force){
   // rule chuẩn hóa: selectionBasis + taxPeriod (TAX_YEAR) hoặc paymentEffective (PAYMENT_DATE) + legal metadata
   const _mk=(o)=>Object.assign({ status:'draft', pendingKtt:true, version:1, updatedBy:'system-seed', updatedAt:now }, o);
   // ── PIT_BRACKET 2026 — chọn theo TAX_YEAR ──
+  S.taxRules.push(_mk({ id:'TR-PITBR-PRE', ruleType:'PIT_BRACKET', selectionBasis:'TAX_YEAR',
+    taxPeriodFrom:'2000-01-01', taxPeriodTo:'2026-06-30',
+    legalEffectiveFrom:'2013-10-01', legalBasis:'Biểu lũy tiến TT 111/2013/TT-BTC',
+    rules:{ pitBrackets:_pitLegacy },
+    note:'Biểu CŨ 7 bậc — áp cho kỳ khấu trừ đến hết 06/2026 (Sếp chốt 07/8: biểu mới từ 1/7).' }));
   S.taxRules.push(_mk({ id:'TR-PITBR-2026', ruleType:'PIT_BRACKET', selectionBasis:'TAX_YEAR',
-    taxPeriodFrom:'2026-01-01', taxPeriodTo:null,
+    taxPeriodFrom:'2026-07-01', taxPeriodTo:null,
     legalEffectiveFrom:'2026-07-01', legalBasis:'Khoản 2 Điều 9 Luật TNCN 2025 (Luật 109/2025/QH15)',
     rules:{ pitBrackets:_pit2026 },
-    note:'Biểu 5 bậc; b2 15→10%, b3 25→20%. Mốc bậc giữa CHỜ KTT đối chiếu toàn văn Điều 9.' }));
+    note:'Biểu 5 bậc TỪ KỲ 07/2026 (Sếp chốt 07/8). Mốc bậc giữa CHỜ KTT đối chiếu toàn văn Điều 9.' }));
   // ── PIT_DEDUCTION (GTGC) 2026 — chọn theo TAX_YEAR ──
   S.taxRules.push(_mk({ id:'TR-GTGC-2026', ruleType:'PIT_DEDUCTION', selectionBasis:'TAX_YEAR',
     taxPeriodFrom:'2026-01-01', taxPeriodTo:null,
     legalEffectiveFrom:'2026-01-01', legalBasis:'NQ UBTVQH 17/10/2025 + Điều 48 NĐ 253/2026/NĐ-CP',
     rules:{ gtgc:{ self:15500000, perDependent:6200000 } },
-    note:'GTGC bản thân 15.5tr/tháng, NPT 6.2tr/tháng; áp từ kỳ tính thuế 2026.' }));
+    note:'GTGC 15.5tr/6.2tr — HỒI TỐ từ kỳ 01/2026 (Sếp chốt 07/8/2026). Kỳ ≤2025 dùng TR-GTGC-PRE.' }));
+  S.taxRules.push(_mk({ id:'TR-GTGC-PRE', ruleType:'PIT_DEDUCTION', selectionBasis:'TAX_YEAR',
+    taxPeriodFrom:'2000-01-01', taxPeriodTo:'2025-12-31',
+    legalEffectiveFrom:'2020-07-01', legalBasis:'NQ 954/2020/UBTVQH14',
+    rules:{ gtgc:{ self:11000000, perDependent:4400000 } },
+    note:'GTGC cũ 11tr/4.4tr — kỳ tính thuế đến hết 2025.' }));
   // ── NON_RESIDENT_20 — chọn theo TAX_YEAR ──
   S.taxRules.push(_mk({ id:'TR-NR20-2026', ruleType:'NON_RESIDENT', selectionBasis:'TAX_YEAR',
     taxPeriodFrom:'2026-01-01', taxPeriodTo:null,
@@ -21288,6 +21366,13 @@ function taxCalculate(spec){
   const pay=String(spec.paymentDate||(yr+'-01-15'));
   // helpers chọn rule theo trục — bắt overlap/missing/ambiguous
   const _pickTaxYear=(ruleType)=>{
+    /* v3.14.52: tính THÁNG neo theo NGÀY (pay ∈ [from,to]) — luật đổi giữa năm (biểu cũ ≤06/2026,
+       mới ≥07/2026) chọn đúng rule theo kỳ, hết AMBIGUOUS oan. Quyết toán NĂM giữ theo năm:
+       2 biểu chồng năm 2026 → vẫn báo AMBIGUOUS chờ KTT chốt quy tắc chuyển tiếp (không đoán luật). */
+    if(spec.calculationMode!=='ANNUAL_FINALIZATION'){
+      return active.filter(r=>r.ruleType===ruleType && r.selectionBasis==='TAX_YEAR'
+        && String(r.taxPeriodFrom||'0000')<=pay && (!r.taxPeriodTo || String(r.taxPeriodTo)>=pay));
+    }
     const c=active.filter(r=>r.ruleType===ruleType && r.selectionBasis==='TAX_YEAR'
       && String(r.taxPeriodFrom||'0000')<=yEnd && (!r.taxPeriodTo || String(r.taxPeriodTo)>=yStart));
     return c;
@@ -22189,12 +22274,13 @@ PAYROLL_HEALTH_CHECKS.push(
     // [1] OVERLAP + MISSING theo TAX_YEAR cho từng ruleType bắt buộc
     const _tyTypes=['PIT_BRACKET','PIT_DEDUCTION'];
     _tyTypes.forEach(rt=>{
+      /* v3.14.52: soát theo NGÀY của kỳ (pay) — khớp resolver tính tháng; luật đổi giữa năm không còn báo chồng lấp oan */
       const c=active.filter(r=>r.ruleType===rt && r.selectionBasis==='TAX_YEAR'
-        && String(r.taxPeriodFrom||'0000')<=yEnd && (!r.taxPeriodTo||String(r.taxPeriodTo)>=yStart));
+        && String(r.taxPeriodFrom||'0000')<=pay && (!r.taxPeriodTo||String(r.taxPeriodTo)>=pay));
       if(c.length===0) items.push(_phItem({checkId:'n1_policy_health', periodId:p.id, field:rt,
-        current:'THIẾU policy '+rt+' theo TAX_YEAR cho năm '+yr, expected:'seed/kích hoạt rule '+rt, source:'taxRules', openTarget:{type:'period',id:p.id}}));
+        current:'THIẾU policy '+rt+' hiệu lực tại kỳ '+(p.period||''), expected:'seed/kích hoạt rule '+rt, source:'taxRules', openTarget:{type:'period',id:p.id}}));
       else if(c.length>1) items.push(_phItem({checkId:'n1_policy_health', periodId:p.id, field:rt,
-        current:'NHIỀU policy '+rt+' chồng lấp năm '+yr+' ('+c.map(x=>x.id).join(', ')+')', expected:'chỉ 1 rule hiệu lực/kỳ', source:'taxRules', openTarget:{type:'period',id:p.id}}));
+        current:'NHIỀU policy '+rt+' cùng hiệu lực tại kỳ '+(p.period||'')+' ('+c.map(x=>x.id).join(', ')+')', expected:'chỉ 1 rule hiệu lực/kỳ', source:'taxRules', openTarget:{type:'period',id:p.id}}));
     });
     // [2] OVERLAP + MISSING FLAT_10 theo PAYMENT_DATE — chỉ nếu kỳ có NV FLAT_10
     let needFlat=false;
@@ -80343,6 +80429,10 @@ function hrmAttParseSheet(aoa, profileKey){
     const msnv = (P.idx.msnv>=0) ? norm(row[P.idx.msnv]) : '';   // chuyên gia không có MSNV
     const name=norm(row[P.idx.name]);
     if(!name && !msnv) continue;                         // dòng trống
+    /* v3.14.50 (Sếp 07/8 — 3 dòng ghi chú chân trang file cũ bị lưu thành "NV" trong bảng BCC):
+       MSNV hợp lệ là mã ngắn liền (SME0001/SMEV032/NTP001…) — ô MSNV chứa KHOẢNG TRẮNG hoặc dài >14
+       ký tự chắc chắn là câu ghi chú/chú giải lọt vùng dữ liệu → bỏ, không thành dòng NV. */
+    if(msnv && (msnv.length>14 || /\s/.test(msnv))){ out.skippedNotes=(out.skippedNotes||0)+1; continue; }
     const upName=(name||msnv).toUpperCase();
     if(P.skipNames.some(s=>upName.includes(s))) continue; // dòng tổng nhóm
     if(P.requireStt && !(numAt(row,0)>0)) continue;       // v3.11.79: dòng người ký/ghi chú không có Stt số → bỏ
@@ -80447,12 +80537,17 @@ function hrmAttRenderPreview(){
     ? `<div style="background:#fff8e6;border:1px solid #f0d98a;border-radius:8px;padding:8px 12px;font-size:13px;color:#7a5c00;margin-bottom:10px">⚠ ${D.warnings.length} cảnh báo:<br>${D.warnings.slice(0,8).map(hrmEsc).join('<br>')}${D.warnings.length>8?'<br>…':''}</div>`
     : '';
   const head=P.workCols.map(([k,ci,lbl])=>`<th style="padding:5px;font-size:10px;width:46px;text-align:center" title="${hrmEsc(lbl)}">${hrmEsc(k)}</th>`).join('');   /* v3.14.48: cột mã hẹp đều */
-  const body=D.rows.map(r=>{
+  /* v3.14.51 (Sếp 07/8): trạng thái hiện NGAY TẠI DÒNG — dòng chưa hồ sơ nền đỏ nhạt + viền trái +
+     chip cạnh tên + hướng dẫn xử; cột TT ✓/⚠ đầu dòng; lọc "chỉ hiện dòng cần kiểm". */
+  const _onlyBad=!!window._hrmAttOnlyBad;
+  const body=D.rows.filter(r=>!_onlyBad||!r._matched).map(r=>{
     const cells=P.workCols.map(([k])=>`<td class="r" style="padding:4px;font-size:11px">${r.cols[k]||''}</td>`).join('');
-    const mk=r._matched?'':' style="background:var(--paper-3)"';
-    const flag=r._matched?'':' <span title="Chưa có hồ sơ HRM" style="color:var(--warn)">⚠</span>';
-    return `<tr${mk}><td style="padding:4px;font-family:monospace;font-size:11px">${hrmEsc(r.msnv)}${flag}</td>
-      <td style="padding:4px;font-size:11px">${hrmEsc(r.name)}</td>
+    const bad=!r._matched;
+    const mk=bad?' style="background:#fdecec;border-left:3px solid #d9534f"':'';
+    const tt=bad?'<span title="Chưa có hồ sơ trong HRM" style="color:#c0392b;font-weight:700">⚠</span>':'<span style="color:var(--good)">✓</span>';
+    const chip=bad?` <span style="font-size:9.5px;background:#c0392b;color:#fff;border-radius:3px;padding:1px 5px;white-space:nowrap" title="Tạo hồ sơ NV (kèm Ngày nghỉ việc nếu đã nghỉ) → điền MSNV vào file → import lại. Nếu là dòng ghi chú lọt vào: dùng file bản sạch.">chưa có hồ sơ</span>`:'';
+    return `<tr${mk}><td style="padding:4px;text-align:center;width:24px">${tt}</td><td style="padding:4px;font-family:monospace;font-size:11px">${hrmEsc(r.msnv)}</td>
+      <td style="padding:4px;font-size:11px">${hrmEsc(r.name)}${chip}</td>
       <td style="padding:4px;font-size:10px;color:var(--muted)">${hrmEsc(r.unit||r.title||'')}</td>
       ${cells}<td class="r" style="padding:4px;font-size:11px;font-weight:600">${r.total||''}</td></tr>`;
   }).join('');
@@ -80462,14 +80557,15 @@ function hrmAttRenderPreview(){
         <div style="font-size:13px"><b>Xem trước</b> · ${P.label} · kỳ <b>${hrmEsc(D.period)}</b> · ${D.rows.length} NV
           <span style="color:var(--good)">(${nMatch} khớp hồ sơ${nNo?`, <span style="color:var(--warn)">${nNo} chưa có</span>`:''})</span></div>
         <div style="display:flex;gap:8px">
-          <button class="btn-ghost" style="padding:5px 12px;font-size:13px" onclick="_hrmAttPending=null;hrmAttRenderPreview();document.getElementById('hrm-att-status').textContent='';">Hủy</button>
+          ${nNo?`<button class="btn-ghost" style="padding:5px 12px;font-size:13px;${window._hrmAttOnlyBad?'background:#fdecec;border-color:#d9534f;color:#c0392b':''}" onclick="window._hrmAttOnlyBad=!window._hrmAttOnlyBad;hrmAttRenderPreview();" title="Chỉ hiện các dòng chưa khớp hồ sơ để kiểm nhanh">⚠ Dòng cần kiểm (${nNo})</button>`:''}
+          <button class="btn-ghost" style="padding:5px 12px;font-size:13px" onclick="_hrmAttPending=null;window._hrmAttOnlyBad=false;hrmAttRenderPreview();document.getElementById('hrm-att-status').textContent='';">Hủy</button>
           <button class="btn-primary" style="padding:5px 12px;font-size:13px" onclick="hrmAttSave()">💾 Lưu kỳ chấm công</button>
         </div>
       </div>
       ${warnHtml}
       ${(typeof HRM_BCC_NOTES!=='undefined'&&HRM_BCC_NOTES[D.profile])?`<div style="font-size:11px;color:#6b5b34;background:#fdf6e3;border:1px solid #ead9a8;border-radius:8px;padding:7px 10px;margin-bottom:8px">📖 <b>Ghi chú ký hiệu ${P.label}:</b> ${HRM_BCC_NOTES[D.profile]}</div>`:''}
       <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">
-        <thead><tr style="background:var(--rule)"><th style="padding:5px;width:88px;text-align:left">MSNV</th><th style="padding:5px;text-align:left">Họ tên</th><th style="padding:5px;width:110px;text-align:left">Đơn vị</th>${head}<th style="padding:5px;width:56px">TỔNG</th></tr></thead>   <!-- v3.14.48: MSNV 88px, mã hẹp — hết cảnh MSNV nuốt nửa màn -->
+        <thead><tr style="background:var(--rule)"><th style="padding:5px;width:24px" title="Trạng thái đối chiếu hồ sơ">TT</th><th style="padding:5px;width:88px;text-align:left">MSNV</th><th style="padding:5px;text-align:left">Họ tên</th><th style="padding:5px;width:110px;text-align:left">Đơn vị</th>${head}<th style="padding:5px;width:56px">TỔNG</th></tr></thead>   <!-- v3.14.48: MSNV 88px, mã hẹp — hết cảnh MSNV nuốt nửa màn -->
         <tbody>${body}</tbody></table></div>
     </div>`;
 }
