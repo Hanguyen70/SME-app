@@ -3766,7 +3766,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.14.47';
+const APP_VERSION='3.14.49';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -77484,11 +77484,13 @@ function openSalaryLedger(){
   let vndFund=0, vndCount=0, usdMonthlyFund=0, usdCount=0;
   const dueRaise=[], expiring=[];
   emps.forEach(e=>{
-    if(e.status==='inactive') return;
+    const _slOff=(e.status==='inactive');   /* v3.14.49 AS-OF (Sếp 07/8): NV đã nghỉ VẪN hiện trong Sổ lương
+       để xem/mở thẻ phục vụ kỳ lương lúc họ còn làm việc (VD Hoàng Anh nghỉ T02 vẫn có lương T01) —
+       chỉ KHÔNG cộng quỹ/KPI/nhắc tăng lương. Trước đây return sớm → thẻ NV nghỉ "biến mất" khỏi sổ. */
     const cur=salaryProfileAt(e.id, nowPer);
     const list=_spList(e.id);
     const tot=_spFixedTotal(cur);
-    if(cur){
+    if(cur && !_slOff){
       fund+=tot; cnt++;                                   // giữ cho tương thích ngược
       const amount = Number(tot) || 0;
       if(_slIsUsd(cur)){ usdMonthlyFund += amount; usdCount++; }
@@ -77509,8 +77511,8 @@ function openSalaryLedger(){
     /* monthsSince: mốc = lần THAY ĐỔI LƯƠNG THẬT gần nhất; chưa có thì mốc vào hệ thống (bản đầu) */
     const lastEff=lastBizEff || (list.length?list[0].effectiveFrom:'');
     const monthsSince=lastEff?((+nowPer.slice(0,4)-+lastEff.slice(0,4))*12+(+nowPer.slice(5,7)-+lastEff.slice(5,7))):999;
-    if(cur && monthsSince>=10) dueRaise.push({e, monthsSince, tot});
-    if(e.contractEndDate){ const dd=Math.round((new Date(e.contractEndDate)-new Date())/86400000); if(dd>=0&&dd<=60) expiring.push({e,dd}); }
+    if(cur && !_slOff && monthsSince>=10) dueRaise.push({e, monthsSince, tot});
+    if(e.contractEndDate && !_slOff){ const dd=Math.round((new Date(e.contractEndDate)-new Date())/86400000); if(dd>=0&&dd<=60) expiring.push({e,dd}); }
     // filter
     if(fDept && hrDeptCanon(e.dept||'')!==fDept) return;
     if(fTitle && !(e.title||'').toLowerCase().includes(fTitle)) return;
@@ -77521,7 +77523,7 @@ function openSalaryLedger(){
     if(fQuick==='new' && !( (e.startDate||'') >= new Date(Date.now()-90*86400000).toISOString().slice(0,10) )) return;
     if(fQuick==='expiring' && !(e.contractEndDate && expiring.some(x=>x.e.id===e.id))) return;
     if(fQuick==='raised' && !hist.some(h=>h.eff.slice(0,4)===year)) return;
-    rows.push({e, cur, tot, hist, monthsSince});
+    rows.push({e, cur, tot, hist, monthsSince, off:_slOff});
   });
   // KPI + biểu đồ
   const avg=cnt?Math.round(fund/cnt):0;
@@ -77549,8 +77551,8 @@ function openSalaryLedger(){
     const _hm=v=>{ const n=Number(v)||0; if(_xUsd) return n.toLocaleString('en-US',{maximumFractionDigits:2})+' USD/tháng'; if(_xTech) return fmtFull(n,'VND'); return fmtFull(n,'VND'); };
     const _vtb=vt=> vt==='BUSINESS_CHANGE' ? '' : `<span style="font-size:8.5px;border:1px solid var(--rule);border-radius:3px;padding:0 3px;color:var(--muted);margin-right:3px" title="Không tính vào thống kê tăng lương">${_SP_VT_LABEL[vt]||vt}</span>`;
     const histHtml=x.hist.slice().reverse().map(h=>`<div style="font-size:10.5px;font-family:var(--font-mono)">${_vtb(h.vt)}${h.eff}: ${_hm(h.before)} → <b>${_hm(h.after)}</b> <span style="color:${h.delta>=0?'var(--good)':'var(--bad)'}">(${h.delta>=0?'+':''}${_hm(h.delta)} · ${h.pct.toFixed(1)}%)</span> · ${esc(h.by)} · ${esc(h.reason)}</div>`).join('')||'<span style="font-size:10px;color:var(--muted)">chưa điều chỉnh</span>';
-    return `<tr style="border-top:1px solid var(--rule)">
-      <td style="padding:6px 8px;font-size:12px"><a href="javascript:void(0)" onclick="openSalaryProfileCard('${e.id}')" style="font-weight:600;color:var(--accent)">${esc(e.fullName)}</a><br><span style="font-family:var(--font-mono);font-size:10px;color:var(--muted)">${esc(e.smartId||'')}</span></td>
+    return `<tr style="border-top:1px solid var(--rule)${x.off?';opacity:.55':''}">
+      <td style="padding:6px 8px;font-size:12px"><a href="javascript:void(0)" onclick="openSalaryProfileCard('${e.id}')" style="font-weight:600;color:var(--accent)">${esc(e.fullName)}</a>${x.off?` <span style="font-size:9px;background:#f3e8e8;color:#9a4b4b;border-radius:3px;padding:0 4px" title="Đã nghỉ — vẫn xem được thẻ, phục vụ kỳ lương lúc còn làm việc">🔚 nghỉ ${esc((e.resignDate||e.terminationDate||'').slice(0,10))}</span>`:''}<br><span style="font-family:var(--font-mono);font-size:10px;color:var(--muted)">${esc(e.smartId||'')}</span></td>
       <td style="padding:6px 8px;font-size:11px">${esc((function(){const _c=hrDeptCanon(e.dept||'');return _c?hrDeptLabel(_c):(e.dept||'—');})())}<br><span style="color:var(--muted)">${esc(e.title||'')}</span></td>
       <td style="padding:6px 8px;font-size:10.5px">vào ${esc(e.startDate||'—')}<br>HĐ ${esc(e.contractType||'—')}${e.contractEndDate?('<br>hết '+esc(e.contractEndDate)):''}</td>
       <td style="padding:6px 8px;text-align:right;font-family:var(--font-mono);font-size:12px">${(function(){
@@ -78249,7 +78251,9 @@ function sccCanOpen_(){ /* v3.13.61: bỏ nhánh OR pfCanViewBoard_ (PF đã kha
   try{ return (typeof isAdmin==='function'&&isAdmin()); }catch(e){ return false; } }
 function sccRun(month, engineFilter){
   var all=(typeof HRService!=='undefined'&&HRService.employees)?(HRService.employees()||[]):[];
-  var emps=all.filter(function(e){return e&&(!e.status||e.status==='active');});
+  var emps=all.filter(function(e){ if(!e) return false;
+    if(typeof _payEmpActiveInPeriod==='function' && month) return _payEmpActiveInPeriod(e, month);   /* v3.14.49 AS-OF: audit tháng nào xét trạng thái tháng đó — NV nghỉ SAU tháng audit vẫn được chấm (VD audit T01, Hoàng Anh nghỉ T02) */
+    return (!e.status||e.status==='active'); });
   var cards=(S.salaryProfiles||[]).filter(function(v){return v&&!v._deleted;});
   var cardOf=function(eid){ return salaryProfileAt(eid, month); };
   var cardList=[]; emps.forEach(function(e){ var v=cardOf(e.id); if(v) cardList.push(v); });
@@ -80442,7 +80446,7 @@ function hrmAttRenderPreview(){
   const warnHtml=D.warnings.length
     ? `<div style="background:#fff8e6;border:1px solid #f0d98a;border-radius:8px;padding:8px 12px;font-size:13px;color:#7a5c00;margin-bottom:10px">⚠ ${D.warnings.length} cảnh báo:<br>${D.warnings.slice(0,8).map(hrmEsc).join('<br>')}${D.warnings.length>8?'<br>…':''}</div>`
     : '';
-  const head=P.workCols.map(([k,ci,lbl])=>`<th style="padding:5px;font-size:10px" title="${hrmEsc(lbl)}">${hrmEsc(k)}</th>`).join('');
+  const head=P.workCols.map(([k,ci,lbl])=>`<th style="padding:5px;font-size:10px;width:46px;text-align:center" title="${hrmEsc(lbl)}">${hrmEsc(k)}</th>`).join('');   /* v3.14.48: cột mã hẹp đều */
   const body=D.rows.map(r=>{
     const cells=P.workCols.map(([k])=>`<td class="r" style="padding:4px;font-size:11px">${r.cols[k]||''}</td>`).join('');
     const mk=r._matched?'':' style="background:var(--paper-3)"';
@@ -80463,12 +80467,21 @@ function hrmAttRenderPreview(){
         </div>
       </div>
       ${warnHtml}
+      ${(typeof HRM_BCC_NOTES!=='undefined'&&HRM_BCC_NOTES[D.profile])?`<div style="font-size:11px;color:#6b5b34;background:#fdf6e3;border:1px solid #ead9a8;border-radius:8px;padding:7px 10px;margin-bottom:8px">📖 <b>Ghi chú ký hiệu ${P.label}:</b> ${HRM_BCC_NOTES[D.profile]}</div>`:''}
       <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px">
-        <thead><tr style="background:var(--rule)"><th style="padding:5px">MSNV</th><th style="padding:5px">Họ tên</th><th style="padding:5px">Đơn vị</th>${head}<th style="padding:5px">TỔNG</th></tr></thead>
+        <thead><tr style="background:var(--rule)"><th style="padding:5px;width:88px;text-align:left">MSNV</th><th style="padding:5px;text-align:left">Họ tên</th><th style="padding:5px;width:110px;text-align:left">Đơn vị</th>${head}<th style="padding:5px;width:56px">TỔNG</th></tr></thead>   <!-- v3.14.48: MSNV 88px, mã hẹp — hết cảnh MSNV nuốt nửa màn -->
         <tbody>${body}</tbody></table></div>
     </div>`;
 }
 
+/* v3.14.48 (Sếp 07/8): CHÚ GIẢI KÝ HIỆU THEO BỘ PHẬN — app tự hiện khi import, không phụ thuộc
+   ghi chú trong file. Một nguồn cho mọi profile. */
+const HRM_BCC_NOTES={
+  BCC_VP:'N=công VP · NL=nghỉ lễ hưởng lương · N1=công tác trong nước · N2=công tác nước ngoài · N3=đi biển (×1.8) · N4=OT cuối tuần (×2) · D=dock (×1.5) · D1=dock ngoài giờ (VP ×2) · P=phép · UP=nghỉ KHÔNG lương (không tính công) · OT15/OT2/OT3=tăng ca ×1.5/×2/×3. Công hưởng lương M = N+P+NL+N1.',
+  BCC_VP_BP:'Cùng bộ mã với BCC VP: N·NL·N1·N3·N4·D·D1·P·UP·N2 — đọc theo mẫu bộ phận (SME-HR-PR02-FM01).',
+  BCC_DOITAU:'DB1=đi biển VN · DB2=đi biển NN · DOCK=đi dock · BO=nằm bờ chờ HĐ tại VN · NGHICA=nghỉ ca · BO2=nằm bờ chờ HĐ tại NN · DP=công DP. TỔNG = tổng 7 mã. Đơn giá từng loại lấy từ THẺ LƯƠNG (BCC chỉ mang số công).',
+  BCC_CHUYENGIA:'NORMAL=giờ thường · OT12=OT ×1.2 · OT15=OT ×1.5 · ALLOWDAYS=ngày trợ cấp. Đơn giá USD/ngày và mức trợ cấp lấy từ THẺ LƯƠNG chuyên gia.'
+};
 function hrmAttSave(){
   if(!_hrmAttPending){ return; }
   const D=_hrmAttPending;
