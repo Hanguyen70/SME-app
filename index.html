@@ -3769,7 +3769,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.14.58';
+const APP_VERSION='3.14.60';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -19985,7 +19985,18 @@ const PAY_ATT_MAP={
 /* PURE — dựng bảng chênh lệch, test được bằng VM. Trả {items:[{empId,name,status,changes:{F:{from,to,manual}}}], extraAtt:[...]} */
 function _payAttBuildDiff(p, att, map){
   const items=[], used={};
-  const attRows=(att.rows||[]);
+  /* v3.14.60 (Sếp 07/8 — "1 BCC đủ 3 pháp nhân: kéo vào kỳ pháp nhân khác: KHÔNG được"):
+     GUARD PHÁP NHÂN — dòng BCC mang nhãn đơn vị STER/PON là công của pháp nhân đó; còn lại thuộc
+     SME (mặc định). Kỳ pháp nhân nào chỉ đổ dòng pháp nhân đó — người 2 pháp nhân (Phong, Kim Hằng)
+     không bị kỳ bên kia hút nhầm công. */
+  const _coTag=u=>{ u=String(u||'').trim().toUpperCase(); return u==='STER'?'STER':(u==='PON'?'PON':'SME'); };
+  const _perTag=(()=>{ try{
+      const nm=String((typeof companyName==='function'&&p.companyId)?companyName(p.companyId):'').toUpperCase();
+      if(nm.indexOf('STER')>=0) return 'STER';
+      if(nm.indexOf('PON')>=0) return 'PON';
+    }catch(e){} return 'SME'; })();
+  const attRows=(att.rows||[]).filter(r=>_coTag(r.unit)===_perTag);
+  const _nOtherCo=(att.rows||[]).length-attRows.length;
   const byEmp={}, bySmart={}, byName={};
   attRows.forEach(r=>{ if(r._empId) byEmp[r._empId]=r;
     if(r.msnv) bySmart[String(r.msnv).trim().toUpperCase()]=r;
@@ -20004,7 +20015,7 @@ function _payAttBuildDiff(p, att, map){
     items.push({empId:row.empId,name:row.name,status:n? (Object.values(changes).some(c=>c.manual)?'CÓ GIỮ TAY':'ĐỔI') :'KHỚP',changes:changes});
   });
   const extraAtt=attRows.filter(r=>!used[r.name] && r._empId).map(r=>r.name);
-  return {items, extraAtt};
+  return {items, extraAtt, otherCo:_nOtherCo};   /* v3.14.60: số dòng thuộc pháp nhân khác đã chặn */
 }
 function payPullAttendance(periodId){
   const p=payPeriodById(periodId); if(!p) return;
@@ -20031,8 +20042,9 @@ function _payPullPreview(periodId){
   const sel=document.getElementById('papull-src'); const att=(S.hrAttendance||[]).find(a=>a.id===sel.value);
   if(!att){ toast('Chọn nguồn','warn'); return; }
   if(att.status!=='locked'){ toast('Bảng chấm công chưa khóa — bị chặn','bad'); return; }
-  const {items, extraAtt}=_payAttBuildDiff(p, att, PAY_ATT_MAP[p.profile]);
+  const {items, extraAtt, otherCo}=_payAttBuildDiff(p, att, PAY_ATT_MAP[p.profile]);
   window._papullCache={attId:att.id, items};
+  window._papullOtherCo=otherCo||0;   /* v3.14.60 */
   const rowsH=items.map(it=>{
     /* v3.13.95 (Sếp 30/7): ẨN khỏi preview các dòng "KHÔNG CÓ TRONG BCC" của người (a) chưa vào làm tại kỳ
        (ngày vào làm > cuối kỳ) hoặc (b) không thuộc pháp nhân của kỳ (QHLĐ hiệu lực ở cty khác).
@@ -20057,6 +20069,7 @@ function _payPullPreview(periodId){
   }).join('');
   document.getElementById('papull-prev').innerHTML=`
     ${p.attSource?`<div style="font-size:11px;color:#9a5b12;margin-bottom:6px">⚠ Kỳ đã kéo từ nguồn ${esc(p.attSource.attPeriod||'')} lúc ${esc((p.attSource.pulledAt||'').slice(0,16).replace('T',' '))} — áp dụng sẽ ghi nguồn mới.</div>`:''}
+    ${(window._papullOtherCo||0)?`<div style="font-size:11px;color:#1e5b8d;background:#eaf3fb;border:1px solid #bcd8ef;border-radius:6px;padding:5px 9px;margin-bottom:6px">🛡 ${window._papullOtherCo} dòng thuộc PHÁP NHÂN KHÁC trong bảng chấm công chung — đã CHẶN, không đổ vào kỳ này (guard v3.14.60).</div>`:''}
     <table style="width:100%;border-collapse:collapse"><thead><tr style="text-align:left;font-size:10px;color:var(--muted)"><th style="padding:4px 6px">Nhân viên</th><th style="padding:4px 6px">Trạng thái</th><th style="padding:4px 6px">Thay đổi (mới / <s>cũ</s>)</th></tr></thead><tbody>${rowsH}</tbody></table>
     ${extraAtt.length?`<div style="font-size:11px;color:#9a5b12;margin-top:6px">Có trong BCC nhưng không trong kỳ lương: ${esc(extraAtt.join(', '))} — thêm NV vào kỳ nếu cần rồi kéo lại.</div>`:''}`;
   document.getElementById('papull-apply').style.display='';
@@ -80441,7 +80454,7 @@ function hrmAttParseSheet(aoa, profileKey){
     /* v3.14.50 (Sếp 07/8 — 3 dòng ghi chú chân trang file cũ bị lưu thành "NV" trong bảng BCC):
        MSNV hợp lệ là mã ngắn liền (SME0001/SMEV032/NTP001…) — ô MSNV chứa KHOẢNG TRẮNG hoặc dài >14
        ký tự chắc chắn là câu ghi chú/chú giải lọt vùng dữ liệu → bỏ, không thành dòng NV. */
-    if(msnv && (msnv.length>14 || /\s/.test(msnv))){ warnings.push('Bỏ dòng ghi chú/không phải mã NV: "'+msnv.slice(0,60)+'"'); continue; }   /* v3.14.56 FIX: 3.14.50 đếm vào biến 'out' không tồn tại trong hàm này → import văng "out is not defined" ngay dòng bất thường đầu tiên. Hàm dùng rows/warnings — ghi vào warnings (hiện luôn trong khối cảnh báo preview, minh bạch hơn đếm ngầm). */
+    if(msnv && (msnv.length>14 || /\s/.test(msnv))) continue;   /* v3.14.59 (Sếp 07/8: "cảnh báo không có giá trị"): dòng ghi chú lọt cột MSNV bỏ ÊM, không báo — hành vi đúng mặc định, la lên chỉ nhiễu. (Lịch sử: 3.14.50 đếm vào biến 'out' không tồn tại → crash import; 3.14.56 sửa thành warnings; 3.14.59 hạ thành im lặng.) */
     const upName=(name||msnv).toUpperCase();
     if(P.skipNames.some(s=>upName.includes(s))) continue; // dòng tổng nhóm
     if(P.requireStt && !(numAt(row,0)>0)) continue;       // v3.11.79: dòng người ký/ghi chú không có Stt số → bỏ
