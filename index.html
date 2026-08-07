@@ -3769,7 +3769,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.14.53';
+const APP_VERSION='3.14.58';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -18395,13 +18395,15 @@ function openPayrollPeriods(){
       <td style="padding:6px 8px;text-align:right;font-family:monospace">${payMaskAmount(total.toLocaleString(ccy==='USD'?'en-US':'vi-VN')+' '+ccy)}</td>  <!-- v3.12.40: ẩn tiền với HR -->
       <td style="padding:6px 8px">${stChip}</td>
       <td style="padding:6px 8px;text-align:right;white-space:nowrap">
+        ${(_payProjAllowScope(p.profile) && payStatusIdx(p.status||'draft')<payStatusIdx('approved'))?`<button class="btn-ghost" style="font-size:10.5px;padding:3px 8px;border:1.5px solid ${p.projAllow===true?'#1e7d44;color:#1e7d44':'var(--rule);color:var(--muted)'};font-weight:600" title="PC dự án theo tháng cho CẢ KỲ — mức từng người từ THẺ LƯƠNG. Sau khi tạo kỳ: chủ động BẬT tại đây (Sếp 07/8)." onclick="window._projToggleFromList=true;payToggleProjAllow('${p.id}')">💼 ${p.projAllow===true?'BẬT':'TẮT'}</button>`:''}
         <button class="btn-ghost" style="font-size:11px;padding:3px 8px" onclick="openPayPeriodDetail('${p.id}')">Mở</button>
+        ${((CURRENT_ROLE==='admin'||CURRENT_ROLE==='chief_accountant') && payStatusIdx(p.status||'draft')<=payStatusIdx('preview'))?`<button class="btn-ghost" style="font-size:11px;padding:3px 8px;color:var(--bad)" title="Xóa kỳ (chỉ kỳ nháp/preview — kỳ đã duyệt là chứng từ). Có hỏi xác nhận 2 lần." onclick="payPeriodDelete('${p.id}')">🗑</button>`:''}   <!-- v3.14.55: nối nút xóa — hàm payPeriodDelete có sẵn từ trước nhưng chưa từng có nút gọi → 5 kỳ rỗng nằm lì -->
       </td></tr>`;
   }).join('')||'<tr><td colspan="7" style="padding:14px;text-align:center;color:var(--muted)">Chưa có kỳ lương nào</td></tr>';
   const body=`
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
       <div style="font-size:13px;color:var(--muted)">Mỗi kỳ = 1 tháng × 1 nhóm lương. Tính cả bảng (preview), khóa kỳ sau khi duyệt.</div>
-      <div style="display:flex;gap:6px"><button class="btn-sec" style="font-size:13px" onclick="payDashboard()">📊 Dashboard</button><button class="btn-sec" style="font-size:13px" onclick="meMigrationOpen()" title="Matrix migration đa pháp nhân — kỳ chưa xác định companyId (admin)">⚖ Pháp nhân kỳ</button><button class="btn-primary" style="font-size:13px" onclick="payPeriodCreate()">+ Tạo kỳ lương</button></div>
+      <div style="display:flex;gap:6px"><button class="btn-sec" style="font-size:13px" onclick="payDashboard()">📊 Dashboard</button><!-- v3.14.58 (Sếp 07/8): GỠ nút ⚖ Pháp nhân kỳ — công cụ migration một-lần đã xong vai trò (mọi kỳ có companyId; kỳ mới bắt buộc chọn pháp nhân khi tạo). Hàm meMigrationOpen GIỮ: health check vẫn dẫn vào được nếu phát sinh kỳ thiếu pháp nhân. --><button class="btn-primary" style="font-size:13px" onclick="payPeriodCreate()">+ Tạo kỳ lương</button></div>
     </div>
     <table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:var(--rule);text-align:left">
       <th style="padding:6px 8px">Kỳ</th><th style="padding:6px 8px">Nhóm</th><th style="padding:6px 8px">Pháp nhân</th><th style="padding:6px 8px;text-align:center">Số NV</th><th style="padding:6px 8px;text-align:right">Tổng thực lĩnh</th><th style="padding:6px 8px">Trạng thái</th><th style="padding:6px 8px"></th>
@@ -18977,8 +18979,8 @@ function openPayPeriodDetail(id){
   const btn=(fn,label,style)=>`<button class="btn-${style||'sec'}" style="font-size:11px;${style==='danger'?'background:var(--bad);border-color:var(--bad);color:var(--paper-2)':''}" onclick="${fn}('${id}')">${label}</button>`;
   const btn2=(onclick,label,style)=>`<button class="btn-${style||'sec'}" style="font-size:11px;${style==='danger'?'background:var(--bad);border-color:var(--bad);color:var(--paper-2)':''}" onclick="${onclick}">${label}</button>`;
   const projBtn=_payProjAllowScope(p.profile)?('<button class="btn-ghost" style="border:1.5px solid '+(p.projAllow===true?'#1e7d44;color:#1e7d44':'var(--rule);color:var(--muted)')+';font-weight:600" onclick="payToggleProjAllow(\''+p.id+'\')" title="PC dự án hưởng THEO THÁNG — mức từng người lấy từ ô PC dự án trên THẺ LƯƠNG; bật/tắt cho CẢ KỲ, không chọn từng người">💼 PC dự án: '+(p.projAllow===true?'ĐANG BẬT':'TẮT')+'</button>'):'';
-  if(st==='draft'){ actions=btn('payPeriodComputeAll','⚡ Tính cả bảng')+btn('payPeriodValidate','✔ Kiểm tra (Validate)','primary')+projBtn+btn('payPeriodDelete','🗑 Xóa kỳ','danger'); }
-  else if(st==='validated'){ actions=btn('payPeriodComputeAll','⚡ Tính lại')+btn('payPeriodSubmit','📤 Trình duyệt','primary')+projBtn+btn('payPeriodBack','↩ Về Nháp'); }   /* v3.14.45 (Sếp 06/8): BỎ bước Xem trước — hàm rỗng chỉ đổi status (di sản 3.07.74), Đã kiểm tra → Trình duyệt thẳng. Kỳ cũ đang ở 'preview' vẫn render nhánh riêng bên dưới. */
+  if(st==='draft'){ actions=btn('payPeriodComputeAll','⚡ Tính cả bảng')+btn('payPeriodValidate','✔ Kiểm tra (Validate)','primary'); }   /* v3.14.57 (Sếp 07/8, phương án A): 💼 + 🗑 CHUYỂN HẲN ra màn danh sách Kỳ lương — mặt bàn trong kỳ gọn, tránh bấm nhầm giữa hàng nút tính/duyệt */
+  else if(st==='validated'){ actions=btn('payPeriodComputeAll','⚡ Tính lại')+btn('payPeriodSubmit','📤 Trình duyệt','primary')+btn('payPeriodBack','↩ Về Nháp'); }   /* v3.14.57: projBtn chuyển ra danh sách */   /* v3.14.45 (Sếp 06/8): BỎ bước Xem trước — hàm rỗng chỉ đổi status (di sản 3.07.74), Đã kiểm tra → Trình duyệt thẳng. Kỳ cũ đang ở 'preview' vẫn render nhánh riêng bên dưới. */
   else if(st==='preview'){ actions=btn('payPeriodSubmit','📤 Trình duyệt','primary')+btn('payPeriodBack','↩ Về Nháp'); }
   else if(st==='submitted'){
     p.approvals=p.approvals||{};
@@ -19964,6 +19966,11 @@ const PAY_ATT_MAP={
      107.727.273 = base×(7 + 15×1.5 + 5×2), KHÔNG phải ×1.8 (×1.8 là quy chế TECH, Koóng đã nghiệm).
      → D1 chuyển sang R (OT×2); ô P (dockOt 1.8) của VP không nhận từ BCC nữa. */
   office:{ M:['N','P','NL','N1'], N:['N3'], O:['D'], Q:['OT15'], R:['OT2','N4','D1'], S:['OT3'], T:['N1'], U:['N2'] },
+  /* v3.14.54 (Sếp 07/8 — kỳ theo pháp nhân Sterling không nhận BCC): nhóm GROSS nay có người chấm
+     công thật (Kim Chi/Cần/Cường/Việt Anh/Phong) → mở kéo từ BCC VP. Engine gross tính lương theo
+     G (công thực) / E (ngày chuẩn): G = N+P+NL+N1 — cùng luật "công hưởng lương" với office NET.
+     Nhánh T10 (Hoa) không đọc G nên vô hại. */
+  office_gross:{ G:['N','P','NL','N1'] },
   tech:  { Q:['N3'], R:['D'], S:['D1'], T:['N'], U:['P'], W:['N4'], Y:['N1'], Z:['N2'] },   /* v3.14.05: +S:['D1'] */
   crew:  { G:['DB1'], H:['DB2'], I:['DOCK'], J:['BO'], K:['NGHICA'], L:['BO2'], M:['DP'] },
   /* v3.13.72 FIX: crew_khoan THIẾU hẳn trong map này — dùng chung payComputeCrew với crew (chỉ khác
@@ -23783,7 +23790,9 @@ function payToggleProjAllow(periodId){
   p.projAllow=on;
   (p.rows||[]).forEach(row=>{ try{ row.result=payComputeRow(p,row); }catch(e){} });
   _payAudit(p,'proj_allow', (on?'BẬT':'TẮT')+' PC dự án tháng cho cả kỳ (mức theo thẻ từng người, W engine)');
-  saveState(); openPayPeriodDetail(p.id);
+  saveState();
+  if(window._projToggleFromList){ window._projToggleFromList=false; openPayrollPeriods(); }   /* v3.14.57: bấm từ danh sách → ở lại danh sách */
+  else { openPayPeriodDetail(p.id); }
   toast((on?'💼 ĐÃ BẬT':'💼 Đã TẮT')+' PC dự án cho kỳ '+p.period+' — đã tính lại cả bảng'+(on?'. Nếu cột chưa lên số: 🪪 KÉO THẺ LƯƠNG để đổ mức W từ thẻ':''), on?'good':'warn');
 }
 function payPullSalaryProfiles(periodId){
@@ -23791,7 +23800,7 @@ function payPullSalaryProfiles(periodId){
   if(payStatusIdx(p.status)>=payStatusIdx('approved')){ toast('Kỳ đã duyệt/khóa','warn'); return; }
   /* v3.12.94 GĐ3: MỞ cho 'tech' — thẻ lương nay có techSeaRate/techOfficeRate/techDockRate
      qua Salary Grade, nên kéo được như office/crew. Chuyên gia vẫn dùng import O&M. */
-  if(p.profile!=='office' && p.profile!=='crew' && p.profile!=='tech' && p.profile!=='crew_khoan'){
+  if(['office','crew','tech','crew_khoan','office_gross'].indexOf(p.profile)<0){   /* v3.14.54: +office_gross — thẻ GROSS (STER) nay là nguồn thật */
     toast('Kỳ chuyên gia: mức từ import O&M, không dùng thẻ','warn'); return;
   }
   const items=_paySpBuildDiff(p);
@@ -80432,7 +80441,7 @@ function hrmAttParseSheet(aoa, profileKey){
     /* v3.14.50 (Sếp 07/8 — 3 dòng ghi chú chân trang file cũ bị lưu thành "NV" trong bảng BCC):
        MSNV hợp lệ là mã ngắn liền (SME0001/SMEV032/NTP001…) — ô MSNV chứa KHOẢNG TRẮNG hoặc dài >14
        ký tự chắc chắn là câu ghi chú/chú giải lọt vùng dữ liệu → bỏ, không thành dòng NV. */
-    if(msnv && (msnv.length>14 || /\s/.test(msnv))){ out.skippedNotes=(out.skippedNotes||0)+1; continue; }
+    if(msnv && (msnv.length>14 || /\s/.test(msnv))){ warnings.push('Bỏ dòng ghi chú/không phải mã NV: "'+msnv.slice(0,60)+'"'); continue; }   /* v3.14.56 FIX: 3.14.50 đếm vào biến 'out' không tồn tại trong hàm này → import văng "out is not defined" ngay dòng bất thường đầu tiên. Hàm dùng rows/warnings — ghi vào warnings (hiện luôn trong khối cảnh báo preview, minh bạch hơn đếm ngầm). */
     const upName=(name||msnv).toUpperCase();
     if(P.skipNames.some(s=>upName.includes(s))) continue; // dòng tổng nhóm
     if(P.requireStt && !(numAt(row,0)>0)) continue;       // v3.11.79: dòng người ký/ghi chú không có Stt số → bỏ
