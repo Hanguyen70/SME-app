@@ -3769,7 +3769,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.14.60';
+const APP_VERSION='3.14.61';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -18395,8 +18395,7 @@ function openPayrollPeriods(){
       <td style="padding:6px 8px;text-align:right;font-family:monospace">${payMaskAmount(total.toLocaleString(ccy==='USD'?'en-US':'vi-VN')+' '+ccy)}</td>  <!-- v3.12.40: ẩn tiền với HR -->
       <td style="padding:6px 8px">${stChip}</td>
       <td style="padding:6px 8px;text-align:right;white-space:nowrap">
-        ${(_payProjAllowScope(p.profile) && payStatusIdx(p.status||'draft')<payStatusIdx('approved'))?`<button class="btn-ghost" style="font-size:10.5px;padding:3px 8px;border:1.5px solid ${p.projAllow===true?'#1e7d44;color:#1e7d44':'var(--rule);color:var(--muted)'};font-weight:600" title="PC dự án theo tháng cho CẢ KỲ — mức từng người từ THẺ LƯƠNG. Sau khi tạo kỳ: chủ động BẬT tại đây (Sếp 07/8)." onclick="window._projToggleFromList=true;payToggleProjAllow('${p.id}')">💼 ${p.projAllow===true?'BẬT':'TẮT'}</button>`:''}
-        <button class="btn-ghost" style="font-size:11px;padding:3px 8px" onclick="openPayPeriodDetail('${p.id}')">Mở</button>
+        <button class="btn-ghost" style="font-size:11px;padding:3px 8px" onclick="openPayPeriodDetail('${p.id}')">Mở</button>   <!-- v3.14.61: chip 💼 chuyển lại VÀO chi tiết kỳ (Sếp 07/8) -->
         ${((CURRENT_ROLE==='admin'||CURRENT_ROLE==='chief_accountant') && payStatusIdx(p.status||'draft')<=payStatusIdx('preview'))?`<button class="btn-ghost" style="font-size:11px;padding:3px 8px;color:var(--bad)" title="Xóa kỳ (chỉ kỳ nháp/preview — kỳ đã duyệt là chứng từ). Có hỏi xác nhận 2 lần." onclick="payPeriodDelete('${p.id}')">🗑</button>`:''}   <!-- v3.14.55: nối nút xóa — hàm payPeriodDelete có sẵn từ trước nhưng chưa từng có nút gọi → 5 kỳ rỗng nằm lì -->
       </td></tr>`;
   }).join('')||'<tr><td colspan="7" style="padding:14px;text-align:center;color:var(--muted)">Chưa có kỳ lương nào</td></tr>';
@@ -18979,8 +18978,8 @@ function openPayPeriodDetail(id){
   const btn=(fn,label,style)=>`<button class="btn-${style||'sec'}" style="font-size:11px;${style==='danger'?'background:var(--bad);border-color:var(--bad);color:var(--paper-2)':''}" onclick="${fn}('${id}')">${label}</button>`;
   const btn2=(onclick,label,style)=>`<button class="btn-${style||'sec'}" style="font-size:11px;${style==='danger'?'background:var(--bad);border-color:var(--bad);color:var(--paper-2)':''}" onclick="${onclick}">${label}</button>`;
   const projBtn=_payProjAllowScope(p.profile)?('<button class="btn-ghost" style="border:1.5px solid '+(p.projAllow===true?'#1e7d44;color:#1e7d44':'var(--rule);color:var(--muted)')+';font-weight:600" onclick="payToggleProjAllow(\''+p.id+'\')" title="PC dự án hưởng THEO THÁNG — mức từng người lấy từ ô PC dự án trên THẺ LƯƠNG; bật/tắt cho CẢ KỲ, không chọn từng người">💼 PC dự án: '+(p.projAllow===true?'ĐANG BẬT':'TẮT')+'</button>'):'';
-  if(st==='draft'){ actions=btn('payPeriodComputeAll','⚡ Tính cả bảng')+btn('payPeriodValidate','✔ Kiểm tra (Validate)','primary'); }   /* v3.14.57 (Sếp 07/8, phương án A): 💼 + 🗑 CHUYỂN HẲN ra màn danh sách Kỳ lương — mặt bàn trong kỳ gọn, tránh bấm nhầm giữa hàng nút tính/duyệt */
-  else if(st==='validated'){ actions=btn('payPeriodComputeAll','⚡ Tính lại')+btn('payPeriodSubmit','📤 Trình duyệt','primary')+btn('payPeriodBack','↩ Về Nháp'); }   /* v3.14.57: projBtn chuyển ra danh sách */   /* v3.14.45 (Sếp 06/8): BỎ bước Xem trước — hàm rỗng chỉ đổi status (di sản 3.07.74), Đã kiểm tra → Trình duyệt thẳng. Kỳ cũ đang ở 'preview' vẫn render nhánh riêng bên dưới. */
+  if(st==='draft'){ actions=btn('payPeriodComputeAll','⚡ Tính cả bảng')+btn('payPeriodValidate','✔ Kiểm tra (Validate)','primary')+projBtn; }   /* v3.14.61 (Sếp 07/8 — thực dùng): 💼 CHUYỂN LẠI VÀO TRONG kỳ (thuận tay khi thao tác); 🗑 vẫn ở danh sách. Khi BẬT: cột "PC khác" tự hiện tiền W+WD×WN (thiết kế 3.14.34 sẵn có, cần Kéo thẻ đổ mức). */
+  else if(st==='validated'){ actions=btn('payPeriodComputeAll','⚡ Tính lại')+btn('payPeriodSubmit','📤 Trình duyệt','primary')+projBtn+btn('payPeriodBack','↩ Về Nháp'); }   /* v3.14.61: 💼 về lại trong kỳ */   /* v3.14.45 (Sếp 06/8): BỎ bước Xem trước — hàm rỗng chỉ đổi status (di sản 3.07.74), Đã kiểm tra → Trình duyệt thẳng. Kỳ cũ đang ở 'preview' vẫn render nhánh riêng bên dưới. */
   else if(st==='preview'){ actions=btn('payPeriodSubmit','📤 Trình duyệt','primary')+btn('payPeriodBack','↩ Về Nháp'); }
   else if(st==='submitted'){
     p.approvals=p.approvals||{};

@@ -1,5 +1,5 @@
 {
-  "version": "3.14.60",
-  "swVersion": "v3.14.60",
-  "notes": "GUARD PHAP NHAN KHI KEO BCC (Sep 07/8 — '1 BCC du 3 phap nhan: keo vao ky luong cua phap nhan khac: khong duoc'): _payAttBuildDiff loc dong BCC theo phap nhan ky TRUOC khi do — nhan don vi STER/PON tren dong = cong cua phap nhan do, con lai thuoc SME mac dinh; ky Sterling chi an dong STER, ky PON chi an dong PON, ky SME/khong-phap-nhan chi an dong SME. Nguoi 2 phap nhan (Phong, Kim Hang) khong bi ky ben kia hut nham cong — bao 'KHONG CO TRONG BCC' dung ban chat. Preview keo hien khoi 🛡 'n dong thuoc PHAP NHAN KHAC — da CHAN'. Test song 4/4 PASS. Kem dot nay: bo FM01 v5 (nhom chuan-27 sua theo bang luong 6 thang — 40 luot, Duc T01 kiem may 7.446.363 khop). 6 engine SAME · payComputeRow a38f694f."
+  "version": "3.14.61",
+  "swVersion": "v3.14.61",
+  "notes": "💼 PC DU AN CHUYEN LAI VAO CHI TIET KY (Sep 07/8 — thuc dung thuan tay hon): nut BAT/TAT ve lai hang hanh dong trang thai Nhap + Da kiem tra; chip ngoai danh sach GO (mot noi duy nhat, het roi); nut 🗑 xoa ky VAN o danh sach (lenh truoc giu hieu luc). Khi BAT + da Keo the: cot 'PC KHAC' bang ky TU HIEN tien PC du an (W + WD×WN) — thiet ke 3.14.34 co san, khong sua gi them. Mac dinh tao ky: TAT (giu). Test 4/4 PASS. 6 engine SAME · payComputeRow a38f694f."
 }
