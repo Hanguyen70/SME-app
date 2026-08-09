@@ -1,4 +1,4 @@
-/* Seahorse Manager — Service Worker  [BUILD-TAG: v3.14.63 — SẮP XẾP BẢNG LƯƠNG THEO BỘ PHẬN-CHỨC VỤ-MSNV · CẢNH BÁO BẤM ĐƯỢC]
+/* Seahorse Manager — Service Worker  [BUILD-TAG: v3.14.66 — PHIẾU LƯƠNG CHI TIẾT: CHẤM CÔNG + CẤU PHẦN THEO CÔNG THỨC + CÔNG TY NỘP THAY TÁCH RIÊNG]
    Strategy: Network-first for index.html (so updates load fast),
              Cache-first for static assets (icons, manifest).
    Cache version bumps automatically when SW_VERSION changes below.
@@ -6,7 +6,7 @@
    để force trình duyệt invalidate cache cũ.
 */
 
-const SW_VERSION = 'v3.14.63';
+const SW_VERSION = 'v3.14.66';
 const CACHE_NAME = `seahorse-${SW_VERSION}`;
 
 // Pre-cache critical files on install

@@ -3769,7 +3769,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.14.63';
+const APP_VERSION='3.14.66';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -18940,7 +18940,13 @@ function _payRowSortKey(r){
   return [dept, ('00'+rank).slice(-3), ms||'ZZZ', String(r.name||'')];
 }
 function _paySortedRows(p){
+  /* v3.14.64 (Sếp 08/8 — "tôn trọng nguyên tắc của BCC excel khi import"): NGUYÊN TẮC SẮP XẾP:
+     (1) người có trong bảng chấm công → đúng THỨ TỰ DÒNG của file BCC (HCNS đã xếp Bộ phận→Chức vụ→MSNV);
+     (2) người ngoài BCC (nhập tay/T10...) → xếp cuối theo Bộ phận→rank Chức vụ→MSNV từ hồ sơ.
+     Thứ tự ghi vào row._attOrder lúc 📥 Kéo chấm công — kỳ đã kéo trước 3.14.64 cần bấm Kéo lại một lần. */
   return (p.rows||[]).slice().sort((a,b)=>{
+    const oa=(a._attOrder!=null)?a._attOrder:1e9, ob=(b._attOrder!=null)?b._attOrder:1e9;
+    if(oa!==ob) return oa-ob;
     const ka=_payRowSortKey(a), kb=_payRowSortKey(b);
     for(let i=0;i<ka.length;i++){ if(ka[i]<kb[i]) return -1; if(ka[i]>kb[i]) return 1; }
     return 0;
@@ -18985,7 +18991,16 @@ function openPayPeriodDetail(id){
     const comp=_pcCols?_pcCols.map(([lb,fn])=>`<td style="padding:5px 6px;text-align:right;font-family:monospace;font-size:12px">${_fm(fn(inp))}</td>`).join('')
       :`<td style="padding:5px 6px;text-align:right;font-family:monospace;font-size:12px">${_fm(_resPick(res,['AB','AC','total']))}</td>`;
     return `<tr style="border-bottom:1px solid var(--rule)">
-      <td style="padding:5px 8px">${esc(r.name||'?')}<div style="font-size:10px;color:var(--muted)">${esc(r.smartId||'')}</div></td>
+      <td style="padding:5px 8px">${esc(r.name||'?')}<div style="font-size:10px;color:var(--muted)">${esc(r.smartId||'')}${(()=>{ /* v3.14.65 (Sếp 08/8): VP → Bộ phận · Chức danh; thuyền viên → Tàu · Chức danh */
+        try{ const e=(typeof hrmEmpById==='function')?hrmEmpById(r.empId):null; if(!e) return '';
+          const tt=e.title||e.position||'';
+          if(p.profile==='crew'||p.profile==='crew_khoan'){
+            const vs=(typeof hrmVesselName==='function'&&hrmVesselName(e.linkVesselId))||e.currentVessel||'';
+            return (vs||tt)?(' · '+esc([vs,tt].filter(Boolean).join(' · '))):'';
+          }
+          const dp=e.dept||e.department||e.division||'';
+          return (dp||tt)?(' · '+esc([dp,tt].filter(Boolean).join(' · '))):'';
+        }catch(x){ return ''; } })()}</div></td>
       ${comp}
       <td style="padding:5px 6px;text-align:right;font-family:monospace;font-size:12px">${_fm(bh)}</td>
       <td style="padding:5px 6px;text-align:right;font-family:monospace;font-size:12px">${_fm(tax)}</td>
@@ -20019,7 +20034,8 @@ function _payAttBuildDiff(p, att, map){
   const attRows=(att.rows||[]).filter(r=>_coTag(r.unit)===_perTag);
   const _nOtherCo=(att.rows||[]).length-attRows.length;
   const byEmp={}, bySmart={}, byName={};
-  attRows.forEach(r=>{ if(r._empId) byEmp[r._empId]=r;
+  attRows.forEach((r,_ai)=>{ r._attIdx=_ai;   /* v3.14.64: nhớ VỊ TRÍ DÒNG trong bảng BCC — nguồn thứ tự chuẩn */
+    if(r._empId) byEmp[r._empId]=r;
     if(r.msnv) bySmart[String(r.msnv).trim().toUpperCase()]=r;
     byName[String(r.name||'').trim().toUpperCase().replace(/\s+/g,' ')]=r; });
   (p.rows||[]).forEach(row=>{
@@ -20033,7 +20049,7 @@ function _payAttBuildDiff(p, att, map){
       const manual=Array.isArray(row._manualFields)&&row._manualFields.indexOf(F)>=0;
       if((+from||0)!==to){ changes[F]={from:(from==null?null:+from), to:to, manual:manual}; n++; }   /* v3.14.46: null→0 = KHỚP (engine coi trống = 0) — hết nhiễu 'ĐỔI …:0' cả bảng */
     });
-    items.push({empId:row.empId,name:row.name,status:n? (Object.values(changes).some(c=>c.manual)?'CÓ GIỮ TAY':'ĐỔI') :'KHỚP',changes:changes});
+    items.push({empId:row.empId,name:row.name,status:n? (Object.values(changes).some(c=>c.manual)?'CÓ GIỮ TAY':'ĐỔI') :'KHỚP',changes:changes,_attIdx:ar._attIdx});   /* v3.14.64 */
   });
   const extraAtt=attRows.filter(r=>!used[r.name] && r._empId).map(r=>r.name);
   return {items, extraAtt, otherCo:_nOtherCo};   /* v3.14.60: số dòng thuộc pháp nhân khác đã chặn */
@@ -20113,6 +20129,7 @@ function _payPullApply(periodId){
       if(c.manual){ row._manualFields=(row._manualFields||[]).filter(x=>x!==F); }
     });
     row.attSource={attId:att.id, attPeriod:att.period, profile:att.profile, map:PAY_ATT_MAP[p.profile], pulledAt:new Date().toISOString(), pulledBy:(CURRENT_USER&&CURRENT_USER.name)||''};
+    if(it._attIdx!=null) row._attOrder=it._attIdx;   /* v3.14.64: kỳ nhớ thứ tự file BCC */
     try{ row.result=payComputeRow(p, row); }catch(e){}   /* v3.14.62: qua payComputeRow */
   });
   p.attSource={attId:att.id, attPeriod:att.period, pulledAt:new Date().toISOString(), pulledBy:(CURRENT_USER&&CURRENT_USER.name)||''};
@@ -24207,6 +24224,84 @@ function _payCoName(p){
   try{ if(p&&p.companyId){ const c=(S.companies||[]).find(x=>x.id===p.companyId); if(c&&c.name) return c.name; } }catch(e){}
   return (S.companyInfo&&S.companyInfo.name)||'SEAHORSE MARINE AND ENERGY JSC';
 }
+/* ═══ v3.14.66 (Sếp 08/8) — PHIẾU LƯƠNG CHI TIẾT: chấm công tháng + từng cấu phần tiền
+   (ngày/giờ × đơn giá × hệ số, mức từ THẺ LƯƠNG), khớp tổng máy tuyệt đối (chênh → 'Cấu phần khác'). ═══ */
+function _payslipDetail(p, row){
+  const n=v=>+v||0, inp=row.inputs||{}, res=row.result||{};
+  const prof=(typeof PayrollService!=='undefined'&&PayrollService.profileByKey(p.profile))||((typeof defaultPayProfiles==='function')&&defaultPayProfiles()[p.profile])||{};
+  const att=[], earn=[];
+  const AD=(lb,f,v)=>{ if(Math.abs(v)>=0.5) earn.push([lb,f,Math.round(v)]); };
+  const AT=(lb,v)=>{ if(n(v)) att.push([lb,n(v)]); };
+  let target=0;
+  if(p.profile==='office'){
+    const cf=prof.coef||{sea:1.8,dock:1.5,dockOt:2,ot15:1.5,ot20:2,holiday:3};
+    const Z=n(res.Z);
+    AT('Công hưởng lương',inp.M); AT('Đi biển',inp.N); AT('Dock',inp.O); AT('Dock-OT',inp.P);
+    AT('OT×1.5',inp.Q); AT('OT×2',inp.R); AT('Lễ×3',inp.S); AT('Ctác TN',inp.T); AT('Ctác NN',inp.U);
+    if(p.projAllow===true) AT('Công dự án',inp.WN);
+    AD('Lương theo công', n(inp.M)+' công × '+Z.toLocaleString('vi-VN'), n(inp.M)*Z);
+    AD('Đi biển', n(inp.N)+' ngày × '+Z.toLocaleString('vi-VN')+' × '+cf.sea, n(inp.N)*cf.sea*Z);
+    AD('Dock', n(inp.O)+' ngày × '+Z.toLocaleString('vi-VN')+' × '+cf.dock, n(inp.O)*cf.dock*Z);
+    AD('Dock ngoài giờ', n(inp.P)+' ngày × '+Z.toLocaleString('vi-VN')+' × '+cf.dockOt, n(inp.P)*cf.dockOt*Z);
+    AD('Tăng ca ×1.5', n(inp.Q)+' × '+Z.toLocaleString('vi-VN')+' × '+cf.ot15, n(inp.Q)*cf.ot15*Z);
+    AD('Tăng ca ×2', n(inp.R)+' × '+Z.toLocaleString('vi-VN')+' × '+cf.ot20, n(inp.R)*cf.ot20*Z);
+    AD('Làm lễ ×3', n(inp.S)+' × '+Z.toLocaleString('vi-VN')+' × '+cf.holiday, n(inp.S)*cf.holiday*Z);
+    AD('Công tác trong nước', n(inp.T)+' ngày × '+n(inp.I).toLocaleString('vi-VN'), n(inp.T)*n(inp.I));
+    AD('Công tác nước ngoài', n(inp.U)+' ngày × '+n(inp.J).toLocaleString('vi-VN'), n(inp.U)*n(inp.J));
+    if(p.projAllow===true){
+      AD('PC dự án (tháng)','mức thẻ', n(inp.W));
+      AD('PC dự án (ngày)', n(inp.WN)+' ngày × '+n(inp.WD).toLocaleString('vi-VN'), n(inp.WN)*n(inp.WD));
+    }
+    AD('Bổ sung khác','', n(inp.V));
+    target=n(res.AB);
+  } else if(p.profile==='tech'){
+    const I=n(inp.I), J=(inp.J!=null&&inp.J!=='')?n(inp.J):I*(prof.dockMult||1.5), K=(inp.K!=null&&inp.K!=='')?n(inp.K):I*(prof.otMult||1.8);
+    AT('Công VP',inp.T); AT('Đi biển',inp.Q); AT('Dock',inp.R); AT('Ngoài giờ',inp.S); AT('Phép',inp.U);
+    AT('OT cuối tuần',inp.W); AT('OT lễ',inp.X); AT('Ctác TN',inp.Y); AT('Ctác NN',inp.Z);
+    AD('Công VP', n(inp.T)+' ngày × '+I.toLocaleString('vi-VN'), n(inp.T)*I);
+    AD('Phép', n(inp.U)+' ngày × '+I.toLocaleString('vi-VN'), n(inp.U)*I);
+    AD('Đi biển', n(inp.Q)+' ngày × '+n(inp.H).toLocaleString('vi-VN'), n(inp.Q)*n(inp.H));
+    AD('Dock', n(inp.R)+' ngày × '+J.toLocaleString('vi-VN'), n(inp.R)*J);
+    AD('Ngoài giờ (×1.8)', n(inp.S)+' × '+K.toLocaleString('vi-VN'), n(inp.S)*K);
+    AD('OT cuối tuần ×2', n(inp.W)+' × '+I.toLocaleString('vi-VN')+' × 2', n(inp.W)*I*2);
+    AD('OT lễ ×3', n(inp.X)+' × '+I.toLocaleString('vi-VN')+' × 3', n(inp.X)*I*3);
+    AD('Công tác TN', n(inp.Y)+' × '+n(inp.M).toLocaleString('vi-VN'), n(inp.Y)*n(inp.M));
+    AD('Công tác NN', n(inp.Z)+' × '+n(inp.N).toLocaleString('vi-VN'), n(inp.Z)*n(inp.N));
+    AD('Nghỉ ca','', n(inp.L));
+    AD('Bổ sung','', n(inp.O));
+    if(p.projAllow===true) AD('Trợ cấp dự án (tháng)','mức thẻ', n(inp.P));
+    target=n(res.AC);
+  } else if(p.profile==='crew'||p.profile==='crew_khoan'){
+    const O=n(inp.O), SD=prof.standardDays||31;
+    const dock=O*(prof.dockPct||0), boVn=O*(prof.standbyVnPct||0), nghi=(prof.restDayPct!=null?O*prof.restDayPct:n(inp.N)/SD), boFn=O*(prof.standbyFnPct||0);
+    AT('Biển VN',inp.G); AT('Biển NN',inp.H); AT('Dock',inp.I); AT('Bờ VN',inp.J); AT('Nghỉ ca',inp.K); AT('Bờ NN',inp.L); AT('DP',inp.M);
+    AD('Lương biển VN', n(inp.G)+' ngày × '+O.toLocaleString('vi-VN'), n(inp.G)*O);
+    AD('Lương biển NN', n(inp.H)+' ngày × '+O.toLocaleString('vi-VN'), n(inp.H)*O);
+    AD('Dock', n(inp.I)+' ngày × '+Math.round(dock).toLocaleString('vi-VN'), n(inp.I)*dock);
+    AD('Nằm bờ VN', n(inp.J)+' ngày × '+Math.round(boVn).toLocaleString('vi-VN'), n(inp.J)*boVn);
+    AD('Nghỉ ca', n(inp.K)+' ngày × '+Math.round(nghi).toLocaleString('vi-VN'), n(inp.K)*nghi);
+    AD('Nằm bờ NN', n(inp.L)+' ngày × '+Math.round(boFn).toLocaleString('vi-VN'), n(inp.L)*boFn);
+    AD('Công DP', n(inp.M)+' ngày × '+n(inp.T).toLocaleString('vi-VN'), n(inp.M)*n(inp.T));
+    AD('Điều chỉnh','', n(inp.AA));
+    target=n(res.AB);
+  } else if(p.profile==='office_gross'){
+    if(n(inp.T10)===1){
+      AD('Thu nhập khoán (khấu trừ 10% tại nguồn)','', n(res.U));
+      target=n(res.U);
+    } else {
+      const E=n(inp.E)||prof.standardDays||22;
+      AT('Công thực',inp.G); att.push(['Ngày chuẩn',E]);
+      AD('Lương theo công', n(inp.F).toLocaleString('vi-VN')+' ÷ '+E+' × '+n(inp.G)+' công', n(res.H));
+      AD('Thưởng/PC chịu thuế (kỳ)','', n(res.TX));
+      AD('PC nhà ở','chịu thuế '+n(res.J).toLocaleString('vi-VN')+' + miễn '+n(res.JX).toLocaleString('vi-VN'), n(res.J)+n(res.JX));
+      AD('PC khác (miễn thuế)','', n(res.EX));
+      target=n(res.Y)+n(res.JX)+n(res.EX);
+    }
+  }
+  const sum=earn.reduce((t,x)=>t+x[2],0);
+  if(target && Math.abs(sum-target)>=1) earn.push(['Cấu phần khác','', Math.round(target-sum)]);
+  return {att, earn, total: target||sum};
+}
 function _payslipHtml(p, row, opts){
   opts=opts||{};
   const r=row.result||{};
@@ -24255,11 +24350,53 @@ function _payslipHtml(p, row, opts){
     </div>`;
   } else {
     const fm=fmV;
-    /* v3.11.99 GĐ6 — CHÍNH SÁCH LƯƠNG NET: dùng khóa CHUẨN HÓA mọi engine trả
-       (netTotal/grossTotal/pit/insEmp/insCompany/takeHome) — một nguồn sự thật, không tính lại. */
+    /* v3.11.99 GĐ6 — khóa CHUẨN HÓA mọi engine trả (netTotal/grossTotal/pit/insEmp/insCompany/takeHome). */
     const NETv=+r.netTotal||0, GRv=+r.grossTotal||0, PITv=+r.pit||0, INSe=+r.insEmp||0, INSc=+r.insCompany||0;
     const take=(+(r.takeHome!=null?r.takeHome:0)||0)+adj;
     const grossUp=Math.max(0, GRv-NETv);
+    /* v3.14.66: chi tiết cấu phần + chấm công + Bộ phận/Chức danh (crew: Tàu/Chức danh) */
+    const det=_payslipDetail(p, row);
+    const AM=+((row.inputs||{}).AM)||0;
+    const isGross=(p.profile==='office_gross');
+    const prof2=(typeof PayrollService!=='undefined'&&PayrollService.profileByKey(p.profile))||{};
+    const insPct=Math.round(((+prof2.insEmployee||0.105)+(+prof2.insEmployer||0.215))*1000)/10;
+    let who='';
+    try{ const e=(typeof hrmEmpById==='function')?hrmEmpById(row.empId):null;
+      if(e){ const tt=e.title||e.position||'';
+        if(p.profile==='crew'||p.profile==='crew_khoan'){
+          const vs=(typeof hrmVesselName==='function'&&hrmVesselName(e.linkVesselId))||e.currentVessel||'';
+          who=[vs,tt].filter(Boolean).join(' — ');
+        } else who=[e.dept||e.department||e.division||'',tt].filter(Boolean).join(' — ');
+      } }catch(x){}
+    const attHtml=det.att.length?`
+      <div style="font-size:11px;font-weight:700;color:#1c3a5c;margin:2px 0 4px">CHI TIẾT CHẤM CÔNG THÁNG</div>
+      <table style="width:100%;font-size:11px;border-collapse:collapse;margin-bottom:10px"><tr>
+        ${det.att.map(a=>`<td style="border:1px solid #ddd;padding:3px 6px;text-align:center"><div style="color:#666;font-size:10px">${esc(a[0])}</div><div style="font-weight:700">${(+a[1]).toLocaleString('vi-VN')}</div></td>`).join('')}
+      </tr></table>`:'';
+    const earnHtml=det.earn.map(l=>`<tr><td style="padding:3px 0;color:#333;padding-left:12px">${esc(l[0])}${l[1]?` <span style="font-size:10px;color:#888">${esc(l[1])}</span>`:''}</td><td style="text-align:right;font-family:monospace">${fm(l[2])}</td></tr>`).join('');
+    const adjHtml=adjLines.length?adjLines.map(l=>`<tr><td style="padding:3px 0;color:#333;padding-left:12px">${esc(l[0])} <span style="font-size:10px;color:#999">${l[1]<0?'(phải thu / khấu trừ)':'(phải trả thêm)'}</span></td><td style="text-align:right;font-family:monospace;color:${l[1]<0?'#c0392b':'#1e7d44'}">${l[1]>0?'+':''}${fm(l[1])}</td></tr>`).join('')
+      :'<tr><td style="padding:3px 0;color:#999;padding-left:12px;font-style:italic" colspan="2">Không phát sinh</td></tr>';
+    const coBlock = isGross
+      ? `<tr><td colspan="2" style="padding-top:8px;font-weight:600;color:#c0392b">C · Khấu trừ vào lương</td></tr>
+         <tr><td style="padding:3px 0;color:#333;padding-left:12px">BHXH/BHYT/BHTN phần người lao động</td><td style="text-align:right;font-family:monospace;color:#c0392b">−${fm(INSe)}</td></tr>
+         <tr><td style="padding:3px 0;color:#333;padding-left:12px">Thuế TNCN</td><td style="text-align:right;font-family:monospace;color:#c0392b">−${fm(PITv)}</td></tr>
+         ${AM?`<tr><td style="padding:3px 0;color:#333;padding-left:12px">Khấu trừ khác</td><td style="text-align:right;font-family:monospace;color:#c0392b">−${fm(AM)}</td></tr>`:''}`
+      : '';
+    const coPay = isGross
+      ? `<div style="font-size:11px;font-weight:700;color:#1e7d44;margin:10px 0 4px">PHẦN CÔNG TY NỘP (không trừ vào lương)</div>
+        <table style="width:100%;font-size:12px;border-collapse:collapse">
+          <tr><td style="padding:3px 0;color:#333">BHXH/BHYT/BHTN phần doanh nghiệp</td><td style="text-align:right;font-family:monospace">${fm(INSc)}</td></tr>
+          <tr style="border-top:1px solid #ddd"><td style="padding:3px 0;color:#333;font-weight:600">Tổng BH hai bên (NV + DN · ${insPct}% nền BH)</td><td style="text-align:right;font-family:monospace;font-weight:600">${fm(INSe+INSc)}</td></tr>
+        </table>`
+      : `<div style="font-size:11px;font-weight:700;color:#1e7d44;margin:10px 0 4px">PHẦN CÔNG TY NỘP THAY — KHÔNG trừ vào lương của bạn</div>
+        <table style="width:100%;font-size:12px;border-collapse:collapse">
+          <tr><td style="padding:3px 0;color:#333">Thuế TNCN (công ty nộp thay)</td><td style="text-align:right;font-family:monospace">${fm(PITv)}</td></tr>
+          <tr><td style="padding:3px 0;color:#333">BHXH/BHYT/BHTN phần người lao động (công ty chịu)</td><td style="text-align:right;font-family:monospace">${fm(INSe)}</td></tr>
+          <tr><td style="padding:3px 0;color:#333">BHXH/BHYT/BHTN phần doanh nghiệp</td><td style="text-align:right;font-family:monospace">${fm(INSc)}</td></tr>
+          <tr style="border-top:1px solid #ddd"><td style="padding:3px 0;color:#333;font-weight:600">Tổng BH hai bên (NV + DN · ${insPct}% nền BH)</td><td style="text-align:right;font-family:monospace;font-weight:600">${fm(INSe+INSc)}</td></tr>
+          ${AM?`<tr><td style="padding:3px 0;color:#333">Khấu trừ khác</td><td style="text-align:right;font-family:monospace;color:#c0392b">−${fm(AM)}</td></tr>`:''}
+          <tr><td style="padding:3px 0;color:#888;font-size:10px" colspan="2">Tham khảo quy đổi gross-up: ${fm(grossUp)} (gross ${fm(GRv)})</td></tr>
+        </table>`;
     return `<div ${wrapId}style="position:relative;font-family:Arial,sans-serif;color:#111;max-width:560px;margin:0 auto;padding:24px;border:1px solid #ccc;page-break-after:always">${_draftWm}
       <div style="text-align:center;border-bottom:2px solid #1c3a5c;padding-bottom:10px;margin-bottom:14px">
         <div style="font-weight:700;font-size:16px">${esc(co)}</div>
@@ -24269,28 +24406,27 @@ function _payslipHtml(p, row, opts){
       <table style="width:100%;font-size:13px;margin-bottom:12px"><tbody>
         <tr><td style="color:#666;padding:2px 0">Nhân viên:</td><td style="text-align:right;font-weight:600">${esc(row.name||'')}</td></tr>
         <tr><td style="color:#666;padding:2px 0">MSNV:</td><td style="text-align:right">${esc(row.smartId||'')}</td></tr>
-        <tr><td style="color:#666;padding:2px 0">Nhóm:</td><td style="text-align:right">${esc(PAY_PROFILE_LABEL[p.profile])}</td></tr>
+        ${who?`<tr><td style="color:#666;padding:2px 0">${(p.profile==='crew'||p.profile==='crew_khoan')?'Tàu — Chức danh:':'Bộ phận — Chức danh:'}</td><td style="text-align:right">${esc(who)}</td></tr>`:''}
       </tbody></table>
+      ${attHtml}
       <table style="width:100%;font-size:13px;border-collapse:collapse">
         <thead><tr style="border-bottom:1px solid #ccc"><th style="text-align:left;padding:5px 0">Khoản mục</th><th style="text-align:right">Số tiền (VND)</th></tr></thead>
         <tbody>
-          <tr><td colspan="2" style="padding-top:2px;font-weight:600;color:#1c3a5c">A · Lương của bạn</td></tr>
-          <tr><td style="padding:4px 0;color:#333;padding-left:12px">Lương NET theo thỏa thuận</td><td style="text-align:right;font-family:monospace">${fm(NETv)}</td></tr>
-
-          <tr><td colspan="2" style="padding-top:8px;font-weight:600;color:#1e7d44">B · Công ty chịu — KHÔNG trừ vào lương của bạn</td></tr>
-          <tr><td style="padding:4px 0;color:#333;padding-left:12px">Thuế TNCN (công ty nộp thay)</td><td style="text-align:right;font-family:monospace">${fm(PITv)}</td></tr>
-          <tr><td style="padding:4px 0;color:#333;padding-left:12px">BHXH/BHYT/BHTN phần người lao động (công ty chịu)</td><td style="text-align:right;font-family:monospace">${fm(INSe)}</td></tr>
-          <tr><td style="padding:4px 0;color:#333;padding-left:12px">Quy đổi gross-up (tham khảo: gross ${fm(GRv)})</td><td style="text-align:right;font-family:monospace;color:#666">${fm(grossUp)}</td></tr>
-          <tr><td colspan="2" style="padding-top:8px;font-weight:600;color:#1c3a5c">C · Các khoản phải thu / phải trả khác</td></tr>
-          ${adjLines.length?adjLines.map(l=>`<tr><td style="padding:4px 0;color:#333;padding-left:12px">${esc(l[0])} <span style="font-size:10px;color:#999">${l[1]<0?'(phải thu / khấu trừ)':'(phải trả thêm)'}</span></td><td style="text-align:right;font-family:monospace;color:${l[1]<0?'#c0392b':'#1e7d44'}">${l[1]>0?'+':''}${fm(l[1])}</td></tr>`).join(''):'<tr><td style="padding:4px 0;color:#999;padding-left:12px;font-style:italic" colspan="2">Không phát sinh</td></tr>'}
+          <tr><td colspan="2" style="padding-top:2px;font-weight:600;color:#1c3a5c">A · Thực nhận trong tháng ${isGross?'(tổng thu nhập GROSS)':'(lương NET)'}</td></tr>
+          ${earnHtml}
+          <tr style="border-top:1px solid #ddd"><td style="padding:4px 0;padding-left:12px;font-weight:600">Cộng A</td><td style="text-align:right;font-family:monospace;font-weight:600">${fm(det.total)}</td></tr>
+          <tr><td colspan="2" style="padding-top:8px;font-weight:600;color:#1c3a5c">B · Các khoản phải thu / phải trả khác</td></tr>
+          ${adjHtml}
+          ${coBlock}
         </tbody>
-        <tfoot><tr style="border-top:2px solid #1c3a5c"><td style="padding:8px 0;font-weight:700">THỰC NHẬN</td><td style="text-align:right;font-weight:700;font-family:monospace;font-size:16px;color:#1e7d44">${fm(take)} đ</td></tr></tfoot>
+        <tfoot><tr style="border-top:2px solid #1c3a5c"><td style="padding:8px 0;font-weight:700">TỔNG THỰC NHẬN THÁNG</td><td style="text-align:right;font-weight:700;font-family:monospace;font-size:16px;color:#1e7d44">${fm(take)} đ</td></tr></tfoot>
       </table>
-      <div style="margin-top:20px;display:flex;justify-content:space-between;font-size:13px;color:#555">
+      ${coPay}
+      <div style="margin-top:18px;display:flex;justify-content:space-between;font-size:13px;color:#555">
         <div style="text-align:center">Người lao động<br><br>……………………</div>
         <div style="text-align:center">Người lập<br><br>……………………</div>
       </div>
-      <div style="font-size:10px;color:#777;margin-top:10px;border-top:1px dashed #ccc;padding-top:6px">Ghi chú: công ty trả lương NET — thuế TNCN và BHXH ở mục B do công ty nộp thay, <b>không bị trừ vào lương thỏa thuận của bạn</b>. Mục C là chi phí của doanh nghiệp.</div>
+      ${isGross?'':'<div style="font-size:10px;color:#777;margin-top:10px;border-top:1px dashed #ccc;padding-top:6px">Ghi chú: công ty trả lương NET — thuế TNCN và BHXH do công ty nộp thay, <b>không bị trừ vào lương thỏa thuận của bạn</b>. Mức tiền theo THẺ LƯƠNG; số ngày/giờ theo bảng chấm công đã khóa.</div>'}
       <div style="font-size:10px;color:#999;margin-top:8px;text-align:center">Phiếu lương được tạo tự động từ hệ thống.</div>
     </div>`;
   }
@@ -80591,7 +80727,7 @@ function hrmAttRenderPreview(){
     const chip=bad?` <span style="font-size:9.5px;background:#c0392b;color:#fff;border-radius:3px;padding:1px 5px;white-space:nowrap" title="Tạo hồ sơ NV (kèm Ngày nghỉ việc nếu đã nghỉ) → điền MSNV vào file → import lại. Nếu là dòng ghi chú lọt vào: dùng file bản sạch.">chưa có hồ sơ</span>`:'';
     return `<tr${mk}><td style="padding:4px;text-align:center;width:24px">${tt}</td><td style="padding:4px;font-family:monospace;font-size:11px">${hrmEsc(r.msnv)}</td>
       <td style="padding:4px;font-size:11px">${hrmEsc(r.name)}${chip}</td>
-      <td style="padding:4px;font-size:10px;color:var(--muted)">${hrmEsc(r.unit||r.title||'')}</td>
+      <td style="padding:4px;font-size:10px;color:var(--muted)">${hrmEsc([r.unit,r.title].filter(Boolean).join(' · '))}</td>   <!-- v3.14.65: Bộ phận · Chức danh -->
       ${cells}<td class="r" style="padding:4px;font-size:11px;font-weight:600">${r.total||''}</td></tr>`;
   }).join('');
   box.innerHTML=`
