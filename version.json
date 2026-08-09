@@ -1,5 +1,5 @@
 {
-  "version": "3.14.79",
-  "swVersion": "v3.14.79",
-  "notes": "NGHI CA THEO CHUNG TU BCC — KHONG SUY DOAN (Sep 08/8): phan nhom ky doi tau 3 bac theo chung tu: (1) co cong trong bang cham cong TAU → tau do (2 tau → tau cham cong sau); (2) khong tau nhung BCC ghi CONG NGHI CA (cot K cua ky, keo tu cot NGHICA file BCC) → nhom ⚓ NGHI CA; (3) khong co du lieu → nhom '— CHUA CO CHAM CONG' rieng — khong gan nhan nghi ca cho nguoi thieu du lieu. Thu tu: cac tau → NGHI CA → CHUA CO CHAM CONG. Ap ca bang ky + Excel export. Test 4/4 PASS. 6 engine SAME · payComputeRow a3d23c75."
+  "version": "3.14.82",
+  "swVersion": "v3.14.82",
+  "notes": "ROSTER KY = BCC CUA THANG (Sep 09/8, ap moi nhom/phap nhan; doi tau thuoc SME — Sep xac nhan): (1) TAO KY nap danh sach tu BCC DA KHOA cung thang (gop bang, dedupe, loc phap nhan 3.14.60 + khop ho so _empId + the luong dung nhom); chua co BCC khoa → ky RONG, khong fallback HRM; ngoai le project/expat giu nguon O&M. (2) KEO CHAM CONG kiem roster: preview ➕SE THEM (khop ho so + the dung nhom) / ➖SE LOAI nguoi ngoai BCC (bo tick de giu ca dac biet vd nhanh T10) / canh bao do THE SAI NHOM va KHONG KHOP HO SO (het lot im lang cua extraAtt cu — dung luong 'BCC phat sinh NV → HR tao ho so/the'); ap dung ghi audit ten tung nguoi + touchRecord dau tuoi. (3) DON NUT THUA: go 🔄 Nap NV con thieu (nguon HRM), an 🕐 Cham cong tau (bo + tile tau — he nhap song song BCC da ngat hieu luc 3.14.43, giu code/du lieu), go xac absorb v3.08.52 khi tao ky, man HRM BCC bo crewVesselOfMonth (tau = cot unit BCC). 7/7 engine SAME · payComputeRow a3d23c75."
 }
