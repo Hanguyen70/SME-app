@@ -3769,7 +3769,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.14.61';
+const APP_VERSION='3.14.63';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -11251,7 +11251,7 @@ function _payAbsorbTimesheet(ts){
       // LƯU BẢN GỐC tàu gửi để HR đối chiếu
       r.vesselTimesheet={ vesselId:ts.vesselId, period:ts.period, workDays:wd, otHours:ot, note:src.note||'', approvedBy:ts.approvedBy||'', absorbedAt:new Date().toISOString() };
       // tính lại nếu đã có công thức
-      if(typeof payDispatchCompute==='function' && r.inputs && Object.keys(r.inputs).length){ try{ r.result=payDispatchCompute(p.profile, r.inputs, p); }catch(e){} }
+      if(typeof payComputeRow==='function' && r.inputs && Object.keys(r.inputs).length){ try{ r.result=payComputeRow(p, r); }catch(e){} }   /* v3.14.62: qua payComputeRow — giữ PC dự án/extras */
       pushed++;
     });
   });
@@ -18924,6 +18924,28 @@ function payPeriodCreateCommit(){
   toast('Đã tạo kỳ lương '+period+(_absorbed?` — tự nạp ${_absorbed} dòng chấm công từ tàu`:''),'good');
   return;
 }
+/* v3.14.63 (Sếp 08/8): SẮP XẾP bảng lương theo BỘ PHẬN → CHỨC VỤ (rank) → MSNV tăng dần —
+   cùng nguyên tắc file BCC excel. Chỉ SẮP HIỂN THỊ + EXPORT; p.rows lưu trữ giữ nguyên. */
+const _PAY_TITLE_RANK=['CHỦ TỊCH','TỔNG GIÁM ĐỐC','GIÁM ĐỐC ĐIỀU HÀNH','GIÁM ĐỐC','PHÓ GIÁM ĐỐC','KẾ TOÁN TRƯỞNG','TRƯỞNG PHÒNG','TRƯỞNG BỘ PHẬN','PHÓ PHÒNG','PHÓ TRƯỞNG','ĐỘI TRƯỞNG','TRƯỞNG','PHÓ','KỸ SƯ TRƯỞNG','CHUYÊN VIÊN CHÍNH','CHUYÊN VIÊN','KỸ SƯ','KẾ TOÁN','NHÂN VIÊN','THỦY THỦ','LÁI XE','TẠP VỤ','BẢO VỆ'];
+function _payRowSortKey(r){
+  let dept='', title='', ms='';
+  try{
+    const e=(typeof hrmEmpById==='function')?hrmEmpById(r.empId):null;
+    dept=String((e&&(e.department||e.dept||e.unit))||'').toUpperCase();
+    title=String((e&&(e.title||e.position))||'').toUpperCase();
+    ms=String((e&&(e.smartId||e.msnv))||'').toUpperCase();
+  }catch(x){}
+  let rank=_PAY_TITLE_RANK.length;
+  for(let i=0;i<_PAY_TITLE_RANK.length;i++){ if(title.indexOf(_PAY_TITLE_RANK[i])>=0){ rank=i; break; } }
+  return [dept, ('00'+rank).slice(-3), ms||'ZZZ', String(r.name||'')];
+}
+function _paySortedRows(p){
+  return (p.rows||[]).slice().sort((a,b)=>{
+    const ka=_payRowSortKey(a), kb=_payRowSortKey(b);
+    for(let i=0;i<ka.length;i++){ if(ka[i]<kb[i]) return -1; if(ka[i]>kb[i]) return 1; }
+    return 0;
+  });
+}
 function openPayPeriodDetail(id){
   if(!(payCanViewPayroll() || isHrRole())){ toast('Bảng lương chỉ dành cho Kế toán / Kế toán trưởng / HR','bad'); return; }  /* v3.12.40: HR vào được, số tiền ẩn */
   const p=payPeriodById(id); if(!p){ toast('Không tìm thấy kỳ','bad'); return; }
@@ -18949,7 +18971,7 @@ function openPayPeriodDetail(id){
   const _pcCols=_PC_COLS[p.profile]||null;
   const _fm=v=>v?Math.round(v).toLocaleString(ccy==='USD'?'en-US':'vi-VN'):'—';
   const _resPick=(res,keys)=>{ for(const k of keys){ if(res&&res[k]!=null&&isFinite(res[k])) return +res[k]; } return null; };
-  const rows=(p.rows||[]).map((r,i)=>{
+  const rows=_paySortedRows(p).map((r,i)=>{   /* v3.14.63: hiển thị theo Bộ phận→Chức vụ→MSNV */
     const base=(r.result&&(r.result.takeHome!=null?r.result.takeHome:r.result.total))||0;
     const adj=payRowAdjustTotal(r); const th=base+adj;
     const inp=r.inputs||{}, res=r.result||{};
@@ -19012,7 +19034,7 @@ function openPayPeriodDetail(id){
              số công vào kỳ CHỈ qua 📥 Kéo chấm công (BCC HRM). -->
       </div>
     </div>
-    ${p.validationMsg?`<div style="font-size:11px;padding:6px 10px;border-radius:6px;margin-bottom:8px;background:${p.validationOk?'#eafaf0;color:#1e7d44':'#fdeaea;color:var(--bad)'}">${esc(p.validationMsg)}</div>`:''}
+    ${p.validationMsg?`<div style="font-size:11px;padding:6px 10px;border-radius:6px;cursor:pointer;margin-bottom:8px;background:${p.validationOk?'#eafaf0;color:#1e7d44':'#fdeaea;color:var(--bad)'}" onclick="payShowExceptions(\'${p.id}\')" title="Bấm xem chi tiết từng cảnh báo (Báo cáo ngoại lệ)">${esc(p.validationMsg)}</div>`:''}
     <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Tổng thực lĩnh: <b style="font-family:monospace;color:#1e7d44">${total.toLocaleString(ccy==='USD'?'en-US':'vi-VN')} ${ccy}</b>${p.approvedBy?` · Duyệt bởi <b>${esc(p.approvedBy)}</b>`:''}${p._postedApId?' · <b>Đã ghi sổ KT</b>':''}</div>
     <div style="max-height:280px;overflow:auto;border:1px solid var(--rule);border-radius:6px"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:var(--rule);text-align:left;position:sticky;top:0"><th style="padding:5px 8px">Nhân viên</th>${_pcHead}<th style="padding:5px 6px;text-align:right;font-size:11px">BHXH</th><th style="padding:5px 6px;text-align:right;font-size:11px">Thuế TNCN</th><th style="padding:5px 8px;text-align:right">Thực lĩnh (${ccy})</th><th style="padding:5px 8px"></th></tr></thead><tbody>${rows}</tbody></table></div>
     <details style="margin-top:10px"><summary style="cursor:pointer;font-size:13px;font-weight:600">📋 Nhật ký thao tác (Audit Log) — không xóa</summary><div style="margin-top:6px;max-height:160px;overflow:auto">${auditHtml}</div></details>`;
@@ -20091,7 +20113,7 @@ function _payPullApply(periodId){
       if(c.manual){ row._manualFields=(row._manualFields||[]).filter(x=>x!==F); }
     });
     row.attSource={attId:att.id, attPeriod:att.period, profile:att.profile, map:PAY_ATT_MAP[p.profile], pulledAt:new Date().toISOString(), pulledBy:(CURRENT_USER&&CURRENT_USER.name)||''};
-    try{ row.result=payDispatchCompute(p.profile, row.inputs, p); }catch(e){}
+    try{ row.result=payComputeRow(p, row); }catch(e){}   /* v3.14.62: qua payComputeRow */
   });
   p.attSource={attId:att.id, attPeriod:att.period, pulledAt:new Date().toISOString(), pulledBy:(CURRENT_USER&&CURRENT_USER.name)||''};
   _payAudit(p,'pull_attendance','Kéo BCC '+att.period+' ('+(HRM_BCC_PROFILES[att.profile]||{}).label+') · '+nSet+' ô đổ · '+nKeep+' ô giữ tay');
@@ -23901,7 +23923,7 @@ function payRowSave(periodId, empId){
   // v3.11.93 GĐ1: field đổi bằng TAY → ghi _manualFields (kéo chấm công sẽ không đè âm thầm)
   row._manualFields=row._manualFields||[];
   keys.forEach(k=>{ if((+_old[k]||0)!==(+row.inputs[k]||0) && row._manualFields.indexOf(k)<0) row._manualFields.push(k); });
-  row.result=payDispatchCompute(p.profile, row.inputs, p);
+  row.result=payComputeRow(p, row);   /* v3.14.62 FIX (Sếp 07/8 — 'PC dự án không lưu khi chuyển trạng thái'): trước gọi thẳng engine, BỎ QUA tầng payComputeRow nơi cộng W + WD×WN theo cờ 💼 và áp Khoản PS → nhập WN xong tiền không hiện. */
   _payAudit(p,'edit_row','Nhập liệu '+row.name);
   saveState();
   openPayPeriodDetail(periodId);
@@ -23915,7 +23937,7 @@ function payPeriodComputeAll(id){
     /* v3.14.09: qua CỔNG THẺ trước khi tính */
     const chk=_payRowEngineCheck(p, r.empId);
     if(!chk.ok){ r.result={_engineMismatch:true,_cardEngine:chk.cardEngine}; _blocked.push((r.name||r.empId)+(chk.cardEngine?' (thẻ: '+(PAY_PROFILE_LABEL[chk.cardEngine]||chk.cardEngine)+')':' (chưa có thẻ)')); return; }
-    r.result=payDispatchCompute(p.profile, r.inputs, p); cnt++;
+    r.result=payComputeRow(p, r); cnt++;   /* v3.14.62: ⚡ Tính cả bảng qua payComputeRow — PC dự án + Khoản PS giữ đúng khi chuyển trạng thái */
   } });
   _payAudit(p,'compute_all','Tính cả bảng ('+cnt+' NV)'+(_blocked.length?' · CHẶN '+_blocked.length+' NV khác nhóm thẻ: '+_blocked.join(', '):''));
   saveState();
@@ -24145,7 +24167,7 @@ function payPeriodExportExcel(id){
     aoa.push([co]); aoa.push([(usd?'PAYROLL ':'BẢNG LƯƠNG ')+(PAY_PROFILE_LABEL[p.profile]||'')+' — '+p.period]); aoa.push([]);
     aoa.push(cols.map(c=>c[0]));
   }
-  (p.rows||[]).forEach((r,i)=>{
+  ((typeof _paySortedRows==='function')?_paySortedRows(p):(p.rows||[])).forEach((r,i)=>{   /* v3.14.63: export cùng thứ tự Bộ phận→Chức vụ→MSNV */
     const zebra=(i%2===1);
     aoa.push(cols.map((c,ci)=>{
       const v = c[1]==='stt' ? (i+1) : c[1](r);
@@ -24392,7 +24414,7 @@ function payImportTimesheet(periodId, input){
 function payImportTimesheetCommit(){
   const pid=window._payImportPid; const p=payPeriodById(pid); if(!p){ closeModal(); return; }
   let cnt=0;
-  (p.rows||[]).forEach(r=>{ if(r._pendingInputs){ r.inputs=r._pendingInputs; delete r._pendingInputs; r.result=payDispatchCompute(p.profile, r.inputs, p); cnt++; } });
+  (p.rows||[]).forEach(r=>{ if(r._pendingInputs){ r.inputs=r._pendingInputs; delete r._pendingInputs; r.result=payComputeRow(p, r); cnt++; } });   /* v3.14.62: qua payComputeRow */
   _payAudit(p,'import_timesheet','Import chấm công ('+cnt+' NV)');
   window._payImportPid=null;
   saveState();

@@ -1,5 +1,5 @@
 {
-  "version": "3.14.61",
-  "swVersion": "v3.14.61",
-  "notes": "💼 PC DU AN CHUYEN LAI VAO CHI TIET KY (Sep 07/8 — thuc dung thuan tay hon): nut BAT/TAT ve lai hang hanh dong trang thai Nhap + Da kiem tra; chip ngoai danh sach GO (mot noi duy nhat, het roi); nut 🗑 xoa ky VAN o danh sach (lenh truoc giu hieu luc). Khi BAT + da Keo the: cot 'PC KHAC' bang ky TU HIEN tien PC du an (W + WD×WN) — thiet ke 3.14.34 co san, khong sua gi them. Mac dinh tao ky: TAT (giu). Test 4/4 PASS. 6 engine SAME · payComputeRow a38f694f."
+  "version": "3.14.63",
+  "swVersion": "v3.14.63",
+  "notes": "SAP XEP BANG LUONG + CANH BAO BAM DUOC (Sep 08/8): (1) Bang ky luong + Export Excel sap theo BO PHAN → CHUC VU (rank 23 bac: Chu tich→GD→PGD→KTT→TP→PP→CV→NV→Tap vu→Bao ve) → MSNV tang dan — cung nguyen tac file BCC excel; CHI sap hien thi/export, p.rows luu tru + dong tong giu nguyen. Nguon dept/title tu ho so HRM. (2) Cau '✔ Da kiem tra: 31 NV · 27 canh bao' BAM DUOC — mo thang Bao cao ngoai le (payShowExceptions) xem chi tiet tung canh bao; con tro tay + tooltip. Test song 3/3 PASS (thu tu BGD→HCNS→TCKT, trong bo phan dung rank + MSNV). 6 engine SAME · payComputeRow a38f694f."
 }
