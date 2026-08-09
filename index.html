@@ -3769,7 +3769,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.14.66';
+const APP_VERSION='3.14.67';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -80638,7 +80638,12 @@ function hrmAttParseSheet(aoa, profileKey){
     }
     if(!emp) emp=_byName();
     rec._matched=!!emp;
-    if(emp) rec._empId=emp.id||'';
+    if(emp){ rec._empId=emp.id||'';
+      /* v3.14.67 (Sếp 08/8): hồ sơ HRM là NGUỒN Bộ phận/Chức danh — app TỰ ĐIỀN, không bị động theo file.
+         r.unit của FILE giữ nguyên (nhãn STER/PON nuôi guard pháp nhân 3.14.60); hiển thị ưu tiên hồ sơ. */
+      rec._dept=String(emp.dept||emp.department||emp.division||'').trim();
+      rec._title=String(emp.title||emp.position||'').trim();
+    }
     if(!emp){ warnings.push((msnv?('MSNV "'+msnv+'" '):'')+'"'+name+'" chưa có hồ sơ trong HRM'); }
     rows.push(rec);
   }
@@ -80727,7 +80732,7 @@ function hrmAttRenderPreview(){
     const chip=bad?` <span style="font-size:9.5px;background:#c0392b;color:#fff;border-radius:3px;padding:1px 5px;white-space:nowrap" title="Tạo hồ sơ NV (kèm Ngày nghỉ việc nếu đã nghỉ) → điền MSNV vào file → import lại. Nếu là dòng ghi chú lọt vào: dùng file bản sạch.">chưa có hồ sơ</span>`:'';
     return `<tr${mk}><td style="padding:4px;text-align:center;width:24px">${tt}</td><td style="padding:4px;font-family:monospace;font-size:11px">${hrmEsc(r.msnv)}</td>
       <td style="padding:4px;font-size:11px">${hrmEsc(r.name)}${chip}</td>
-      <td style="padding:4px;font-size:10px;color:var(--muted)">${hrmEsc([r.unit,r.title].filter(Boolean).join(' · '))}</td>   <!-- v3.14.65: Bộ phận · Chức danh -->
+      <td style="padding:4px;font-size:10px;color:var(--muted)">${hrmEsc([r._dept||r.unit, r._title||r.title].filter(Boolean).join(' · '))}</td>   <!-- v3.14.67: ƯU TIÊN hồ sơ HRM; file BCC chỉ fallback -->
       ${cells}<td class="r" style="padding:4px;font-size:11px;font-weight:600">${r.total||''}</td></tr>`;
   }).join('');
   box.innerHTML=`
