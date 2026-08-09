@@ -3769,7 +3769,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.14.75';
+const APP_VERSION='3.14.79';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -11361,19 +11361,19 @@ function openVesselCrewList(vidArg){
    (chuyển tàu / một phần nghỉ ca) → lấy tàu có onboardDate MUỘN NHẤT. Không có QĐ giao tháng →
    fallback hồ sơ (linkVesselId/currentVessel). */
 function crewVesselOfMonth(empId, period){
+  const _vn=v=>((typeof anyVesselName==='function'&&anyVesselName(v)) || (typeof hrmVesselName==='function'&&hrmVesselName(v)) || '');
   try{
     const m0=String(period||'').slice(0,7); if(!m0) return '';
-    const from=m0+'-01', to=m0+'-31';
-    const hits=HRService.crewAssignments().filter(a=>{
-      if(!a || a.empId!==empId || !a.onboardDate) return false;
-      const on=String(a.onboardDate).slice(0,10);
-      const off=String(a.actualSignoffDate||a.plannedSignoffDate||'9999-12-31').slice(0,10);
-      return on<=to && from<=off;
-    }).sort((a,b)=>String(b.onboardDate).localeCompare(String(a.onboardDate)));
-    if(hits.length){
-      const v=hits[0].vesselId;
-      return (typeof anyVesselName==='function'&&anyVesselName(v)) || (typeof hrmVesselName==='function'&&hrmVesselName(v)) || '';
-    }
+    /* v3.14.77 (Sếp 08/8 — "bảng tính lương tập hợp theo tàu: nhân sự theo tàu"): nguồn ƯU TIÊN 1 =
+       TIMESHEET tàu của kỳ (bảng chấm công THẬT, mỗi bảng mang vesselId) — đúng nghĩa "tàu đang có
+       chấm công"; NV có mặt trong bảng của 2 tàu (chuyển tàu giữa tháng) → lấy tàu có bảng nộp/duyệt
+       SAU. Không có timesheet → QĐ điều động giao tháng (onboard muộn nhất). Cuối cùng caller fallback hồ sơ. */
+    /* v3.14.78 (Sếp 08/8 — "Lấy căn cứ phân loại từ bảng chấm công. DUY NHẤT."): nguồn tàu = TIMESHEET
+       chấm công của kỳ, KHÔNG fallback QĐ điều động / hồ sơ. Không có trong bảng tàu nào → rỗng (Nghỉ ca). */
+    const tss=((typeof HRService!=='undefined'&&typeof HRService.timesheets==='function')?HRService.timesheets():(S.crewTimesheets||[]))
+      .filter(t=>t && t.period===m0 && t.vesselId && (t.rows||[]).some(r=>r.empId===empId && ((+r.workDays||0)>0||(+r.otHours||0)>0)))
+      .sort((a,b)=>String(b.approvedAt||b.submittedAt||'').localeCompare(String(a.approvedAt||a.submittedAt||'')));
+    if(tss.length) return _vn(tss[0].vesselId);
   }catch(e){}
   return '';
 }
@@ -19034,7 +19034,7 @@ function openPayPeriodDetail(id){
         try{ const e=(typeof hrmEmpById==='function')?hrmEmpById(r.empId):null; if(!e) return '';
           const tt=e.title||e.position||'';
           if(p.profile==='crew'||p.profile==='crew_khoan'){
-            const vs=((typeof crewVesselOfMonth==='function')&&crewVesselOfMonth(r.empId, p.period))||(typeof hrmVesselName==='function'&&hrmVesselName(e.linkVesselId))||e.currentVessel||'';   /* v3.14.68: tàu CHẤM CÔNG tháng kỳ, ưu tiên tàu lên sau */
+            const vs=((typeof crewVesselOfMonth==='function')&&crewVesselOfMonth(r.empId, p.period))||'';   /* v3.14.78: DUY NHẤT bảng chấm công */
             return (vs||tt)?(' · '+esc([vs,tt].filter(Boolean).join(' · '))):'';
           }
           const dp=e.dept||e.department||e.division||'';
@@ -19080,16 +19080,22 @@ function openPayPeriodDetail(id){
   let _rowsPayHtml;
   if((p.profile==='crew'||p.profile==='crew_khoan') && rows.length){
     const srt=_paySortedRows(p);
-    const NC='⚓ NGHỈ CA / CHỜ TÀU';
+    /* v3.14.79 (Sếp 08/8 — "Công Nghỉ ca: có trong BCC, không suy đoán"): 3 bậc theo CHỨNG TỪ:
+       (1) có công trong bảng chấm công TÀU → tàu đó (2 tàu → tàu chấm công sau);
+       (2) không tàu nhưng BCC ghi CÔNG NGHỈ CA (cột K của kỳ) → ⚓ NGHỈ CA;
+       (3) không có gì → '— Chưa có chấm công' (không gán nhãn nghỉ ca cho người thiếu dữ liệu). */
+    const NC='⚓ NGHỈ CA';
+    const KC='— CHƯA CÓ CHẤM CÔNG';
     const gname=r=>{ try{
         const v=(typeof crewVesselOfMonth==='function')&&crewVesselOfMonth(r.empId, p.period);
         if(v) return v;
-        const e=(typeof hrmEmpById==='function')?hrmEmpById(r.empId):null;
-        return ((typeof hrmVesselName==='function'&&hrmVesselName(e&&e.linkVesselId))||(e&&e.currentVessel)||'')||NC;
-      }catch(x){ return NC; } };
+        if((+((r.inputs||{}).K)||0)>0) return NC;
+        return KC;
+      }catch(x){ return KC; } };
     const order=[], byG={};
-    srt.forEach((r,ix)=>{ const g=gname(r); if(!byG[g]){ byG[g]=[]; if(g!==NC) order.push(g); } byG[g].push(ix); });
+    srt.forEach((r,ix)=>{ const g=gname(r); if(!byG[g]){ byG[g]=[]; if(g!==NC&&g!==KC) order.push(g); } byG[g].push(ix); });
     if(byG[NC]) order.push(NC);
+    if(byG[KC]) order.push(KC);
     const compLen=_pcCols?_pcCols.length:1;
     _rowsPayHtml=order.map(g=>{
       const idxs=byG[g];
@@ -19098,11 +19104,16 @@ function openPayPeriodDetail(id){
         sBh+=+res.AO||0; sTax+=+res.AL||0;
         sTake+=((res.takeHome!=null?+res.takeHome:(+res.total||0))||0)+payRowAdjustTotal(r); });
       const fmS=v=>v?Math.round(v).toLocaleString('vi-VN'):'—';
-      return `<tr><td colspan="${compLen+4}" style="padding:6px 8px;background:var(--paper-3);font-weight:700;font-size:12px;border-top:2px solid var(--rule)">${g===NC?'⚓':'⛴'} ${esc(g)} <span style="font-weight:400;color:var(--muted)">· ${idxs.length} người</span></td></tr>`
+      return `<tr><td colspan="${compLen+4}" style="padding:6px 8px;background:var(--paper-3);font-weight:700;font-size:12px;border-top:2px solid var(--rule)">${(g===NC||g===KC)?'':'⛴ '}${esc(g)} <span style="font-weight:400;color:var(--muted)">· ${idxs.length} người</span></td></tr>`
         + idxs.map(ix=>rows[ix]).join('')
         + `<tr style="background:rgba(30,125,68,.06);font-weight:700;border-bottom:2px solid var(--rule)"><td style="padding:5px 8px;font-size:12px">TỔNG — ${esc(g)}</td><td colspan="${compLen}"></td><td style="padding:5px 6px;text-align:right;font-family:monospace">${fmS(sBh)}</td><td style="padding:5px 6px;text-align:right;font-family:monospace">${fmS(sTax)}</td><td style="padding:5px 8px;text-align:right;font-family:monospace;color:#1e7d44">${fmS(sTake)}</td></tr>`;
     }).join('');
-  } else { _rowsPayHtml=rows.join(''); }
+  } else {
+    /* v3.14.76: phòng thủ + tự khai — nếu rows không phải mảng (bug 19105 máy Sếp 08/8) thì
+       không sập màn kỳ; ghi console đầy đủ ngữ cảnh để bắt tận gốc. */
+    if(Array.isArray(rows)) _rowsPayHtml=rows.join('');
+    else { console.error('[openPayPeriodDetail] rows KHÔNG phải mảng!', {typeofRows:typeof rows, profile:p&&p.profile, period:p&&p.period, ver:(typeof APP_VERSION!=='undefined'?APP_VERSION:'?')}); _rowsPayHtml=String(rows||''); }
+  }
   const body=`
     <div style="margin-bottom:8px"><div style="display:flex;gap:3px;align-items:center;flex-wrap:wrap;margin-bottom:10px">${flowBar}</div></div>
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
@@ -24286,13 +24297,14 @@ function payPeriodExportExcel(id){
   const _srtX=((typeof _paySortedRows==='function')?_paySortedRows(p):(p.rows||[]));
   /* v3.14.75: export kỳ ĐỘI TÀU nhóm theo tàu + dòng TỔNG mỗi tàu; Nghỉ ca cuối */
   const _isCrewX=(p.profile==='crew'||p.profile==='crew_khoan');
-  const _NCX='NGHỈ CA / CHỜ TÀU';
+  const _NCX='⚓ NGHỈ CA';
+  const _KCX='— CHƯA CÓ CHẤM CÔNG';
   const _gnameX=r=>{ try{
       const v=(typeof crewVesselOfMonth==='function')&&crewVesselOfMonth(r.empId, p.period);
       if(v) return v;
-      const e=(typeof hrmEmpById==='function')?hrmEmpById(r.empId):null;
-      return ((typeof hrmVesselName==='function'&&hrmVesselName(e&&e.linkVesselId))||(e&&e.currentVessel)||'')||_NCX;
-    }catch(x){ return _NCX; } };
+      if((+((r.inputs||{}).K)||0)>0) return _NCX;
+      return _KCX;
+    }catch(x){ return _KCX; } };   /* v3.14.79: NGHỈ CA = công K trong BCC, không suy đoán */
   let _lastG=null;
   const _flushTot=(g, list)=>{
     if(!_isCrewX||!g) return;
@@ -24306,7 +24318,7 @@ function payPeriodExportExcel(id){
   _srtX.forEach((r,i)=>{
     if(_isCrewX){
       const g=_gnameX(r);
-      if(g!==_lastG){ _flushTot(_lastG,_gList); _gList=[]; aoa.push([(g===_NCX?'⚓ ':'⛴ ')+g]); _lastG=g; }
+      if(g!==_lastG){ _flushTot(_lastG,_gList); _gList=[]; aoa.push([(g===_NCX||g===_KCX)?g:('⛴ '+g)]); _lastG=g; }
       _gList.push(r);
     }
     const zebra=(i%2===1);
@@ -24489,7 +24501,7 @@ function _payslipHtml(p, row, opts){
     try{ const e=(typeof hrmEmpById==='function')?hrmEmpById(row.empId):null;
       if(e){ const tt=e.title||e.position||'';
         if(p.profile==='crew'||p.profile==='crew_khoan'){
-          const vs=((typeof crewVesselOfMonth==='function')&&crewVesselOfMonth(row.empId, p.period))||(typeof hrmVesselName==='function'&&hrmVesselName(e.linkVesselId))||e.currentVessel||'';   /* v3.14.68 */
+          const vs=((typeof crewVesselOfMonth==='function')&&crewVesselOfMonth(row.empId, p.period))||'';   /* v3.14.78: DUY NHẤT bảng chấm công */
           who=[vs,tt].filter(Boolean).join(' — ');
         } else who=[e.dept||e.department||e.division||'',tt].filter(Boolean).join(' — ');
       } }catch(x){}

@@ -1,5 +1,5 @@
 {
-  "version": "3.14.75",
-  "swVersion": "v3.14.75",
-  "notes": "BANG LUONG DOI TAU NHOM THEO TAU (Sep 08/8): ky crew/crew_khoan — bang chi tiet + Excel export nhom theo TAU (nguon: tau cham cong thang crewVesselOfMonth 3.14.68, uu tien tau len sau; fallback ho so), moi tau: dong header ⛴ + cac thuyen vien (giu thu tu file BCC trong tau) + 1 dong TONG (BHXH + thue + thuc linh); nhom ⚓ NGHI CA / CHO TAU tach rieng xep cuoi. VP/tech/gross giu nguyen mot mach. Excel: dong nhom + dong TONG tung tau theo cung cot sum, tong ca bang giu nguyen. Test 3/3 PASS. 6 engine SAME · payComputeRow a3d23c75 (giu tu 3.14.74)."
+  "version": "3.14.79",
+  "swVersion": "v3.14.79",
+  "notes": "NGHI CA THEO CHUNG TU BCC — KHONG SUY DOAN (Sep 08/8): phan nhom ky doi tau 3 bac theo chung tu: (1) co cong trong bang cham cong TAU → tau do (2 tau → tau cham cong sau); (2) khong tau nhung BCC ghi CONG NGHI CA (cot K cua ky, keo tu cot NGHICA file BCC) → nhom ⚓ NGHI CA; (3) khong co du lieu → nhom '— CHUA CO CHAM CONG' rieng — khong gan nhan nghi ca cho nguoi thieu du lieu. Thu tu: cac tau → NGHI CA → CHUA CO CHAM CONG. Ap ca bang ky + Excel export. Test 4/4 PASS. 6 engine SAME · payComputeRow a3d23c75."
 }
