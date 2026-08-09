@@ -3769,7 +3769,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.14.72';
+const APP_VERSION='3.14.73';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -14859,7 +14859,8 @@ async function _cloudSyncRaw(mode, opts){
       try{
         const cfg3=getAuthConfig();
         const lkc=(cfg3 && cfg3.lastKnownCounts) || {};
-        let watch=['payables','receivables','opTransactions','loans','bankAccounts','projects','vessels','fixedAssets'];
+        let watch=['payables','receivables','opTransactions','loans','bankAccounts','projects','vessels','fixedAssets',
+          'payrollPeriods','hrAttendance','salaryProfiles','cashTxns'];   /* v3.14.73 (audit Sếp 08/8): chiều ĐẨY trước đây KHÔNG bảo vệ 4 cụm lương/công/thẻ/quỹ — máy lỗi có thể push thiếu đè cloud */
         // v3.09.86 — HIGH-WATER × PHÂN QUYỀN: NV chỉ kiểm shrink cho field TRONG quyền sở hữu.
         //   Field ngoài quyền → user không thể làm nó "giảm" → kiểm là vô nghĩa + gây báo động giả chặn sync.
         //   Admin giữ đủ 8 field (bảo vệ nguyên vẹn).
@@ -14869,7 +14870,7 @@ async function _cloudSyncRaw(mode, opts){
             watch=watch.filter(f=>_allow.has(f));
           }
         }catch(_){}
-        const labelMap={payables:'Phải trả',receivables:'Phải thu',opTransactions:'Thu/Chi hộ',loans:'Khoản vay',bankAccounts:'Tài khoản NH',projects:'Dự án',vessels:'Tàu',fixedAssets:'TSCĐ'};
+        const labelMap={payables:'Phải trả',receivables:'Phải thu',opTransactions:'Thu/Chi hộ',loans:'Khoản vay',bankAccounts:'Tài khoản NH',projects:'Dự án',vessels:'Tàu',fixedAssets:'TSCĐ',payrollPeriods:'Kỳ lương',hrAttendance:'Bảng chấm công',salaryProfiles:'Thẻ lương',cashTxns:'Phiếu quỹ'};   /* v3.14.73 */
         const drops=[];
         watch.forEach(f=>{
           const was=+lkc[f]||0;
@@ -14894,6 +14895,7 @@ async function _cloudSyncRaw(mode, opts){
           } else {
             // autosync: KHÔNG tự đè khi nghi mất data — bắt user mở app xác nhận thủ công
             updateSyncStatus('error','Tạm dừng autosync — nghi sụt giảm dữ liệu');
+            try{ if(!window._shrinkWarnShown){ window._shrinkWarnShown=true; toast('⚠ ĐỒNG BỘ ĐANG TẠM DỪNG: dữ liệu sắp đẩy GIẢM MẠNH so mốc cũ (xem Console). Nếu vừa xóa CHỦ ĐÍCH: bấm nút Sync thủ công để xác nhận đẩy. Dữ liệu local vẫn nguyên.','warn'); } }catch(e){}   /* v3.14.73: hết chặn im lặng */
             toast('⚠ Tạm dừng tự đồng bộ: dữ liệu giảm bất thường ('+drops[0]+'...). Mở menu Sync để kiểm tra & xác nhận thủ công.','bad');
             return;
           }
@@ -18511,6 +18513,7 @@ const PayrollPolicyService=(function(){
     const pending=REQUIRED_SET_MEMBERS.filter(t=>{ const p=pols().find(x=>x.id===st.members[t].policyId); return p&&p.pendingKtt; });
     if(pending.length){ toast('⛔ Thành viên chưa được KTT xác nhận: '+pending.join(', '),'bad'); return false; }
     st.status='approved'; st.approvedBy=_me(); st.approvedAt=_now();
+    try{ touchRecord(st); }catch(e){}   /* v3.14.73 */
     (st.audit=st.audit||[]).push(_aud('approve','Duyệt bộ chính sách — đủ '+REQUIRED_SET_MEMBERS.length+' thành viên'));
     saveState(); toast('✅ Đã duyệt '+st.id,'good'); return true;
   }
@@ -19380,6 +19383,7 @@ function payBankBatchSetStatus(bid, st){
   if(!(allow[b.status]||[]).includes(st)){ toast('Chuyển trạng thái không hợp lệ','bad'); return; }
   if(st==='checked' && !(isAdmin()||canCheckAcc())){ toast('Chỉ kế toán/admin được xác nhận kiểm','bad'); return; }
   b.status=st;
+  try{ touchRecord(b); }catch(e){}   /* v3.14.73 */
   const who=(CURRENT_USER&&CURRENT_USER.name)||'', at=new Date().toISOString();
   if(st==='checked'){ b.checkedBy=who; b.checkedAt=at; }
   if(st==='transferred'){ b.transferredBy=who; b.transferredAt=at; }
@@ -20512,6 +20516,7 @@ function siEventSetStatus(id, st, per){
   const ev=(S.siEvents||[]).find(x=>x.id===id); if(!ev) return;
   if(ev.status==='suggested' && st==='confirmed'){
     ev.status='confirmed'; ev.confirmedBy=(CURRENT_USER&&CURRENT_USER.name)||''; ev.confirmedAt=new Date().toISOString();
+    try{ touchRecord(ev); }catch(e){}   /* v3.14.73 */
     (ev.auditTrail=ev.auditTrail||[]).push({at:ev.confirmedAt,by:ev.confirmedBy,act:'confirm'});
     saveState(); siEventsOpen(per);
   }
@@ -23520,7 +23525,8 @@ function taxYearSnapshotFinalize(snapId){
   }
   snap.status='finalized'; snap.finalizedAt=new Date().toISOString();
   snap.finalizedBy=(typeof CURRENT_USER!=='undefined'&&CURRENT_USER&&CURRENT_USER.name)||'';
-  try{ saveState(); }catch(e){}
+  try{ try{ touchRecord(snap); }catch(e){}   /* v3.14.73 */
+  saveState(); }catch(e){}
   return {ok:true, snapshot:snap};
 }
 
@@ -23835,7 +23841,8 @@ function taxYearFinalizationLock(finId){
   fin.lockedAt=new Date().toISOString();
   fin.lockedBy=(typeof CURRENT_USER!=='undefined'&&CURRENT_USER&&CURRENT_USER.name)||'';
   try{ logAuditEvent('tax_year_finalization_lock',{finId, taxYear:fin.taxYear, companyId:fin.companyId}); }catch(e){}
-  try{ saveState(); }catch(e){}
+  try{ try{ touchRecord(snap); }catch(e){}   /* v3.14.73 */
+  saveState(); }catch(e){}
   return {ok:true, finalization:fin};
 }
 
@@ -38530,6 +38537,7 @@ function addAssetEvent(kind, assetId){
     a.status='LIQUIDATED';
     a.bookValue=0;
   }
+  try{ touchRecord(a); }catch(e){}   /* v3.14.73 */
   saveState();
   closeModal();
   renderAll();
