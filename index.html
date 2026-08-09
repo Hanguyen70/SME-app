@@ -3769,7 +3769,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.14.73';
+const APP_VERSION='3.14.75';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -19075,6 +19075,34 @@ function openPayPeriodDetail(id){
   else if(st==='posted'){ actions='<span style="font-size:11px;color:var(--muted)">Chờ thanh toán phiếu Phải trả → tự chuyển "Đã thanh toán"</span>'+btn('payPeriodCheckPaid','🔄 Kiểm tra TT'); }
   else if(st==='paid'){ actions=btn('payPeriodClose','🏁 Đóng kỳ','primary'); }
   else if(st==='closed'){ actions='<span style="font-size:11px;color:#1e7d44">✓ Kỳ lương đã hoàn tất & đóng</span>'; }
+  /* v3.14.75 (Sếp 08/8): kỳ ĐỘI TÀU — bảng nhóm theo TÀU (tàu chấm công tháng, 3.14.68), mỗi tàu
+     1 dòng TỔNG (BHXH + thuế + thực lĩnh); NGHỈ CA / CHỜ TÀU tách nhóm riêng xếp cuối. VP giữ nguyên. */
+  let _rowsPayHtml;
+  if((p.profile==='crew'||p.profile==='crew_khoan') && rows.length){
+    const srt=_paySortedRows(p);
+    const NC='⚓ NGHỈ CA / CHỜ TÀU';
+    const gname=r=>{ try{
+        const v=(typeof crewVesselOfMonth==='function')&&crewVesselOfMonth(r.empId, p.period);
+        if(v) return v;
+        const e=(typeof hrmEmpById==='function')?hrmEmpById(r.empId):null;
+        return ((typeof hrmVesselName==='function'&&hrmVesselName(e&&e.linkVesselId))||(e&&e.currentVessel)||'')||NC;
+      }catch(x){ return NC; } };
+    const order=[], byG={};
+    srt.forEach((r,ix)=>{ const g=gname(r); if(!byG[g]){ byG[g]=[]; if(g!==NC) order.push(g); } byG[g].push(ix); });
+    if(byG[NC]) order.push(NC);
+    const compLen=_pcCols?_pcCols.length:1;
+    _rowsPayHtml=order.map(g=>{
+      const idxs=byG[g];
+      let sBh=0,sTax=0,sTake=0;
+      idxs.forEach(ix=>{ const r=srt[ix], res=r.result||{};
+        sBh+=+res.AO||0; sTax+=+res.AL||0;
+        sTake+=((res.takeHome!=null?+res.takeHome:(+res.total||0))||0)+payRowAdjustTotal(r); });
+      const fmS=v=>v?Math.round(v).toLocaleString('vi-VN'):'—';
+      return `<tr><td colspan="${compLen+4}" style="padding:6px 8px;background:var(--paper-3);font-weight:700;font-size:12px;border-top:2px solid var(--rule)">${g===NC?'⚓':'⛴'} ${esc(g)} <span style="font-weight:400;color:var(--muted)">· ${idxs.length} người</span></td></tr>`
+        + idxs.map(ix=>rows[ix]).join('')
+        + `<tr style="background:rgba(30,125,68,.06);font-weight:700;border-bottom:2px solid var(--rule)"><td style="padding:5px 8px;font-size:12px">TỔNG — ${esc(g)}</td><td colspan="${compLen}"></td><td style="padding:5px 6px;text-align:right;font-family:monospace">${fmS(sBh)}</td><td style="padding:5px 6px;text-align:right;font-family:monospace">${fmS(sTax)}</td><td style="padding:5px 8px;text-align:right;font-family:monospace;color:#1e7d44">${fmS(sTake)}</td></tr>`;
+    }).join('');
+  } else { _rowsPayHtml=rows.join(''); }
   const body=`
     <div style="margin-bottom:8px"><div style="display:flex;gap:3px;align-items:center;flex-wrap:wrap;margin-bottom:10px">${flowBar}</div></div>
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
@@ -19090,7 +19118,7 @@ function openPayPeriodDetail(id){
     </div>
     ${p.validationMsg?`<div style="font-size:11px;padding:6px 10px;border-radius:6px;cursor:pointer;margin-bottom:8px;background:${p.validationOk?'#eafaf0;color:#1e7d44':'#fdeaea;color:var(--bad)'}" onclick="payShowExceptions(\'${p.id}\')" title="Bấm xem chi tiết từng cảnh báo (Báo cáo ngoại lệ)">${esc(p.validationMsg)}</div>`:''}
     <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Tổng thực lĩnh: <b style="font-family:monospace;color:#1e7d44">${total.toLocaleString(ccy==='USD'?'en-US':'vi-VN')} ${ccy}</b>${p.approvedBy?` · Duyệt bởi <b>${esc(p.approvedBy)}</b>`:''}${p._postedApId?' · <b>Đã ghi sổ KT</b>':''}</div>
-    <div style="max-height:280px;overflow:auto;border:1px solid var(--rule);border-radius:6px"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:var(--rule);text-align:left;position:sticky;top:0"><th style="padding:5px 8px">Nhân viên</th>${_pcHead}<th style="padding:5px 6px;text-align:right;font-size:11px">BHXH</th><th style="padding:5px 6px;text-align:right;font-size:11px">Thuế TNCN</th><th style="padding:5px 8px;text-align:right">Thực lĩnh (${ccy})</th><th style="padding:5px 8px"></th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div style="max-height:280px;overflow:auto;border:1px solid var(--rule);border-radius:6px"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:var(--rule);text-align:left;position:sticky;top:0"><th style="padding:5px 8px">Nhân viên</th>${_pcHead}<th style="padding:5px 6px;text-align:right;font-size:11px">BHXH</th><th style="padding:5px 6px;text-align:right;font-size:11px">Thuế TNCN</th><th style="padding:5px 8px;text-align:right">Thực lĩnh (${ccy})</th><th style="padding:5px 8px"></th></tr></thead><tbody>${_rowsPayHtml}</tbody></table></div>
     <details style="margin-top:10px"><summary style="cursor:pointer;font-size:13px;font-weight:600">📋 Nhật ký thao tác (Audit Log) — không xóa</summary><div style="margin-top:6px;max-height:160px;overflow:auto">${auditHtml}</div></details>`;
   openModal('📅 Kỳ lương '+esc(p.period)+' · '+(p.companyId?esc(companyName(p.companyId)):'⚠ chưa gán pháp nhân'), body,   /* v3.14.41 (Sếp 06/8): tiêu đề ghi rõ pháp nhân */ `<button class="btn-ghost" onclick="openPayrollPeriods()">← Danh sách</button>`);
 }
@@ -19734,6 +19762,25 @@ function payComputeRow(p, row){
     row.adjustments.push({amount:(x.sign<0?-1:1)*(+x.amount||0), note:x.desc||'Khoản phát sinh', _extraId:x.id, _hidePayslip:x.showOnPayslip===false});
   });
   const res=payDispatchCompute(p.profile, inp, p);
+  /* v3.14.74 (Sếp 08/8 — "2 trường hợp không có chấm công, không có lương T01 tại PON: app vẫn tính BHXH"):
+     ZERO-ROW — tháng KHÔNG THU NHẬP (net=0 & gross=0, tức 0 công/0 khoán) tại pháp nhân này thì KHÔNG
+     phát sinh BH + thuế tại pháp nhân này (nghỉ không hưởng lương trọn tháng — ngoài diện đóng BHXH
+     tháng đó; BH của người 2 pháp nhân đóng ở nơi trả lương chính). Zero cả field chuẩn hóa lẫn field
+     thô theo nhóm (tên cột trùng-ngược-nghĩa giữa engine — phải map đích danh, không zero mù).
+     GROSS: cộng trả lại phần BH/thuế đã trừ vào thực lãnh (0 thu nhập → thực lãnh 0, không âm). */
+  try{
+    const _incReal=(+res.grossTotal||0)-(+res.insEmp||0)-(+res.pit||0);   /* thu nhập thực = gross trừ phần BH/thuế quy đổi */
+    if(res && (+res.netTotal||0)<0.5 && _incReal<1){
+      const _bhOld=(+res.insEmp||0), _bhCoOld=(+res.insCompany||0), _pitOld=(+res.pit||0);
+      if(_bhOld||_bhCoOld||_pitOld){
+        const _ZMAP={office:['AL','AK','AN'],tech:['AP','AM'],crew:['AO','AL','AOco'],crew_khoan:['AO','AL','AOco'],office_gross:[]};
+        (_ZMAP[p.profile]||[]).forEach(k=>{ if(res[k]!=null) res[k]=0; });
+        res.insEmp=0; res.insCompany=0; res.pit=0;
+        if(res.takeHome!=null){ const _t=+res.takeHome||0; res.takeHome=(_t<0)?(_t+_bhOld+_pitOld):_t; }   /* NET: lĩnh vốn 0 giữ 0; GROSS: trả lại phần đã trừ, hết âm */
+        row._zeroWorkNoIns=true;
+      }
+    }
+  }catch(e){}
   // ══════ GĐ2 Bước 4 — orchestration đa pháp nhân (chỉ khi flag ON cho pháp nhân của kỳ) ══════
   // AN TOÀN: flag OFF hoặc thiếu companyId → trả THẲNG kết quả engine (hồi quy khớp tuyệt đối, không đụng gì).
   try{
@@ -24236,7 +24283,32 @@ function payPeriodExportExcel(id){
     aoa.push([co]); aoa.push([(usd?'PAYROLL ':'BẢNG LƯƠNG ')+(PAY_PROFILE_LABEL[p.profile]||'')+' — '+p.period]); aoa.push([]);
     aoa.push(cols.map(c=>c[0]));
   }
-  ((typeof _paySortedRows==='function')?_paySortedRows(p):(p.rows||[])).forEach((r,i)=>{   /* v3.14.63: export cùng thứ tự Bộ phận→Chức vụ→MSNV */
+  const _srtX=((typeof _paySortedRows==='function')?_paySortedRows(p):(p.rows||[]));
+  /* v3.14.75: export kỳ ĐỘI TÀU nhóm theo tàu + dòng TỔNG mỗi tàu; Nghỉ ca cuối */
+  const _isCrewX=(p.profile==='crew'||p.profile==='crew_khoan');
+  const _NCX='NGHỈ CA / CHỜ TÀU';
+  const _gnameX=r=>{ try{
+      const v=(typeof crewVesselOfMonth==='function')&&crewVesselOfMonth(r.empId, p.period);
+      if(v) return v;
+      const e=(typeof hrmEmpById==='function')?hrmEmpById(r.empId):null;
+      return ((typeof hrmVesselName==='function'&&hrmVesselName(e&&e.linkVesselId))||(e&&e.currentVessel)||'')||_NCX;
+    }catch(x){ return _NCX; } };
+  let _lastG=null;
+  const _flushTot=(g, list)=>{
+    if(!_isCrewX||!g) return;
+    const tot=cols.map((c,ci)=>{ if(ci===0) return 'TỔNG — '+g;
+      if(!c[3]) return '';
+      let t=0,has=false; list.forEach(r2=>{ const v=(c[1]==='stt')?null:c[1](r2); if(typeof v==='number'){t+=v;has=true;} });
+      return has?t:''; });
+    aoa.push(tot);
+  };
+  let _gList=[];
+  _srtX.forEach((r,i)=>{
+    if(_isCrewX){
+      const g=_gnameX(r);
+      if(g!==_lastG){ _flushTot(_lastG,_gList); _gList=[]; aoa.push([(g===_NCX?'⚓ ':'⛴ ')+g]); _lastG=g; }
+      _gList.push(r);
+    }
     const zebra=(i%2===1);
     aoa.push(cols.map((c,ci)=>{
       const v = c[1]==='stt' ? (i+1) : c[1](r);
@@ -24244,6 +24316,7 @@ function payPeriodExportExcel(id){
       return EE.dataCell(v,{align:(typeof v==='number')?'right':'left', num:c[3]||undefined, bg:zebra?EE.C.zebra:undefined, wrap:ci===2});
     }));
   });
+  _flushTot(_lastG,_gList);   /* v3.14.75: tổng tàu cuối */
   // TỔNG
   const sums=cols.map((c)=>{ if(!c[3]) return null;
     let t=0,has=false; (p.rows||[]).forEach(r=>{ const v=(c[1]==='stt')?null:c[1](r); if(typeof v==='number'){t+=v;has=true;} });

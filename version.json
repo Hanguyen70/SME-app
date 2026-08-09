@@ -1,5 +1,5 @@
 {
-  "version": "3.14.73",
-  "swVersion": "v3.14.73",
-  "notes": "RA SOAT TOAN CUC + LUOI DONG BO (Sep 08/8 — 'ra soat module khac + thay doi cach luu AppScript dan den loi nao'): BAO CAO: tai chinh AP/AR/opTxn/cashTxn/kho/tam ung SACH (ADR-015 da phu touch); va them nhom trung: siEventSetStatus, payBankBatchSetStatus (batch chuyen luong), approveSet (bo chinh sach), addAssetEvent, taxYearSnapshotFinalize, taxYearFinalizationLock. LOI HE QUA CACH LUU APPSCRIPT tim duoc: (1) autosync bi CHAN IM LANG khi high-water nghi sut giam → cloud ket ban cu dai han → dieu kien nen cua mat du lieu — FIX: toast ro 1 lan/phien + huong dan push tay xac nhan; (2) chieu DAY truoc day KHONG bao ve payrollPeriods/hrAttendance/salaryProfiles/cashTxns (watch chi 8 cum tai chinh) — FIX: them 4 cum + nhan; (3) GHI SO backend: counts gui backend chi 2 field (hrEmployees, payables) — shrink guard backend mu voi cum khac (sua can dung Code.gs); (4) empty-guard dua lastKnownRecordCount trong authConfig — 'Lam moi cau hinh' reset moc → mat luoi (ghi so); (5) CLOUD_BUSY backoff keo dai cua so push (ghi nhan). 6 engine SAME · payComputeRow a38f694f. Deploy cung 71+72."
+  "version": "3.14.75",
+  "swVersion": "v3.14.75",
+  "notes": "BANG LUONG DOI TAU NHOM THEO TAU (Sep 08/8): ky crew/crew_khoan — bang chi tiet + Excel export nhom theo TAU (nguon: tau cham cong thang crewVesselOfMonth 3.14.68, uu tien tau len sau; fallback ho so), moi tau: dong header ⛴ + cac thuyen vien (giu thu tu file BCC trong tau) + 1 dong TONG (BHXH + thue + thuc linh); nhom ⚓ NGHI CA / CHO TAU tach rieng xep cuoi. VP/tech/gross giu nguyen mot mach. Excel: dong nhom + dong TONG tung tau theo cung cot sum, tong ca bang giu nguyen. Test 3/3 PASS. 6 engine SAME · payComputeRow a3d23c75 (giu tu 3.14.74)."
 }
