@@ -3769,7 +3769,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.14.67';
+const APP_VERSION='3.14.72';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -10092,6 +10092,7 @@ function _paySubmitConfigChange(profileKey, label, patch){
     profileKey, label,
     before:{}, after:{},
     requestedBy:actorName()||'?', requestedAt:new Date().toISOString(),
+    createdAt:new Date().toISOString(), updatedAt:new Date().toISOString(),   /* v3.14.72 */
     status:'pending', decidedBy:'', decidedAt:'', decisionNote:''
   };
   changed.forEach(k=>{ req.before[k]=before[k]; req.after[k]=patch[k]; });
@@ -10193,6 +10194,7 @@ function payApproveChange(id){
   const r=PayrollService.changeRequestById(id); if(!r||r.status!=='pending') return;
   if(!(isAdmin()||(CURRENT_USER&&CURRENT_USER.isBOD))){ toast('Chỉ BOD/Admin được duyệt','bad'); return; }
   r.status='approved'; r.decidedBy=actorName()||'?'; r.decidedAt=new Date().toISOString();
+  try{ touchRecord(r); }catch(e){}   /* v3.14.72: duyệt xong không bị cloud 'pending' cũ đè lại */
   _payApplyChangeRequest(r, true);
   try{ logAuditEvent('payroll_config_approved',{ id:r.id, label:r.label, by:r.decidedBy }); }catch(e){}
   // đánh dấu notif liên quan đã xử lý
@@ -10204,6 +10206,7 @@ function payRejectChange(id){
   if(!(isAdmin()||(CURRENT_USER&&CURRENT_USER.isBOD))){ toast('Chỉ BOD/Admin được từ chối','bad'); return; }
   const note=prompt('Lý do từ chối (tùy chọn):','')||'';
   r.status='rejected'; r.decidedBy=actorName()||'?'; r.decidedAt=new Date().toISOString(); r.decisionNote=note;
+  try{ touchRecord(r); }catch(e){}   /* v3.14.72 */
   try{ logAuditEvent('payroll_config_rejected',{ id:r.id, label:r.label, by:r.decidedBy, note }); }catch(e){}
   (S.bodNotifs||[]).forEach(n=>{ if(n.reqId===id){ n.resolved=true; n.read=true; } });
   saveState(); toast('Đã từ chối thay đổi: '+r.label,'warn'); openPayChangeRequests();
@@ -11122,6 +11125,7 @@ function hrTimesheetImportApply(){
     } else {
       t.status='approved'; t.approvedBy=actorName(); t.approvedAt=nowIso; t._hrImported=true;
     }
+    try{ touchRecord(t); }catch(e){}   /* v3.14.72 */
     // merge rows theo empId (ghi đè số mới)
     groups[vid].forEach(nr=>{
       const ex=(t.rows=t.rows||[]).find(r=>r.empId===nr.empId);
@@ -11199,6 +11203,7 @@ function _hrTsApprove(tsId){
   if(!hrTimesheetCanReview()){ toast('Không có quyền','bad'); return; }
   const t=HRService.timesheets().find(x=>x.id===tsId); if(!t) return;
   t.status='approved'; t.approvedBy=actorName(); t.approvedAt=new Date().toISOString(); t.rejectNote='';
+  try{ touchRecord(t); }catch(e){}   /* v3.14.72 */
   try{ logAuditEvent('vessel_timesheet_approve',{vessel:(typeof anyVesselName==='function'?anyVesselName(t.vesselId):''), period:t.period}); }catch(e){}
   // MẮT XÍCH 3: tự đổ vào kỳ lương tương ứng
   let pushed=0;
@@ -11214,6 +11219,7 @@ function _hrTsReject(tsId){
   const note=prompt('Lý do trả về tàu (tàu sẽ chấm lại):','');
   if(note===null) return;
   t.status='draft'; t.rejectNote=String(note||'').trim(); t.rejectedBy=actorName(); t.rejectedAt=new Date().toISOString();
+  try{ touchRecord(t); }catch(e){}   /* v3.14.72 */
   try{ logAuditEvent('vessel_timesheet_reject',{vessel:(typeof anyVesselName==='function'?anyVesselName(t.vesselId):''), period:t.period, note:t.rejectNote}); }catch(e){}
   saveState();
   closeModal();
@@ -11349,6 +11355,27 @@ function openVesselCrewList(vidArg){
       <tbody>${rows}</tbody></table>`
       : '<div style="padding:20px;text-align:center;color:var(--muted)">Chưa có thuyền viên nào trên tàu (theo QĐ điều động hoặc hồ sơ NS).</div>'}`;
   openModal('👥 Thuyền viên trên tàu', body, `${navBackBtn()} <button class="btn-ghost" onclick="closeModal()">Đóng</button>`);
+}
+/* v3.14.68 (Sếp 08/8 — "Cần: tàu đang có chấm công; 2 tàu/nghỉ ca → ưu tiên tàu chấm công SAU"):
+   Tàu của NV trong THÁNG kỳ lương = quyết định điều động GIAO với tháng; nhiều tàu trong tháng
+   (chuyển tàu / một phần nghỉ ca) → lấy tàu có onboardDate MUỘN NHẤT. Không có QĐ giao tháng →
+   fallback hồ sơ (linkVesselId/currentVessel). */
+function crewVesselOfMonth(empId, period){
+  try{
+    const m0=String(period||'').slice(0,7); if(!m0) return '';
+    const from=m0+'-01', to=m0+'-31';
+    const hits=HRService.crewAssignments().filter(a=>{
+      if(!a || a.empId!==empId || !a.onboardDate) return false;
+      const on=String(a.onboardDate).slice(0,10);
+      const off=String(a.actualSignoffDate||a.plannedSignoffDate||'9999-12-31').slice(0,10);
+      return on<=to && from<=off;
+    }).sort((a,b)=>String(b.onboardDate).localeCompare(String(a.onboardDate)));
+    if(hits.length){
+      const v=hits[0].vesselId;
+      return (typeof anyVesselName==='function'&&anyVesselName(v)) || (typeof hrmVesselName==='function'&&hrmVesselName(v)) || '';
+    }
+  }catch(e){}
+  return '';
 }
 /* Kiểm TRÙNG thời gian trên >1 tàu cho 1 nhân sự — trả về mảng cặp QĐ chồng lấn. */
 function crewOverlapWarnings(empId){
@@ -18375,6 +18402,14 @@ function payPeriodDelete(id){
 function _payAudit(period, action, detail){
   period.audit=period.audit||[];
   period.audit.push({ ts:new Date().toISOString(), user:(CURRENT_USER&&CURRENT_USER.name)||(isAdmin()?'admin':'?'), action, detail:detail||'' });
+  /* v3.14.71 FIX MẤT DỮ LIỆU (Sếp 08/8 — "Tính cả bảng - kiểm tra - trình ký: mất toàn bộ"):
+     TRƯỚC ĐÂY mọi thao tác payroll sửa kỳ mà KHÔNG bump updatedAt → khi pull cloud, merge so tuổi
+     record: local chỉ thắng khi MỚI HƠN HẲN, HÒA thì CLOUD THẮNG (tie-breaker) → bản cloud CŨ
+     (đẩy trước chuỗi thao tác, autoSync debounce 15–25s có thể chưa kịp trước reload/deploy) đè
+     sạch kết quả local. NAY: mọi hành động có audit (kéo thẻ/kéo công/tính/validate/trình/duyệt/
+     từ chối/nhập dòng/PS/toggle 💼/xóa...) đều ĐÓNG DẤU TUỔI kỳ → local luôn mới hơn cloud cũ →
+     merge giữ đúng bản có công sức. */
+  try{ if(typeof touchRecord==='function') touchRecord(period); else period.updatedAt=new Date().toISOString(); }catch(e){}
 }
 function openPayrollPeriods(){
   /* v3.12.40: HR (canSignHr/isNVNS) VÀO ĐƯỢC để theo dõi danh sách + trạng thái kỳ lương,
@@ -18910,7 +18945,8 @@ function payPeriodCreateCommit(){
   /* v3.12.86 (lệnh Sếp): LƯU ngày công chuẩn VÀO KỲ — kỳ cũ bất biến khi đổi cấu hình chung. */
   const _sd=+((document.getElementById('pp-stddays')||{}).value)||0;
   if(!_sd || _sd<1 || _sd>31){ toast('Nhập Ngày công chuẩn của kỳ (1–31)','bad'); return; }
-  const p={ id:uid(), period, profile, status:'draft', companyId:_coId||'', versionId:(payEngine().activeVersion||''),
+  const p={ id:uid(), createdAt:new Date().toISOString(), updatedAt:new Date().toISOString(),   /* v3.14.72: dấu tuổi cho merge */
+    period, profile, status:'draft', companyId:_coId||'', versionId:(payEngine().activeVersion||''),
     projAllow:_payProjAllowScope(profile)?false:undefined,   /* v3.14.26: kỳ VP mới mặc định TẮT PC dự án — bật chủ động từng tháng */
     standardDays:_sd,
     rows:emps, audit:[], createdBy:(CURRENT_USER&&CURRENT_USER.name)||'admin', createdAt:new Date().toISOString() };
@@ -18995,7 +19031,7 @@ function openPayPeriodDetail(id){
         try{ const e=(typeof hrmEmpById==='function')?hrmEmpById(r.empId):null; if(!e) return '';
           const tt=e.title||e.position||'';
           if(p.profile==='crew'||p.profile==='crew_khoan'){
-            const vs=(typeof hrmVesselName==='function'&&hrmVesselName(e.linkVesselId))||e.currentVessel||'';
+            const vs=((typeof crewVesselOfMonth==='function')&&crewVesselOfMonth(r.empId, p.period))||(typeof hrmVesselName==='function'&&hrmVesselName(e.linkVesselId))||e.currentVessel||'';   /* v3.14.68: tàu CHẤM CÔNG tháng kỳ, ưu tiên tàu lên sau */
             return (vs||tt)?(' · '+esc([vs,tt].filter(Boolean).join(' · '))):'';
           }
           const dp=e.dept||e.department||e.division||'';
@@ -23865,8 +23901,17 @@ function payPullSalaryProfiles(periodId){
     const col=it.status==='KHỚP'?'var(--muted)':(it.status==='CHƯA CÓ THẺ LƯƠNG'?'#b3261e':'inherit');
     return `<tr style="border-bottom:1px solid var(--rule)"><td style="padding:4px 6px;font-size:12px">${esc(it.name)}<div style="font-size:9px;color:var(--muted)">${esc(it.ver||'')}</div></td><td style="padding:4px 6px;font-size:11px;color:${col}">${esc(it.status)}</td><td style="padding:4px 6px;font-size:11px">${ch||'—'}</td></tr>`;
   }).join('');
+  /* v3.14.69 (Sếp 08/8): chú giải ký hiệu cột thẻ theo nhóm kỳ */
+  const SP_NOTES={
+    office:'G=Lương cơ bản · H=PC trách nhiệm · K=Thưởng KPI 100% · F=Số người phụ thuộc · NềnBH=Nền đóng BHXH (sổ BH) · W=PC dự án (tháng) · WD=Đơn giá công dự án/ngày · I=Mức công tác TN/ngày · J=Mức công tác NN/ngày',
+    office_gross:'F=Lương cơ bản GROSS · NềnBH=Nền đóng BHXH · F(NPT)=Số người phụ thuộc · NH=PC nhà ở/tháng · T10=Khấu trừ 10% tại nguồn',
+    tech:'H=Mức biển/ngày · I=Mức VP/ngày · J=Mức dock/ngày (=I×1.5) · K=Mức ngoài giờ (=I×1.8) · G/NềnBH=Nền đóng BHXH · F=Số người phụ thuộc · P=Trợ cấp dự án (tháng)',
+    crew:'N=Lương cơ bản HĐLĐ · O=Mức lương biển/ngày · T=Mức lương DP/ngày · NềnBH=Nền đóng BHXH · F=Số người phụ thuộc',
+    crew_khoan:'N=Lương cơ bản HĐLĐ · O=Mức khoán/ngày · NềnBH=Nền đóng BHXH · F=Số người phụ thuộc'
+  };
   openModal('🪪 Kéo thẻ lương vào kỳ '+esc(p.period), `
-    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Mức lấy từ thẻ lương HIỆU LỰC tại kỳ ${esc(p.period)} (phiên bản ghi từng dòng). Ô đã nhập tay KHÔNG bị đè trừ khi tick.</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:6px">Mức lấy từ thẻ lương HIỆU LỰC tại kỳ ${esc(p.period)} (phiên bản ghi từng dòng). Ô đã nhập tay KHÔNG bị đè trừ khi tick.</div>
+    ${SP_NOTES[p.profile]?`<div style="font-size:11px;background:#fdf6e3;border:1px solid #e8d9a0;border-radius:6px;padding:6px 10px;margin-bottom:8px">📖 <b>Ghi chú ký hiệu:</b> ${SP_NOTES[p.profile]}</div>`:''}
     <div style="max-height:52vh;overflow:auto"><table style="width:100%;border-collapse:collapse"><thead><tr style="text-align:left;font-size:10px;color:var(--muted)"><th style="padding:4px 6px">Nhân viên · thẻ</th><th style="padding:4px 6px">Trạng thái</th><th style="padding:4px 6px">Thay đổi (mới / <s>cũ</s>)</th></tr></thead><tbody>${rowsH}</tbody></table></div>`,
     `<button class="btn-sec" onclick="closeModal()">Đóng</button>
      <button class="btn-primary" onclick="_payPullSpApply()">✔ Áp dụng</button>`);
@@ -24364,7 +24409,7 @@ function _payslipHtml(p, row, opts){
     try{ const e=(typeof hrmEmpById==='function')?hrmEmpById(row.empId):null;
       if(e){ const tt=e.title||e.position||'';
         if(p.profile==='crew'||p.profile==='crew_khoan'){
-          const vs=(typeof hrmVesselName==='function'&&hrmVesselName(e.linkVesselId))||e.currentVessel||'';
+          const vs=((typeof crewVesselOfMonth==='function')&&crewVesselOfMonth(row.empId, p.period))||(typeof hrmVesselName==='function'&&hrmVesselName(e.linkVesselId))||e.currentVessel||'';   /* v3.14.68 */
           who=[vs,tt].filter(Boolean).join(' — ');
         } else who=[e.dept||e.department||e.division||'',tt].filter(Boolean).join(' — ');
       } }catch(x){}
@@ -24443,7 +24488,14 @@ function payslipShow(periodId, empId){
   }
   try{ payrollAudit('view_payslip', (row.name||empId)+' · kỳ '+p.period); }catch(e){}
   const r=row.result||{};
-  if(!r || (r.takeHome==null && r.total==null)){ toast('Chưa tính lương cho NV này','warn'); return; }
+  if(!r || (r.takeHome==null && r.total==null)){
+    /* v3.14.70 (Sếp 08/8): nói rõ VÌ SAO chưa có phiếu — KT kiểm biết đường xử ngay */
+    let why;
+    if(r && r._engineMismatch) why='⛔ '+(row.name||'NV')+' bị CHẶN tính: thẻ lương khác nhóm kỳ'+(r._cardEngine?' (thẻ: '+(PAY_PROFILE_LABEL[r._cardEngine]||r._cardEngine)+')':' (chưa có thẻ)')+' — xem 🔍 Ngoại lệ';
+    else if(!row.inputs || !Object.keys(row.inputs).length) why='Dòng '+(row.name||'NV')+' chưa có dữ liệu (chưa 🪪 Kéo thẻ / 📥 Kéo chấm công)';
+    else why='Dòng '+(row.name||'NV')+' có dữ liệu nhưng chưa tính — về Nháp bấm ⚡ Tính cả bảng';
+    toast(why,'warn'); return;
+  }
   const usd=_payIsUsd(p.profile);
   const _empEmail=String((_emp&&_emp.email)||row.email||'').trim();
   const _sendBtn = _empEmail
@@ -24771,6 +24823,7 @@ function payEngineSaveComp(code){
   ver.components=ver.components||[];
   if(code){ const c=ver.components.find(x=>x.code===code); if(c){ c.name=name; c.kind=g('pec-kind'); c.source=g('pec-source'); } }
   else { if(ver.components.some(x=>x.code===newCode)){ toast('Mã đã tồn tại','bad'); return; } ver.components.push({code:newCode,name,kind:g('pec-kind'),source:g('pec-source'),unit:'VND',order:99}); }
+  try{ touchRecord(ver); }catch(e){}   /* v3.14.72 */
   saveState(); openPayrollEngine();
   toast('Đã lưu thành phần','good');
 }
@@ -48489,6 +48542,7 @@ function _paySubmitConfigChangeObj(targetKey, label, beforeObj, afterObj){
     after: JSON.parse(JSON.stringify(afterObj||{})),
     isObj:true,
     requestedBy:actorName()||'?', requestedAt:new Date().toISOString(),
+    createdAt:new Date().toISOString(), updatedAt:new Date().toISOString(),   /* v3.14.72 */
     status:'pending', decidedBy:'', decidedAt:'', decisionNote:''
   };
   try{ logAuditEvent('payroll_config_change',{ target:targetKey, label, status:'pending', obj:true }); }catch(e){}
@@ -80732,7 +80786,7 @@ function hrmAttRenderPreview(){
     const chip=bad?` <span style="font-size:9.5px;background:#c0392b;color:#fff;border-radius:3px;padding:1px 5px;white-space:nowrap" title="Tạo hồ sơ NV (kèm Ngày nghỉ việc nếu đã nghỉ) → điền MSNV vào file → import lại. Nếu là dòng ghi chú lọt vào: dùng file bản sạch.">chưa có hồ sơ</span>`:'';
     return `<tr${mk}><td style="padding:4px;text-align:center;width:24px">${tt}</td><td style="padding:4px;font-family:monospace;font-size:11px">${hrmEsc(r.msnv)}</td>
       <td style="padding:4px;font-size:11px">${hrmEsc(r.name)}${chip}</td>
-      <td style="padding:4px;font-size:10px;color:var(--muted)">${hrmEsc([r._dept||r.unit, r._title||r.title].filter(Boolean).join(' · '))}</td>   <!-- v3.14.67: ƯU TIÊN hồ sơ HRM; file BCC chỉ fallback -->
+      <td style="padding:4px;font-size:10px;color:var(--muted)">${hrmEsc([(P.label&&P.label.indexOf('Đội tàu')>=0 && r._empId && (typeof crewVesselOfMonth==='function'?crewVesselOfMonth(r._empId, document.getElementById('hrm-att-period')&&document.getElementById('hrm-att-period').value||''):''))||r._dept||r.unit, r._title||r.title].filter(Boolean).join(' · '))}</td>   <!-- v3.14.68: crew hiện TÀU chấm công tháng (QĐ điều động, ưu tiên tàu lên SAU); VP giữ Bộ phận hồ sơ -->
       ${cells}<td class="r" style="padding:4px;font-size:11px;font-weight:600">${r.total||''}</td></tr>`;
   }).join('');
   box.innerHTML=`
@@ -80772,10 +80826,12 @@ function hrmAttSave(){
     if(!confirm('Kỳ '+D.period+' ('+HRM_BCC_PROFILES[D.profile].label+') đã có. Ghi đè bằng dữ liệu mới?')) return;
     if(dup.status==='locked'){ toast('Kỳ đã khóa — không ghi đè được','bad'); return; }
     S.hrAttendance=HRService.attendance().filter(a=>a!==dup);
+    try{ markDeleted(dup.id,'hrAttendance'); }catch(e){}   /* v3.14.72: ghi đè phải có BIA MỘ — bản cũ không sống lại từ cloud */
   }
   HRService.addAttendance({
     id:'att_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),
     period:D.period, profile:D.profile, sheetName:D.sheetName, fileName:D.fileName,
+    createdAt:new Date().toISOString(), updatedAt:new Date().toISOString(),   /* v3.14.72: dấu tuổi cho merge */
     importedAt:new Date().toISOString(),
     importedBy:(CURRENT_USER&&CURRENT_USER.name)||(isAdmin()?'admin':'?'),
     status:'draft', rows:D.rows.map(r=>({msnv:r.msnv,name:r.name,title:r.title,unit:r.unit,cols:r.cols,total:r.total}))

@@ -1,5 +1,5 @@
 {
-  "version": "3.14.67",
-  "swVersion": "v3.14.67",
-  "notes": "HO SO HRM LA NGUON BO PHAN/CHUC DANH (Sep 08/8 — 'app can tu dong dien thay vi bi dong lay tu BCC'): parser BCC khi match ho so → TU DIEN r._dept (dept/department/division) + r._title (title/position) tu HO SO; preview hien uu tien ho so, cot file chi la fallback khi ho so trong. QUAN TRONG: r.unit cua FILE giu nguyen — nhan STER/PON nuoi guard phap nhan 3.14.60 khong bi anh huong (test xac nhan). Ky luong + phieu luong da doc truc tiep ho so tu 3.14.65/66. Test song 3/3 PASS. 6 engine SAME · payComputeRow a38f694f."
+  "version": "3.14.72",
+  "swVersion": "v3.14.72",
+  "notes": "AUDIT TOAN APP MAU LOI 'SUA RECORD KHONG DONG DAU TUOI' (Sep 08/8 — lenh 'kiem tra loi nay tren toan app'): quet co he thong 61 ham mutate+saveState khong touch → loc thanh diem ho THAT (sau khi 3.14.71 phu payroll qua _payAudit; the luong salaryProfileAddVersion + hrmAttLock DA touch san; tombstone-only cases an toan). VA 8 DIEM: (1) hrmAttSave — bang BCC luu moi co createdAt/updatedAt + GHI DE co BIA MO markDeleted (truoc: filter thang, ban cu song lai tu cloud → 2 bang trung ky); (2) _hrTsApprove; (3) _hrTsReject; (4) hrTimesheetImportApply — timesheet touch ca tao lan sua; (5) payApproveChange + payRejectChange — duyet/tu choi khong bi cloud 'pending' cu de lai; (6) ca 2 ham tao yeu cau doi tham so — req co dau tuoi; (7) payEngineSaveComp — touch version; (8) payPeriodCreateCommit — ky moi co createdAt/updatedAt. GHI SO NO: commitMutation (Store gateway) khong touch generic duoc (mutateFn tu do) — quy uoc moi mutateFn tu touch; cac ham muc thap con lai (assets/si*/taxYear*/notes/settings — SHARED/admin-push hoac record-local) danh gia sau. 6 engine SAME · payComputeRow a38f694f. Deploy cung 3.14.71."
 }
