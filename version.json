@@ -1,5 +1,5 @@
 {
-  "version": "3.14.85",
-  "swVersion": "v3.14.85",
-  "notes": "FIX BUG GOC form phan quyen (Sep 09/8 — 'Nhom chuc nang: rong, phai tich lai'): editUser XUA NAY khong truyen 3 truong form co doc (funcGroups, isDeptHead, fullName) → mo form luon rong → MOI LAN LUU ghi de funcGroups=[] + isDeptHead=false cua user do (mat ngam). Day la ly do tick nhom NHAN SU cho Trang cu bien mat, va moi Truong bo phan deu bi tuoc co ngam sau moi lan admin sua ho. Fix: truyen du 3 truong. Kem: sau Luu, app toast nhac + hoi mo ngay dialog DAY AUTH len cloud (mot mach — quyen chi hieu luc may khac sau khi day; truoc day 2 buoc roi nhau ai cung quen). Kiem chung them: pullCfgFromCloud DA co merge so tuoi ADR-009 (khong de cloud cu de local moi) — thu pham la form, khong phai sync. Gom 80-84. 7/7 engine SAME."
+  "version": "3.14.86",
+  "swVersion": "v3.14.86",
+  "notes": "CHAN DOAN KET NOI TAN GOC (ca may Thach/Hang 09/8 — tab thuong mo URL exec thay server tra loi, app fetch lai bao 'khong ket noi duoc'; 2 may 2 noi, khac nha mang, chan trang 3.14.85): nghich ly nay chi xay ra o tang CORS — navigation mien CORS, fetch cross-origin thi can header di qua chuoi redirect Google; phan mem can thiep HTTPS tren may (antivirus Web Shield, extension adblock/bao mat, proxy) lot header la fetch nem loi du mang thong. SW da duoc kiem: KHONG intercept script.google.com — vo can. Va: nut 🩺 Kiem tra ket noi (man login) them phep thu [1b] no-cors cung may chu — [1b] toi noi ma [1] chet ⇒ bang chung thep 'CORS bi lot tai may', verdict in ro 4 buoc xu ly (an danh tat extension → tat Web Shield → tat Proxy → trinh duyet sach). Gom 80-85. 7/7 engine SAME."
 }

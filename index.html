@@ -3770,7 +3770,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.14.85';
+const APP_VERSION='3.14.86';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -5552,6 +5552,11 @@ async function authDiagRun(){
   L.push('navigator.onLine: '+(navigator.onLine?'CÓ mạng (theo Windows)':'KHÔNG — máy báo mất mạng'));
   const sv=await _authDiagFetch(url+'?action=ping_diag', {method:'GET'}, 8000);
   L.push('[1] Máy chủ Seahorse (script.google.com): '+(sv.ok?('✓ TRẢ LỜI sau '+sv.ms+'ms'):('✗ LỖI sau '+sv.ms+'ms — '+sv.err)));
+  /* v3.14.86 (ca máy Thạch/Hằng 09/8: gõ URL bằng tab thì thấy server trả lời, app fetch thì "không kết
+     nối được"): thêm phép thử no-cors CÙNG máy chủ — tới nơi được (opaque) mà [1] chết ⇒ bằng chứng thép
+     phần mềm trên máy (antivirus Web Shield / extension) LỘT HEADER CORS, không phải mạng. */
+  const svnc=sv.ok?{ok:true,ms:0}:await _authDiagFetch(url+'?action=ping_diag', {method:'GET', mode:'no-cors'}, 8000);
+  if(!sv.ok) L.push('[1b] Cùng máy chủ, chế độ no-cors: '+(svnc.ok?('✓ TỚI NƠI '+svnc.ms+'ms'):('✗ LỖI '+svnc.ms+'ms — '+svnc.err)));
   const gg=await _authDiagFetch('https://www.gstatic.com/generate_204', {method:'GET', mode:'no-cors'}, 6000);
   L.push('[2] Internet chung (gstatic.com): '+(gg.ok?('✓ OK '+gg.ms+'ms'):('✗ LỖI '+gg.ms+'ms — '+gg.err)));
   const gh=await _authDiagFetch(location.origin+'/version.json?diag='+Date.now(), {method:'GET', cache:'no-store'}, 6000);
@@ -5559,6 +5564,8 @@ async function authDiagRun(){
   let verdict='';
   if(sv.ok){
     verdict='✅ ĐƯỜNG TỚI MÁY CHỦ BÌNH THƯỜNG. Thử đăng nhập lại ngay. Nếu vẫn báo lỗi: chụp màn hình này gửi admin (khả năng lỗi chỉ xảy ra với lệnh POST — antivirus chặn một nửa).';
+  } else if(svnc.ok){
+    verdict='🎯 CHẨN ĐOÁN CHẮC CHẮN: mạng tới máy chủ THÔNG (no-cors tới nơi) nhưng phản hồi CORS bị PHẦN MỀM TRÊN MÁY chặn/lột header.\nXử tận gốc theo thứ tự:\n1) Mở CỬA SỔ ẨN DANH (Ctrl+Shift+N — tắt hết extension) vào app đăng nhập thử → chạy được thì thủ phạm là EXTENSION trình duyệt (adblock/bảo mật) → gỡ hoặc thêm ngoại lệ.\n2) Tắt Web Protection/Web Shield của antivirus 5 phút thử lại → chạy được thì thêm ngoại lệ cho script.google.com + script.googleusercontent.com.\n3) Tắt Proxy Windows (Settings > Network > Proxy).\n4) Thử trình duyệt khác sạch (Edge/Chrome mới).';
   } else if(gg.ok){
     verdict='🎯 CHẨN ĐOÁN: Internet BÌNH THƯỜNG nhưng riêng script.google.com BỊ CHẶN trên máy này.\nThủ phạm thường gặp: (a) Antivirus có Web Protection/Web Shield → tắt thử 5 phút hoặc thêm ngoại lệ cho script.google.com; (b) DNS → đổi sang 8.8.8.8; (c) Proxy Windows → Settings > Network > Proxy: tắt "Use a proxy server".'
       + (sv.ms<400?'\n(Lỗi trả về NHANH '+sv.ms+'ms → thiên về phần mềm chặn chủ động tại máy.)':'\n(Lỗi kiểu chờ lâu '+sv.ms+'ms → thiên về tường lửa/proxy nuốt gói.)');
