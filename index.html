@@ -3770,7 +3770,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.14.86';
+const APP_VERSION='3.14.88';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -5557,13 +5557,27 @@ async function authDiagRun(){
      phần mềm trên máy (antivirus Web Shield / extension) LỘT HEADER CORS, không phải mạng. */
   const svnc=sv.ok?{ok:true,ms:0}:await _authDiagFetch(url+'?action=ping_diag', {method:'GET', mode:'no-cors'}, 8000);
   if(!sv.ok) L.push('[1b] Cùng máy chủ, chế độ no-cors: '+(svnc.ok?('✓ TỚI NƠI '+svnc.ms+'ms'):('✗ LỖI '+svnc.ms+'ms — '+svnc.err)));
+  /* v3.14.87 (ca máy Hằng 10/8: ping [1] SỐNG mà đăng nhập vẫn "không kết nối"): khác biệt duy nhất
+     là KÍCH THƯỚC — đăng nhập tải payload auth lớn qua redirect; phần mềm quét HTTPS hay cho gói nhỏ
+     qua, CẮT gói lớn giữa chừng. Test [1c] tải ĐÚNG request thật để chỉ đích danh. */
+  let ld={ok:false,ms:0,err:'bỏ qua'};
+  if(sv.ok){
+    const t0=Date.now();
+    try{
+      const r=await fetch(url+'?action=load&key=auth&diag='+Date.now(), {method:'GET'});
+      const tx=await r.text(); ld={ok:true,ms:Date.now()-t0,size:tx.length};
+    }catch(e){ ld={ok:false,ms:Date.now()-t0,err:(e&&(e.name+': '+e.message))||String(e)}; }
+    L.push('[1c] Tải THẬT gói đăng nhập (load&key=auth): '+(ld.ok?('✓ OK '+ld.ms+'ms · '+Math.round((ld.size||0)/1024)+'KB'):('✗ LỖI '+ld.ms+'ms — '+ld.err)));
+  }
   const gg=await _authDiagFetch('https://www.gstatic.com/generate_204', {method:'GET', mode:'no-cors'}, 6000);
   L.push('[2] Internet chung (gstatic.com): '+(gg.ok?('✓ OK '+gg.ms+'ms'):('✗ LỖI '+gg.ms+'ms — '+gg.err)));
   const gh=await _authDiagFetch(location.origin+'/version.json?diag='+Date.now(), {method:'GET', cache:'no-store'}, 6000);
   L.push('[3] Máy chủ app (GitHub Pages): '+(gh.ok?('✓ OK '+gh.ms+'ms'):('✗ LỖI '+gh.ms+'ms — '+gh.err)));
   let verdict='';
-  if(sv.ok){
-    verdict='✅ ĐƯỜNG TỚI MÁY CHỦ BÌNH THƯỜNG. Thử đăng nhập lại ngay. Nếu vẫn báo lỗi: chụp màn hình này gửi admin (khả năng lỗi chỉ xảy ra với lệnh POST — antivirus chặn một nửa).';
+  if(sv.ok && !ld.ok){
+    verdict='🎯 CHẨN ĐOÁN CHẮC CHẮN: gói NHỎ qua được, gói ĐĂNG NHẬP (lớn) bị CẮT GIỮA CHỪNG ⇒ phần mềm quét HTTPS trên máy này đang can thiệp.\nXử tận gốc theo thứ tự:\n1) Mở CỬA SỔ ẨN DANH (Ctrl+Shift+N) đăng nhập thử → chạy được = EXTENSION trình duyệt → gỡ/thêm ngoại lệ.\n2) Tắt Web Protection/Web Shield/HTTPS Scanning của antivirus 5 phút → chạy được = thêm ngoại lệ script.google.com + script.googleusercontent.com.\n3) Tắt Proxy Windows (Settings > Network > Proxy).\n4) Thử trình duyệt sạch (Edge/Chrome mới cài).\nBấm Copy gửi admin kèm kết quả từng bước.';
+  } else if(sv.ok){
+    verdict='✅ ĐƯỜNG TỚI MÁY CHỦ BÌNH THƯỜNG — cả gói đăng nhập thật cũng tải OK. Thử đăng nhập lại NGAY (mạng có thể vừa chập chờn lúc nãy). Nếu vẫn lỗi: chụp màn hình này + dòng lỗi đỏ ở form gửi admin.';
   } else if(svnc.ok){
     verdict='🎯 CHẨN ĐOÁN CHẮC CHẮN: mạng tới máy chủ THÔNG (no-cors tới nơi) nhưng phản hồi CORS bị PHẦN MỀM TRÊN MÁY chặn/lột header.\nXử tận gốc theo thứ tự:\n1) Mở CỬA SỔ ẨN DANH (Ctrl+Shift+N — tắt hết extension) vào app đăng nhập thử → chạy được thì thủ phạm là EXTENSION trình duyệt (adblock/bảo mật) → gỡ hoặc thêm ngoại lệ.\n2) Tắt Web Protection/Web Shield của antivirus 5 phút thử lại → chạy được thì thêm ngoại lệ cho script.google.com + script.googleusercontent.com.\n3) Tắt Proxy Windows (Settings > Network > Proxy).\n4) Thử trình duyệt khác sạch (Edge/Chrome mới).';
   } else if(gg.ok){
@@ -5598,7 +5612,7 @@ async function pullCfgFromCloud(scriptUrl, userName, password){
     }
   }
   if(_netErr){
-    throw new Error('Không kết nối được máy chủ (mạng yếu hoặc bị chặn). Kiểm tra mạng rồi thử lại — KHÔNG cần "Làm mới cấu hình".');
+    throw new Error('Không kết nối được máy chủ (mạng yếu hoặc bị chặn). Kiểm tra mạng rồi thử lại — KHÔNG cần "Làm mới cấu hình". [Chi tiết kỹ thuật: '+((_netErr&&(_netErr.name+': '+_netErr.message))||_netErr)+' — bấm 🩺 Kiểm tra kết nối bên dưới]');   /* v3.14.87: khai lỗi gốc, hết đoán mù */
   }
   const data=await res.json();
   if(!data.ok) throw new Error(data.error||'Lỗi pull cfg');
@@ -5923,7 +5937,43 @@ function getAuthConfig(){
   }
   return cfg;
 }
-function setAuthConfig(cfg){localStorage.setItem(AUTH_KEY,JSON.stringify(cfg));}
+/* v3.14.88 (Sếp duyệt 10/8 — ca Thạch/Hằng: cfg auth trong localStorage bị xóa bởi tác nhân ngoài
+   [phần mềm dọn máy/antivirus/trình duyệt thu hồi storage] → NV đang làm việc bỗng văng ra cửa, pull
+   trượt là kẹt vĩnh viễn): BẢN DỰ PHÒNG cfg auth trong IndexedDB — các phần mềm dọn rác thường chỉ
+   quét localStorage, chừa IDB. Mất bản chính → boot tự phục hồi, NV không hay biết. */
+function _authIdb(mode,cb){ try{ const rq=indexedDB.open('seahorse_auth_bk',1);
+  rq.onupgradeneeded=e=>{ try{ e.target.result.createObjectStore('kv'); }catch(_){}};
+  rq.onsuccess=e=>{ try{ const db=e.target.result, tx=db.transaction('kv',mode); cb(tx.objectStore('kv')); tx.oncomplete=()=>db.close(); }catch(_){}};
+}catch(_){}}
+function setAuthConfig(cfg){ localStorage.setItem(AUTH_KEY,JSON.stringify(cfg));
+  try{ localStorage.removeItem('seahorse_cfg_refresh_pending'); }catch(_){}   /* pull/lưu thành công → hết trạng thái "đang làm mới" */
+  _authIdb('readwrite',st=>st.put(JSON.stringify(cfg),'auth_cfg'));
+}
+(function _authCfgRestoreIfLost(){ try{
+  if(localStorage.getItem(AUTH_KEY)) return;                                   // bản chính còn → không đụng
+  if(localStorage.getItem('seahorse_cfg_refresh_pending')) return;             // admin chủ ý làm mới → nhường pull
+  _authIdb('readonly',st=>{ const g=st.get('auth_cfg');
+    g.onsuccess=()=>{ const v=g.result; if(!v) return;
+      if(localStorage.getItem(AUTH_KEY)) return;
+      try{ localStorage.setItem(AUTH_KEY,v);
+        console.warn('[auth] cfg local bị mất — ĐÃ PHỤC HỒI từ bản dự phòng IDB');
+        setTimeout(()=>{ try{ toast('🛟 Cấu hình đăng nhập trên máy bị xóa (phần mềm dọn máy?) — đã tự phục hồi từ bản dự phòng','warn'); }catch(_){} },1600);
+      }catch(_){}
+    };
+  });
+}catch(_){}})();
+/* Hoàn tác an toàn cho nút "Sự cố cấu hình": pull mới THẤT BẠI vì mạng → trả lại cfg cũ, máy dùng tiếp như trước. */
+function _authCfgUndoRefresh(errEl){ try{
+  if(!localStorage.getItem('seahorse_cfg_refresh_pending')) return;
+  if(localStorage.getItem(AUTH_KEY)) return;
+  _authIdb('readonly',st=>{ const g=st.get('auth_cfg');
+    g.onsuccess=()=>{ const v=g.result; if(!v) return;
+      try{ localStorage.setItem(AUTH_KEY,v); localStorage.removeItem('seahorse_cfg_refresh_pending');
+        if(errEl){ errEl.style.color='var(--good,#2a7a2a)'; errEl.textContent='🛟 Tải cấu hình mới thất bại — ĐÃ HOÀN TÁC về cấu hình cũ trên máy. Bấm Đăng nhập lại, máy vẫn dùng được như trước.'; }
+      }catch(_){}
+    };
+  });
+}catch(_){}}
 /* v3.03.09: patch NGUYÊN TỬ — đọc cfg MỚI NHẤT ngay trước khi ghi, chỉ đè các khóa trong patch.
    Sửa lỗi race: sync/export chụp cfg đầu hàm, làm việc mạng vài giây rồi setAuthConfig(snapshot cũ)
    → đè mất lastBackup/lastSync mà thao tác khác vừa ghi (banner "X ngày không backup" sống lại mãi). */
@@ -6045,6 +6095,7 @@ function refreshConfigFromCloud(){
   if(!confirm('⚠ XÓA & TẢI LẠI CẤU HÌNH\n\nChỉ dùng khi ADMIN YÊU CẦU, hoặc công ty vừa đổi hệ thống.\n\nThao tác này XÓA cấu hình đang lưu trên máy này. Sau đó BẮT BUỘC phải có MẠNG ỔN ĐỊNH để đăng nhập lại (app tải cấu hình mới từ cloud).\n\n❗ Nếu chỉ là đăng nhập trục trặc / chưa thấy quyền mới: KHÔNG cần bấm đây — chỉ cần thử đăng nhập lại, hoặc đổi mạng.\n\nVẫn tiếp tục xóa?')) return;
   try{ if(typeof pushLocalSnapshot==='function') pushLocalSnapshot('truoc-refresh-config'); }catch(_){}
   try{
+    localStorage.setItem('seahorse_cfg_refresh_pending', String(Date.now()));   /* v3.14.88: bản dự phòng IDB giữ nguyên — pull mới fail sẽ HOÀN TÁC được, hết cảnh kẹt ngoài cửa */
     localStorage.removeItem(AUTH_KEY);
     localStorage.removeItem(STORE_KEY);
     // v2.99.52: xoá cả các key dữ liệu riêng theo NV (seahorse_v1__nv_*)
@@ -6098,6 +6149,7 @@ async function authAction(){
         if(err) err.textContent='';
       }catch(e){
         if(err){ err.style.color='var(--bad)'; err.textContent='Lỗi: '+_friendlyAuthError(e); }
+        if(/Không kết nối được/.test((e&&e.message)||'')) _authCfgUndoRefresh(err);   /* v3.14.88 */
         return;
       }
     } else {

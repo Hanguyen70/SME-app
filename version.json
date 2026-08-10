@@ -1,5 +1,5 @@
 {
-  "version": "3.14.86",
-  "swVersion": "v3.14.86",
-  "notes": "CHAN DOAN KET NOI TAN GOC (ca may Thach/Hang 09/8 — tab thuong mo URL exec thay server tra loi, app fetch lai bao 'khong ket noi duoc'; 2 may 2 noi, khac nha mang, chan trang 3.14.85): nghich ly nay chi xay ra o tang CORS — navigation mien CORS, fetch cross-origin thi can header di qua chuoi redirect Google; phan mem can thiep HTTPS tren may (antivirus Web Shield, extension adblock/bao mat, proxy) lot header la fetch nem loi du mang thong. SW da duoc kiem: KHONG intercept script.google.com — vo can. Va: nut 🩺 Kiem tra ket noi (man login) them phep thu [1b] no-cors cung may chu — [1b] toi noi ma [1] chet ⇒ bang chung thep 'CORS bi lot tai may', verdict in ro 4 buoc xu ly (an danh tat extension → tat Web Shield → tat Proxy → trinh duyet sach). Gom 80-85. 7/7 engine SAME."
+  "version": "3.14.88",
+  "swVersion": "v3.14.88",
+  "notes": "LUOI AN TOAN CFG AUTH (Sep duyet 10/8 — ca Thach/Hang: NV dang lam viec binh thuong bong vang ra man dang nhap vi cfg localStorage bi tac nhan ngoai xoa [phan mem don may/antivirus/trinh duyet thu hoi storage], pull truot la ket vinh vien): (1) setAuthConfig ghi kem BAN DU PHONG vao IndexedDB 'seahorse_auth_bk' — phan mem don rac thuong chi quet localStorage, chua IDB; (2) boot: mat ban chinh → TU PHUC HOI tu IDB + toast, NV lam viec tiep khong ket; (3) nut 'Su co cau hinh' dat co refresh_pending, GIU nguyen ban IDB — pull moi that bai vi mang → _authCfgUndoRefresh HOAN TAC ve cfg cu ngay tai man login (het canh bam nham roi ket ngoai cua); pull/luu thanh cong → xoa co. Gom 80-87. 7/7 engine SAME."
 }
