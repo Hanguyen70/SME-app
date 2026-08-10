@@ -3770,7 +3770,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.14.82';
+const APP_VERSION='3.14.84';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -7638,7 +7638,7 @@ function userEditorModal(initial,idx){
               if(!staffBasicMode) return true;
               // v3.06.00: tab Nhân viên (IT) chỉ hiện preset SẠCH (không chứa cờ đặc biệt)
               const f=v.flags||{};
-              const hasSpecial = f.canCheckAcc||f.canApproveL1||f.canApproveL2||f.canApproveFund||f.canConfirmPayment||f.canSignOwnerReport||f.canSignHr||f.isNVNS||f.isIT||f.isBOD||f.isCEO||f.canManageUsers||f.isViewer;
+              const hasSpecial = f.canCheckAcc||f.canApproveL1||f.canApproveL2||f.canApproveFund||f.canConfirmPayment||f.canSignOwnerReport||f.canSignHr||f.isNVNS||f.isHrStaff||f.isIT||f.isBOD||f.isCEO||f.canManageUsers||f.isViewer;
               return !hasSpecial && k!=='custom';
             }).map(([k,v])=>`<option value="${k}">${esc(v.label)}</option>`).join('')}
           </select>
@@ -7748,6 +7748,13 @@ function userEditorModal(initial,idx){
             <div>
               <div><b style="color:#2a5a8c">🧾 NVNS — Nhân viên Nhân sự (vận hành lương)</b></div>
               <div style="font-size:11px;color:var(--muted);font-style:normal;margin-top:2px">Cho phép truy cập Module Nhân sự + VẬN HÀNH Module Lương (tạo/tính kỳ lương, nhập-import chấm công, xuất bảng/phiếu lương). KHÔNG được sửa tham số/công thức lương (việc đó dành cho Trưởng phòng NS). Không bật cờ này thì không vào được Module Lương.</div>
+            </div>
+          </label>
+          <label style="display:flex;align-items:flex-start;gap:8px;padding:6px 0;cursor:pointer;border-top:1px solid var(--rule);background:rgba(60,130,110,.07)">
+            <input type="checkbox" id="user-is-hrstaff" ${initial.isHrStaff?'checked':''} style="margin-top:3px">
+            <div>
+              <div><b style="color:#2a7a62">🗂 NV Hồ sơ & Chấm công (KHÔNG lương)</b></div>
+              <div style="font-size:11px;color:var(--muted);font-style:normal;margin-top:2px">v3.14.84 (Sếp 09/8): vào Module Nhân sự để làm HỒ SƠ nhân viên + CHẤM CÔNG (import/khóa BCC, phân bổ nhân sự). TUYỆT ĐỐI KHÔNG thấy gì liên quan lương: không thẻ lương, không sổ lương, không kỳ lương, không chính sách/tham số. Vai dành cho nhân viên HCNS hành chính.</div>
             </div>
           </label>
           <label style="display:flex;align-items:flex-start;gap:8px;padding:6px 0;cursor:pointer;border-top:1px solid var(--rule);background:rgba(120,80,40,.06)">
@@ -8006,6 +8013,7 @@ function editUser(idx){
     isPayrollAcc:!!u.isPayrollAcc,
     canViewPayroll:!!u.canViewPayroll,  // v3.12.38
     isNVNS:!!u.isNVNS,
+    isHrStaff:!!u.isHrStaff,   /* v3.14.84 */
     isIT:!!u.isIT,
     canCheckAcc:!!u.canCheckAcc,
     canApproveL2:!!u.canApproveL2,
@@ -9128,6 +9136,7 @@ async function saveUser(idx){
   let canSignHr=(document.getElementById('user-can-sign-hr')||{}).checked||false;
   if(isPayrollAcc) canSignHr=true;  /* v3.12.08: vai gộp KT tiền lương tự cấp Ký NS */
   const isNVNS=(document.getElementById('user-is-nvns')||{}).checked||false;
+  const isHrStaff=(document.getElementById('user-is-hrstaff')||{}).checked||false;   /* v3.14.84 */
   const isIT=(document.getElementById('user-is-it')||{}).checked||false;
   const itBusiness=(document.getElementById('user-is-it-business')||{}).checked||false;
   const isViewer=!!(document.getElementById('user-is-viewer')||{}).checked;
@@ -9234,6 +9243,7 @@ async function saveUser(idx){
       u.isPayrollAcc=_itBasic?(u.isPayrollAcc||false):(isViewer?false:isPayrollAcc);  // v3.12.08: KT tiền lương (HR+KT)
       u.canViewPayroll=_itBasic?(u.canViewPayroll||false):(isViewer?false:canViewPayroll);  // v3.12.38: cờ HR xem lương
       u.isNVNS=_itBasic?(u.isNVNS||false):(isViewer?false:isNVNS);  // v3.07.96: cờ NVNS vận hành lương
+      u.isHrStaff=_itBasic?(u.isHrStaff||false):(isViewer?false:isHrStaff);  // v3.14.84: hồ sơ+chấm công, không lương
       u.isIT=(isViewer?false:isIT);  // v3.07.97: cờ IT — che dữ liệu nhạy cảm
       u.itBusiness=(u.isIT && itBusiness)||false;  // v3.08.40: IT kiêm nghiệp vụ — vào tab tài chính như NV (lương vẫn che)
       u.assignedVesselIds=isViewer?[]:assignedVesselIds;
@@ -9309,6 +9319,7 @@ async function saveUser(idx){
         isPayrollAcc:(_emptyPerm||isViewer)?false:isPayrollAcc,
         canViewPayroll:(_emptyPerm||isViewer)?false:canViewPayroll,  // v3.12.38
         isNVNS:(_emptyPerm||isViewer)?false:isNVNS,
+        isHrStaff:(_emptyPerm||isViewer)?false:isHrStaff,   /* v3.14.84 */
         isIT:(isViewer?false:isIT),
         assignedVesselIds:(_emptyPerm||isViewer)?[]:assignedVesselIds,
         assignedProjectIds:(_emptyPerm||isViewer)?[]:assignedProjectIds,
@@ -9538,6 +9549,7 @@ function sendInviteEmail(idx){
   if(u.isPayrollAcc) roles.push('Kế toán tiền lương (HR + KT)');
   if(u.canSignHr) roles.push('Ký Module Nhân sự (Trưởng phòng NS)');
   if(u.isNVNS) roles.push('NVNS — Nhân viên Nhân sự (vận hành lương)');
+  if(u.isHrStaff) roles.push('NV Hồ sơ & Chấm công (không lương)');   /* v3.14.84 */
   if(u.isIT) roles.push('IT — Quản trị kỹ thuật (che dữ liệu nhạy cảm)');
 
   const subject=`[${company}] Tài khoản truy cập Seahorse Manager`;
@@ -10015,7 +10027,7 @@ function canManageAppUser(){ return isAdmin() || isITRole(); }
  * ============================================================ */
 function canITManageAccounts(){ return isITRole(); }
 /* Các cờ quyền cao IT TUYỆT ĐỐI không được gán (tự nâng quyền = lỗ hổng). */
-const IT_FORBIDDEN_FLAGS = ['canCheckAcc','canApproveL1','canApproveL2','canApproveFund','canConfirmPayment','canSignOwnerReport','canSignHr','isNVNS','isBOD','isCEO','canManageUsers','isViewer'];
+const IT_FORBIDDEN_FLAGS = ['canCheckAcc','canApproveL1','canApproveL2','canApproveFund','canConfirmPayment','canSignOwnerReport','canSignHr','isNVNS','isHrStaff','isBOD','isCEO','canManageUsers','isViewer'];
 /* Bộ quyền CƠ BẢN khi IT tạo TK mới: chỉ các tab NHẬP LIỆU, không báo cáo/tài chính tổng hợp/nhân sự.
    NV thường tự giới hạn: chỉ thấy phiếu mình tạo (scopedRecords). 'advances' mọi NV có sẵn (không cần liệt kê). */
 const IT_NEWUSER_TABS = ['payables','receivables','op_input','vessel_expense','hr_expense','qn_expense','library'];
@@ -18964,13 +18976,14 @@ function payPeriodCreateCommit(){
     const _seen={};
     _atts.forEach(a=>{ (a.rows||[]).forEach((r,_ai)=>{
       if(_coTagC(r.unit)!==_perTagC) return;
-      if(!r._empId){ _nNoProf++; return; }
-      if(_seen[r._empId]) return;
-      const chk=_payRowEngineCheck({profile:profile, period:period}, r._empId);
+      const _eid=_attEmpIdOf(r);   /* v3.14.83: relink — bảng cũ bị cắt _empId khi lưu */
+      if(!_eid){ _nNoProf++; return; }
+      if(_seen[_eid]) return;
+      const chk=_payRowEngineCheck({profile:profile, period:period}, _eid);
       if(!chk.ok){ _nWrongEng++; return; }
-      _seen[r._empId]=1;
-      const e=HRService.employees().find(x=>x.id===r._empId)||{};
-      emps.push({empId:r._empId, name:e.fullName||r.name, smartId:e.smartId||r.msnv, inputs:{}, result:{}, _attOrder:_ai});
+      _seen[_eid]=1;
+      const e=HRService.employees().find(x=>x.id===_eid)||{};
+      emps.push({empId:_eid, name:e.fullName||r.name, smartId:e.smartId||r.msnv, inputs:{}, result:{}, _attOrder:_ai});
     }); });
     _rosterSrc=_atts.length?('BCC đã khóa ('+_atts.map(a=>(HRM_BCC_PROFILES[a.profile]||{}).label||a.profile).join(' + ')+')'):'RỖNG — chưa có BCC khóa tháng này';
   }
@@ -19037,7 +19050,7 @@ function _payBccVesselMap(p){
     if(!att) return out;
     (att.rows||[]).forEach(r=>{
       const k=String(r.msnv||'').trim().toUpperCase(); if(!k) return;
-      out[k]={ unit:String(r.unit||'').trim(), nghica:+(((r.cols||{}).NGHICA))||0 };
+      out[k]={ unit:String((r.vessel||r.unit)||'').trim(), nghica:+(((r.cols||{}).NGHICA))||0 };   /* v3.14.83: TÀU = tiêu đề nhóm trong file (r.vessel); file cũ chưa import lại → unit cột E */
     });
   }catch(e){}
   return out;
@@ -20229,16 +20242,17 @@ function _payAttBuildDiff(p, att, map){
   const toAdd=[], wrongEngine=[], noProfile=[];
   attRows.forEach(r=>{
     if(used[r.name]) return;
-    if(!r._empId){ noProfile.push((r.msnv?(r.msnv+' · '):'')+(r.name||'?')); return; }
-    if((p.rows||[]).some(x=>x.empId===r._empId)) return;
-    const chk=_payRowEngineCheck(p, r._empId);
+    const _eid=_attEmpIdOf(r);   /* v3.14.83: bảng cũ bị cắt _empId khi lưu — relink runtime */
+    if(!_eid){ noProfile.push((r.msnv?(r.msnv+' · '):'')+(r.name||'?')); return; }
+    if((p.rows||[]).some(x=>x.empId===_eid)) return;
+    const chk=_payRowEngineCheck(p, _eid);
     if(!chk.ok){ wrongEngine.push((r.name||'?')+(chk.cardEngine?(' — thẻ nhóm '+(PAY_PROFILE_LABEL[chk.cardEngine]||chk.cardEngine)):' — chưa có thẻ lương')); return; }
     const changes={};
     Object.keys(map).forEach(F=>{ if(F==='_ignore') return;
       const to=map[F].reduce((t,c)=>t+(+((r.cols||{})[c])||0),0);
       if(to) changes[F]={from:null,to:to,manual:false}; });
-    const e=HRService.employees().find(x=>x.id===r._empId)||{};
-    toAdd.push({empId:r._empId, name:e.fullName||r.name, smartId:e.smartId||r.msnv, _attIdx:r._attIdx, changes});
+    const e=HRService.employees().find(x=>x.id===_eid)||{};
+    toAdd.push({empId:_eid, name:e.fullName||r.name, smartId:e.smartId||r.msnv, _attIdx:r._attIdx, changes});
   });
   const toDrop=items.filter(it=>it.status==='KHÔNG CÓ TRONG BCC').map(it=>({empId:it.empId, name:it.name}));
   const extraAtt=[];   /* v3.14.82: thay bằng toAdd/wrongEngine/noProfile — giữ key tương thích */
@@ -21995,7 +22009,7 @@ function enrEnd(id, endDate){
    Giao diện quản lý hrEmploymentAssignments — KHÔNG nhân bản hồ sơ NV, KHÔNG store mới.
    Field giữ tên hiện trạng (empId, payrollGroup≈profileKey) — spec map 1-1, không migrate.
    Audit 8 phép COMPUTED-ONLY (không lưu state). Đổi đơn vị = end cũ + tạo mới (append-only). */
-function hrAllocCanEdit_(){ return (typeof isAdmin==='function'&&isAdmin()) || (CURRENT_USER&&(CURRENT_USER.canSignHr||CURRENT_USER.isNVNS)); }
+function hrAllocCanEdit_(){ return (typeof isAdmin==='function'&&isAdmin()) || (CURRENT_USER&&(CURRENT_USER.canSignHr||CURRENT_USER.isNVNS||CURRENT_USER.isHrStaff)); }   /* v3.14.84: vai Hồ sơ & Chấm công được phân bổ nhân sự */
 function hrAllocEnts_(){ /* v3.13.61: trước đọc S.pfEntityConfig (store PF đã xóa) — nay lấy thẳng từ S.companies
    qua pfEntCodeOf_ (helper dùng chung, giữ lại khi khai tử PF), tương đương dữ liệu pfEntitySeed_ từng seed */
   var out=(S.companies||[]).filter(function(c){return c&&!c._deleted;}).map(function(c){return pfEntCodeOf_(c);}).filter(Boolean);
@@ -77176,6 +77190,7 @@ function spCardViewVer(empId, verId){
   var r=window._spCardRet; closeModal(); openSalaryProfileCard(empId, r, verId||null);
 }
 function openSalaryProfileCard(empId, _ret, viewVerId){
+  if(_hrStaffNoSalary()){ toast('Vai Hồ sơ & Chấm công không xem Thẻ lương','bad'); return; }   /* v3.14.84 */
   window._spCardRet=(_ret===undefined)?null:_ret;
   const e=hrmEmpById(empId); if(!e){ toast('Không tìm thấy hồ sơ','bad'); return; }
   const list=_spList(empId);
@@ -77991,6 +78006,7 @@ window.spImportGo=function(){
   try{ renderAll(); }catch(e){}
 };
 function openSalaryLedger(){
+  if(_hrStaffNoSalary()){ toast('Vai Hồ sơ & Chấm công không xem Sổ lương','bad'); return; }   /* v3.14.84 */
   if(!(hrmCanSeeAll()||salaryProfileCanEdit())){ toast('Chỉ BGĐ/HCNS/KTT/Admin','bad'); return; }
   const nowPer=new Date().toISOString().slice(0,7), year=nowPer.slice(0,4);
   const emps=HRService.employees().filter(e=>!e._deleted);
@@ -78158,6 +78174,7 @@ function openSalaryLedger(){
 /* v3.12.92: điểm vào chức năng Đối chiếu Thẻ lương ↔ file HR (GĐ1 — chỉ đọc).
    Bản này mới đặt nút + khung; phần parse/ghép/so/xuất Excel làm ở bản kế tiếp. */
 function salaryReconcileOpen(){
+  if(_hrStaffNoSalary()){ toast('Vai Hồ sơ & Chấm công không dùng Đối chiếu thẻ lương','bad'); return; }   /* v3.14.84 */
   if(!(hrmCanSeeAll()||salaryProfileCanEdit())){ toast('Chỉ BGĐ/HCNS/KTT/Admin','bad'); return; }
   toast('Chức năng Đối chiếu Thẻ lương đang được hoàn thiện — bản kế tiếp','warn');
 }
@@ -79394,8 +79411,17 @@ function hrmCanSeeAll(){
   if(CURRENT_USER.isBOD) return true;
   if(CURRENT_USER.canSignHr) return true;  // v3.07.97: Trưởng phòng NS xem+sửa toàn bộ hồ sơ
   if(CURRENT_USER.canManageUsers) return true;
+  if(CURRENT_USER.isHrStaff) return true;  // v3.14.84: NV Hồ sơ & Chấm công — vào HRM (lương chặn riêng bởi _hrStaffNoSalary)
   if(Array.isArray(CURRENT_USER.funcGroups) && CURRENT_USER.funcGroups.includes('HR')) return true;
   return false;
+}
+/* v3.14.84 (Sếp 09/8 — "1 loại nhân viên HR chỉ làm chấm công/hồ sơ, không gì liên quan lương"):
+   vai isHrStaff THUẦN (không kèm cờ lương nào cao hơn) → mọi cửa LƯƠNG trong HRM đóng.
+   Default-deny đúng chính sách Payroll Security mức 1. */
+function _hrStaffNoSalary(){
+  if(!CURRENT_USER || CURRENT_ROLE==='admin') return false;
+  if(!CURRENT_USER.isHrStaff) return false;
+  return !(CURRENT_USER.isBOD||CURRENT_USER.isCEO||CURRENT_USER.canSignHr||CURRENT_USER.isNVNS||CURRENT_USER.isPayrollAcc||CURRENT_USER.canViewPayroll||(typeof canApproveL1==='function'&&canApproveL1()));
 }
 /* Hồ sơ HRM của user đang đăng nhập (nối qua linkUserId = tên tài khoản). */
 function hrmMyEmpIds(){
@@ -80751,6 +80777,25 @@ function hrmSaveEmployee(id, opts){
 /* Bản đồ profile — khớp file Payroll-SME thật (sheet BCC VP / BCC Đội tàu).
    headerRow: hàng chứa mã cột công. dataStart: hàng NV đầu tiên.
    cols: map nhãn → chỉ số cột (0-based). msnv/name/title/unit là cột định danh. */
+/* v3.14.83: KHỚP HỒ SƠ dùng CHUNG một nơi — msnv→smartId; fallback TÊN duy nhất (trùng tên → null,
+   không đoán — luật 3.13.87). Parser + roster kỳ (3.14.82) cùng gọi. */
+function _hrmMatchEmpId(msnv, name){
+  try{
+    const m=String(msnv||'').trim().toUpperCase();
+    if(m){ const e=HRService.employees().find(x=>String(x.smartId||'').trim().toUpperCase()===m); if(e) return e.id; }
+    const nU=String(name||'').trim().toUpperCase().replace(/\s+/g,' ');
+    if(!nU) return '';
+    const hits=HRService.employees().filter(x=>String(x.fullName||'').trim().toUpperCase().replace(/\s+/g,' ')===nU);
+    return hits.length===1?hits[0].id:'';
+  }catch(e){ return ''; }
+}
+/* v3.14.83 FIX BUG 3.14.82: hrmAttSave từ trước tới nay CẮT _empId khi lưu (chỉ giữ msnv/name/unit/cols)
+   → mọi consumer đọc r._empId trên S.hrAttendance thực chất chạy với rỗng; roster-BCC 82 vì thế coi
+   tất cả là "không khớp hồ sơ". Relink runtime: ưu tiên _empId đã lưu (bản mới), thiếu → khớp lại. */
+function _attEmpIdOf(r){
+  if(r&&r._empId) return r._empId;
+  return _hrmMatchEmpId(r&&r.msnv, r&&r.name);
+}
 const HRM_BCC_PROFILES={
   BCC_VP:{
     label:'BCC Văn phòng',
@@ -80862,6 +80907,19 @@ function hrmAttParseSheet(aoa, profileKey){
   if(P.idx.msnv>=0){
     for(let r=_start; r<aoa.length; r++){ const m=norm((aoa[r]||[])[P.idx.msnv]); if(m) _codeCount[m.toUpperCase()]=(_codeCount[m.toUpperCase()]||0)+1; }
   }
+  /* v3.14.83 (Sếp 09/8 — "sắp xếp theo Tên tàu: Geomarine/Geosupporter"): file FM01 Đội tàu ghi cột E
+     = "Đội tàu" (phòng) cho MỌI người; TÊN TÀU nằm ở DÒNG TIÊU ĐỀ NHÓM trong sheet (không MSNV, không
+     số công). Parser carry-forward: gặp tiêu đề khớp DANH MỤC TÀU (hoặc có tiền tố TÀU/M/V) → ghi nhớ,
+     gán rec.vessel cho các dòng NV phía dưới. Đây là ĐỌC ĐÚNG BỐ CỤC CHỨNG TỪ, không suy diễn. */
+  let _secVessel='';
+  const _vNames=(()=>{ try{ const L=[];
+      (S.vessels||[]).concat(S.opVessels||[]).forEach(v=>{ if(v&&v.name) L.push(String(v.name).trim().toUpperCase()); });
+      return L; }catch(e){ return []; } })();
+  const _vMatch=t=>{ let t2=String(t||'').trim().toUpperCase().replace(/^(TÀU|TAU|M\/V|M\.V|MV)\s+/,'').replace(/\s+/g,' ');
+    if(!t2||t2.length<3) return '';
+    for(const vn of _vNames){ if(vn===t2||vn.replace(/\s+/g,' ')===t2) return vn; }
+    for(const vn of _vNames){ if(vn.length>=4&&(vn.indexOf(t2)>=0||t2.indexOf(vn)>=0)) return vn; }
+    return ''; };
   for(let r=_start; r<aoa.length; r++){   // -1 vì aoa 0-based, dataStart 1-based
     const row=aoa[r]||[];
     const msnv = (P.idx.msnv>=0) ? norm(row[P.idx.msnv]) : '';   // chuyên gia không có MSNV
@@ -80879,7 +80937,19 @@ function hrmAttParseSheet(aoa, profileKey){
     P.workCols.forEach(([key,ci])=>{ cols[key]=numAt(row,ci); });
     const total=P.totalSum ? Object.keys(cols).reduce((a,k)=>a+(+cols[k]||0),0) : numAt(row,P.idx.total);   /* v3.11.79: mẫu không có cột tổng → cộng các cột công */
     if(P.isExpert && total<=0 && !(cols.NET_USD>0)) continue;  // chuyên gia chưa làm việc kỳ này → bỏ
-    const rec={ msnv, name, title:norm(row[P.idx.title]), unit:norm(row[P.idx.unit]), cols, total, isExpert:!!P.isExpert };
+    /* v3.14.83: DÒNG TIÊU ĐỀ TÀU (BCC Đội tàu) — không MSNV + toàn bộ cột công = 0 + tên khớp danh mục
+       tàu hoặc có tiền tố TÀU/M/V. Ghi nhớ tàu, KHÔNG thành dòng NV. Tên có tiền tố nhưng chưa khai
+       danh mục → vẫn nhận (đúng chứng từ) + cảnh báo bổ sung danh mục. */
+    if(profileKey==='BCC_DOITAU' && !msnv && total===0){
+      const _vm=_vMatch(name);
+      if(_vm){ _secVessel=_vm; continue; }
+      if(/^(TÀU|TAU|M\/V|M\.V|MV)\b/i.test(name)){
+        _secVessel=String(name).trim().toUpperCase().replace(/^(TÀU|TAU|M\/V|M\.V|MV)\s+/i,'');
+        warnings.push('Tiêu đề tàu "'+name+'" chưa có trong danh mục tàu — nhóm theo đúng tên file; nên bổ sung danh mục');
+        continue;
+      }
+    }
+    const rec={ msnv, name, title:norm(row[P.idx.title]), unit:norm(row[P.idx.unit]), cols, total, isExpert:!!P.isExpert, vessel:(profileKey==='BCC_DOITAU'?_secVessel:'') };
     // đối chiếu hồ sơ HRM: theo MSNV; v3.11.80 — mã DÙNG CHUNG trong file (vd 'NTP' cho cả nhóm
     //   nhà thầu phụ, xuất hiện nhiều dòng) hoặc match mã không ra → fallback đối chiếu theo TÊN,
     //   tránh gán nhiều người vào cùng 1 hồ sơ.
@@ -80905,6 +80975,11 @@ function hrmAttParseSheet(aoa, profileKey){
     }
     if(!emp){ warnings.push((msnv?('MSNV "'+msnv+'" '):'')+'"'+name+'" chưa có hồ sơ trong HRM'); }
     rows.push(rec);
+  }
+  /* v3.14.83: BCC Đội tàu — đếm dòng NV không nằm dưới tiêu đề tàu nào (bố cục file lệch) */
+  if(profileKey==='BCC_DOITAU'){
+    const _nv0=rows.filter(r=>!r.vessel).length;
+    if(_nv0) warnings.unshift(_nv0+' dòng NV không nằm dưới tiêu đề tàu nào — app không đoán tàu, kiểm tra bố cục file (dòng tên tàu phải đứng trước nhóm thuyền viên)');
   }
   // v3.11.80: cảnh báo tổng hợp mã dùng chung (đối chiếu các dòng đó theo tên)
   Object.keys(_codeCount).forEach(c=>{ if(c && _codeCount[c]>1 && !/^SME/i.test(c)) warnings.unshift('Mã "'+c+'" dùng cho '+_codeCount[c]+' dòng — đã đối chiếu các dòng này theo TÊN'); });
@@ -81039,7 +81114,9 @@ function hrmAttSave(){
     createdAt:new Date().toISOString(), updatedAt:new Date().toISOString(),   /* v3.14.72: dấu tuổi cho merge */
     importedAt:new Date().toISOString(),
     importedBy:(CURRENT_USER&&CURRENT_USER.name)||(isAdmin()?'admin':'?'),
-    status:'draft', rows:D.rows.map(r=>({msnv:r.msnv,name:r.name,title:r.title,unit:r.unit,cols:r.cols,total:r.total}))
+    status:'draft', rows:D.rows.map(r=>({msnv:r.msnv,name:r.name,title:r.title,unit:r.unit,cols:r.cols,total:r.total,
+      vessel:r.vessel||'',   /* v3.14.83: TÀU từ tiêu đề nhóm trong file */
+      _empId:r._empId||'', _dept:r._dept||'', _title:r._title||''   /* v3.14.83 FIX: trước đây CẮT khi lưu → mọi consumer đọc _empId rỗng */}))
   });
   saveState();
   _hrmAttPending=null;
@@ -81104,7 +81181,7 @@ function hrmAttDelete(id){
 /* v3.13.24: KHÓA/MỞ kỳ công — trạng thái locked có sẵn nhưng thiếu UI chuyển. Khóa = công đã ký/chốt,
    là điều kiện Payroll 📥 Lấy công từ HRM. Quyền: HR (canSignHr/isNVNS) hoặc Admin. */
 function hrmAttLock(id){
-  if(!(isAdmin()||(CURRENT_USER&&(CURRENT_USER.canSignHr||CURRENT_USER.isNVNS)))){ toast('Chỉ HR/Admin được khóa kỳ công','bad'); return; }
+  if(!(isAdmin()||(CURRENT_USER&&(CURRENT_USER.canSignHr||CURRENT_USER.isNVNS||CURRENT_USER.isHrStaff)))){ toast('Chỉ HR/Admin được khóa kỳ công','bad'); return; }   /* v3.14.84: vai Hồ sơ & Chấm công được khóa BCC */
   const a=HRService.attendance().find(x=>x.id===id); if(!a) return;
   if(!confirm('KHÓA kỳ công '+a.period+' ('+((HRM_BCC_PROFILES[a.profile]||{}).label||a.profile)+') — '+(a.rows||[]).length+' NV?\n\nSau khi khóa: không sửa/xóa/ghi đè; Payroll lấy công được từ bản này.')) return;
   a.status='locked'; a.lockedBy=(CURRENT_USER&&CURRENT_USER.name)||''; a.lockedAt=new Date().toISOString();
@@ -81113,7 +81190,7 @@ function hrmAttLock(id){
   saveState(); toast('🔒 Đã khóa kỳ công '+a.period,'good'); hrmAttRender();
 }
 function hrmAttUnlock(id){
-  if(!(isAdmin()||(CURRENT_USER&&(CURRENT_USER.canSignHr||CURRENT_USER.isNVNS)))){ toast('Chỉ HR/Admin','bad'); return; }
+  if(!(isAdmin()||(CURRENT_USER&&(CURRENT_USER.canSignHr||CURRENT_USER.isNVNS||CURRENT_USER.isHrStaff)))){ toast('Chỉ HR/Admin','bad'); return; }   /* v3.14.84 */
   const a=HRService.attendance().find(x=>x.id===id); if(!a) return;
   if(!confirm('MỞ KHÓA kỳ công '+a.period+'? Bản công sẽ sửa/ghi đè được lại. Kỳ lương đã lấy công từ bản này KHÔNG bị đổi (immutable phía Payroll).')) return;
   a.status='draft'; a.unlockedBy=(CURRENT_USER&&CURRENT_USER.name)||''; a.unlockedAt=new Date().toISOString();

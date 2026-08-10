@@ -1,5 +1,5 @@
 {
-  "version": "3.14.82",
-  "swVersion": "v3.14.82",
-  "notes": "ROSTER KY = BCC CUA THANG (Sep 09/8, ap moi nhom/phap nhan; doi tau thuoc SME — Sep xac nhan): (1) TAO KY nap danh sach tu BCC DA KHOA cung thang (gop bang, dedupe, loc phap nhan 3.14.60 + khop ho so _empId + the luong dung nhom); chua co BCC khoa → ky RONG, khong fallback HRM; ngoai le project/expat giu nguon O&M. (2) KEO CHAM CONG kiem roster: preview ➕SE THEM (khop ho so + the dung nhom) / ➖SE LOAI nguoi ngoai BCC (bo tick de giu ca dac biet vd nhanh T10) / canh bao do THE SAI NHOM va KHONG KHOP HO SO (het lot im lang cua extraAtt cu — dung luong 'BCC phat sinh NV → HR tao ho so/the'); ap dung ghi audit ten tung nguoi + touchRecord dau tuoi. (3) DON NUT THUA: go 🔄 Nap NV con thieu (nguon HRM), an 🕐 Cham cong tau (bo + tile tau — he nhap song song BCC da ngat hieu luc 3.14.43, giu code/du lieu), go xac absorb v3.08.52 khi tao ky, man HRM BCC bo crewVesselOfMonth (tau = cot unit BCC). 7/7 engine SAME · payComputeRow a3d23c75."
+  "version": "3.14.84",
+  "swVersion": "v3.14.84",
+  "notes": "VAI MOI isHrStaff — 'NV Ho so & Cham cong (KHONG luong)' (Sep 09/8): checkbox rieng trong form user (canh NVNS). DUOC: menu+ho so HRM (qua hrmCanSeeAll), import/khoa/mo khoa BCC, phan bo nhan su (hrAllocCanEdit_). KHONG: moi cua luong dong theo default-deny — _hrStaffNoSalary() chan openSalaryProfileCard (the luong tung nguoi — cua nay truoc gio KHONG co gate xem) + openSalaryLedger + salaryReconcileOpen; khong them vao canViewPayroll/canOperatePayroll/canConfigPayroll nen ky luong, chinh sach, tham so, xuat luong van dong nhu cu. IT khong tu cap co nay (IT_FORBIDDEN_FLAGS). Viewer ep false nhu moi co khac. Gom 80-83. 7/7 engine SAME · payComputeRow a3d23c75."
 }
