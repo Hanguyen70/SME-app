@@ -3770,7 +3770,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.14.92';
+const APP_VERSION='3.14.93';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -19609,7 +19609,7 @@ function omImportOpen(){
   const list=(S.omImports||[]).slice().sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
   const rowsH=list.map(o=>`<tr style="border-bottom:1px solid var(--rule)">
     <td style="padding:4px 6px;font-size:12px">${esc(o.period)} · ${esc(PAY_PROFILE_LABEL[o.profile]||o.profile)}</td>
-    <td style="padding:4px 6px;font-size:11px">${o.summary.length} người · ${o.detail.length} dòng chi tiết</td>
+    <td style="padding:4px 6px;font-size:11px">${o.type==='bsr_timesheet'?(o.summary.length+' chuyên gia · nguồn Timesheet BSR (PDF)'):(o.summary.length+' người · '+o.detail.length+' dòng chi tiết')}</td>
     <td style="padding:4px 6px;font-size:11px">${o.status==='reconciled'?'<span class="ds-need" style="color:#1e7d44">✓ Đã đối chiếu</span>':'<span class="ds-need" style="color:#b3261e">Lệch — bị chặn</span>'}</td>
     <td style="padding:4px 6px;white-space:nowrap">${o.status==='reconciled'?`<button class="btn-sec" style="font-size:11px" onclick="omApplyToPeriod('${o.id}')">→ Nạp vào kỳ</button>`:''}<button class="icon-btn" title="Xóa" onclick="omImportDelete('${o.id}')">🗑</button></td>
   </tr>`).join('');
@@ -19619,6 +19619,8 @@ function omImportOpen(){
       <label>Nhóm <select id="om-prof" style="padding:5px;border:1px solid var(--rule);border-radius:5px"><option value="project">Chuyên gia/Dự án</option><option value="expat">Chuyên gia VP (Expat)</option></select></label>
       <button class="btn-sec" style="font-size:11px" onclick="document.getElementById('om-file').click()">📂 Chọn file (2 sheet Summary+Detail)</button>
       <input type="file" id="om-file" accept=".xlsx,.xls" style="display:none" onchange="omImportExcel(this)">
+      <button class="btn-sec" style="font-size:11px" onclick="document.getElementById('bsr-ts-files').click()" title="v3.14.93: Đọc trực tiếp timesheet BSR (BSR-MNT-PRO-029/F-006a) — mỗi file PDF 1 chuyên gia. Giờ thường → J, giờ OT/lễ → L (×1.5, Sếp chốt 10/8). Đối chiếu chi tiết ngày ↔ tổng in sẵn.">📥 Timesheet BSR (PDF)</button>
+      <input type="file" id="bsr-ts-files" accept=".pdf" multiple style="display:none" onchange="bsrTsImportFiles(this)">
     </div>
     <div style="max-height:48vh;overflow:auto"><table style="width:100%;border-collapse:collapse"><tbody>${rowsH||'<tr><td style="padding:10px;color:var(--muted);text-align:center">Chưa có bộ import nào</td></tr>'}</tbody></table></div>`,
     '<button class="btn-sec" onclick="closeModal()">Đóng</button>');
@@ -19701,6 +19703,211 @@ function _omParse(aoaS, aoaD, prof){
   if(!detail.length) errors.push('Detail không có dòng dữ liệu');
   return {summary, detail, errors};
 }
+/* ===== v3.14.93 — IMPORT TIMESHEET BSR (PDF) cho chuyên gia O&M =====
+   Mẫu BSR-MNT-PRO-029/F-006a: mỗi file PDF 1 chuyên gia. Bộ extract text mini:
+   parse objects/ObjStm → inflate FlateDecode (DecompressionStream native) → map CID→Unicode
+   qua ToUnicode CMap → items (y,x,text) → nghiệp vụ theo toạ độ dòng MONTHLY TOTAL.
+   Giờ thường → J · giờ OT (kể cả lễ 1*) → L ×1.5 (Sếp chốt 10/8/2026). Đơn giá G lấy từ thẻ lương, KHÔNG lấy từ timesheet. */
+function _bsrToU8(str){ const a=new Uint8Array(str.length); for(let i=0;i<str.length;i++) a[i]=str.charCodeAt(i)&0xFF; return a; }
+function _bsrLatin1(u8){ /* v3.14.93 FIX: TextDecoder('latin1') là windows-1252 → hỏng round-trip binary; ISO-8859-1 thật = byte==charcode */ let out=''; const CH=32768; for(let i=0;i<u8.length;i+=CH){ out+=String.fromCharCode.apply(null, u8.subarray(i, Math.min(i+CH, u8.length))); } return out; }
+async function _bsrInflate(u8){
+  try{
+    const ds=new DecompressionStream('deflate');
+    const ab=await new Response(new Blob([u8]).stream().pipeThrough(ds)).arrayBuffer();
+    return _bsrLatin1(new Uint8Array(ab));
+  }catch(e){ return null; }
+}
+async function _bsrTsExtract(u8){
+  const s=_bsrLatin1(u8);
+  const objs={}; let m; const reObj=/(\d+) 0 obj([\s\S]*?)endobj/g;
+  while((m=reObj.exec(s))) objs[+m[1]]=m[2];
+  const getStreamRaw=b=>{ const mm=/stream\r?\n/.exec(b); if(!mm) return null;
+    let d=b.slice(mm.index+mm[0].length); const e=d.lastIndexOf('endstream'); if(e<0) return null;
+    return d.slice(0,e).replace(/[\r\n]+$/,''); };
+  const getStream=async b=>{ const raw=getStreamRaw(b||''); if(raw==null) return null;
+    if((b||'').indexOf('/FlateDecode')>=0) return await _bsrInflate(_bsrToU8(raw));
+    return raw; };
+  for(const k of Object.keys(objs)){ const b=objs[k];
+    if(b.indexOf('/ObjStm')>=0){ const t=await getStream(b); if(!t) continue;
+      const first=+((/\/First (\d+)/.exec(b)||[])[1]||0), n=+((/\/N (\d+)/.exec(b)||[])[1]||0);
+      const nums=t.slice(0,first).trim().split(/\s+/).map(Number);
+      for(let i=0;i<n;i++){ const onum=nums[2*i], off=nums[2*i+1];
+        const end=(i+1<n)?nums[2*i+3]:(t.length-first);
+        objs[onum]=t.slice(first+off, first+end); } } }
+  const parseCmap=t=>{ const mp={}; let mm;
+    const rc=/beginbfchar([\s\S]*?)endbfchar/g;
+    while((mm=rc.exec(t))){ let p; const rp=/<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g;
+      while((p=rp.exec(mm[1]))){ let dst=''; const b=p[2];
+        for(let i=0;i<b.length;i+=4) dst+=String.fromCharCode(parseInt(b.slice(i,i+4),16));
+        mp[parseInt(p[1],16)]=dst; } }
+    const rr=/beginbfrange([\s\S]*?)endbfrange/g;
+    while((mm=rr.exec(t))){ let p; const rp=/<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>/g;
+      while((p=rp.exec(mm[1]))){ const lo=parseInt(p[1],16), hi=parseInt(p[2],16), base=parseInt(p[3],16);
+        for(let k2=lo;k2<=hi && (k2-lo)<65536;k2++) mp[k2]=String.fromCharCode(base+(k2-lo)); } }
+    return mp; };
+  const fontMaps=async body=>{ const out={};
+    const mf=/\/Font\s*<<([\s\S]*?)>>/.exec(body); const fb2=mf?mf[1]:'';
+    let p; const rp=/\/(\w+)\s+(\d+) 0 R/g;
+    while((p=rp.exec(fb2))){ const fb=objs[+p[2]]||'';
+      const isCid=fb.indexOf('/Identity-H')>=0||fb.indexOf('/Type0')>=0; let cmap={};
+      const mtu=/\/ToUnicode\s+(\d+) 0 R/.exec(fb);
+      if(mtu){ const st=await getStream(objs[+mtu[1]]); if(st) cmap=parseCmap(st); }
+      out[p[1]]=[isCid,cmap]; }
+    return out; };
+  const unesc=t=>t.replace(/\\([nrtbf()\\]|[0-7]{1,3})/g,function(w,g){
+    const M={'n':'\n','r':'\r','t':'\t','b':'\b','f':'\f','(':'(',')':')','\\':'\\'};
+    return M[g]!==undefined?M[g]:String.fromCharCode(parseInt(g,8)); });
+  const decS=(sv,isCid,cmap)=>{ if(!isCid) return sv; let o2='';
+    for(let i=0;i+1<sv.length;i+=2){ const cid=(sv.charCodeAt(i)<<8)|sv.charCodeAt(i+1); o2+=(cmap[cid]||''); }
+    return o2; };
+  const pages=Object.keys(objs).filter(k=>/\/Type\s*\/Page(?![A-Za-z])/.test(objs[k]));
+  const TOK=/\/(\w+)\s+[\d.]+\s+Tf|(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+Tm|(-?[\d.]+)\s+(-?[\d.]+)\s+Td|\(((?:[^()\\]|\\[\s\S])*)\)\s*Tj|<([0-9A-Fa-f\s]+)>\s*Tj|\[([\s\S]*?)\]\s*TJ/g;
+  for(const pk of pages){ const body=objs[pk];
+    const fonts=await fontMaps(body);
+    const mC=/\/Contents\s*\[([\s\S]*?)\]/.exec(body);
+    const crefs=[];
+    if(mC){ let p; const rp=/(\d+) 0 R/g; while((p=rp.exec(mC[1]))) crefs.push(+p[1]); }
+    else { const m1=/\/Contents\s+(\d+) 0 R/.exec(body); if(m1) crefs.push(+m1[1]); }
+    const items=[];
+    for(const c of crefs){ const st=await getStream(objs[c]); if(!st) continue;
+      let cur=[false,{}], x=0, y=0, flip=false, mm;
+      TOK.lastIndex=0;
+      while((mm=TOK.exec(st))){
+        if(mm[1]!==undefined) cur=fonts[mm[1]]||[false,{}];
+        else if(mm[2]!==undefined){ x=+mm[6]; y=+mm[7]; flip=(+mm[5])<0; }
+        else if(mm[8]!==undefined){ x+=+mm[8]; y+=+mm[9]; }
+        else if(mm[10]!==undefined) items.push([flip?y:-y, x, decS(unesc(mm[10]),cur[0],cur[1])]);
+        else if(mm[11]!==undefined){ const hx=mm[11].replace(/\s/g,''); let b='';
+          for(let i=0;i+1<hx.length;i+=2) b+=String.fromCharCode(parseInt(hx.slice(i,i+2),16));
+          items.push([flip?y:-y, x, decS(b,cur[0],cur[1])]); }
+        else if(mm[12]!==undefined){ let txt='', p2; const rp2=/\(((?:[^()\\]|\\[\s\S])*)\)|<([0-9A-Fa-f]+)>/g;
+          while((p2=rp2.exec(mm[12]))){
+            if(p2[1]!==undefined) txt+=decS(unesc(p2[1]),cur[0],cur[1]);
+            else if(p2[2]){ const hx=p2[2]; let b='';
+              for(let i=0;i+1<hx.length;i+=2) b+=String.fromCharCode(parseInt(hx.slice(i,i+2),16));
+              txt+=decS(b,cur[0],cur[1]); } }
+          items.push([flip?y:-y, x, txt]); }
+      } }
+    if(items.some(it=>String(it[2]).indexOf('MONTHLY TOTAL')>=0)) return items;
+  }
+  return null;
+}
+/* PURE — nghiệp vụ từ items (y,x,text). Trả {name,passport,period,J,L,checks:[],noteLe} hoặc {err} */
+function _bsrTsParseOne(items){
+  const clean=items.map(it=>[it[0],it[1],String(it[2]).trim()]).filter(it=>it[2]);
+  const find=f=>clean.find(it=>f(it[2]));
+  const tot=find(t=>t.indexOf('MONTHLY TOTAL')>=0);
+  if(!tot) return {err:'Không thấy dòng MONTHLY TOTAL — không phải mẫu timesheet BSR?'};
+  const yT=tot[0];
+  const nums=clean.filter(it=>Math.abs(it[0]-yT)<4 && /^\d+(\.\d+)?$/.test(it[2])).sort((a,b)=>a[1]-b[1]);
+  if(!nums.length) return {err:'Không đọc được số tổng giờ trên dòng MONTHLY TOTAL'};
+  const J=+nums[0][2], xJ=nums[0][1];
+  const hasL=nums.length>1;
+  const L=hasL?+nums[nums.length-1][2]:0, xL=hasL?nums[nums.length-1][1]:-9999;
+  /* cluster cột số vùng bảng, chọn cụm GẦN tổng nhất để cộng đối chiếu */
+  const cells=clean.filter(it=>it[0]<yT-2 && it[0]>yT-620 && /^\d+(\.\d+)?$/.test(it[2]));
+  const clusters={};
+  cells.forEach(it=>{ const cx=Math.round(it[1]/8)*8; (clusters[cx]=clusters[cx]||[]).push(it); });
+  const cxs=Object.keys(clusters).map(Number);
+  const nearest=x0=>{ let best=null,bd=1e9; cxs.forEach(cx=>{ const d=Math.abs(cx-x0); if(d<bd){bd=d;best=cx;} }); return (best!=null&&bd<40)?best:null; };
+  const sum=cx=>cx==null?0:clusters[cx].reduce((a,it)=>a+(+it[2]||0),0);
+  const hStd=sum(nearest(xJ)), hOt=hasL?sum(nearest(xL)):0;
+  const nLe=clean.filter(it=>/^\d{1,2}-[A-Za-z]{3}/.test(it[2]) && it[2].indexOf('1*')>=0).length;
+  let name='';
+  const lab=find(t=>t.indexOf("Expert's name")>=0);
+  if(lab){ const cands=clean.filter(it=>Math.abs(it[0]-lab[0])<4 && it[1]>lab[1]+5 && it[2].indexOf(':')<0).sort((a,b)=>a[1]-b[1]);
+    if(cands.length) name=cands[0][2]; }
+  let passport='';
+  const ppIt=find(t=>/^[A-Z]{1,2}\d{6,9}/.test(t));
+  if(ppIt) passport=(ppIt[2].match(/^([A-Z]{1,2}\d{6,9})/)||[])[1]||'';
+  let period='';
+  const pi=find(t=>/(\d{4})\/(\d{2})\/\d{2}\s*~/.test(t));
+  if(pi){ const g=/(\d{4})\/(\d{2})\/\d{2}\s*~/.exec(pi[2]); period=g[1]+'-'+g[2]; }
+  const checks=[];
+  if(Math.abs(hStd-J)>0.01) checks.push('Σ chi tiết giờ thường '+hStd+'h ≠ tổng in '+J+'h');
+  if(hasL && Math.abs(hOt-L)>0.01) checks.push('Σ chi tiết giờ OT '+hOt+'h ≠ tổng in '+L+'h');
+  if(!name) checks.push('Không đọc được tên chuyên gia');
+  if(!period) checks.push('Không đọc được kỳ (Work duration)');
+  const noteLe=nLe>0?(nLe+' ngày lễ (1*) = '+(nLe*8)+'h nằm trong OT'):'';
+  return {name,passport,period,J,L,hStd,hOt,nLe,noteLe,checks};
+}
+/* Khớp hồ sơ: ưu tiên hộ chiếu == idNo, fallback tên bỏ dấu */
+function _bsrTsMatchEmp(row){
+  const norm=t=>String(t||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim().toUpperCase();
+  const emps=HRService.employees().filter(e=>e.status!=='inactive');
+  if(row.passport){ const hit=emps.find(e=>String(e.idNo||'').trim().toUpperCase()===row.passport.toUpperCase()); if(hit) return hit; }
+  if(row.name){ const nn=norm(row.name); const hit=emps.find(e=>norm(e.fullName)===nn); if(hit) return hit; }
+  return null;
+}
+function bsrTsImportFiles(inputEl){
+  const files=Array.from(inputEl.files||[]); inputEl.value='';
+  if(!files.length) return;
+  if(typeof DecompressionStream==='undefined'){ toast('Trình duyệt không hỗ trợ DecompressionStream — cần Chrome/Edge 80+','bad'); return; }
+  const per=(document.getElementById('om-per')?document.getElementById('om-per').value:'').trim();
+  const prof=document.getElementById('om-prof')?document.getElementById('om-prof').value:'project';
+  toast('Đang đọc '+files.length+' file PDF…','');
+  (async function(){
+    const rows=[];
+    for(const f of files){
+      try{
+        const u8=new Uint8Array(await f.arrayBuffer());
+        const items=await _bsrTsExtract(u8);
+        if(!items){ rows.push({file:f.name, err:'Không extract được text — file scan ảnh hoặc không đúng mẫu?'}); continue; }
+        const r=_bsrTsParseOne(items);
+        r.file=f.name;
+        if(!r.err){ const emp=_bsrTsMatchEmp(r); if(emp){ r.empId=emp.id; r.smartId=emp.smartId; r.empName=emp.fullName; } }
+        rows.push(r);
+      }catch(e){ rows.push({file:f.name, err:'Lỗi đọc: '+(e&&e.message||e)}); }
+    }
+    window._bsrTsPending={rows:rows, per:per, prof:prof};
+    const emps=HRService.employees().filter(e=>e.status!=='inactive' && (e.type==='expert'||e.type==='office'));
+    const opts=e0=>'<option value="">— chọn hồ sơ —</option>'+emps.map(e=>'<option value="'+e.id+'"'+(e0===e.id?' selected':'')+'>'+esc(e.smartId||'')+' · '+esc(e.fullName||'')+'</option>').join('');
+    const trs=rows.map((r,i)=>{
+      if(r.err) return '<tr style="border-bottom:1px solid var(--rule)"><td style="padding:4px 6px;font-size:11px">'+esc(r.file)+'</td><td colspan="5" style="padding:4px 6px;font-size:11px;color:#b3261e">⚠ '+esc(r.err)+'</td></tr>';
+      const ok=!r.checks.length, perOk=!per||r.period===per;
+      return '<tr style="border-bottom:1px solid var(--rule)">'
+        +'<td style="padding:4px 6px;font-size:11px">'+esc(r.file)+'</td>'
+        +'<td style="padding:4px 6px;font-size:12px"><b>'+esc(r.name||'?')+'</b>'+(r.passport?('<div style="font-size:10px;color:var(--muted)">HC '+esc(r.passport)+'</div>'):'')+'</td>'
+        +'<td style="padding:4px 6px;font-size:12px'+(perOk?'':';color:#b3261e')+'">'+esc(r.period||'?')+(perOk?'':' ≠ kỳ chọn')+'</td>'
+        +'<td style="padding:4px 6px;text-align:right;font-family:var(--font-mono);font-size:12px">'+r.J+'h</td>'
+        +'<td style="padding:4px 6px;text-align:right;font-family:var(--font-mono);font-size:12px">'+r.L+'h'+(r.noteLe?('<div style="font-size:10px;color:var(--muted)">'+esc(r.noteLe)+'</div>'):'')+'</td>'
+        +'<td style="padding:4px 6px;font-size:11px">'+(ok?'<span style="color:#1e7d44">✓ chi tiết = tổng</span>':('<span style="color:#b3261e">'+r.checks.map(esc).join('<br>')+'</span>'))
+        +'<div style="margin-top:3px"><select id="bsr-emp-'+i+'" style="max-width:190px;padding:3px;border:1px solid var(--rule);border-radius:4px;font-size:11px">'+opts(r.empId||'')+'</select></div></td></tr>';
+    }).join('');
+    openModal('📥 Timesheet BSR (PDF) — xem trước '+rows.length+' file', 
+      '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Giờ thường → <b>J</b> · giờ OT/lễ → <b>L</b> (×1.5). Đơn giá USD/ngày lấy từ THẺ LƯƠNG khi tính kỳ (nút 🪪 Kéo thẻ lương), không lấy từ timesheet. Đối chiếu: Σ ô giờ từng ngày phải khớp tổng in trên form.</div>'
+      +'<div style="max-height:52vh;overflow:auto"><table style="width:100%;border-collapse:collapse"><thead><tr style="font-size:10px;color:var(--muted);text-align:left"><th style="padding:3px 6px">File</th><th style="padding:3px 6px">Chuyên gia</th><th style="padding:3px 6px">Kỳ</th><th style="padding:3px 6px;text-align:right">Giờ thường (J)</th><th style="padding:3px 6px;text-align:right">Giờ OT (L ×1.5)</th><th style="padding:3px 6px">Đối chiếu · Hồ sơ</th></tr></thead><tbody>'+trs+'</tbody></table></div>',
+      '<button class="btn-ghost" onclick="closeModal();omImportOpen()">Hủy</button><button class="btn-primary" onclick="bsrTsConfirm()">✓ Tạo bộ import</button>');
+  })();
+}
+function bsrTsConfirm(){
+  const P=window._bsrTsPending; if(!P){ closeModal(); return; }
+  const good=[]; const errs=[];
+  P.rows.forEach((r,i)=>{
+    if(r.err){ errs.push(r.file+': '+r.err); return; }
+    const sel=document.getElementById('bsr-emp-'+i);
+    const empId=sel?sel.value:''; 
+    if(!empId){ errs.push(r.file+': chưa chọn hồ sơ'); return; }
+    if(r.checks.length){ errs.push(r.file+': '+r.checks.join('; ')); return; }
+    if(P.per && r.period && r.period!==P.per){ errs.push(r.file+': kỳ '+r.period+' ≠ kỳ chọn '+P.per); return; }
+    const emp=HRService.employees().find(e=>e.id===empId);
+    good.push({smartId:(emp&&emp.smartId)||'', empId:empId, name:(emp&&emp.fullName)||r.name, J:+r.J||0, L:+r.L||0,
+      passport:r.passport||'', period:r.period||P.per, file:r.file, nLe:r.nLe||0, total:0, fields:{}});
+  });
+  if(!good.length){ openModal('⚠ Không có file hợp lệ', errs.map(e=>'<div style="font-size:12px;color:#b3261e">'+esc(e)+'</div>').join(''), '<button class="btn-sec" onclick="omImportOpen()">Đóng</button>'); return; }
+  const dup={}; let dupErr='';
+  good.forEach(g=>{ if(dup[g.empId]) dupErr='Trùng chuyên gia trong bộ: '+g.name; dup[g.empId]=1; });
+  if(dupErr){ toast(dupErr,'bad'); return; }
+  const batchId='TS'+Date.now().toString(36).toUpperCase();
+  const item={id:'om_'+Date.now().toString(36), batchId:batchId, type:'bsr_timesheet', period:P.per||good[0].period, profile:P.prof,
+    summary:good, detail:[], reconciled:true, diffs:[], status:'reconciled',
+    createdBy:(CURRENT_USER&&CURRENT_USER.name)||'', createdAt:new Date().toISOString(),
+    auditTrail:[{at:new Date().toISOString(),by:(CURRENT_USER&&CURRENT_USER.name)||'',act:'import',note:'Timesheet BSR PDF · '+good.length+' chuyên gia'+(errs.length?(' · bỏ qua '+errs.length+' file lỗi'):'')}]};
+  (S.omImports=S.omImports||[]).push(item);
+  saveState();
+  toast('✓ Đã tạo bộ Timesheet BSR: '+good.length+' chuyên gia'+(errs.length?(' · ⚠ bỏ qua '+errs.length+' file'):''), errs.length?'warn':'good');
+  omImportOpen();
+}
 function omApplyToPeriod(omId){
   const o=(S.omImports||[]).find(x=>x.id===omId);
   if(!o || o.status!=='reconciled'){ toast('Bộ chưa đối chiếu khớp — bị chặn','bad'); return; }
@@ -19715,6 +19922,11 @@ function omApplyToPeriod(omId){
     if(!emp){ miss.push(sm.smartId); return; }
     let row=(p.rows||[]).find(r=>r.empId===emp.id);
     if(!row){ row={empId:emp.id,name:emp.fullName,smartId:emp.smartId,inputs:{},result:{}}; p.rows.push(row); }
+    if(o.type==='bsr_timesheet'){
+      /* v3.14.93: nguồn Timesheet BSR PDF — đổ thẳng giờ vào engine expert: J=giờ thường, L=giờ OT ×1.5 */
+      row.inputs.J=+sm.J||0; row.inputs.L=+sm.L||0;
+      row._tsSource={file:sm.file, passport:sm.passport, nLe:sm.nLe||0};
+    } else {
     // đổ input theo mẫu import của profile (map tên cột → field engine)
     const tpl=(payEngine().importTemplates||defaultImportTemplates())[o.profile]||{cols:{}};
     Object.keys(tpl.cols||{}).forEach(F=>{
@@ -19723,6 +19935,7 @@ function omApplyToPeriod(omId){
     });
     row._omDetail=o.detail.filter(d=>String(d.smartId).trim().toUpperCase()===String(sm.smartId).trim().toUpperCase());
     row._omTotal=+sm.total||0;
+    }
     row.omSource={omId:o.id, batchId:o.batchId, appliedAt:new Date().toISOString(), appliedBy:(CURRENT_USER&&CURRENT_USER.name)||''};
     try{ row.result=payComputeRow(p, row); }catch(e){}
     n++;

@@ -1,5 +1,5 @@
 {
-  "version": "3.14.92",
-  "swVersion": "v3.14.92",
-  "notes": "v3.14.92: TBNS SME-HR01-FRM-2026 — bật auto-size font cho toàn bộ 58 ô text (DA /Helv 8 Tf → /Helv 0 Tf): text dài hơn ô sẽ tự co chữ để hiển thị/in ĐỦ thay vì bị cắt. Dữ liệu import vốn đã an toàn (đọc /V đầy đủ qua pdf-lib, MaxLen 100). Kế thừa 3.14.91 (ô Tên TK) + 3.14.90 (tick ✓). Không đụng engine lương."
+  "version": "3.14.93",
+  "swVersion": "v3.14.93",
+  "notes": "v3.14.93: LƯƠNG CHUYÊN GIA O&M — import trực tiếp Timesheet BSR (PDF, mẫu BSR-MNT-PRO-029/F-006a, mỗi file 1 chuyên gia). Bộ extract text PDF mini (FlateDecode qua DecompressionStream native + ToUnicode CMap cho CIDFont Identity-H). Tự đọc: tên, hộ chiếu, kỳ, tổng giờ thường → J, tổng giờ OT/lễ → L (×1.5, chốt 10/8). Đối chiếu bắt buộc: Σ ô giờ từng ngày ↔ tổng in trên form; đếm ngày lễ 1*. Khớp hồ sơ theo hộ chiếu (idNo) hoặc tên; preview + chọn tay trước khi tạo bộ. Nạp vào kỳ qua luồng omImports hiện có (đơn giá G từ thẻ lương). Không đụng engine lương."
 }
