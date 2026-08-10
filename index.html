@@ -3770,7 +3770,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.14.84';
+const APP_VERSION='3.14.85';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -8005,6 +8005,13 @@ function editUser(idx){
     joinDate:u.joinDate||'',
     occasions:u.occasions||'',
     tabs:u.tabs||[],
+    /* v3.14.85 FIX BUG GỐC (Sếp 09/8 — "Nhóm chức năng: rỗng, phải tích lại"): editUser XƯA NAY
+       KHÔNG truyền 3 trường form có đọc → mở form luôn rỗng → MỖI LẦN LƯU ghi đè funcGroups=[] +
+       isDeptHead=false của user đó (mất ngầm, không ai hay). Đây là lý do tick nhóm NHÂN SỰ cho
+       Trang cứ biến mất sau mỗi lần sửa. */
+    fullName:u.fullName||'',
+    funcGroups:Array.isArray(u.funcGroups)?u.funcGroups.slice():[],
+    isDeptHead:!!u.isDeptHead,
     canConfirmPayment:!!u.canConfirmPayment,
     canApproveL1:!!u.canApproveL1,
     canApproveFund:!!u.canApproveFund,
@@ -9360,7 +9367,13 @@ async function saveUser(idx){
     }
     setAuthConfig(cfg);
     closeModal();
-    openSettings(); // refresh
+    /* v3.14.85: quyền chỉ hiệu lực máy khác SAU KHI đẩy auth — gộp thành một mạch, khỏi quên bước 2 */
+    if(cfg.scriptUrl){
+      toast('Đã lưu. Quyền chỉ hiệu lực trên máy khác sau khi ĐẨY AUTH lên cloud','warn');
+      if(confirm('Đẩy auth lên cloud NGAY để "'+name+'" nhận quyền mới trên máy của họ?')){
+        try{ openCfgSyncDialog(); }catch(_e){ openSettings(); }
+      } else { openSettings(); }
+    } else { openSettings(); } // refresh
   }catch(e){
     if(/extractable|exportKey/i.test(e.message)){
       err.innerHTML='Phiên đăng nhập hiện tại không hỗ trợ. Vui lòng <b>Thoát</b> và <b>đăng nhập lại</b> rồi thử lại.';

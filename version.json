@@ -1,5 +1,5 @@
 {
-  "version": "3.14.84",
-  "swVersion": "v3.14.84",
-  "notes": "VAI MOI isHrStaff — 'NV Ho so & Cham cong (KHONG luong)' (Sep 09/8): checkbox rieng trong form user (canh NVNS). DUOC: menu+ho so HRM (qua hrmCanSeeAll), import/khoa/mo khoa BCC, phan bo nhan su (hrAllocCanEdit_). KHONG: moi cua luong dong theo default-deny — _hrStaffNoSalary() chan openSalaryProfileCard (the luong tung nguoi — cua nay truoc gio KHONG co gate xem) + openSalaryLedger + salaryReconcileOpen; khong them vao canViewPayroll/canOperatePayroll/canConfigPayroll nen ky luong, chinh sach, tham so, xuat luong van dong nhu cu. IT khong tu cap co nay (IT_FORBIDDEN_FLAGS). Viewer ep false nhu moi co khac. Gom 80-83. 7/7 engine SAME · payComputeRow a3d23c75."
+  "version": "3.14.85",
+  "swVersion": "v3.14.85",
+  "notes": "FIX BUG GOC form phan quyen (Sep 09/8 — 'Nhom chuc nang: rong, phai tich lai'): editUser XUA NAY khong truyen 3 truong form co doc (funcGroups, isDeptHead, fullName) → mo form luon rong → MOI LAN LUU ghi de funcGroups=[] + isDeptHead=false cua user do (mat ngam). Day la ly do tick nhom NHAN SU cho Trang cu bien mat, va moi Truong bo phan deu bi tuoc co ngam sau moi lan admin sua ho. Fix: truyen du 3 truong. Kem: sau Luu, app toast nhac + hoi mo ngay dialog DAY AUTH len cloud (mot mach — quyen chi hieu luc may khac sau khi day; truoc day 2 buoc roi nhau ai cung quen). Kiem chung them: pullCfgFromCloud DA co merge so tuoi ADR-009 (khong de cloud cu de local moi) — thu pham la form, khong phai sync. Gom 80-84. 7/7 engine SAME."
 }
