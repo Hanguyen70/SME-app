@@ -1,5 +1,5 @@
 {
-  "version": "3.14.88",
-  "swVersion": "v3.14.88",
-  "notes": "LUOI AN TOAN CFG AUTH (Sep duyet 10/8 — ca Thach/Hang: NV dang lam viec binh thuong bong vang ra man dang nhap vi cfg localStorage bi tac nhan ngoai xoa [phan mem don may/antivirus/trinh duyet thu hoi storage], pull truot la ket vinh vien): (1) setAuthConfig ghi kem BAN DU PHONG vao IndexedDB 'seahorse_auth_bk' — phan mem don rac thuong chi quet localStorage, chua IDB; (2) boot: mat ban chinh → TU PHUC HOI tu IDB + toast, NV lam viec tiep khong ket; (3) nut 'Su co cau hinh' dat co refresh_pending, GIU nguyen ban IDB — pull moi that bai vi mang → _authCfgUndoRefresh HOAN TAC ve cfg cu ngay tai man login (het canh bam nham roi ket ngoai cua); pull/luu thanh cong → xoa co. Gom 80-87. 7/7 engine SAME."
+  "version": "3.14.92",
+  "swVersion": "v3.14.92",
+  "notes": "v3.14.92: TBNS SME-HR01-FRM-2026 — bật auto-size font cho toàn bộ 58 ô text (DA /Helv 8 Tf → /Helv 0 Tf): text dài hơn ô sẽ tự co chữ để hiển thị/in ĐỦ thay vì bị cắt. Dữ liệu import vốn đã an toàn (đọc /V đầy đủ qua pdf-lib, MaxLen 100). Kế thừa 3.14.91 (ô Tên TK) + 3.14.90 (tick ✓). Không đụng engine lương."
 }

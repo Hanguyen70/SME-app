@@ -1,4 +1,4 @@
-/* Seahorse Manager — Service Worker  [BUILD-TAG: v3.14.88 — cfg auth có BẢN DỰ PHÒNG IndexedDB + tự phục hồi khi localStorage bị xóa + hoàn tác an toàn nút Sự cố cấu hình] tải THẬT gói auth (bắt antivirus cắt gói lớn) + màn login khai lỗi gốc]
+/* Seahorse Manager — Service Worker  [BUILD-TAG: v3.14.92 — BCC Đội tàu FM02: cột E mang tàu → parser gán thẳng vessel + preview/màn xem tách 2 cột ⛴ Tàu | Chức danh + hết cảnh báo oan; tương thích ngược file kiểu cũ (tàu ở tiêu đề nhóm)]
    Strategy: Network-first for index.html (so updates load fast),
              Cache-first for static assets (icons, manifest).
    Cache version bumps automatically when SW_VERSION changes below.
@@ -6,7 +6,7 @@
    để force trình duyệt invalidate cache cũ.
 */
 
-const SW_VERSION = 'v3.14.88';
+const SW_VERSION = 'v3.14.92';
 const CACHE_NAME = `seahorse-${SW_VERSION}`;
 
 // Pre-cache critical files on install
