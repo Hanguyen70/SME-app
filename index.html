@@ -3652,6 +3652,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
           <option value="BCC_VP_BP">BCC VP — mẫu theo bộ phận (SME-HR-PR02-FM01)</option>
           <option value="BCC_DOITAU">BCC Đội tàu</option>
           <option value="BCC_CHUYENGIA">BCC Chuyên gia O&M / Dự án (Excel lương)</option>
+          <option value="BCC_CG_PDF">BCC Chuyên gia O&M — Timesheet BSR (PDF)</option>
           <option value="BCC_EXPAT">BCC Chuyên gia VP / Expat (Excel lương)</option>
           <option value="BCC_KYTHUAT">BCC Bộ phận Kỹ thuật (Excel lương)</option>
         </select>
@@ -3770,7 +3771,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.14.93';
+const APP_VERSION='3.14.94';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -19609,7 +19610,7 @@ function omImportOpen(){
   const list=(S.omImports||[]).slice().sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
   const rowsH=list.map(o=>`<tr style="border-bottom:1px solid var(--rule)">
     <td style="padding:4px 6px;font-size:12px">${esc(o.period)} · ${esc(PAY_PROFILE_LABEL[o.profile]||o.profile)}</td>
-    <td style="padding:4px 6px;font-size:11px">${o.type==='bsr_timesheet'?(o.summary.length+' chuyên gia · nguồn Timesheet BSR (PDF)'):(o.summary.length+' người · '+o.detail.length+' dòng chi tiết')}</td>
+    <td style="padding:4px 6px;font-size:11px">${o.type==='bsr_timesheet'?(o.summary.length+' chuyên gia · nguồn Timesheet BSR (PDF)'):o.type==='om_allow'?(o.summary.length+' chuyên gia · Allowance/Deduction (Excel)'):(o.summary.length+' người · '+o.detail.length+' dòng chi tiết')}</td>
     <td style="padding:4px 6px;font-size:11px">${o.status==='reconciled'?'<span class="ds-need" style="color:#1e7d44">✓ Đã đối chiếu</span>':'<span class="ds-need" style="color:#b3261e">Lệch — bị chặn</span>'}</td>
     <td style="padding:4px 6px;white-space:nowrap">${o.status==='reconciled'?`<button class="btn-sec" style="font-size:11px" onclick="omApplyToPeriod('${o.id}')">→ Nạp vào kỳ</button>`:''}<button class="icon-btn" title="Xóa" onclick="omImportDelete('${o.id}')">🗑</button></td>
   </tr>`).join('');
@@ -19621,6 +19622,8 @@ function omImportOpen(){
       <input type="file" id="om-file" accept=".xlsx,.xls" style="display:none" onchange="omImportExcel(this)">
       <button class="btn-sec" style="font-size:11px" onclick="document.getElementById('bsr-ts-files').click()" title="v3.14.93: Đọc trực tiếp timesheet BSR (BSR-MNT-PRO-029/F-006a) — mỗi file PDF 1 chuyên gia. Giờ thường → J, giờ OT/lễ → L (×1.5, Sếp chốt 10/8). Đối chiếu chi tiết ngày ↔ tổng in sẵn.">📥 Timesheet BSR (PDF)</button>
       <input type="file" id="bsr-ts-files" accept=".pdf" multiple style="display:none" onchange="bsrTsImportFiles(this)">
+      <button class="btn-sec" style="font-size:11px" onclick="document.getElementById('om-ad-file').click()" title="v3.14.94: Allowance/Deduction hàng tháng của chuyên gia (nhà, ĐT, xe, tạm ứng, Visa/Hotel, Mob-Demob, hoàn phí). Khớp người theo PAF (ổn định). Ngày sinh hoạt thực tế → Q. Trên payslip nằm trong mục Thu-chi hộ khác.">📥 Allowance/Deduction (Excel)</button>
+      <input type="file" id="om-ad-file" accept=".xlsx,.xls" style="display:none" onchange="omAdImportExcel(this)">
     </div>
     <div style="max-height:48vh;overflow:auto"><table style="width:100%;border-collapse:collapse"><tbody>${rowsH||'<tr><td style="padding:10px;color:var(--muted);text-align:center">Chưa có bộ import nào</td></tr>'}</tbody></table></div>`,
     '<button class="btn-sec" onclick="closeModal()">Đóng</button>');
@@ -19908,6 +19911,122 @@ function bsrTsConfirm(){
   toast('✓ Đã tạo bộ Timesheet BSR: '+good.length+' chuyên gia'+(errs.length?(' · ⚠ bỏ qua '+errs.length+' file'):''), errs.length?'warn':'good');
   omImportOpen();
 }
+/* ===== v3.14.94 — IMPORT ALLOWANCE/DEDUCTION chuyên gia O&M (Excel, 1 file/tháng) =====
+   Khoản NGOÀI lương phát sinh tháng: nhà/ĐT/xe (âm), tạm ứng, phí Visa-Hotel, Mob-Demob, hoàn phí.
+   Map engine expert: Actual living time → Q (ngày sinh hoạt) · House→W · Phone→X · Car→Y ·
+   Cash advance→Z · Other fee→AA · Allowance Mob/Demob→T · Refund→U. Khoá khớp người: PAF (ổn định — Sếp chốt 10/8).
+   Đối chiếu 2 tầng: từng dòng Σ khoản = Total; Σ Total = Tổng cộng in cuối file. Nhận số USD như file, KHÔNG tự quy đổi. */
+function _omAdParse(aoa){
+  const errors=[], rows=[];
+  let hi=-1;
+  for(let r=0;r<Math.min(aoa.length,15);r++){
+    const cells=(aoa[r]||[]).map(c=>String(c==null?'':c).toLowerCase());
+    if(cells.some(c=>/^paf/.test(c)) && cells.some(c=>/name/.test(c))){ hi=r; break; }
+  }
+  if(hi<0){ errors.push('Không tìm thấy dòng tiêu đề (cần cột PAF + Name)'); return {rows:rows,errors:errors,grandPrinted:null}; }
+  const hdr=(aoa[hi]||[]).map(c=>String(c==null?'':c).replace(/\s+/g,' ').trim().toLowerCase());
+  const col=re=>hdr.findIndex(h=>re.test(h));
+  const iPaf=col(/^paf/), iName=col(/name/), iQ=col(/actual living/),
+    iW=col(/house/), iX=col(/phone/), iY=col(/car/), iZ=col(/cash advance/),
+    iAA=col(/other fee/), iT=col(/allowance/), iU=col(/refund/), iTot=col(/^toa?l\b|^total\b/), iNote=col(/^note/);
+  if(iName<0||iTot<0){ errors.push('Thiếu cột Name hoặc Total'); return {rows:rows,errors:errors,grandPrinted:null}; }
+  const num=v=>{ const n=+String(v==null?'':v).replace(/[, ]/g,''); return isNaN(n)?0:Math.round(n*100)/100; };
+  let grandPrinted=null;
+  for(let r=hi+1;r<aoa.length;r++){
+    const row=aoa[r]||[];
+    const name=String(row[iName]==null?'':row[iName]).trim();
+    if(!name) continue;
+    if(/t[ổo]ng c[ộo]ng|grand total/i.test(name)){ grandPrinted=num(row[iTot]); break; }
+    const o={ paf:String(iPaf>=0?(row[iPaf]==null?'':row[iPaf]):'').trim(), name:name,
+      Q:iQ>=0?num(row[iQ]):0, W:iW>=0?num(row[iW]):0, X:iX>=0?num(row[iX]):0, Y:iY>=0?num(row[iY]):0,
+      Z:iZ>=0?num(row[iZ]):0, AA:iAA>=0?num(row[iAA]):0, T:iT>=0?num(row[iT]):0, U:iU>=0?num(row[iU]):0,
+      total:num(row[iTot]), note:String(iNote>=0?(row[iNote]==null?'':row[iNote]):'').trim(), checks:[], warns:[] };
+    const sum=Math.round((o.W+o.X+o.Y+o.Z+o.AA+o.T+o.U)*100)/100;
+    if(Math.abs(sum-o.total)>0.02) o.checks.push('Σ khoản '+sum+' ≠ Total '+o.total);
+    if(o.Q<0||o.Q>31) o.checks.push('Ngày sinh hoạt '+o.Q+' ngoài 0–31');
+    [['W','House'],['X','Phone'],['Y','Car'],['Z','Cash advance']].forEach(pr=>{ if(o[pr[0]]>0) o.warns.push(pr[1]+' DƯƠNG ('+o[pr[0]]+') — deduction thường âm'); });
+    rows.push(o);
+  }
+  if(!rows.length) errors.push('Không có dòng dữ liệu');
+  return {rows:rows, errors:errors, grandPrinted:grandPrinted};
+}
+function _omAdMatchEmp(r){
+  const normPaf=v=>String(v==null?'':v).trim().replace(/^0+/,'');
+  const normName=t=>String(t||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim().toUpperCase();
+  const emps=HRService.employees().filter(e=>e.status!=='inactive');
+  if(r.paf){ const p0=normPaf(r.paf); const hit=emps.find(e=>e.pafNo && normPaf(e.pafNo)===p0); if(hit) return hit; }
+  const nn=normName(r.name);
+  return emps.find(e=>normName(e.fullName)===nn)||null;
+}
+function omAdImportExcel(inputEl){
+  const f=inputEl.files&&inputEl.files[0]; if(!f) return; inputEl.value='';
+  const per=(document.getElementById('om-per')?document.getElementById('om-per').value:'').trim();
+  const prof=document.getElementById('om-prof')?document.getElementById('om-prof').value:'project';
+  if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(per)){ toast('Kỳ phải dạng YYYY-MM','bad'); return; }
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    try{
+      const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});
+      const aoa=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:''});
+      const parsed=_omAdParse(aoa);
+      if(parsed.errors.length){ openModal('⚠ Lỗi file Allowance/Deduction', parsed.errors.map(e=>'<div style="color:#b3261e;font-size:12px">'+esc(e)+'</div>').join(''), '<button class="btn-sec" onclick="omImportOpen()">Đóng</button>'); return; }
+      const gSum=Math.round(parsed.rows.reduce((a,r)=>a+(+r.total||0),0)*100)/100;
+      const gOk=parsed.grandPrinted==null || Math.abs(gSum-parsed.grandPrinted)<=0.02;
+      parsed.rows.forEach(r=>{ const emp=_omAdMatchEmp(r); if(emp){ r.empId=emp.id; r.smartId=emp.smartId; } });
+      window._omAdPending={rows:parsed.rows, per:per, prof:prof, file:f.name, gSum:gSum, gPrinted:parsed.grandPrinted, gOk:gOk};
+      const emps=HRService.employees().filter(e=>e.status!=='inactive' && (e.type==='expert'||e.type==='office'));
+      const opts=e0=>'<option value="">— chọn hồ sơ —</option>'+emps.map(e=>'<option value="'+e.id+'"'+(e0===e.id?' selected':'')+'>'+esc(e.smartId||'')+' · '+esc(e.fullName||'')+'</option>').join('');
+      const fm2=v=>(+v||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+      const trs=parsed.rows.map((r,i)=>{
+        const bad=r.checks.length>0;
+        const parts=[['Nhà',r.W],['ĐT',r.X],['Xe',r.Y],['Ứng',r.Z],['Khác',r.AA],['Mob/Demob',r.T],['Hoàn',r.U]].filter(p2=>+p2[1]).map(p2=>p2[0]+' '+fm2(p2[1])).join(' · ');
+        return '<tr style="border-bottom:1px solid var(--rule)">'
+          +'<td style="padding:4px 6px;font-family:var(--font-mono);font-size:11px">'+esc(r.paf||'—')+'</td>'
+          +'<td style="padding:4px 6px;font-size:12px"><b>'+esc(r.name)+'</b>'+(r.note?('<div style="font-size:10px;color:var(--muted)">'+esc(r.note)+'</div>'):'')+'</td>'
+          +'<td style="padding:4px 6px;text-align:right;font-family:var(--font-mono);font-size:12px">'+(+r.Q||0)+'</td>'
+          +'<td style="padding:4px 6px;font-size:11px">'+(parts||'<span style="color:var(--muted)">—</span>')+'</td>'
+          +'<td style="padding:4px 6px;text-align:right;font-family:var(--font-mono);font-size:12px;color:'+((+r.total||0)<0?'#c0392b':'#111')+'">'+fm2(r.total)+'</td>'
+          +'<td style="padding:4px 6px;font-size:11px">'+(bad?('<span style="color:#b3261e">'+r.checks.map(esc).join('<br>')+'</span>'):'<span style="color:#1e7d44">✓</span>')
+          +(r.warns.length?('<br><span style="color:#9a5b12">⚠ '+r.warns.map(esc).join('<br>')+'</span>'):'')
+          +'<div style="margin-top:3px"><select id="omad-emp-'+i+'" style="max-width:190px;padding:3px;border:1px solid var(--rule);border-radius:4px;font-size:11px">'+opts(r.empId||'')+'</select></div></td></tr>';
+      }).join('');
+      openModal('📥 Allowance/Deduction — '+esc(f.name)+' · kỳ '+esc(per),
+        '<div style="font-size:11px;color:var(--muted);margin-bottom:6px">Ngày sinh hoạt thực tế → <b>Q</b> (× mức/ngày R từ thẻ lương). Các khoản đổ vào W/X/Y/Z/AA/T/U — nhận số USD như file, không tự quy đổi. Khớp người theo <b>PAF</b> (tự nhớ vào hồ sơ cho tháng sau).</div>'
+        +'<div style="font-size:12px;margin-bottom:8px;'+(gOk?'color:#1e7d44':'color:#b3261e')+'">Σ Total = <b>'+fm2(gSum)+'</b>'+(parsed.grandPrinted!=null?(' · Tổng cộng in trên file = <b>'+fm2(parsed.grandPrinted)+'</b> '+(gOk?'✓ KHỚP':'✗ LỆCH — bị chặn')):' · (file không có dòng Tổng cộng)')+'</div>'
+        +'<div style="max-height:50vh;overflow:auto"><table style="width:100%;border-collapse:collapse"><thead><tr style="font-size:10px;color:var(--muted);text-align:left"><th style="padding:3px 6px">PAF</th><th style="padding:3px 6px">Chuyên gia</th><th style="padding:3px 6px;text-align:right">Ngày SH (Q)</th><th style="padding:3px 6px">Các khoản (USD)</th><th style="padding:3px 6px;text-align:right">Total</th><th style="padding:3px 6px">Đối chiếu · Hồ sơ</th></tr></thead><tbody>'+trs+'</tbody></table></div>',
+        '<button class="btn-ghost" onclick="closeModal();omImportOpen()">Hủy</button>'+(gOk?'<button class="btn-primary" onclick="omAdConfirm()">✓ Tạo bộ import</button>':''));
+    }catch(e){ toast('Lỗi đọc file: '+(e&&e.message||e),'bad'); }
+  };
+  reader.readAsArrayBuffer(f);
+}
+function omAdConfirm(){
+  const P=window._omAdPending; if(!P){ closeModal(); return; }
+  if(!P.gOk){ toast('Tổng cộng lệch — bị chặn','bad'); return; }
+  const good=[]; const errs=[]; const dup={};
+  P.rows.forEach((r,i)=>{
+    const sel=document.getElementById('omad-emp-'+i);
+    const empId=sel?sel.value:'';
+    if(!empId){ errs.push(r.name+': chưa chọn hồ sơ'); return; }
+    if(r.checks.length){ errs.push(r.name+': '+r.checks.join('; ')); return; }
+    if(dup[empId]){ errs.push(r.name+': trùng hồ sơ với dòng khác'); return; }
+    dup[empId]=1;
+    const emp=HRService.employees().find(e=>e.id===empId);
+    if(emp && r.paf && String(emp.pafNo||'').trim()!==r.paf){ emp.pafNo=r.paf; /* v3.14.94: nhớ PAF vào hồ sơ — tháng sau tự khớp */ }
+    good.push({paf:r.paf, smartId:(emp&&emp.smartId)||'', empId:empId, name:(emp&&emp.fullName)||r.name,
+      Q:+r.Q||0, T:+r.T||0, U:+r.U||0, W:+r.W||0, X:+r.X||0, Y:+r.Y||0, Z:+r.Z||0, AA:+r.AA||0,
+      total:+r.total||0, note:r.note||'', file:P.file, fields:{}});
+  });
+  if(!good.length){ openModal('⚠ Không có dòng hợp lệ', errs.map(e=>'<div style="font-size:12px;color:#b3261e">'+esc(e)+'</div>').join(''), '<button class="btn-sec" onclick="omImportOpen()">Đóng</button>'); return; }
+  const batchId='AD'+Date.now().toString(36).toUpperCase();
+  const item={id:'om_'+Date.now().toString(36), batchId:batchId, type:'om_allow', period:P.per, profile:P.prof,
+    summary:good, detail:[], reconciled:true, diffs:[], status:'reconciled',
+    createdBy:(CURRENT_USER&&CURRENT_USER.name)||'', createdAt:new Date().toISOString(),
+    auditTrail:[{at:new Date().toISOString(),by:(CURRENT_USER&&CURRENT_USER.name)||'',act:'import',note:'Allowance/Deduction '+P.file+' · '+good.length+' chuyên gia · Σ '+P.gSum+(errs.length?(' · bỏ qua '+errs.length+' dòng'):'')}]};
+  (S.omImports=S.omImports||[]).push(item);
+  saveState();
+  toast('✓ Đã tạo bộ Allowance/Deduction: '+good.length+' chuyên gia'+(errs.length?(' · ⚠ bỏ qua '+errs.length+' dòng'):''), errs.length?'warn':'good');
+  omImportOpen();
+}
 function omApplyToPeriod(omId){
   const o=(S.omImports||[]).find(x=>x.id===omId);
   if(!o || o.status!=='reconciled'){ toast('Bộ chưa đối chiếu khớp — bị chặn','bad'); return; }
@@ -19926,6 +20045,21 @@ function omApplyToPeriod(omId){
       /* v3.14.93: nguồn Timesheet BSR PDF — đổ thẳng giờ vào engine expert: J=giờ thường, L=giờ OT ×1.5 */
       row.inputs.J=+sm.J||0; row.inputs.L=+sm.L||0;
       row._tsSource={file:sm.file, passport:sm.passport, nLe:sm.nLe||0};
+      /* v3.14.94: kỳ chuyên gia không dùng nút Kéo thẻ — tự kéo mức từ thẻ lương hiệu lực khi nạp BCC */
+      if(!(+row.inputs.G>0)){ try{ const v=salaryProfileAt(emp.id, p.period); const d=(v&&v.data)||{};
+        if(+d.expert_usdPerDay>0){ row.inputs.G=+d.expert_usdPerDay;
+          if(row.inputs.Q==null||row.inputs.Q==='') row.inputs.Q=+d.expert_allowDays||0;
+          if(row.inputs.R==null||row.inputs.R==='') row.inputs.R=+d.expert_livingAllowance||0;
+          row.spSource={profileId:v.id, version:v.version, pulledAt:new Date().toISOString(), pulledBy:(CURRENT_USER&&CURRENT_USER.name)||''}; }
+      }catch(e){} }
+    } else if(o.type==='om_allow'){
+      /* v3.14.94: Allowance/Deduction — khoản ngoài lương. Q=ngày sinh hoạt THỰC TẾ (ghi đè thẻ); KHÔNG đụng J/L/G. */
+      ['Q','T','U','W','X','Y','Z','AA'].forEach(k=>{ row.inputs[k]=+sm[k]||0; });
+      delete row.inputs.V;   /* để engine tự cộng V = W+X+Y+Z+AA */
+      if(row.inputs.R==null||row.inputs.R===''){ try{ const v=salaryProfileAt(emp.id, p.period); const d=(v&&v.data)||{};
+        if(+d.expert_livingAllowance>0) row.inputs.R=+d.expert_livingAllowance; }catch(e){} }
+      row._adLines=[['Housing / Nhà ở',sm.W],['Phone / Điện thoại',sm.X],['Car / Xe',sm.Y],['Cash advance / Tạm ứng',sm.Z],['Other fee (Visa, Hotel…) / Khác',sm.AA]].filter(l=>+l[1]);
+      row._adSource={batchId:o.batchId, file:sm.file, paf:sm.paf};
     } else {
     // đổ input theo mẫu import của profile (map tên cột → field engine)
     const tpl=(payEngine().importTemplates||defaultImportTemplates())[o.profile]||{cols:{}};
@@ -24870,6 +25004,14 @@ function _payslipHtml(p, row, opts){
     const net=(+r.total||0)+adj;
     /* v3.11.99 GĐ6: có bộ O&M reconciled → payslip thể hiện CHI TIẾT TỪNG CẤU PHẦN từ Detail thật (không tự dựng) */
     const omLines=(row._omDetail||[]).map(d=>[ (d.code?d.code+' · ':'')+(d.label||''), +d.amount||0 ]);
+    /* v3.14.94: có bộ Allowance/Deduction → itemize thay dòng 'Other (±)' gộp, nhóm 'Thu-chi hộ khác' (Sếp chốt 10/8) */
+    const adLines2=(row._adLines||[]).map(l=>[String(l[0]||''), +l[1]||0]);
+    const _psBase=lines.filter(l=>l[1]!=null && !(adLines2.length && l[0]==='Other (±)'));
+    const _psRows = omLines.length
+      ? omLines.map(l=>`<tr><td style="padding:4px 0;color:#333">${esc(l[0])}</td><td style="text-align:right;font-family:monospace;color:${l[1]<0?'#c0392b':'#111'}">${fm(l[1])}</td></tr>`).join('')
+      : (_psBase.map(l=>`<tr><td style="padding:4px 0;color:#333">${l[0]}</td><td style="text-align:right;font-family:monospace">${fm(l[1])}</td></tr>`).join('')
+        + (adLines2.length ? ('<tr><td colspan="2" style="padding:7px 0 2px;font-weight:600;color:#1c3a5c;border-top:1px dashed #bbb">Other allowance &amp; deduction / Thu-chi hộ khác</td></tr>'
+          + adLines2.map(l=>`<tr><td style="padding:4px 0 4px 10px;color:#333">${esc(l[0])}</td><td style="text-align:right;font-family:monospace;color:${l[1]<0?'#c0392b':'#111'}">${fm(l[1])}</td></tr>`).join('')) : ''));
     return `<div ${wrapId}style="position:relative;font-family:Arial,sans-serif;color:#111;max-width:560px;margin:0 auto;padding:24px;border:1px solid #ccc;page-break-after:always">${_draftWm}
       <div style="text-align:center;border-bottom:2px solid #1c3a5c;padding-bottom:10px;margin-bottom:14px">
         <div style="font-weight:700;font-size:16px">${esc(co)}</div>
@@ -24883,9 +25025,7 @@ function _payslipHtml(p, row, opts){
       </tbody></table>
       <table style="width:100%;font-size:13px;border-collapse:collapse">
         <thead><tr style="border-bottom:1px solid #ccc"><th style="text-align:left;padding:5px 0">Description</th><th style="text-align:right">Amount (USD)</th></tr></thead>
-        <tbody>${omLines.length
-          ? omLines.map(l=>`<tr><td style="padding:4px 0;color:#333">${esc(l[0])}</td><td style="text-align:right;font-family:monospace;color:${l[1]<0?'#c0392b':'#111'}">${fm(l[1])}</td></tr>`).join('')
-          : lines.filter(l=>l[1]!=null).map(l=>`<tr><td style="padding:4px 0;color:#333">${l[0]}</td><td style="text-align:right;font-family:monospace">${fm(l[1])}</td></tr>`).join('')}
+        <tbody>${_psRows}
         ${adjLines.map(l=>`<tr><td style="padding:4px 0;color:#333">${esc(l[0])}</td><td style="text-align:right;font-family:monospace;color:${l[1]<0?'#c0392b':'#1e7d44'}">${l[1]>0?'+':''}${fm(l[1])}</td></tr>`).join('')}</tbody>
         <tfoot><tr style="border-top:2px solid #1c3a5c"><td style="padding:8px 0;font-weight:700">NET PAY</td><td style="text-align:right;font-weight:700;font-family:monospace;font-size:16px;color:#1e7d44">${fm(net)} USD</td></tr></tfoot>
       </table>
@@ -81170,6 +81310,15 @@ const HRM_BCC_PROFILES={
 function hrmAttPickFile(){
   const per=(document.getElementById('hrm-att-period')||{}).value||'';
   if(!per){ toast('Chọn kỳ (tháng/năm) trước khi import','bad'); return; }
+  const profSel=(document.getElementById('hrm-att-profile')||{}).value||'';
+  if(profSel==='BCC_CG_PDF'){
+    /* v3.14.94: lối tắt màn Chấm công → luồng import O&M kỳ lương (timesheet BSR PDF).
+       Quyền do omImportOpen tự kiểm (admin/KT). Gọi đồng bộ trong gesture để click() file input hợp lệ. */
+    omImportOpen();
+    const pe=document.getElementById('om-per'); if(pe) pe.value=per;
+    const fi=document.getElementById('bsr-ts-files'); if(fi) fi.click();
+    return;
+  }
   const f=document.getElementById('hrm-att-file'); if(f) f.click();
 }
 

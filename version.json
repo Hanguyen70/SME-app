@@ -1,5 +1,5 @@
 {
-  "version": "3.14.93",
-  "swVersion": "v3.14.93",
-  "notes": "v3.14.93: LƯƠNG CHUYÊN GIA O&M — import trực tiếp Timesheet BSR (PDF, mẫu BSR-MNT-PRO-029/F-006a, mỗi file 1 chuyên gia). Bộ extract text PDF mini (FlateDecode qua DecompressionStream native + ToUnicode CMap cho CIDFont Identity-H). Tự đọc: tên, hộ chiếu, kỳ, tổng giờ thường → J, tổng giờ OT/lễ → L (×1.5, chốt 10/8). Đối chiếu bắt buộc: Σ ô giờ từng ngày ↔ tổng in trên form; đếm ngày lễ 1*. Khớp hồ sơ theo hộ chiếu (idNo) hoặc tên; preview + chọn tay trước khi tạo bộ. Nạp vào kỳ qua luồng omImports hiện có (đơn giá G từ thẻ lương). Không đụng engine lương."
+  "version": "3.14.94",
+  "swVersion": "v3.14.94",
+  "notes": "v3.14.94: CHUYÊN GIA O&M — import Allowance/Deduction hàng tháng (Excel): map theo TÊN cột (Actual living time→Q ngày sinh hoạt; House/Phone/Car/Cash advance/Other fee→W/X/Y/Z/AA; Mob-Demob→T; Refund→U). Đối chiếu 2 tầng: từng dòng Σ khoản=Total, Σ Total=Tổng cộng in trên file — lệch bị chặn. Khớp người theo PAF (ổn định), tự nhớ PAF vào hồ sơ cho tháng sau. Nạp vào kỳ MERGE với bộ Timesheet (không đụng J/L); tự kéo đơn giá G + mức trợ cấp R từ thẻ lương hiệu lực khi nạp BCC (kỳ chuyên gia không dùng nút Kéo thẻ). Payslip: các khoản A-D itemize trong mục \"Other allowance & deduction / Thu-chi hộ khác\". Không đụng engine lương."
 }
