@@ -1,4 +1,4 @@
-/* Seahorse Manager — Service Worker  [BUILD-TAG: v3.15.19 — Sổ ngân hàng: sổ dẫn xuất per-TK (mỏ neo snapshot + giao dịch sau snapshot) + đối chiếu sao kê; gắn TK cho thu hộ/chi hộ; TK trích nợ vay → kỳ đã trả vào sổ; hình thức Giải ngân (không trừ TK) tự gom khế ước nháp + tách; chuyển tiền nội bộ NH↔NH/NH↔quỹ; mục chưa gắn TK]
+/* Seahorse Manager — Service Worker  [BUILD-TAG: v3.15.20 — Sổ chi phí lương năm (BP×12 tháng, gross+BHXH cty 21,5%) trong Payroll Dashboard + chuyển nút 📒 Sổ lương từ Nhân sự sang Payroll Dashboard. Kế thừa v3.15.19 Sổ ngân hàng: sổ dẫn xuất per-TK (mỏ neo snapshot + giao dịch sau snapshot) + đối chiếu sao kê; gắn TK cho thu hộ/chi hộ; TK trích nợ vay → kỳ đã trả vào sổ; hình thức Giải ngân (không trừ TK) tự gom khế ước nháp + tách; chuyển tiền nội bộ NH↔NH/NH↔quỹ; mục chưa gắn TK]
    Strategy: Network-first for index.html (so updates load fast),
              Cache-first for static assets (icons, manifest).
    Cache version bumps automatically when SW_VERSION changes below.
@@ -6,7 +6,7 @@
    để force trình duyệt invalidate cache cũ.
 */
 
-const SW_VERSION = 'v3.15.19';
+const SW_VERSION = 'v3.15.20';
 const CACHE_NAME = `seahorse-${SW_VERSION}`;
 
 // Pre-cache critical files on install

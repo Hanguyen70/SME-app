@@ -3613,7 +3613,8 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
         <button class="btn-ghost" id="hrm-tab-att" onclick="hrmSwitchView('att')">🗓️ Chấm công</button>
         <input type="file" id="hrm-import-file" accept=".xlsx,.xls" style="display:none" onchange="hrmImportEmployees(this)">
         <input type="file" id="tbns-import-file" accept=".pdf" style="display:none" onchange="tbNsImportFile(this)">
-        <button class="btn-ghost" id="hrm-btn-ledger" onclick="if(typeof FLAG_SALARY_PROFILE!=='undefined'&&FLAG_SALARY_PROFILE){openSalaryLedger()}else{toast('Tính năng Thẻ lương chưa bật (flag_salary_profile)','warn')}" title="Sổ theo dõi lương nhân sự — báo cáo quản trị từ Thẻ lương">📒 Sổ lương</button>
+        <!-- v3.15.20 (Sếp 11/8): nút 📒 Sổ lương CHUYỂN sang Payroll Dashboard — đi cùng cụm báo cáo lương -->
+
         <button class="btn-ghost" id="hrm-btn-scc" onclick="sccOpen()" title="Kiểm tra dữ liệu Thẻ lương — chỉ đọc, không sửa gì">🔎 Kiểm tra dữ liệu</button>
         <!-- v3.15.12 (Sếp 11/8): CHÍNH SÁCH LƯƠNG là mục CHUNG của toàn công ty (thuế, bảo hiểm,
              lương tối thiểu vùng, công đoàn) → chuyển hẳn về Nhân sự, không nằm trong Payroll Dashboard nữa. -->
@@ -3777,7 +3778,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.15.19';
+const APP_VERSION='3.15.20';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -19105,7 +19106,133 @@ function payDashboard(){
     <table style="width:100%;border-collapse:collapse;font-size:13px;border:1px solid var(--rule)"><thead><tr style="background:var(--rule);text-align:left">
       <th style="padding:5px 8px">Nhóm</th><th style="padding:5px 8px;text-align:center">NV</th><th style="padding:5px 8px;text-align:right">Quỹ lương</th><th style="padding:5px 8px;text-align:right">TNCN</th><th style="padding:5px 8px;text-align:right">BHXH</th><th style="padding:5px 8px;text-align:right">Thực chi</th>
     </tr></thead><tbody>${profRows}</tbody></table>`;
-  openModal('📊 Payroll Dashboard', body, `<button class="btn-ghost" onclick="openPayrollPeriods()">← Kỳ lương</button><!-- v3.15.12: nút ⚖️ Chính sách đã chuyển sang Nhân sự (mục chung toàn công ty) -->`);
+  openModal('📊 Payroll Dashboard', body, `<button class="btn-ghost" onclick="openPayrollPeriods()">← Kỳ lương</button><!-- v3.15.12: nút ⚖️ Chính sách đã chuyển sang Nhân sự (mục chung toàn công ty) --><button class="btn-ghost" onclick="if(typeof FLAG_SALARY_PROFILE!=='undefined'&&FLAG_SALARY_PROFILE){openSalaryLedger()}else{toast('Tính năng Thẻ lương chưa bật (flag_salary_profile)','warn')}" title="Sổ theo dõi lương nhân sự — báo cáo quản trị từ Thẻ lương (quỹ NET cố định đăng ký)">📒 Sổ lương</button><button class="btn-primary" onclick="payYearCostReport()" title="Tổng CHI PHÍ LƯƠNG năm theo bộ phận — gross + BHXH công ty (21,5% nền) — từ kỳ lương thực tế">📊 Chi phí lương năm</button>`);
+}
+/* ═══════════════════════════════════════════════════════════════════════════
+   v3.15.20 (Sếp 11/8) — SỔ CHI PHÍ LƯƠNG NĂM (báo cáo mẫu Excel "1/ Tổng chi phí lương năm").
+   Nguồn: KỲ LƯƠNG THỰC TẾ (p.rows đã tính) — KHÔNG phải Thẻ lương.
+   Công thức Sếp gõ búa: CHI PHÍ LƯƠNG = GROSS chi trả + BHXH phần CÔNG TY (21,5% nền BHXH — sổ BH).
+   Engine đã tính sẵn phần công ty ở field chuẩn hóa insCompany (office AN · crew AOco · gross Vco);
+   hàm này THUẦN ĐỌC — không đụng engine, không đụng _payPeriodCostGroups (health N3 đang dùng).
+   Trục BP: crew/khoan → TÀU (anyVesselName) · chuyên gia/expat → DỰ ÁN · còn lại → PHÒNG BAN
+   (cùng nếp _payPeriodCostGroups). VND là ma trận chính; ngoại tệ tách bảng riêng, KHÔNG cộng chéo. */
+function _payYearCostData(year){
+  const periods=PayrollService.periods().filter(p=>p&&!p._deleted&&String(p.period||'').slice(0,4)===String(year));
+  const empById={}; HRService.employees().forEach(e=>{ empById[e.id]=e; });
+  const groups={}; const Z=()=>Array(12).fill(0);
+  const mTot=Z(), mGross=Z(), mPit=Z(), mInsEmp=Z(), mInsCo=Z(), mNv=Z();
+  const fxCcy={}; let missIns=0;
+  periods.forEach(p=>{
+    const mi=+String(p.period||'').slice(5,7)-1; if(mi<0||mi>11) return;
+    const ccy=_payCcy(p);
+    const isCrewLike=(p.profile==='crew'||p.profile==='crew_khoan');
+    (p.rows||[]).forEach(r=>{
+      const x=r.result||{}; if(x._engineMismatch) return;
+      const adj=(typeof payRowAdjustTotal==='function')?payRowAdjustTotal(r):0;
+      /* gross: ưu tiên field chuẩn hóa grossTotal; fallback đúng nếp _payPeriodTotals (office/crew→AH, else→total) */
+      let gross=(x.grossTotal!=null)?(+x.grossTotal||0):((p.profile==='office'||isCrewLike)?(+x.AH||0):(+x.total||0));
+      gross+=adj;
+      const insCo=(+x.insCompany||+x.AN||+x.AOco||+x.Vco||0);
+      if(!gross && !insCo) return;
+      const cost=gross+insCo;
+      if(ccy!=='VND'){   /* ngoại tệ: gom riêng theo mã tiền, tuyệt đối không cộng chéo */
+        const f=fxCcy[ccy]=fxCcy[ccy]||{months:Z(),total:0,nv:0};
+        f.months[mi]+=cost; f.total+=cost; f.nv++; return;
+      }
+      /* dòng thiếu insCompany (kỳ tính bằng engine đời trước): đếm cảnh báo, KHÔNG tự tính lại */
+      if(x.insCompany==null && x.AN==null && x.AOco==null && x.Vco==null && gross>0
+        && (p.profile==='office'||isCrewLike||p.profile==='office_gross'||p.profile==='tech')) missIns++;
+      const pit=(x.pit!=null)?(+x.pit||0):((p.profile==='office')?(+x.AK||0):(isCrewLike?(+x.AL||0):0));
+      const insEmp=(x.insEmp!=null)?(+x.insEmp||0):((p.profile==='office')?(+x.AL||0):(isCrewLike?(+x.AO||0):0));
+      const e=empById[r.empId]||{};
+      let label;
+      if(isCrewLike){ const vid=e.vesselId||''; label=(typeof anyVesselName==='function'&&vid&&anyVesselName(vid))||e.dept||(p.profile==='crew_khoan'?'Nhân sự khoan':'Đội tàu'); }
+      else if(p.profile==='project'||p.profile==='expat'||p.profile==='expert'||p.profile==='expert_om'){
+        const pid=(e.projectIds&&e.projectIds[0])||''; const pr=(S.projects||[]).find(z=>z.id===pid);
+        label=pr?pr.code:(e.dept||PAY_PROFILE_LABEL[p.profile]||'Chuyên gia');
+      }
+      else { label=e.dept||'Văn phòng'; }
+      const g=groups[label]=groups[label]||{label:label,months:Z(),total:0};
+      g.months[mi]+=cost; g.total+=cost;
+      mTot[mi]+=cost; mGross[mi]+=gross; mPit[mi]+=pit; mInsEmp[mi]+=insEmp; mInsCo[mi]+=insCo; mNv[mi]++;
+    });
+  });
+  const list=Object.values(groups).sort((a,b)=>b.total-a.total);
+  return {year:String(year), list:list, mTot:mTot, mGross:mGross, mPit:mPit, mInsEmp:mInsEmp, mInsCo:mInsCo, mNv:mNv,
+    grand:mTot.reduce((t,v)=>t+v,0), fxCcy:fxCcy, missIns:missIns, nPeriods:periods.length};
+}
+function payYearCostReport(){
+  const years=[...new Set(PayrollService.periods().filter(p=>p&&!p._deleted).map(p=>String(p.period||'').slice(0,4)).filter(Boolean))].sort().reverse();
+  const sel=window._payYcYear||years[0]||String(new Date().getFullYear());
+  const D=_payYearCostData(sel);
+  const canSee=(typeof canSeePayrollAmounts==='function')?canSeePayrollAmounts():true;
+  const fm=v=>payMaskAmount(Math.round(v).toLocaleString('vi-VN'));
+  const cell=v=>v?fm(v):'<span style="color:var(--muted)">–</span>';
+  const MN=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const PAL=['#4472c4','#c0504d','#9bbb59','#8064a2','#4bacc6','#f79646','#2c4d75','#5f7530'];
+  const yearOpts=(years.length?years:[sel]).map(y=>`<option value="${y}"${y===String(sel)?' selected':''}>${y}</option>`).join('');
+  /* nhóm cho CHART/DONUT: top 7 + "Khác" (bảng vẫn hiện đủ) */
+  const top=D.list.slice(0,7), rest=D.list.slice(7);
+  const chartGroups=top.slice();
+  if(rest.length){ const kh={label:'Khác',months:Array(12).fill(0),total:0}; rest.forEach(g=>{ g.months.forEach((v,i)=>kh.months[i]+=v); kh.total+=g.total; }); chartGroups.push(kh); }
+  /* ── bảng BP × 12 tháng + Grand Total ── */
+  const th=`<tr style="background:var(--rule);text-align:right"><th style="padding:5px 8px;text-align:left">BP</th>${MN.map(m=>`<th style="padding:5px 6px">${m}</th>`).join('')}<th style="padding:5px 8px">Grand Total</th></tr>`;
+  const trs=D.list.map((g,i)=>`<tr style="border-bottom:1px solid var(--rule)"><td style="padding:4px 8px;white-space:nowrap"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${PAL[Math.min(i,7)]};margin-right:5px"></span>${esc(g.label)}</td>${g.months.map(v=>`<td style="padding:4px 6px;text-align:right;font-family:monospace">${cell(v)}</td>`).join('')}<td style="padding:4px 8px;text-align:right;font-family:monospace;font-weight:600">${fm(g.total)}</td></tr>`).join('')
+    ||`<tr><td colspan="14" style="padding:14px;text-align:center;color:var(--muted)">Chưa có kỳ lương VND năm ${esc(String(sel))}</td></tr>`;
+  const subRow=(lbl,arr,color)=>`<tr style="color:${color||'var(--muted)'};font-size:10.5px"><td style="padding:3px 8px">${lbl}</td>${arr.map(v=>`<td style="padding:3px 6px;text-align:right;font-family:monospace">${cell(v)}</td>`).join('')}<td style="padding:3px 8px;text-align:right;font-family:monospace">${fm(arr.reduce((t,v)=>t+v,0))}</td></tr>`;
+  const grandRow=`<tr style="background:#eef4fb;font-weight:700;border-top:2px solid var(--rule)"><td style="padding:5px 8px">Grand Total</td>${D.mTot.map(v=>`<td style="padding:5px 6px;text-align:right;font-family:monospace">${cell(v)}</td>`).join('')}<td style="padding:5px 8px;text-align:right;font-family:monospace">${fm(D.grand)}</td></tr>`;
+  /* ── chart cột chồng + đường Grand Total (SVG thuần, chỉ khi được xem số) ── */
+  let chart='';
+  if(canSee && D.grand>0){
+    const W=1000,H=300,PB=24,PT=30; const cw=W/12, bw=Math.min(46,cw*0.55); const mx=Math.max(...D.mTot,1); const sc=(H-PB-PT)/mx;
+    let rects='', pts=[], labels='';
+    for(let m=0;m<12;m++){
+      let y=H-PB; const xc=m*cw+cw/2;
+      chartGroups.forEach((g,i)=>{ const h=(g.months[m]||0)*sc; if(h>0.4){ y-=h; rects+=`<rect x="${(xc-bw/2).toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" fill="${PAL[Math.min(i,7)]}"/>`; } });
+      const yt=H-PB-(D.mTot[m]||0)*sc; pts.push(`${xc.toFixed(1)},${yt.toFixed(1)}`);
+      labels+=`<text x="${xc.toFixed(1)}" y="${H-8}" text-anchor="middle" font-size="11" fill="#6a7683">${MN[m]}</text>`;
+      if(D.mTot[m]>0) labels+=`<text x="${xc.toFixed(1)}" y="${Math.max(10,yt-6).toFixed(1)}" text-anchor="middle" font-size="9" fill="#3a4756">${(D.mTot[m]/1e9).toFixed(2)} tỷ</text>`;
+    }
+    const line=`<polyline points="${pts.join(' ')}" fill="none" stroke="#ed7d31" stroke-width="2.5"/>`+pts.map(pt=>{const[a,b]=pt.split(',');return `<circle cx="${a}" cy="${b}" r="3.5" fill="#ed7d31" stroke="#fff" stroke-width="1"/>`;}).join('');
+    const legend=chartGroups.map((g,i)=>`<span style="font-size:10.5px;margin-right:10px;white-space:nowrap"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${PAL[Math.min(i,7)]};margin-right:4px"></span>${esc(g.label)}</span>`).join('')+`<span style="font-size:10.5px;white-space:nowrap"><span style="display:inline-block;width:14px;height:3px;background:#ed7d31;margin-right:4px;vertical-align:middle"></span>Grand Total</span>`;
+    /* donut tỷ trọng: conic-gradient */
+    let acc=0; const segs=chartGroups.map((g,i)=>{ const a0=acc/D.grand*360; acc+=g.total; const a1=acc/D.grand*360; return `${PAL[Math.min(i,7)]} ${a0.toFixed(1)}deg ${a1.toFixed(1)}deg`; }).join(',');
+    const donutLegend=chartGroups.map((g,i)=>`<div style="font-size:11px;margin:2px 0;white-space:nowrap"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${PAL[Math.min(i,7)]};margin-right:5px"></span>${esc(g.label)} <b>${(g.total/D.grand*100).toFixed(0)}%</b></div>`).join('');
+    chart=`<div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:12px;align-items:flex-start">
+      <div style="flex:2;min-width:420px;border:1px solid var(--rule);border-radius:8px;padding:10px">
+        <div style="font-size:12px;font-weight:600;text-align:center;margin-bottom:4px">Tổng chi phí lương ${esc(String(sel))}</div>
+        <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">${rects}${line}${labels}</svg>
+        <div style="margin-top:6px;text-align:center">${legend}</div></div>
+      <div style="flex:1;min-width:230px;border:1px solid var(--rule);border-radius:8px;padding:10px">
+        <div style="font-size:12px;font-weight:600;text-align:center;margin-bottom:8px">Tỷ trọng chi phí ${esc(String(sel))}</div>
+        <div style="display:flex;gap:14px;align-items:center;justify-content:center">
+          <div style="width:150px;height:150px;border-radius:50%;background:conic-gradient(${segs});position:relative"><div style="position:absolute;inset:38px;border-radius:50%;background:var(--paper,#fff)"></div></div>
+          <div>${donutLegend}</div></div></div></div>`;
+  } else if(!canSee){ chart=`<div style="font-size:11px;color:var(--muted);margin-top:8px">Biểu đồ ẩn — tài khoản của bạn không có quyền xem số liệu lương.</div>`; }
+  /* ── ngoại tệ (tách riêng) ── */
+  const fxTables=Object.keys(D.fxCcy).sort().map(cc=>{ const f=D.fxCcy[cc];
+    return `<div style="font-size:12px;font-weight:600;margin:12px 0 4px">Chi phí lương ${esc(cc)} (tách riêng — không cộng vào VND)</div>
+    <table style="width:100%;border-collapse:collapse;font-size:11px;border:1px solid var(--rule)"><thead><tr style="background:var(--rule);text-align:right"><th style="padding:4px 8px;text-align:left">${esc(cc)}</th>${MN.map(m=>`<th style="padding:4px 6px">${m}</th>`).join('')}<th style="padding:4px 8px">Tổng</th></tr></thead>
+    <tbody><tr><td style="padding:4px 8px">Chi phí</td>${f.months.map(v=>`<td style="padding:4px 6px;text-align:right;font-family:monospace">${v?payMaskAmount(v.toLocaleString('en-US',{maximumFractionDigits:2})):'–'}</td>`).join('')}<td style="padding:4px 8px;text-align:right;font-family:monospace;font-weight:600">${payMaskAmount(f.total.toLocaleString('en-US',{maximumFractionDigits:2}))}</td></tr></tbody></table>`; }).join('');
+  const body=`
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+      <label style="font-size:11px;color:var(--muted)">Năm:</label>
+      <select onchange="window._payYcYear=this.value;payYearCostReport()" style="padding:6px 10px;border:1px solid var(--rule);border-radius:6px;font-size:13px">${yearOpts}</select>
+      <span style="font-size:11px;color:var(--muted)">${D.nPeriods} kỳ lương · CHI PHÍ = GROSS + BHXH công ty (21,5% nền BHXH)</span>
+      ${D.missIns?`<span style="font-size:11px;background:#fff3e6;border:1px solid #e8c49a;border-radius:6px;padding:2px 8px">⚠ ${D.missIns} dòng kỳ cũ thiếu BHXH cty (engine đời trước) — mở kỳ bấm Tính lại nếu cần đủ</span>`:''}
+    </div>
+    <div style="font-size:13px;font-weight:700;margin-bottom:4px">1/ Tổng chi phí lương năm ${esc(String(sel))} (VND)</div>
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11.5px;border:1px solid var(--rule)"><thead>${th}</thead>
+      <tbody>${trs}${grandRow}
+      ${subRow('· trong đó GROSS chi trả', D.mGross)}
+      ${subRow('· trong đó thuế TNCN', D.mPit,'#8b5a2b')}
+      ${subRow('· trong đó BHXH NV (10,5%)', D.mInsEmp,'#4a8c5a')}
+      ${subRow('· BHXH công ty (21,5% — cộng thêm)', D.mInsCo,'#2c6e49')}
+      </tbody></table></div>
+    ${chart}${fxTables}
+    <div style="font-size:10.5px;color:var(--muted);margin-top:8px">Nguồn: kỳ lương thực tế (mọi trạng thái, trừ kỳ đã xóa). BHXH tính trên NỀN riêng (sổ BH) theo quy định v3.13.55 — không phải trên gross. Chuyên gia USD không có BHXH VN. Số âm/điều chỉnh đã gồm trong gross.</div>`;
+  openModal('📊 Sổ chi phí lương năm '+esc(String(sel)), body, `<button class="btn-ghost" onclick="payDashboard()">← Payroll Dashboard</button>`);
+  try{ if(typeof setModalWide==='function') setModalWide(true); }catch(e){}
 }
 /* ═══ v3.14.40 (Sếp duyệt 06/8 — 3 người thiếu T01 không có đường vào kỳ đã tạo): NẠP NV CÒN THIẾU.
    PURE helper chạy lại ĐÚNG bộ lọc 4 cửa của payPeriodCreateCommit (3.13.61 nạp theo engine THẺ,
@@ -40550,6 +40677,15 @@ function bankLedgerRows(accId){
         _arPayAmountInCcy({amount:t.amount,fxRate:(+t.fxToVnd||+S.fxRate||0)}, t.ccy||'USD', accCcy),0,0,
         "showOpTxDetail('"+t.id+"')");
     }
+    // v3.15.19b: chi hộ xác nhận CẢ PHIẾU (saveOpConfirm: t.paid) — chỉ tính khi KHÔNG có đợt thanh toán
+    // (phiếu chia đợt đã tính qua t.payments[] bên dưới → tránh đếm trùng)
+    if(t.type==='OUT' && t.paid && t.bankAccountId===accId && !((t.payments||[]).some(p=>p&&(+p.amount>0)))){
+      const _fee=(+t.bankFee||0)+(+t.otherFee||0);
+      push(t.paidDate||t.date,'CHI HỘ',t.id,(t.vendor||t.desc||'').slice(0,50),0,
+        _arPayAmountInCcy({amount:t.amount,fxRate:(+S.fxRate||0)}, t.ccy||'VND', accCcy),
+        _fee>0?_arPayAmountInCcy({amount:_fee,fxRate:(+t.feeFxToUsd||+S.fxRate||0)}, t.feeCcy||t.ccy||'VND', accCcy):0,
+        "showOpTxDetail('"+t.id+"')");
+    }
     (t.payments||[]).forEach(p=>{
       if(!p || p.bankAccountId!==accId) return;
       push(p.date,'CHI HỘ',t.id,(t.vendor||t.desc||'').slice(0,50),0,
@@ -40596,6 +40732,9 @@ function _bankUnlinkedItems(){
     if(!t) return;
     if(t.type==='IN' && !t.bankAccountId)
       out.push({kind:'opIn', id:t.id, date:t.date||'', label:'Thu hộ · '+(t.desc||'').slice(0,45), amount:(+t.amount||0), ccy:t.ccy||'USD'});
+    // v3.15.19b: chi hộ đã xác nhận TT cả phiếu nhưng chưa gắn TK (chỉ khi không có đợt)
+    if(t.type==='OUT' && t.paid && !t.bankAccountId && !((t.payments||[]).some(p=>p&&(+p.amount>0))))
+      out.push({kind:'opPaid', id:t.id, date:t.paidDate||t.date||'', label:'Chi hộ (đã XN TT) · '+(t.vendor||t.desc||'').slice(0,45), amount:(+t.amount||0), ccy:t.ccy||'VND'});
     (t.payments||[]).forEach((p,idx)=>{
       if(p && !p.bankAccountId)
         out.push({kind:'opPay', id:t.id, idx, date:p.date||'', label:'Chi hộ NCC · '+(t.vendor||t.desc||'').slice(0,45), amount:(+p.amount||0), ccy:p.ccy||t.ccy||'VND'});
@@ -44702,12 +44841,12 @@ function bankUnlinkedAssign(kind, id, idx, rowI){
   const sel=document.getElementById('bu-sel-'+rowI);
   const bankId=sel?sel.value:'';
   if(!bankId){ toast('Chọn TK trước','bad'); return; }
-  if(kind==='opIn' || kind==='opPay'){
+  if(kind==='opIn' || kind==='opPaid' || kind==='opPay'){
     const t=VesselService.opTransactions().find(x=>x.id===id);
     if(!t){ toast('Phiếu đã bị xóa','bad'); return; }
     commitMutation(()=>{
-      if(kind==='opIn'){ t.bankAccountId=bankId; }
-      else { const p=(t.payments||[])[idx]; if(p) p.bankAccountId=bankId; }
+      if(kind==='opPay'){ const p=(t.payments||[])[idx]; if(p) p.bankAccountId=bankId; }
+      else { t.bankAccountId=bankId; }
       touchRecord(t);
     }, {action:'bank_unlinked_assign', fields:['opTransactions'], onOk:()=>{
       try{ logAuditEvent('bank_unlinked_assign',{kind,id,bankId,actor:actorName()}); }catch(e){}
@@ -58047,6 +58186,10 @@ function confirmOpPayment(id){
         <label>Ghi chú phí (tùy chọn)</label>
         <input type="text" id="op-fee-note" placeholder="VD: phí điện chuyển + phí kiểm đếm">
       </div>
+      <div class="field" style="grid-column:span 2">
+        <label>Tài khoản NH ${t.type==='IN'?'nhận tiền':'chi tiền'} <span style="font-weight:400;color:var(--muted);font-size:10px;text-transform:none">(tùy chọn — chọn để ghi vào Sổ ngân hàng; bỏ trống nếu tiền mặt/chưa rõ)</span></label>
+        <select id="op-confirm-bank"><option value="">— Chưa gắn TK —</option>${AccountingService.bankAccounts().filter(a=>a.isActive!==false).map(a=>`<option value="${esc(a.id)}" ${t.bankAccountId===a.id?'selected':''}>${esc(bankAcctLabel(a))} (${esc(a.ccy||'USD')})</option>`).join('')}</select>
+      </div>
     </div>
     <div id="op-confirm-err" style="font-size:13px;color:var(--bad);min-height:14px;font-family:var(--font-mono);margin-top:8px"></div>`;
   const foot=`<button class="btn-sec" onclick="closeModal()">Hủy</button>
@@ -58117,6 +58260,9 @@ function saveOpConfirm(id){
   t.feeCcy=feeCcy;
   t.feeFxToUsd = feeCcy==='USD' ? 0 : feeFxToUsd;
   if(feeNote) t.feeNote=feeNote;
+  // v3.15.19: TK NH thanh toán (tùy chọn) → Sổ ngân hàng
+  const _cbEl=document.getElementById('op-confirm-bank');
+  if(_cbEl){ if(_cbEl.value) t.bankAccountId=_cbEl.value; else delete t.bankAccountId; }
   touchRecord(t);  // v1.38.4
   }, {action:'op_confirm_pay', fields:['opTransactions'], onOk:()=>{
   closeModal();
