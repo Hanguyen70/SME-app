@@ -1,5 +1,5 @@
 {
-  "version": "3.14.94",
-  "swVersion": "v3.14.94",
-  "notes": "v3.14.94: CHUYÊN GIA O&M — import Allowance/Deduction hàng tháng (Excel): map theo TÊN cột (Actual living time→Q ngày sinh hoạt; House/Phone/Car/Cash advance/Other fee→W/X/Y/Z/AA; Mob-Demob→T; Refund→U). Đối chiếu 2 tầng: từng dòng Σ khoản=Total, Σ Total=Tổng cộng in trên file — lệch bị chặn. Khớp người theo PAF (ổn định), tự nhớ PAF vào hồ sơ cho tháng sau. Nạp vào kỳ MERGE với bộ Timesheet (không đụng J/L); tự kéo đơn giá G + mức trợ cấp R từ thẻ lương hiệu lực khi nạp BCC (kỳ chuyên gia không dùng nút Kéo thẻ). Payslip: các khoản A-D itemize trong mục \"Other allowance & deduction / Thu-chi hộ khác\". Không đụng engine lương."
+  "version": "3.15.05",
+  "swVersion": "v3.15.05",
+  "notes": "v3.15.05: XUẤT EXCEL BẢNG LƯƠNG CHUYÊN GIA bám mẫu thật đang dùng — từ 8 cột gộp lên 36 cột đối chiếu được từng dòng: số HĐLĐ, chức danh, rate ngày/giờ, giờ công tách 3 loại (thường/OT1.2/OT1.5), lương thường và lương OT tính riêng, ngày+mức trợ cấp, Mob/Demob, hoàn phí, back charge tách nhà/điện thoại/xe/tạm ứng/khác, số tiền chuyển. Thêm cột diện cư trú + thu nhập chịu thuế + gross quy đổi + thuế công ty nộp thay (v3.15.02), cột Note hiện lý do khi chưa đủ căn cứ tính thuế. Kèm thông tin chuyển tiền: email, tên/số TK, ngân hàng, SWIFT."
 }
