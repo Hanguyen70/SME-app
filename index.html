@@ -3778,7 +3778,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.15.23';
+const APP_VERSION='3.15.24';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -81679,15 +81679,21 @@ function hrmRenderDash(){
 function _hrmDashGovernance(bd){
   if(!bd) return;
   const now=new Date();
-  // 1) Vào - Ra 12 tháng (hrHistory create/terminate)
+  // 1) Vào - Ra 12 tháng
+  /* v3.15.24 FIX (Sếp check 11/8 — "+180 vào T6/2026"): trước đếm hrHistory kind create/terminate =
+     ngày TẠO HỒ SƠ trong app → import lô hiện thành "tuyển 180 người". Nay đếm theo NGÀY THỰC:
+     vào = e.startDate (ngày vào làm), ra = e.resignDate/terminationDate — luôn đúng cả khi import hồi tố. */
   const months=[]; for(let i=11;i>=0;i--){ const d=new Date(now.getFullYear(), now.getMonth()-i, 1); months.push(d.toISOString().slice(0,7)); }
   const inN={}, outN={};
-  (S.hrHistory||[]).forEach(h=>{ const m=String(h.at||'').slice(0,7);
-    if(h.kind==='create') inN[m]=(inN[m]||0)+1;
-    if(h.kind==='terminate') outN[m]=(outN[m]||0)+1; });
+  (S.hrEmployees||[]).forEach(e=>{ if(!e||e._deleted) return;
+    const sm=String(e.startDate||'').slice(0,7); if(sm) inN[sm]=(inN[sm]||0)+1;
+    const om=String(e.resignDate||e.terminationDate||'').slice(0,7); if(om) outN[om]=(outN[om]||0)+1; });
   const ioRows=months.map(m=>`<div style="display:flex;gap:8px;font-size:11px;font-family:var(--font-mono)"><div style="width:64px;color:var(--muted)">${m}</div><div style="width:60px;color:#1e7d44">+${inN[m]||0}</div><div style="width:60px;color:#b3261e">−${outN[m]||0}</div></div>`).join('');
-  // 2) Quỹ lương 6 kỳ locked gần nhất (mọi profile VND, sum takeHome + adjustments)
-  const lockedPs=(PayrollService.periods()||[]).filter(p=>payStatusIdx(p.status)>=payStatusIdx('locked') && ['office','tech','crew'].indexOf(p.profile)>=0)
+  // 2) Quỹ lương 6 kỳ gần nhất
+  /* v3.15.24 FIX: trước lọc CỨNG status>='locked' + chỉ 3 nhóm office/tech/crew → kỳ ĐÃ DUYỆT và
+     các nhóm office_gross/crew_khoan/expat VND bị loại hết, card trống "Chưa có kỳ khóa".
+     Nay: mọi kỳ VND (_payCcy) từ ĐÃ DUYỆT trở lên (approved/locked/posted/paid/closed). */
+  const lockedPs=(PayrollService.periods()||[]).filter(p=>p&&!p._deleted&&payStatusIdx(p.status)>=payStatusIdx('approved')&&_payCcy(p)==='VND')
     .sort((a,b)=>(b.period||'').localeCompare(a.period||''));
   const byPer={};
   lockedPs.forEach(p=>{ let t=0; (p.rows||[]).forEach(r=>{ t+=payRowFinalTakeHome(r); }); byPer[p.period]=(byPer[p.period]||0)+t; });
@@ -81700,14 +81706,20 @@ function _hrmDashGovernance(bd){
   const pend=(S.hrRequests||[]).filter(r=>r.status==='submitted').length;
   const due=(S.hrRequests||[]).filter(r=>r.status==='approved' && r.effectiveFrom<=now.toISOString().slice(0,10)).length;
   const card=(title,inner)=>`<div style="flex:1;min-width:220px;background:#fffdf8;border:1px solid var(--rule);border-radius:12px;padding:14px"><div style="font-weight:600;font-size:13px;margin-bottom:8px">${title}</div>${inner}</div>`;
-  const div=document.createElement('div');
-  div.style.cssText='display:flex;gap:16px;flex-wrap:wrap;margin-top:16px';
+  /* v3.15.24 FIX (Sếp check 11/8 — card hiện TRÙNG): trước mỗi lần render lại createElement + insert
+     THÊM 1 bộ card mới, không dọn bộ cũ → renderAll/đổi tab đẻ bản sao. Nay render IDEMPOTENT:
+     tái sử dụng div id 'hrm-dash-gov', chỉ thay innerHTML. */
+  let div=document.getElementById('hrm-dash-gov');
+  if(!div){
+    div=document.createElement('div'); div.id='hrm-dash-gov';
+    div.style.cssText='display:flex;gap:16px;flex-wrap:wrap;margin-top:16px';
+    bd.parentNode?bd.parentNode.insertBefore(div, bd.nextSibling):bd.appendChild(div);
+  }
   div.innerHTML=
     card('🔄 Vào − Ra 12 tháng', ioRows||'<div style="font-size:11px;color:var(--muted)">Chưa có dữ liệu</div>')+
-    (payCanViewPayroll()? card('💰 Quỹ lương (kỳ đã khóa, VND)', fundRows||'<div style="font-size:11px;color:var(--muted)">Chưa có kỳ khóa</div>') : '')+
+    (payCanViewPayroll()? card('💰 Quỹ lương thực lãnh (kỳ đã duyệt/khóa, VND)', fundRows||'<div style="font-size:11px;color:var(--muted)">Chưa có kỳ đã duyệt</div>') : '')+
     card('🩺 Sức khỏe dữ liệu NS', `<div style="font-size:12px">${missN? ('<b style="color:#9a5b12">'+missN+'</b> NV thiếu TK/MST/số sổ/loại HĐ — xem dải Sức khỏe dữ liệu') : '<span style="color:#1e7d44">✓ Hồ sơ đủ dữ liệu lương/thuế/BHXH</span>'}</div>
       <div style="font-size:12px;margin-top:6px">Workflow: <b>${pend}</b> chờ duyệt · <b>${due}</b> đến hạn thi hành ${pend||due?'<button class="btn-sec" style="font-size:10px" onclick="hrReqOpen()">Mở</button>':''}</div>`);
-  bd.parentNode?bd.parentNode.insertBefore(div, bd.nextSibling):bd.appendChild(div);
 }
 
 /* v3.08.38: Phân loại lại nhóm nhân sự (Văn phòng/Thuyền viên/Chuyên gia) theo phòng ban + chức danh.

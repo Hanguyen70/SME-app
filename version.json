@@ -1,5 +1,5 @@
 {
-  "version": "3.15.23",
-  "swVersion": "v3.15.23",
-  "notes": "v3.15.23: 📒 Sổ lương — cột Lịch sử điều chỉnh MẶC ĐỊNH GẬP mỗi lần mở sổ (không lưu trạng thái): dòng gập chỉ hiện '▸ N lần · gần nhất <kỳ>: mức cũ → mức mới'; bấm ▸ mở đầy đủ lịch sử từng nhân sự (viền trái phân tách), bấm ▾ gập lại; tiêu đề cột thêm 2 nút '▾ mở hết' / '▸ gập hết' cho toàn bảng. Nhân sự chưa điều chỉnh giữ nguyên chữ 'chưa điều chỉnh'. Chỉ đổi hiển thị — dữ liệu lịch sử, thống kê tăng lương, sắp xếp v3.15.22 giữ nguyên."
+  "version": "3.15.24",
+  "swVersion": "v3.15.24",
+  "notes": "v3.15.24: Dashboard Nhân sự — sửa 3 lỗi khối card quản trị theo check của Sếp: (1) HẾT TRÙNG: trước mỗi lần render lại chèn THÊM 1 bộ card mới không dọn bộ cũ → renderAll/đổi tab đẻ bản sao; nay render idempotent qua div id cố định 'hrm-dash-gov', chỉ thay nội dung — đồng thời số liệu TỰ CẬP NHẬT mỗi lần render. (2) Vào−Ra 12 tháng: trước đếm sự kiện tạo hồ sơ trong app (hrHistory create) nên import lô T6/2026 hiện '+180 tuyển mới'; nay đếm theo NGÀY THỰC — vào = startDate (ngày vào làm), ra = resignDate/terminationDate — đúng cả khi import hồi tố. (3) Quỹ lương: trước lọc cứng status≥locked và chỉ 3 nhóm office/tech/crew nên trống 'Chưa có kỳ khóa'; nay lấy MỌI kỳ VND (theo _payCcy) từ ĐÃ DUYỆT trở lên (approved/locked/posted/paid/closed), đổi nhãn 'Quỹ lương thực lãnh (kỳ đã duyệt/khóa, VND)'. Chỉ sửa hiển thị dashboard — không đụng dữ liệu, engine, kỳ lương."
 }
