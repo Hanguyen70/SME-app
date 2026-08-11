@@ -2194,6 +2194,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
       <div style="display:flex;gap:6px;flex-wrap:wrap">
         <button class="btn-sec" onclick="addBankAccount()" style="font-size:11px">+ Tài khoản NH</button>
         <button class="btn-sec" onclick="addBankSnapshot()" style="font-size:11px">📸 Cập nhật số dư</button>
+        <button class="btn-sec" onclick="bankTransferForm()" style="font-size:11px" title="Chuyển tiền NH↔NH hoặc NH↔quỹ tiền mặt">⇄ Chuyển tiền</button>
       </div>
     </div>
     <div id="bank-accounts-list"></div>
@@ -3776,7 +3777,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.15.12';
+const APP_VERSION='3.15.19';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -3883,6 +3884,16 @@ if ('serviceWorker' in navigator) {
 let _lastJsErrToast=0;
 window.addEventListener('error', function(ev){
   try{
+    /* v3.15.13 (Sếp 11/8): LỌC LỖI KHÔNG PHẢI CỦA APP. Tiện ích trình duyệt chèn script vào
+       trang và ném lỗi ở đó; lưới cũ bắt tất nên báo động nhầm ("Uncaught SyntaxError · dòng 1"
+       lặp 4 lần lúc khởi động). Đã xác minh ở cửa sổ ẩn danh: tắt tiện ích thì Console sạch.
+       Quy tắc bỏ qua: (1) script khác nguồn — trình duyệt giấu nội dung nên message đúng bằng
+       'Script error.'; (2) filename không thuộc trang này (chrome-extension://, moz-extension://,
+       hoặc khác origin). Lỗi THẬT của app luôn có filename cùng origin ⇒ vẫn báo đầy đủ. */
+    const _fn=String((ev&&ev.filename)||'');
+    if(/^Script error\.?$/i.test(String((ev&&ev.message)||''))) return;
+    if(_fn && !/^(blob:)?https?:\/\//.test(_fn)) return;                       // extension://, data:, …
+    if(_fn && _fn.indexOf(location.origin)!==0) return;                        // khác origin
     const now=Date.now(); if(now-_lastJsErrToast<10000) return; _lastJsErrToast=now;
     const msg=(ev&&ev.message)||'Lỗi không xác định';
     const where=(ev&&ev.filename?'':'')+(ev&&ev.lineno?(' · dòng '+ev.lineno):'');
@@ -6598,6 +6609,8 @@ async function authAction(){
       try{ const _rc=_migrateContractValue(); if(_rc.c) saveState(); }catch(e){console.warn('[migrate v3.09.32 contract-value] failed:',e);}
       // v3.07.60: gắn lô duyệt chi (_payBatchId) cho phiếu AP đã duyệt CŨ (trước 3.07.54) để hiện ở Thư viện hồ sơ chờ chi.
       try{ const _rb=_migratePayBatch(); if(_rb>0){ saveState(); dlog('[migrate v3.07.60] gắn lô duyệt chi cho '+_rb+' phiếu approved cũ'); } }catch(e){console.warn('[migrate v3.07.60 payBatch] failed:',e);}
+      // v3.15.18: vá schedule cho khoản vay có trả trước 1 phần cũ (dư nợ đang phồng) — xem _migrateLoanPrepayPartial.
+      try{ const _rl=(typeof _migrateLoanPrepayPartial==='function')?_migrateLoanPrepayPartial():0; if(_rl>0){ saveState(); dlog('[migrate v3.15.18] vá trả trước 1 phần cho '+_rl+' khoản vay'); } }catch(e){console.warn('[migrate v3.15.18 loan-prepay-partial] failed:',e);}
       // v3.09.73: dọn snapshot dư cũ về 3 bản (giảm từ 8) — giải phóng localStorage. KHÔNG đụng dữ liệu nghiệp vụ.
       try{ const _rs=(typeof pruneLocalSnapshots==='function')?pruneLocalSnapshots():0; if(_rs>0) dlog('[snapshot prune] bỏ '+_rs+' bản cũ, giữ '+_SNAP_MAX); }catch(e){console.warn('[snapshot prune] failed:',e);}
       const lastBak=cfg.lastBackup?new Date(cfg.lastBackup).getTime():0;
@@ -6994,14 +7007,14 @@ const TAB_TO_FIELDS={
   hrm:            ['hrEmployees','hrHistory','hrAttendance','crewAssignments','crewTimesheets','crewChangePlans','crewManning','crewRotationConfig','positions','vessels','opVessels','projects'],
   receivables:    ['receivables','projects','vessels','opVessels'],
   periodic:       ['receivables','payables','opVessels','opTransactions','opMgmtFees','ownerReportLocks','qnExpenseCats','projects','vessels'],
-  fin_accounting: ['receivables','payables','cashFunds','cashTxns','bankAccounts','bankSnapshots','loans','creditFacilities','opVessels','opTransactions','projects','vessels','advances','taxes'],
+  fin_accounting: ['receivables','payables','cashFunds','cashTxns','bankAccounts','bankSnapshots','bankTransfers','loans','creditFacilities','opVessels','opTransactions','projects','vessels','advances','taxes'],
   payables:       ['payables','projects','vessels','opVessels'],
   vessel_expense: ['vessels','projects','opVessels','payables','vesselExpenseCats','omProjectExpenseCats'],
   hr_expense:     ['payables','hrExpenseCats','projects','vessels','opVessels'],
   qn_expense:     ['payables','qnExpenseCats','projects','vessels','opVessels'],
-  banking:        ['bankAccounts','bankSnapshots','loans','creditFacilities','loanAutoCollect','cashFunds','cashTxns'],
+  banking:        ['bankAccounts','bankSnapshots','bankTransfers','loans','creditFacilities','loanAutoCollect','cashFunds','cashTxns'],
   cashfund:       ['cashFunds','cashTxns'],
-  cashflow:       ['receivables','payables','taxes','bankAccounts','bankSnapshots','loans','creditFacilities','cashFunds','cashTxns'],
+  cashflow:       ['receivables','payables','taxes','bankAccounts','bankSnapshots','bankTransfers','loans','creditFacilities','cashFunds','cashTxns'],
   salary_fund:    ['salaryFund','payrollConfig','payrollPeriods','payChangeRequests','payrollEngine','payExtras','omImports','payrollBankBatches','siEvents','hrRequests','employeeTaxYearProfile','employeeTaxIncomeSources','employeeTaxYearSnapshots','taxYearFinalizations','taxRules','hrTaxAttrs','hrEmploymentAssignments','insuranceEnrollments','receivables','payables'],
   operations:     ['opVessels','opTransactions','advances'],
   op_input:       ['opVessels','opTransactions','advances','payables','vendors','expenseTypes','projects','vessels'],
@@ -7023,7 +7036,7 @@ const SHARED_FIELDS=['fxRate','fxRateAt','displayCcy','displayCcyAt','companyInf
 const ALL_DATA_FIELDS=[
   'archiveLibrary',
   'plans','dockPlans','projects','vessels','onhires','events','dailyReports',
-  'receivables','payables','bankAccounts','bankSnapshots','loans','creditFacilities','loanAutoCollect','bankBalance','bankBalanceCcy',
+  'receivables','payables','bankAccounts','bankSnapshots','bankTransfers','loans','creditFacilities','loanAutoCollect','bankBalance','bankBalanceCcy',
   'opVessels','opTransactions','opMgmtFees','ownerReportLocks','advances','invGroups','invMovements','warehouses','materials','materialGroups','stockDocs','stockCounts',
   'vesselExpenseCats','omProjectExpenseCats','hrExpenseCats','qnExpenseCats',
   'fixedAssets','tools',
@@ -25444,11 +25457,15 @@ function _payslipDetail(p, row){
     }
   }
   const sum=earn.reduce((t,x)=>t+x[2],0);
-  /* v3.15.07 (Sếp 11/8): chênh NHỎ chỉ là dư làm tròn đơn giá → cộng vào dòng cuối,
-     không in 'Cấu phần khác: 2' gây khó hiểu cho NV. Chênh lớn vẫn hiện riêng để KT soi. */
+  /* v3.15.07: chênh NHỎ là dư làm tròn đơn giá ngày → gộp vào dòng lương THEO CÔNG.
+     v3.15.15 FIX (Sếp 11/8 — "PC dự án 5.000.015đ"): trước gộp vào DÒNG CUỐI, mà dòng cuối
+     thường là khoản CỐ ĐỊNH theo thẻ (PC dự án, PC nhà ở…) ⇒ in ra mức lẻ, sai với thẻ lương.
+     Nay chỉ gộp vào dòng đầu tiên có ĐƠN GIÁ × CÔNG (dòng phát sinh ra số dư); nếu không có
+     dòng nào như vậy thì hiện riêng để không bịa số vào khoản cố định. */
   if(target){ const d=Math.round(target-sum);
-    if(Math.abs(d)>=1000) earn.push(['Cấu phần khác','', d]);
-    else if(d!==0 && earn.length) earn[earn.length-1][2]+=d; }
+    const iVar=earn.findIndex(x=>/công|ngày|giờ/i.test(String(x[1]||'')));
+    if(Math.abs(d)>=1000 || iVar<0){ if(d!==0) earn.push(['Cấu phần khác','', d]); }
+    else if(d!==0) earn[iVar][2]+=d; }
   return {att, earn, total: target||sum};
 }
 function _payslipHtml(p, row, opts){
@@ -25554,13 +25571,14 @@ function _payslipHtml(p, row, opts){
     /* v3.15.04: MỤC A — mức lương áp dụng, diễn giải theo HĐLĐ (Sếp chốt 10/8) */
     const _rates=_payslipRates(p, row);
     const ratesHtml=_rates.length?`
-      <div style="font-size:11px;font-weight:700;color:#1c3a5c;margin:2px 0 4px">MỨC LƯƠNG ÁP DỤNG <span style="font-weight:400;color:#888">/ Applicable pay rates</span></div>
-      <table style="width:100%;font-size:11px;border-collapse:collapse;margin-bottom:10px">
+      <div style="font-size:11.5px;font-weight:700;color:#0f6b8c;margin:8px 0 4px;letter-spacing:.04em">A · MỨC LƯƠNG ÁP DỤNG <span style="font-weight:400;color:#93a4b0">/ Applicable pay rates</span></div>
+      <table style="width:100%;font-size:12px;border-collapse:collapse;margin-bottom:10px">
+        <thead><tr><th style="text-align:left;padding:4px 6px;font-size:10px;color:#6b7d8a;border-bottom:1.5px solid #dbe3e8;font-weight:600">Khoản mục <span style="color:#93a4b0;font-weight:400">/ Item</span></th><th style="text-align:left;padding:4px 6px;font-size:10px;color:#6b7d8a;border-bottom:1.5px solid #dbe3e8;font-weight:600">Cách xác định <span style="color:#93a4b0;font-weight:400">/ Basis</span></th><th style="text-align:right;padding:4px 6px;font-size:10px;color:#6b7d8a;border-bottom:1.5px solid #dbe3e8;font-weight:600">Mức / ngày</th></tr></thead><tbody>
         ${_rates.map(x=>`<tr style="border-bottom:1px solid #eee">
-          <td style="padding:3px 0;color:#333">${esc(x[0])}<div style="color:#999;font-size:10px">${esc(x[1])}</div></td>
-          <td style="padding:3px 6px;color:#777;font-size:10.5px">${esc(x[2])}</td>
-          <td style="text-align:right;font-family:monospace;white-space:nowrap">${fm(x[3])}</td></tr>`).join('')}
-      </table>`:'';
+          <td style="padding:4px 6px;color:#12232e;border-bottom:1px solid #eef2f5">${esc(x[0])}<div style="color:#93a4b0;font-size:10.5px">${esc(x[1])}</div></td>
+          <td style="padding:4px 6px;border-bottom:1px solid #eef2f5">${/[×÷]/.test(String(x[2]||''))?`<span style="font-family:monospace;font-size:10.5px;color:#6b7d8a;background:#f2f7f9;border-radius:3px;padding:1px 5px">${esc(x[2])}</span>`:`<span style="color:#6b7d8a;font-size:10.5px">${esc(x[2])}</span>`}</td>
+          <td style="text-align:right;font-family:monospace;white-space:nowrap;padding:4px 6px;border-bottom:1px solid #eef2f5">${fm(x[3])}</td></tr>`).join('')}
+      </tbody></table>`:'';
     const attHtml=det.att.length?`
       <div style="font-size:11px;font-weight:700;color:#1c3a5c;margin:2px 0 4px">CHI TIẾT CHẤM CÔNG THÁNG <span style="font-weight:400;color:#888">/ Attendance</span></div>
       <table style="width:100%;font-size:11px;border-collapse:collapse;margin-bottom:10px"><tr>
@@ -25575,6 +25593,23 @@ function _payslipHtml(p, row, opts){
          <tr><td style="padding:3px 0;color:#333;padding-left:12px">Thuế TNCN</td><td style="text-align:right;font-family:monospace;color:#c0392b">−${fm(PITv)}</td></tr>
          ${AM?`<tr><td style="padding:3px 0;color:#333;padding-left:12px">Khấu trừ khác</td><td style="text-align:right;font-family:monospace;color:#c0392b">−${fm(AM)}</td></tr>`:''}`
       : '';
+    /* v3.15.16 (Sếp 11/8 — "bản đầy đủ chưa khớp mẫu duyệt"): dựng CHUỖI TÍNH THUẾ đúng mẫu
+       đã duyệt — miễn thuế → giảm trừ gia cảnh → thu nhập tính thuế → quy đổi GROSS → thuế.
+       Đọc từ trường engine đã công khai theo từng nhóm, KHÔNG tính lại công thức. */
+    const _ex=(r.AC!=null?+r.AC:(r.AD!=null&&p.profile==='tech'?+r.AD:0))||0;      /* thu nhập miễn thuế */
+    const _gtgc=(r.AI!=null?+r.AI:0)||0;                                           /* giảm trừ gia cảnh */
+    const _tnttNet=(r.AD!=null&&p.profile==='crew')?+r.AD:((r.AE!=null)?+r.AE:0);  /* TNTT dạng NET */
+    const _grossTax=(r.AG!=null?+r.AG:0)||0;                                       /* quy đổi GROSS */
+    const _bhBase=(+((row.inputs||{})._bhxhBase)||0);
+    const _eePct=(insPct&&INSe&&INSc)?(Math.round(INSe/(INSe+INSc)*insPct*10)/10):'';
+    const _erPct=(insPct&&_eePct!=='')?(Math.round((insPct-_eePct)*10)/10):'';
+    const _taxSteps=[];
+    if(_ex>0)      _taxSteps.push(['Thu nhập miễn thuế','Tax-exempt income','',_ex]);
+    if(_gtgc>0)    _taxSteps.push(['Giảm trừ gia cảnh','Personal and dependant relief','',_gtgc]);
+    if(_tnttNet>0) _taxSteps.push(['Thu nhập tính thuế (NET)','Taxable income, net basis','',_tnttNet]);
+    if(_grossTax>0)_taxSteps.push(['Quy đổi sang GROSS','Grossed-up taxable income','',_grossTax]);
+    _taxSteps.push(['Thuế thu nhập cá nhân','Personal income tax', (grossUp>0?('gross '+fm(GRv)):''), PITv]);
+    const _nDep=(+((row.inputs||{}).F)||0);   /* v3.15.17: người phụ thuộc — mẫu duyệt có dòng này */
     const coPay = isGross
       ? `<div style="font-size:11px;font-weight:700;color:#1e7d44;margin:10px 0 4px">PHẦN CÔNG TY NỘP (không trừ vào lương)</div>
         <table style="width:100%;font-size:12px;border-collapse:collapse">
@@ -25588,35 +25623,48 @@ function _payslipHtml(p, row, opts){
           <tr style="border-top:1px solid #ddd"><td style="padding:3px 0;font-weight:600">Tổng công ty nộp thay <span style="font-weight:400;color:#999">/ Total</span></td><td style="text-align:right;font-family:monospace;font-weight:700">${fm(PITv+INSe+INSc)}</td></tr>
         </table>
         <div style="font-size:10px;color:#666;margin-top:4px;line-height:1.35">Lương của bạn là lương NET — thuế và bảo hiểm do công ty nộp thay, không trừ vào thực lĩnh.<br><span style="color:#999">Your salary is a net figure; tax and insurance are borne by the company.</span></div>`
-      : `<div style="font-size:11px;font-weight:700;color:#1e7d44;margin:10px 0 4px">PHẦN CÔNG TY NỘP THAY — KHÔNG trừ vào lương của bạn</div>
+      : `<div style="font-size:11px;font-weight:700;color:#1e7d44;margin:10px 0 4px">D · THUẾ VÀ BẢO HIỂM — CÔNG TY NỘP THAY <span style="font-weight:400;color:#888">/ Tax and insurance paid by the company</span></div>
         <table style="width:100%;font-size:12px;border-collapse:collapse">
-          <tr><td style="padding:3px 0;color:#333">Thuế TNCN (công ty nộp thay)</td><td style="text-align:right;font-family:monospace">${fm(PITv)}</td></tr>
-          <tr><td style="padding:3px 0;color:#333">BHXH/BHYT/BHTN phần người lao động (công ty chịu)</td><td style="text-align:right;font-family:monospace">${fm(INSe)}</td></tr>
-          <tr><td style="padding:3px 0;color:#333">BHXH/BHYT/BHTN phần doanh nghiệp</td><td style="text-align:right;font-family:monospace">${fm(INSc)}</td></tr>
-          <tr style="border-top:1px solid #ddd"><td style="padding:3px 0;color:#333;font-weight:600">Tổng BH hai bên (NV + DN · ${insPct}% nền BH)</td><td style="text-align:right;font-family:monospace;font-weight:600">${fm(INSe+INSc)}</td></tr>
-          ${AM?`<tr><td style="padding:3px 0;color:#333">Khấu trừ khác</td><td style="text-align:right;font-family:monospace;color:#c0392b">−${fm(AM)}</td></tr>`:''}
-          <tr><td style="padding:3px 0;color:#888;font-size:10px" colspan="2">Tham khảo quy đổi gross-up: ${fm(grossUp)} (gross ${fm(GRv)})</td></tr>
-        </table>`);
+          ${_taxSteps.map(x=>`<tr><td style="padding:3px 0;color:#333">${x[0]}<div style="color:#999;font-size:10px">${x[1]}</div></td>
+            <td style="padding:3px 0;color:#777;font-size:10px;font-family:monospace">${x[2]||''}</td>
+            <td style="text-align:right;font-family:monospace;white-space:nowrap">${fm(x[3])}</td></tr>`).join('')}
+          <tr><td style="padding:3px 0;color:#333">Bảo hiểm phần người lao động<div style="color:#999;font-size:10px">Insurance — employee share</div></td>
+            <td style="padding:3px 0;color:#777;font-size:10px;font-family:monospace">${_bhBase?fm(_bhBase)+' × '+_eePct+'%':''}</td>
+            <td style="text-align:right;font-family:monospace">${fm(INSe)}</td></tr>
+          <tr><td style="padding:3px 0;color:#333">Bảo hiểm phần doanh nghiệp<div style="color:#999;font-size:10px">Insurance — employer share</div></td>
+            <td style="padding:3px 0;color:#777;font-size:10px;font-family:monospace">${_bhBase?fm(_bhBase)+' × '+_erPct+'%':''}</td>
+            <td style="text-align:right;font-family:monospace">${fm(INSc)}</td></tr>
+          <tr><td style="padding:3px 0;color:#333">Cộng bảo hiểm hai bên<div style="color:#999;font-size:10px">Total insurance, both shares</div></td>
+            <td style="padding:3px 0;color:#777;font-size:10px;font-family:monospace">${_bhBase?fm(_bhBase)+' × '+insPct+'%':''}</td>
+            <td style="text-align:right;font-family:monospace">${fm(INSe+INSc)}</td></tr>
+          ${AM?`<tr><td style="padding:3px 0;color:#333">Khấu trừ khác<div style="color:#999;font-size:10px">Other deductions</div></td><td></td><td style="text-align:right;font-family:monospace;color:#c0392b">−${fm(AM)}</td></tr>`:''}
+          <tr style="border-top:2px solid #1c3a5c"><td style="padding:5px 0;font-weight:700">TỔNG CÔNG TY NỘP THAY<div style="color:#999;font-size:10px;font-weight:400">Total borne by the company</div></td>
+            <td></td><td style="text-align:right;font-family:monospace;font-weight:700;color:#1e7d44">${fm(PITv+INSe+INSc)}</td></tr>
+        </table>
+        <div style="font-size:10px;color:#666;margin-top:5px;line-height:1.35">Lương của bạn là lương NET — thuế thu nhập cá nhân và toàn bộ bảo hiểm bắt buộc, gồm cả phần của người lao động, do công ty nộp thay, không trừ vào số thực lĩnh.<br><span style="color:#999">Your salary is a net figure. Personal income tax and all statutory insurance, including the employee share, are borne by the company.</span></div>`);
     return `<div ${wrapId}style="position:relative;font-family:Arial,sans-serif;color:#111;max-width:560px;margin:0 auto;padding:24px;border:1px solid #ccc;page-break-after:always">${_draftWm}
-      <div style="text-align:center;border-bottom:2px solid #1c3a5c;padding-bottom:10px;margin-bottom:14px">
-        <div style="font-weight:700;font-size:16px">${esc(co)}</div>
-        <div style="font-size:20px;font-weight:700;margin-top:6px;letter-spacing:1px">PHIẾU LƯƠNG</div>
-        <div style="font-size:13px;color:#555">Kỳ lương: tháng ${esc(p.period)}</div>
-        <div style="font-size:10px;color:#888;margin-top:2px">${full?'BẢN LƯU NỘI BỘ / Internal copy':'BẢN GỬI NHÂN VIÊN / Employee copy'}</div>
+      <!-- v3.15.17 (Sếp 11/8): thiết kế bám MẪU ĐÃ DUYỆT — tiêu đề song ngữ 2 dòng,
+           chip nhãn bản, khối thông tin nhân viên dạng nhãn Việt/Anh chồng nhau. -->
+      <div style="text-align:center;border-bottom:2px solid #12232e;padding-bottom:11px;margin-bottom:0">
+        <div style="font-size:11px;color:#6b7d8a;letter-spacing:.03em">${esc(co).toUpperCase()}</div>
+        <div style="font-size:19px;font-weight:700;margin-top:4px;letter-spacing:.5px">PHIẾU LƯƠNG <span style="font-weight:400;color:#6b7d8a;font-size:14px">/ PAYSLIP</span></div>
+        <div style="font-size:12px;color:#6b7d8a;margin-top:2px">Kỳ lương tháng ${esc(p.period)} · Pay period ${esc(p.period)} · ${esc(_payCcy(p))}</div>
+        <div style="margin-top:5px"><span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:700;background:${full?'#e3f0f5':'#eef3e8'};color:${full?'#0f6b8c':'#4a6b2a'}">${full?'BẢN LƯU NỘI BỘ / INTERNAL COPY':'BẢN GỬI NHÂN VIÊN / EMPLOYEE COPY'}</span></div>
       </div>
-      <table style="width:100%;font-size:13px;margin-bottom:12px"><tbody>
-        <tr><td style="color:#666;padding:2px 0">Nhân viên:</td><td style="text-align:right;font-weight:600">${esc(row.name||'')}</td></tr>
-        <tr><td style="color:#666;padding:2px 0">MSNV:</td><td style="text-align:right">${esc(row.smartId||'')}</td></tr>
-        ${who?`<tr><td style="color:#666;padding:2px 0">${(p.profile==='crew'||p.profile==='crew_khoan')?'Tàu — Chức danh:':'Bộ phận — Chức danh:'}</td><td style="text-align:right">${esc(who)}</td></tr>`:''}
+      <table style="width:100%;font-size:12.5px;margin-bottom:10px;border-collapse:collapse;background:#fafcfd"><tbody>
+        <tr><td style="padding:5px 8px;border-bottom:1px solid #eef2f5">Nhân viên<div style="color:#93a4b0;font-size:11px">Employee</div></td><td style="text-align:right;font-weight:600;padding:5px 8px;border-bottom:1px solid #eef2f5">${esc(row.name||'')}</td></tr>
+        <tr><td style="padding:5px 8px;border-bottom:1px solid #eef2f5">MSNV<div style="color:#93a4b0;font-size:11px">Staff ID</div></td><td style="text-align:right;padding:5px 8px;border-bottom:1px solid #eef2f5">${esc(row.smartId||'')}</td></tr>
+        ${who?`<tr><td style="padding:5px 8px;border-bottom:1px solid #eef2f5">${(p.profile==='crew'||p.profile==='crew_khoan')?'Tàu — Chức danh':'Bộ phận — Chức danh'}<div style="color:#93a4b0;font-size:11px">${(p.profile==='crew'||p.profile==='crew_khoan')?'Vessel — Rank':'Department — Title'}</div></td><td style="text-align:right;padding:5px 8px;border-bottom:1px solid #eef2f5">${esc(who)}</td></tr>`:''}
+        ${_nDep?`<tr><td style="padding:5px 8px">Người phụ thuộc<div style="color:#93a4b0;font-size:11px">Dependants</div></td><td style="text-align:right;padding:5px 8px">${_nDep}</td></tr>`:''}
       </tbody></table>
       ${ratesHtml}${full?attHtml:''}
       <table style="width:100%;font-size:13px;border-collapse:collapse">
         <thead><tr style="border-bottom:1px solid #ccc"><th style="text-align:left;padding:5px 0">Khoản mục</th><th style="text-align:right">Số tiền (VND)</th></tr></thead>
         <tbody>
-          <tr><td colspan="2" style="padding-top:2px;font-weight:600;color:#1c3a5c">A · Thực nhận trong tháng ${isGross?'(tổng thu nhập GROSS)':'(lương NET)'}</td></tr>
+          <tr><td colspan="2" style="padding-top:2px;font-weight:600;color:#1c3a5c">B · NGÀY CÔNG VÀ TIỀN LƯƠNG <span style="font-weight:400;color:#93a4b0">/ Attendance and earnings</span>${isGross?' — GROSS':''}</td></tr>
           ${earnHtml}
           <tr style="border-top:1px solid #ddd"><td style="padding:4px 0;padding-left:12px;font-weight:600">Cộng A</td><td style="text-align:right;font-family:monospace;font-weight:600">${fm(det.total)}</td></tr>
-          <tr><td colspan="2" style="padding-top:8px;font-weight:600;color:#1c3a5c">B · Các khoản phải thu / phải trả khác</td></tr>
+          <tr><td colspan="2" style="padding-top:8px;font-weight:600;color:#1c3a5c">C · PHẢI THU / PHẢI TRẢ KHÁC <span style="font-weight:400;color:#93a4b0">/ Other deductions and additions</span></td></tr>
           ${adjHtml}
           ${coBlock}
         </tbody>
@@ -26106,6 +26154,7 @@ function defaultState(){
     emailTemplates: [],  // v3.08.01: mẫu email (subject/body có biến {{}})
     bankAccounts:[],     // [{id, bankName, branch, accountNo, accountName, ccy, isActive, note, createdAt}]
     bankSnapshots:[],    // v1.31: [{id, bankAccountId, date, balance, note, createdBy, createdAt}]
+    bankTransfers:[],    // v3.15.19: chuyển tiền nội bộ [{id, date, fromType:'bank'|'cash', fromId, toType, toId, amount, ccy, note, createdBy, createdAt}]
     loans:[],            // v1.31: [{id, bankName, loanType, contractNo, principal, ccy, interestRate, startDate, endDate, termMonths, repayMethod, paymentSchedule:[], status, note, createdBy, createdAt}]
     // v2.85.0: Hạn mức tín dụng theo NH/năm. 1 facility = 1 hạn mức tổng. Các loans liên kết qua loan.facilityId.
     creditFacilities:[], // [{id, bankName, year, limit, ccy, contractNo, startDate, expiryDate, collateral, note, isActive, createdAt, createdBy}]
@@ -27054,7 +27103,7 @@ function openRecycleBinModal(){
    ============================================================================ */
 const STORAGE_GROUPS={
   'A. Master Data':['materials','materialGroups','vendors','hrEmployees','salaryProfiles','vessels','departments','expenseTypes','revenueTypes','positions','companies','warehouses','invGroups','vesselExpenseCats','omProjectExpenseCats','hrExpenseCats','qnExpenseCats','fixedAssets','tools','projects','plans','dockPlans','payrollPolicies','payrollPolicySets','payrollElementCatalogue','payrollCalendar'],
-  'B. Transaction':['opTransactions','cashTxns','receivables','payables','invMovements','stockDocs','stockCounts','dailyReports','loans','creditFacilities','loanAutoCollect','advances','payrollPeriods','payChangeRequests','crewTimesheets','crewAssignments','crewChangePlans','hrAttendance','transactions','opMgmtFees','onhires','events','bankAccounts','bankSnapshots','cashFunds','salaryFund','taxes','hrHistory'],
+  'B. Transaction':['opTransactions','cashTxns','receivables','payables','invMovements','stockDocs','stockCounts','dailyReports','loans','creditFacilities','loanAutoCollect','advances','payrollPeriods','payChangeRequests','crewTimesheets','crewAssignments','crewChangePlans','hrAttendance','transactions','opMgmtFees','onhires','events','bankAccounts','bankSnapshots','bankTransfers','cashFunds','salaryFund','taxes','hrHistory'],
   'C. Audit/Log':['auditLog','auditLogShared','emailLog','emailQueue','bodNotifs'],
   'D. Cache/Config':['fxRate','fxRateAt','displayCcy','companyInfo','cashflowConfig','payrollConfig','payrollEngine','historicalData','lockedHistYears','archiveLibrary','adminChecklist','healthDismissed','ownerReportLocks','crewManning','crewRotationConfig','deletedIds','purgedBatches','purgedContent','_recycleBin','meta','presence'],
   'E. Email/Tmpl':['emailSettings','emailTemplates','emailDrafts']
@@ -40441,6 +40490,126 @@ function bankLatestSnapshot(accountId){
   })[0];
 }
 
+/* ============================================================
+   v3.15.19 — SỔ NGÂN HÀNG (bank ledger) — DẪN XUẤT 100%, không lưu số cộng dồn.
+   Mỏ neo = snapshot MỚI NHẤT của TK (Source of Truth — GIỮ NGUYÊN quy tắc v3.09.88).
+   Sổ = mỏ neo + Σ giao dịch có NGÀY (ngày KT xác nhận TT) > ngày snapshot.
+   Nguồn quét (chỉ đọc — không đụng công thức nghiệp vụ nào):
+     · payables[].payments   (bankAccountId, method≠'loan', LOẠI phiếu autoSource loan_*) → CHI + phí
+     · receivables[].payments (bankAccountId)                                            → THU
+     · opTransactions type IN (rec.bankAccountId)                                        → THU
+     · opTransactions[].payments (pay.bankAccountId)                                     → CHI + phí
+     · loans (debitBankAccountId): kỳ paid → CHI gốc+lãi tại paidDate; phí prepay        → CHI
+       (nguồn DUY NHẤT cho tiền vay — AP loan_* bị loại để không đếm trùng)
+     · bankTransfers: from → CHI, to → THU
+   Payment method==='loan' (giải ngân thẳng NCC từ hạn mức) KHÔNG chạm số dư TK.
+   ============================================================ */
+function _bankLedgerFeeInAcc(pay, recCcy, accCcy){
+  // Quy PHÍ 1 đợt về ccy TK — cùng logic saveArPayment v3.11.77: phí theo feeCcy (mặc định ccy phiếu),
+  // fx cặp USD↔VND: pay.fxRate chỉ đúng khi phiếu USD; phiếu khác dùng tỷ giá hệ thống.
+  const feeAmt=(+pay.bankFee||0)+(+pay.otherFee||0);
+  if(feeAmt<=0) return 0;
+  const _fc=pay.feeCcy||recCcy;
+  const _fx=(recCcy==='USD') ? (+pay.fxRate||+S.fxRate||0) : (+S.fxRate||+pay.fxRate||0);
+  return _arPayAmountInCcy({amount:feeAmt,fxRate:_fx}, _fc, accCcy);
+}
+function bankLedgerRows(accId){
+  const acc=AccountingService.bankAccounts().find(a=>a.id===accId);
+  if(!acc) return {rows:[], anchor:null, computed:0};
+  const accCcy=acc.ccy||'USD';
+  const anchor=bankLatestSnapshot(accId);
+  const anchorDate=anchor?(anchor.date||''):'';
+  const rows=[];
+  const push=(date,kind,refId,label,inAmt,outAmt,fee,openFn)=>{
+    if((date||'')<=anchorDate) return;   // trước/bằng mỏ neo — đã nằm trong số dư sao kê
+    rows.push({date:date||'', kind, refId, label, inAmt:+inAmt||0, outAmt:+outAmt||0, fee:+fee||0, openFn:openFn||''});
+  };
+  // AP — CHI (loại AP tiền vay + loại payment giải ngân)
+  (S.payables||[]).forEach(r=>{
+    if(r && r.autoSource && /^loan_/.test(String(r.autoSource))) return;
+    (r&&r.payments||[]).forEach(p=>{
+      if(!p || p.bankAccountId!==accId || p.method==='loan') return;
+      push(p.date,'AP',r.id,(r.partner||'')+(r.invoiceNo?' · '+r.invoiceNo:''),0,
+        _arPayAmountInCcy(p, r.ccy, accCcy), _bankLedgerFeeInAcc(p, r.ccy, accCcy),
+        "openPayableModal('"+r.id+"')");
+    });
+  });
+  // AR — THU
+  (S.receivables||[]).forEach(r=>{
+    (r&&r.payments||[]).forEach(p=>{
+      if(!p || p.bankAccountId!==accId) return;
+      push(p.date,'AR',r.id,(r.partner||'')+(r.invoiceNo?' · '+r.invoiceNo:''),
+        _arPayAmountInCcy(p, r.ccy, accCcy),0,0,"openReceivableModal('"+r.id+"')");
+    });
+  });
+  // Thu hộ / Chi hộ (opTransactions)
+  (S.opTransactions||[]).forEach(t=>{
+    if(!t) return;
+    if(t.type==='IN' && t.bankAccountId===accId){
+      push(t.date,'THU HỘ',t.id,(t.desc||'').slice(0,50),
+        _arPayAmountInCcy({amount:t.amount,fxRate:(+t.fxToVnd||+S.fxRate||0)}, t.ccy||'USD', accCcy),0,0,
+        "showOpTxDetail('"+t.id+"')");
+    }
+    (t.payments||[]).forEach(p=>{
+      if(!p || p.bankAccountId!==accId) return;
+      push(p.date,'CHI HỘ',t.id,(t.vendor||t.desc||'').slice(0,50),0,
+        _arPayAmountInCcy({amount:p.amount,fxRate:(+S.fxRate||0)}, p.ccy||t.ccy||'VND', accCcy),
+        _bankLedgerFeeInAcc(p, p.ccy||t.ccy||'VND', accCcy),
+        "showOpTxDetail('"+t.id+"')");
+    });
+  });
+  // Vay — kỳ đã trả (gốc+lãi) + phí trả trước, từ TK trích nợ
+  (AccountingService.loans()||[]).forEach(l=>{
+    if(!l || l.debitBankAccountId!==accId) return;
+    (l.paymentSchedule||[]).forEach(p=>{
+      if(!p || !p.paid) return;
+      const amt=(+p.principal||0)+(+p.interest||0);
+      if(amt<=0) return;
+      const lbl=(p.isPrepayPartial?'TT trước 1 phần · ':(p.isPrepayPayoff?'Tất toán · ':'Kỳ '+p.period+' · '))+(l.contractNo||l.id.slice(-6));
+      push(p.paidDate||p.dueDate,'VAY',l.id,lbl,0,
+        _arPayAmountInCcy({amount:amt,fxRate:(+S.fxRate||0)}, l.ccy||'VND', accCcy),0,
+        "viewLoanSchedule('"+l.id+"')");
+    });
+    (l.prepayments||[]).forEach(pp=>{
+      if(+pp.fee>0) push(pp.date,'VAY',l.id,'Phí trả trước · '+(l.contractNo||l.id.slice(-6)),0,
+        _arPayAmountInCcy({amount:+pp.fee,fxRate:(+S.fxRate||0)}, l.ccy||'VND', accCcy),0,
+        "viewLoanSchedule('"+l.id+"')");
+    });
+  });
+  // Chuyển tiền nội bộ
+  (S.bankTransfers||[]).forEach(tr=>{
+    if(!tr) return;
+    if(tr.fromType==='bank' && tr.fromId===accId)
+      push(tr.date,'CHUYỂN',tr.id,'Chuyển đi: '+(tr.note||tr.toLabel||''),0,+tr.amount||0,0,'');
+    if(tr.toType==='bank' && tr.toId===accId)
+      push(tr.date,'CHUYỂN',tr.id,'Nhận về: '+(tr.note||tr.fromLabel||''),+tr.amount||0,0,0,'');
+  });
+  rows.sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+  let run=anchor?(+anchor.balance||0):0;
+  rows.forEach(r=>{ run += r.inAmt - r.outAmt - r.fee; r.running=run; });
+  return {rows, anchor, computed:run};
+}
+/* Các khoản thu/chi CHƯA GẮN TK — để KT gán bổ sung (mục ⑥). */
+function _bankUnlinkedItems(){
+  const out=[];
+  (S.opTransactions||[]).forEach(t=>{
+    if(!t) return;
+    if(t.type==='IN' && !t.bankAccountId)
+      out.push({kind:'opIn', id:t.id, date:t.date||'', label:'Thu hộ · '+(t.desc||'').slice(0,45), amount:(+t.amount||0), ccy:t.ccy||'USD'});
+    (t.payments||[]).forEach((p,idx)=>{
+      if(p && !p.bankAccountId)
+        out.push({kind:'opPay', id:t.id, idx, date:p.date||'', label:'Chi hộ NCC · '+(t.vendor||t.desc||'').slice(0,45), amount:(+p.amount||0), ccy:p.ccy||t.ccy||'VND'});
+    });
+  });
+  (AccountingService.loans()||[]).forEach(l=>{
+    if(!l || l.debitBankAccountId || l.status==='closed') return;
+    if((l.paymentSchedule||[]).some(p=>p&&p.paid))
+      out.push({kind:'loanDebit', id:l.id, date:l.startDate||'', label:'Khoản vay · '+(l.contractNo||l.lender||l.id.slice(-6))+' (kỳ đã trả, chưa rõ TK trích nợ)', amount:0, ccy:l.ccy||'VND'});
+  });
+  out.sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  return out;
+}
+
 /* Render Banking page */
 /* ============================================================
    SALARY FUND (v1.32) — Quỹ tiền lương
@@ -43055,11 +43224,12 @@ function renderBanking(){
                 <div style="font-weight:600;font-size:13px">${esc(a.accountName||'(không tên)')}${a.isActive===false?' <span class="ds-need" style="font-size:10px">NGỪNG</span>':''}</div>
                 <div style="font-size:11px;color:var(--muted);font-family:var(--font-mono)">${esc(a.accountNo||'')}${a.branch?' · '+esc(a.branch):''} · ${esc(a.ccy||'')}</div>
               </div>
-              <div style="text-align:right">
-                <div style="font-family:var(--font-mono);font-weight:700;font-size:13px;color:${bal>0?'var(--good)':'var(--muted)'}">${(+bal).toLocaleString()} ${esc(a.ccy||'')}</div>
+              <div style="text-align:right;cursor:pointer" onclick="viewBankLedger('${esc(a.id)}')" title="Bấm mở Sổ ngân hàng — xem số dư này từ đâu ra">
+                <div style="font-family:var(--font-mono);font-weight:700;font-size:13px;color:${bal>0?'var(--good)':'var(--muted)'};text-decoration:underline dotted;text-underline-offset:3px">${(+bal).toLocaleString()} ${esc(a.ccy||'')}</div>
                 <div style="font-size:10px;color:var(--muted)">cập nhật: ${esc(dateLabel)}</div>
               </div>
               <div style="display:flex;gap:4px">
+                <button class="icon-btn" onclick="viewBankLedger('${esc(a.id)}')" title="Sổ ngân hàng — dòng thu/chi + đối chiếu sao kê">📖</button>
                 <button class="icon-btn" onclick="addBankSnapshot('${esc(a.id)}')" title="Cập nhật số dư">📸</button>
                 <button class="icon-btn" onclick="viewBankSnapshots('${esc(a.id)}')" title="Lịch sử">📊</button>
                 <button class="icon-btn" onclick="editBankAccount('${esc(a.id)}')" title="Sửa">✎</button>
@@ -43077,6 +43247,15 @@ function renderBanking(){
       }).join('');
       html+=`<div style="display:grid;grid-template-columns:${_gridCols};gap:6px;align-items:center;margin-top:10px;padding:10px 14px;border-top:2px solid var(--ink);background:var(--paper-3);font-size:13px">
         <span style="font-weight:700;color:var(--ink)">TỔNG (${bankEntries.length} NH)</span>${totCells}</div>`;
+      // v3.15.19: dòng nhắc các khoản thu/chi chưa gắn TK (mục ⑥ Sổ ngân hàng)
+      try{
+        const _unl=_bankUnlinkedItems();
+        if(_unl.length){
+          html+=`<div style="margin-top:8px;padding:7px 14px;background:rgba(184,115,10,.07);border-left:3px solid var(--warn);font-size:11px;display:flex;justify-content:space-between;align-items:center;gap:10px">
+            <span>⚠ <b>${_unl.length}</b> khoản thu/chi chưa gắn tài khoản NH — chưa chảy vào Sổ ngân hàng</span>
+            <button class="btn-sec" style="font-size:10px;padding:2px 10px" onclick="bankUnlinkedModal()">Xem & gán</button></div>`;
+        }
+      }catch(e){}
       accBox.innerHTML = html;
     }
   }
@@ -43292,6 +43471,14 @@ function renderBanking(){
       const typeLabels = {short:'Ngắn hạn (<12 kỳ)', medium:'Trung hạn (12-60 kỳ)', long:'Dài hạn (>60 kỳ)', unscheduled:'Chưa lập lịch trả'};
       const typeIcons = {short:'⚡', medium:'📅', long:'🏗', unscheduled:'❔'};
       let html='';
+      // v3.15.19: banner nhắc KT hoàn thiện các khế ước NHÁP (tự gom từ giải ngân)
+      try{
+        const _drafts=loans.filter(l=>l && l.kuDraft && l.status!=='closed');
+        if(_drafts.length){
+          html+=`<div style="margin:8px 0;padding:8px 14px;background:rgba(184,115,10,.08);border-left:3px solid var(--warn);font-size:12px">
+            ⏳ <b>${_drafts.length}</b> khế ước <b>CHỜ HOÀN THIỆN</b> (tự gom từ giải ngân) — thiếu số KUNN · lãi suất · kỳ hạn. Bấm ✎ trên từng khế ước để điền; app tự sinh lịch trả nợ.</div>`;
+        }
+      }catch(e){}
       lenderEntries.forEach(([lender, lenderLoans])=>{
         // Tính tổng dư nợ của lender này theo từng CCY
         const lenderRemByCcy = {};
@@ -43358,7 +43545,7 @@ function renderBanking(){
               <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:8px">
                 <div style="flex:1;min-width:0">
                   <div style="font-weight:600;font-size:13px">
-                    ${esc(l.contractNo||'(không số HĐ)')}
+                    ${l.kuDraft?'<span class="ds-need" data-dot="warn" style="font-size:10px;cursor:pointer" title="Khế ước tự gom từ giải ngân — bấm ✎ điền số KUNN · lãi suất · kỳ hạn để hoàn thiện (app tự sinh lịch trả nợ)" onclick="editLoan(\''+esc(l.id)+'\')">⏳ CHỜ HOÀN THIỆN</span> ':''}${esc(l.contractNo||(l.kuDraft?'(chưa có số KUNN)':'(không số HĐ)'))}
                     ${statusChip}
                     ${facilityChip}
                   </div>
@@ -43372,9 +43559,9 @@ function renderBanking(){
                   </div>
                 </div>
                 <div style="display:flex;gap:4px">
-                  <button class="icon-btn" onclick="viewLoanSchedule('${esc(l.id)}')" title="Lịch trả nợ">📅</button>
-                  ${(l.loanType==='medium'||l.loanType==='long') && l.status!=='closed' ? `<button class="icon-btn" onclick="loanAddPrepay('${esc(l.id)}')" title="Trả trước hạn" style="color:var(--accent)">💵</button>` : ''}
-                  <button class="icon-btn" onclick="editLoan('${esc(l.id)}')" title="Sửa">✎</button>
+                  ${l.kuDraft?`<button class="icon-btn" onclick="kuDraftSplit('${esc(l.id)}')" title="Tách phiếu giải ngân sang khế ước khác (khi 1 đợt chi nhận NHIỀU khế ước)">✂</button>`:`<button class="icon-btn" onclick="viewLoanSchedule('${esc(l.id)}')" title="Lịch trả nợ">📅</button>`}
+                  ${(l.status!=='closed' && !l.kuDraft) ? `<button class="icon-btn" onclick="loanAddPrepay('${esc(l.id)}')" title="Trả trước hạn" style="color:var(--accent)">💵</button>` : ''}
+                  <button class="icon-btn" onclick="editLoan('${esc(l.id)}')" title="${l.kuDraft?'Hoàn thiện khế ước (điền số KUNN · lãi suất · kỳ hạn)':'Sửa'}">✎</button>
                   <button class="icon-btn danger" onclick="deleteLoan('${esc(l.id)}')" title="Xóa">✕</button>
                 </div>
               </div>
@@ -43912,7 +44099,8 @@ function loanApplyPrepay(loan, prepayId){
       return;
     }
     // Recalc future periods from cutoff onwards
-    const futurePeriods = schedule.slice(cutoffIdx).filter(p=>!p.isPrepayPayoff);
+    // v3.15.18: loại cả isPrepayPartial (dòng trả trước 1 phần đã chèn ở vòng replay trước)
+    const futurePeriods = schedule.slice(cutoffIdx).filter(p=>!p.isPrepayPayoff && !p.isPrepayPartial);
     const nRemaining = futurePeriods.length;
     if(pp.mode === 'reduce_payment'){
       // Giữ số kỳ, giảm gốc+lãi
@@ -43997,9 +44185,167 @@ function loanApplyPrepay(loan, prepayId){
         schedule.forEach((p,idx)=>p.period=idx+1);
       }
     }
+    // v3.15.18: TRẢ TRƯỚC 1 PHẦN — chèn 1 dòng paid vào schedule ngay tại ngày trả trước.
+    //   FIX: trước đây prepay 1 phần không có dòng nào trong schedule → loanRemainingPrincipal
+    //   (= principal − Σ gốc kỳ paid) KHÔNG thấy nó → dư nợ hiện PHỒNG đúng số đã trả trước,
+    //   kéo sai cả facility drawn + max form prepay lần sau + balance khi replay prepay thứ 2.
+    //   Dòng này nằm trong schedule nên: (1) dư nợ giảm ngay; (2) vòng replay prepay sau
+    //   trừ nó khi tính balance trước cutoff; (3) hạn mức tự đúng qua loanRemainingPrincipal.
+    schedule.splice(cutoffIdx, 0, {
+      period: 0,  // đánh số lại ngay dưới
+      dueDate: pp.date,
+      principal: Math.round(+pp.amount||0),
+      interest: 0,
+      total: Math.round(+pp.amount||0),
+      isGrace: false,
+      isPrepayPartial: true,
+      prepayId: pp.id,
+      paid: true,
+      paidDate: pp.date
+    });
+    schedule.forEach((p,idx)=>p.period=idx+1);
   });
 
   loan.paymentSchedule = schedule;
+}
+
+/* v3.15.19 — GIẢI NGÂN TỰ GOM KHẾ ƯỚC (Sếp chốt 11/08): mọi khoản chi 'Giải ngân' trong
+   cùng NH + cùng ngày + cùng ccy gom vào 1 KHẾ ƯỚC NHÁP (kuDraft) — app tự tạo, ĐỂ TRỐNG
+   số KUNN/lãi suất/kỳ hạn, KT hoàn thiện sau qua form Sửa khoản vay (saveLoan tự sinh lịch
+   + xóa cờ kuDraft khi đủ lãi suất & kỳ hạn). Nháp = DƯ NỢ THẬT (đã nhận nợ NH), tính vào
+   tổng dư nợ (loanRemainingPrincipal = principal vì chưa kỳ nào paid); CHƯA vào hạn mức
+   (facilityId trống — KT gán khi hoàn thiện, đúng quy tắc v3.09.88). */
+function _kuDraftAttach(rec, pay, bankAccountId){
+  const acc=AccountingService.bankAccounts().find(a=>a.id===bankAccountId);
+  const lender=((acc&&acc.bankName)||'').trim()||'(Chưa rõ NH)';
+  const ccy=rec.ccy||'VND';
+  let l=AccountingService.loans().find(x=>x && x.kuDraft && x.status!=='closed'
+    && ((x.lender||x.bankName||'').trim()===lender)
+    && x.startDate===pay.date && (x.ccy||'VND')===ccy);
+  if(!l){
+    l={ id:'LOAN-'+uid().slice(-6),
+      bankName:lender, lender, loanType:'unscheduled', contractNo:'',
+      principal:0, ccy, interestRate:0, termMonths:0,
+      startDate:pay.date, endDate:'', repayMethod:'equal_principal',
+      paymentFrequency:1, gracePeriodMonths:0,
+      drawdowns:[], prepayments:[], paymentSchedule:[],
+      note:'Tự gom từ giải ngân '+pay.date+' (chờ KT điền số KUNN · lãi suất · kỳ hạn)',
+      status:'active', kuDraft:true, facilityId:null,
+      debitBankAccountId:bankAccountId,   // mặc định trích nợ tại chính TK/NH giải ngân — KT sửa được
+      createdAt:new Date().toISOString(), createdBy:actorName() };
+    AccountingService.addLoan(l);
+    try{ logAuditEvent('ku_draft_create',{loanId:l.id, lender, date:pay.date, actor:actorName()}); }catch(e){}
+  }
+  l.principal=(+l.principal||0)+(+pay.amount||0);
+  pay.linkedLoanId=l.id;
+  try{ touchRecord(l); }catch(e){ l.updatedAt=new Date().toISOString(); }
+  return l;
+}
+
+/* v3.15.19 — TÁCH phiếu giải ngân khỏi khế ước nháp (KT nhận NHIỀU khế ước trong 1 đợt).
+   Chỉ tách TỪ nháp; đích = nháp khác cùng NH hoặc nháp MỚI. Gốc 2 bên tự tính lại. */
+function kuDraftSplit(loanId){
+  const src=AccountingService.loans().find(x=>x.id===loanId);
+  if(!src || !src.kuDraft){ toast('Chỉ tách được từ khế ước NHÁP','bad'); return; }
+  const lender=(src.lender||src.bankName||'').trim();
+  // gom các payment giải ngân đang gắn nháp này
+  const items=[];
+  (S.payables||[]).forEach(r=>{ (r&&r.payments||[]).forEach((p,idx)=>{
+    if(p && p.method==='loan' && p.linkedLoanId===loanId)
+      items.push({recId:r.id, idx, date:p.date||'', partner:r.partner||'', invoiceNo:r.invoiceNo||'', amount:+p.amount||0, ccy:r.ccy||'VND'});
+  });});
+  if(!items.length){ toast('Nháp này không còn phiếu nào gắn vào','warn'); return; }
+  const others=AccountingService.loans().filter(x=>x && x.kuDraft && x.id!==loanId && x.status!=='closed' && (x.lender||x.bankName||'').trim()===lender);
+  const destOpts=`<option value="__new__">➕ Khế ước nháp MỚI (cùng NH)</option>`+
+    others.map(o=>`<option value="${esc(o.id)}">Nháp ${esc(o.startDate||'')} · ${(+o.principal||0).toLocaleString('vi-VN')} ${esc(o.ccy||'')}</option>`).join('');
+  const body=`
+    <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Khế ước nháp <b>${esc(lender)}</b> · ${esc(src.startDate||'')} · gốc hiện tại <b>${(+src.principal||0).toLocaleString('vi-VN')} ${esc(src.ccy||'')}</b>.<br>Tick các phiếu thuộc KHẾ ƯỚC KHÁC rồi bấm Tách — gốc hai bên tự tính lại.</div>
+    <table class="table" style="font-size:12px;width:100%">
+      <thead><tr><th></th><th>Ngày</th><th>Phiếu</th><th style="text-align:right">Số tiền</th></tr></thead>
+      <tbody>${items.map((it,i)=>`<tr>
+        <td><input type="checkbox" id="ks-ck-${i}"></td>
+        <td style="font-family:var(--font-mono);font-size:11px">${esc(it.date)}</td>
+        <td style="font-size:11px">${esc(it.partner)}${it.invoiceNo?' · '+esc(it.invoiceNo):''}</td>
+        <td class="num" style="text-align:right">${it.amount.toLocaleString('vi-VN')} ${esc(it.ccy)}</td>
+      </tr>`).join('')}</tbody></table>
+    <div class="field" style="margin-top:8px"><label>Chuyển sang</label><select id="ks-dest">${destOpts}</select></div>
+    <div id="ks-err" style="color:var(--bad);font-size:13px;min-height:14px"></div>`;
+  openModal('✂ Tách phiếu sang khế ước khác', body,
+    `<button class="btn-sec" onclick="closeModal()">Hủy</button>
+     <button class="btn-primary" onclick="kuDraftSplitSave('${esc(loanId)}',${items.length})">Tách phiếu đã chọn</button>`);
+  window._kuSplitItems=items;
+}
+function kuDraftSplitSave(loanId, n){
+  const err=document.getElementById('ks-err'); if(err) err.textContent='';
+  const src=AccountingService.loans().find(x=>x.id===loanId);
+  if(!src || !src.kuDraft){ if(err)err.textContent='Nháp nguồn không còn'; return; }
+  const items=window._kuSplitItems||[];
+  const picked=items.filter((it,i)=>{ const c=document.getElementById('ks-ck-'+i); return c&&c.checked; });
+  if(!picked.length){ if(err)err.textContent='Chưa tick phiếu nào'; return; }
+  if(picked.length===items.length){ if(err)err.textContent='Không thể tách TẤT CẢ — nháp nguồn phải còn ít nhất 1 phiếu (muốn gộp cả nháp: sửa trực tiếp)'; return; }
+  const destVal=(document.getElementById('ks-dest')||{}).value||'__new__';
+  const total=picked.reduce((s,it)=>s+it.amount,0);
+  commitMutation(()=>{
+    let dest;
+    if(destVal==='__new__'){
+      dest={ id:'LOAN-'+uid().slice(-6),
+        bankName:src.bankName, lender:src.lender, loanType:'unscheduled', contractNo:'',
+        principal:0, ccy:src.ccy, interestRate:0, termMonths:0,
+        startDate:src.startDate, endDate:'', repayMethod:src.repayMethod||'equal_principal',
+        paymentFrequency:1, gracePeriodMonths:0, drawdowns:[], prepayments:[], paymentSchedule:[],
+        note:'Tách từ khế ước nháp '+(src.startDate||''), status:'active', kuDraft:true, facilityId:null,
+        debitBankAccountId:src.debitBankAccountId||null,
+        createdAt:new Date().toISOString(), createdBy:actorName() };
+      AccountingService.addLoan(dest);
+    } else {
+      dest=AccountingService.loans().find(x=>x.id===destVal);
+      if(!dest || !dest.kuDraft) throw new Error('Khế ước đích không còn ở trạng thái nháp');
+    }
+    picked.forEach(it=>{
+      const r=(S.payables||[]).find(x=>x.id===it.recId);
+      const p=r && (r.payments||[])[it.idx];
+      if(p && p.linkedLoanId===loanId){ p.linkedLoanId=dest.id; try{ touchRecord(r); }catch(e){} }
+    });
+    src.principal=Math.max(0,(+src.principal||0)-total);
+    dest.principal=(+dest.principal||0)+total;
+    try{ touchRecord(src); touchRecord(dest); }catch(e){}
+    try{ logAuditEvent('ku_draft_split',{from:loanId, to:dest.id, count:picked.length, total, actor:actorName()}); }catch(e){}
+  }, {action:'ku_draft_split', fields:['loans','payables'], onOk:()=>{
+    closeModal(); renderBanking();
+    toast('✂ Đã tách '+picked.length+' phiếu ('+total.toLocaleString('vi-VN')+' '+(src.ccy||'')+') sang khế ước khác','good');
+  }, onFail:(rr)=>{ if(err) err.textContent='⚠ '+(rr.error||''); }});
+}
+
+/* v3.15.18 — MIGRATION 1 LẦN: vá dữ liệu cũ cho khoản vay đã có TRẢ TRƯỚC 1 PHẦN từ trước fix.
+   Trước fix: prepay 1 phần không có dòng nào trong schedule → dư nợ hiển thị phồng đúng số đã trả trước.
+   Vá: rebuild schedule bằng loanApplyPrepay (logic mới có chèn dòng isPrepayPartial), giữ cờ paid theo dueDate.
+   Idempotent: chỉ đụng khoản có prepayment chưa được đại diện bởi dòng payoff/partial nào trong schedule.
+   Số liệu SAU vá là số ĐÚNG (dư nợ giảm, facility drawn giảm theo). Audit: loan_prepay_migrate. */
+function _migrateLoanPrepayPartial(){
+  let fixed=0;
+  try{
+    (AccountingService.loans()||[]).forEach(l=>{
+      if(!l || !Array.isArray(l.prepayments) || l.prepayments.length===0) return;
+      if(Array.isArray(l.drawdowns) && l.drawdowns.length>=1) return;  // day-based: prepay kỳ-tháng chưa áp (v3.06.35), không vá
+      const sched=l.paymentSchedule||[];
+      const covered=new Set(sched.filter(p=>p.isPrepayPayoff||p.isPrepayPartial).map(p=>p.prepayId));
+      const needs=l.prepayments.some(pp=>!covered.has(pp.id));
+      if(!needs) return;
+      const oldPaid={};
+      sched.forEach(p=>{if(p.paid && !p.isPrepayPayoff && !p.isPrepayPartial)oldPaid[(p.dueDate||'')+'|'+(p.isGrace?1:0)]=p;});
+      loanApplyPrepay(l);
+      (l.paymentSchedule||[]).forEach(p=>{
+        const op=(!p.isPrepayPayoff && !p.isPrepayPartial)?oldPaid[(p.dueDate||'')+'|'+(p.isGrace?1:0)]:null;
+        if(op){p.paid=true; p.paidDate=op.paidDate; if(op.linkedApId)p.linkedApId=op.linkedApId;}
+      });
+      if((l.paymentSchedule||[]).every(x=>x.paid)) l.status='closed';
+      else if(l.status==='closed') l.status='active';
+      try{ touchRecord(l); }catch(e){ l.updatedAt=new Date().toISOString(); }
+      try{ logAuditEvent('loan_prepay_migrate',{loanId:l.id, prepays:l.prepayments.length}); }catch(e){}
+      fixed++;
+    });
+  }catch(e){ console.warn('[migrate v3.15.18 loan-prepay-partial] failed:',e); }
+  return fixed;
 }
 
 /* ===== BANK ACCOUNT CRUD ===== */
@@ -44176,6 +44522,208 @@ function _saveBankSnapshot(){
   closeModal();
   renderBanking();
 }
+/* v3.15.19 — MODAL SỔ NGÂN HÀNG per-TK: mỏ neo snapshot + dòng thu/chi nối tiếp + ĐỐI CHIẾU. */
+function viewBankLedger(accId){
+  const acc=AccountingService.bankAccounts().find(a=>a.id===accId);
+  if(!acc){ toast('Không tìm thấy TK','bad'); return; }
+  const {rows, anchor, computed}=bankLedgerRows(accId);
+  const ccy=acc.ccy||'USD';
+  const _n=v=>(+v||0).toLocaleString(ccy==='VND'?'vi-VN':'en-US');
+  const anchorRow = anchor
+    ? `<tr style="background:var(--paper-3);font-weight:700"><td>${esc(anchor.date)}</td><td colspan="4">📸 Số dư đầu sổ (theo sao kê)${anchor.note?' · '+esc(anchor.note):''}</td><td class="num" style="text-align:right">${_n(anchor.balance)}</td></tr>`
+    : `<tr style="background:var(--paper-3)"><td colspan="6" style="color:var(--bad)">⚠ TK chưa có snapshot số dư nào — sổ tính từ 0. Bấm 📸 chốt số dư sao kê để làm mỏ neo.</td></tr>`;
+  const bodyRows = rows.length
+    ? rows.map(r=>`<tr${r.openFn?` style="cursor:pointer" onclick="closeModal();${r.openFn}"`:''}>
+        <td style="font-family:var(--font-mono);font-size:11px;white-space:nowrap">${esc(r.date)}</td>
+        <td><span class="ds-need" style="font-size:9px">${esc(r.kind)}</span></td>
+        <td style="font-size:11px">${esc(r.label)}</td>
+        <td class="num" style="text-align:right;color:var(--good)">${r.inAmt>0?_n(r.inAmt):''}</td>
+        <td class="num" style="text-align:right;color:var(--bad)">${r.outAmt>0?_n(r.outAmt):''}${r.fee>0?`<div style="font-size:9px;color:var(--muted)">phí ${_n(r.fee)}</div>`:''}</td>
+        <td class="num" style="text-align:right;font-weight:600">${_n(r.running)}</td>
+      </tr>`).join('')
+    : `<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:14px">Chưa có giao dịch nào sau ngày snapshot${anchor?' '+esc(anchor.date):''}</td></tr>`;
+  const totIn=rows.reduce((s,r)=>s+r.inAmt,0), totOut=rows.reduce((s,r)=>s+r.outAmt+r.fee,0);
+  const body=`
+    <div style="font-size:11px;color:var(--muted);margin-bottom:8px">🏦 <b>${esc(acc.bankName||'')}</b> · ${esc(acc.accountNo||'')} · ${esc(ccy)} — sổ dẫn xuất từ chứng từ, căn cứ NGÀY KT xác nhận thanh toán. Bấm dòng để mở phiếu gốc.</div>
+    <div style="max-height:420px;overflow:auto;border:1px solid var(--rule)">
+    <table class="table" style="font-size:12px;width:100%">
+      <thead><tr><th>Ngày</th><th></th><th>Chứng từ</th><th style="text-align:right">Thu</th><th style="text-align:right">Chi</th><th style="text-align:right">Số dư</th></tr></thead>
+      <tbody>${anchorRow}${bodyRows}</tbody>
+      <tfoot><tr style="font-weight:700;border-top:2px solid var(--ink)"><td colspan="3">CỘNG PHÁT SINH (${rows.length} dòng)</td>
+        <td class="num" style="text-align:right;color:var(--good)">${_n(totIn)}</td>
+        <td class="num" style="text-align:right;color:var(--bad)">${_n(totOut)}</td>
+        <td class="num" style="text-align:right">${_n(computed)}</td></tr></tfoot>
+    </table></div>
+    <div style="margin-top:10px;padding:10px 12px;border:1.5px solid var(--ink);border-radius:6px;background:var(--paper-3)">
+      <div style="font-size:10px;letter-spacing:.08em;text-transform:uppercase;font-weight:700;margin-bottom:6px">⚖ ĐỐI CHIẾU SAO KÊ</div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:12px">
+        <span>App tính đến hiện tại: <b style="font-family:var(--font-mono)">${_n(computed)} ${esc(ccy)}</b></span>
+        <span>· Sao kê NH: <input type="number" id="bl-recon" step="any" placeholder="nhập số dư sao kê" style="width:160px;text-align:right;font-family:var(--font-mono)" oninput="_blReconCheck('${esc(accId)}',${computed})"></span>
+        <span id="bl-recon-out" style="font-weight:700"></span>
+      </div>
+      <div style="font-size:10px;color:var(--muted);margin-top:5px">Khớp → bấm 📸 chốt snapshot mới (mỏ neo tiến lên, sổ gọn lại). Lệch → dò dòng thiếu: giao dịch chưa gắn TK, phí chưa ghi, hoặc KT ghi lùi ngày trước snapshot.</div>
+    </div>`;
+  openModal(`📖 Sổ ngân hàng · ${esc(acc.accountNo||acc.bankName||'')}`, body,
+    `<button class="btn-sec" onclick="closeModal();addBankSnapshot('${esc(accId)}')">📸 Chốt snapshot mới</button>
+     <button class="btn-sec" onclick="closeModal();viewBankSnapshots('${esc(accId)}')">📊 Lịch sử số dư</button>
+     <button class="btn-sec" onclick="closeModal()">Đóng</button>`);
+}
+function _blReconCheck(accId, computed){
+  const el=document.getElementById('bl-recon'), out=document.getElementById('bl-recon-out');
+  if(!el||!out) return;
+  const v=+el.value;
+  if(!el.value){ out.textContent=''; return; }
+  const diff=Math.round((v-computed)*100)/100;
+  out.innerHTML = Math.abs(diff)<0.005
+    ? '<span style="color:var(--good)">✓ KHỚP</span>'
+    : '<span style="color:var(--bad)">⚠ LỆCH '+diff.toLocaleString('vi-VN')+'</span>';
+}
+
+/* v3.15.19 — CHUYỂN TIỀN NỘI BỘ: NH↔NH, NH↔quỹ tiền mặt. CÙNG loại tiền (khác ccy: chặn).
+   Phía quỹ tái dùng đúng pattern sổ quỹ (cashTxns + f.balance) như saveCashTxn. */
+function bankTransferForm(){
+  if(!canEditTreasury()){ toast('Chỉ Admin / Kế toán trưởng','bad'); return; }
+  const banks=AccountingService.bankAccounts().filter(a=>a.isActive!==false);
+  const funds=AccountingService.cashFunds();
+  if(!banks.length){ toast('Chưa có tài khoản NH','bad'); return; }
+  const opts=[
+    ...banks.map(a=>`<option value="bank:${esc(a.id)}">🏦 ${esc(bankAcctLabel(a))} (${esc(a.ccy||'USD')})</option>`),
+    ...funds.map(f=>`<option value="cash:${esc(f.id)}">💵 Quỹ ${esc(f.name||'')} (${esc(f.ccy||'VND')})</option>`)
+  ].join('');
+  const body=`
+    <div style="font-size:11px;color:var(--muted);margin-bottom:10px">⇄ Chuyển tiền giữa TK ngân hàng với nhau, hoặc NH ↔ quỹ tiền mặt (rút/nộp). Chỉ hỗ trợ CÙNG loại tiền.</div>
+    <div class="form-grid" style="grid-template-columns:1fr 1fr">
+      <div class="field"><label>Từ *</label><select id="bt-from">${opts}</select></div>
+      <div class="field"><label>Đến *</label><select id="bt-to">${opts}</select></div>
+      <div class="field"><label>Ngày *</label><input type="date" id="bt-date" value="${todayISO()}"></div>
+      <div class="field"><label>Số tiền *</label><input type="number" id="bt-amt" step="any" placeholder="0"></div>
+      <div class="field" style="grid-column:1/3"><label>Ghi chú</label><input type="text" id="bt-note" placeholder="VD: rút tiền mặt về quỹ VP · UNC..."></div>
+    </div>
+    <div id="bt-err" style="color:var(--bad);font-size:13px;min-height:14px"></div>`;
+  openModal('⇄ Chuyển tiền nội bộ', body,
+    `<button class="btn-sec" onclick="closeModal()">Hủy</button>
+     <button class="btn-primary" onclick="saveBankTransfer()">Lưu phiếu chuyển</button>`);
+}
+function _btResolve(v){
+  const [type,id]=String(v||'').split(':');
+  if(type==='bank'){ const a=AccountingService.bankAccounts().find(x=>x.id===id); return a?{type,id,ccy:a.ccy||'USD',label:bankAcctLabel(a),obj:a}:null; }
+  if(type==='cash'){ const f=AccountingService.cashFunds().find(x=>x.id===id); return f?{type,id,ccy:f.ccy||'VND',label:'Quỹ '+(f.name||''),obj:f}:null; }
+  return null;
+}
+function saveBankTransfer(){
+  const err=document.getElementById('bt-err'); if(err) err.textContent='';
+  const from=_btResolve((document.getElementById('bt-from')||{}).value);
+  const to=_btResolve((document.getElementById('bt-to')||{}).value);
+  const date=(document.getElementById('bt-date')||{}).value||todayISO();
+  const amt=Math.round(((+(document.getElementById('bt-amt')||{}).value)||0)*100)/100;
+  const note=((document.getElementById('bt-note')||{}).value||'').trim();
+  if(!from||!to){ if(err)err.textContent='Chọn nơi đi / nơi đến'; return; }
+  if(from.type===to.type && from.id===to.id){ if(err)err.textContent='Nơi đi và nơi đến trùng nhau'; return; }
+  if(from.type==='cash' && to.type==='cash'){ if(err)err.textContent='Quỹ ↔ quỹ: dùng sổ quỹ tiền mặt (phiếu chi + phiếu thu)'; return; }
+  if(from.ccy!==to.ccy){ if(err)err.textContent='Khác loại tiền ('+from.ccy+' → '+to.ccy+') — chưa hỗ trợ, chuyển qua 2 bước quy đổi thủ công'; return; }
+  if(!(amt>0)){ if(err)err.textContent='Số tiền > 0'; return; }
+  const tr={ id:'BTR-'+uid().slice(-6), date, fromType:from.type, fromId:from.id, toType:to.type, toId:to.id,
+    amount:amt, ccy:from.ccy, note, fromLabel:from.label, toLabel:to.label,
+    createdBy:actorName(), createdAt:new Date().toISOString() };
+  const fields=['bankTransfers'];
+  if(from.type==='cash'||to.type==='cash'){ fields.push('cashFunds','cashTxns'); }
+  commitMutation(()=>{
+    if(!S.bankTransfers) S.bankTransfers=[];
+    S.bankTransfers.push(tr);
+    // Phía QUỸ: tái dùng đúng cấu trúc saveCashTxn (cashTxn + f.balance)
+    if(from.type==='cash'){
+      const f=from.obj;
+      const t={id:uid(),fundId:f.id,date,direction:'OUT',amount:amt,ccy:f.ccy||'VND',
+        category:'Nộp tiền vào TK NH',desc:(note?note+' · ':'')+'⇄ '+to.label,
+        sourceType:'bank_transfer',sourceId:tr.id,recordedBy:actorName(),recordedAt:new Date().toISOString()};
+      AccountingService.addCashTxn(t);
+      f.balance=(+f.balance||0)-amt;
+      touchRecord(f);
+    }
+    if(to.type==='cash'){
+      const f=to.obj;
+      const t={id:uid(),fundId:f.id,date,direction:'IN',amount:amt,ccy:f.ccy||'VND',
+        category:'Rút TK NH về quỹ',desc:(note?note+' · ':'')+'⇄ '+from.label,
+        sourceType:'bank_transfer',sourceId:tr.id,recordedBy:actorName(),recordedAt:new Date().toISOString()};
+      AccountingService.addCashTxn(t);
+      f.balance=(+f.balance||0)+amt;
+      touchRecord(f);
+    }
+  }, {action:'bank_transfer_save', fields, onOk:()=>{
+    try{ logAuditEvent('bank_transfer_save',{id:tr.id, from:from.label, to:to.label, amount:amt, ccy:tr.ccy, actor:actorName()}); }catch(e){}
+    closeModal(); renderAll();
+    toast('⇄ Đã chuyển '+amt.toLocaleString('vi-VN')+' '+tr.ccy+': '+from.label+' → '+to.label,'good');
+  }, onFail:(rr)=>{ if(err) err.textContent='⚠ CHƯA lưu được: '+(rr.error||''); }});
+}
+function deleteBankTransfer(id){
+  if(!canEditTreasury()){ toast('Chỉ Admin / Kế toán trưởng','bad'); return; }
+  const tr=(S.bankTransfers||[]).find(x=>x.id===id); if(!tr) return;
+  if(!confirm('Xóa phiếu chuyển '+(+tr.amount||0).toLocaleString('vi-VN')+' '+(tr.ccy||'')+' ngày '+(tr.date||'')+'?\nPhía quỹ tiền mặt (nếu có) sẽ được hoàn lại.')) return;
+  const fields=['bankTransfers'];
+  const cashSide=(tr.fromType==='cash'||tr.toType==='cash');
+  if(cashSide) fields.push('cashFunds','cashTxns','deletedIds'); else fields.push('deletedIds');
+  commitMutation(()=>{
+    // hoàn quỹ + xóa cashTxn liên kết (đúng pattern fundClearUndo)
+    (S.cashTxns||[]).filter(t=>t.sourceType==='bank_transfer'&&t.sourceId===id).forEach(t=>{
+      const f=AccountingService.cashFunds().find(x=>x.id===t.fundId);
+      if(f){ f.balance=(+f.balance||0) - (t.direction==='IN'?(+t.amount||0):-(+t.amount||0)); touchRecord(f); }
+      try{ markDeleted([t.id]); }catch(e){}
+    });
+    S.cashTxns=(S.cashTxns||[]).filter(t=>!(t.sourceType==='bank_transfer'&&t.sourceId===id));
+    try{ markDeleted([id]); }catch(e){}
+    S.bankTransfers=(S.bankTransfers||[]).filter(x=>x.id!==id);
+  }, {action:'bank_transfer_delete', fields, onOk:()=>{
+    try{ logAuditEvent('bank_transfer_delete',{id, actor:actorName()}); }catch(e){}
+    renderAll(); toast('Đã xóa phiếu chuyển + hoàn quỹ (nếu có)','good');
+  }});
+}
+
+/* v3.15.19 — Mục ⑥: modal các khoản CHƯA GẮN TK + gán nhanh. */
+function bankUnlinkedModal(){
+  const items=_bankUnlinkedItems();
+  const banks=AccountingService.bankAccounts().filter(a=>a.isActive!==false);
+  const bankOpts='<option value="">— Chọn TK —</option>'+banks.map(a=>`<option value="${esc(a.id)}">${esc(bankAcctLabel(a))} (${esc(a.ccy||'USD')})</option>`).join('');
+  const body = !items.length
+    ? '<div style="padding:20px;text-align:center;color:var(--good)">✓ Không còn khoản nào thiếu tài khoản ngân hàng</div>'
+    : `<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Các khoản thu/chi chưa rõ đi qua TK nào (hoặc là tiền mặt). Gán TK để dòng chảy vào Sổ ngân hàng — chỉ dòng có ngày SAU snapshot mới ảnh hưởng số dư sổ.</div>
+      <div style="max-height:400px;overflow:auto"><table class="table" style="font-size:12px;width:100%">
+      <thead><tr><th>Ngày</th><th>Khoản</th><th style="text-align:right">Số tiền</th><th>Gán TK</th></tr></thead>
+      <tbody>${items.map((it,i)=>`<tr>
+        <td style="font-family:var(--font-mono);font-size:11px">${esc(it.date)}</td>
+        <td style="font-size:11px">${esc(it.label)}</td>
+        <td class="num" style="text-align:right">${it.amount?(+it.amount).toLocaleString('vi-VN')+' '+esc(it.ccy):''}</td>
+        <td><select id="bu-sel-${i}" style="font-size:11px;max-width:200px">${bankOpts}</select>
+            <button class="btn-sec" style="font-size:10px;padding:2px 8px" onclick="bankUnlinkedAssign('${esc(it.kind)}','${esc(it.id)}',${it.idx!=null?it.idx:-1},${i})">Gán</button></td>
+      </tr>`).join('')}</tbody></table></div>`;
+  openModal('⚠ Chưa gắn tài khoản NH ('+items.length+')', body,
+    '<button class="btn-sec" onclick="closeModal()">Đóng</button>');
+}
+function bankUnlinkedAssign(kind, id, idx, rowI){
+  const sel=document.getElementById('bu-sel-'+rowI);
+  const bankId=sel?sel.value:'';
+  if(!bankId){ toast('Chọn TK trước','bad'); return; }
+  if(kind==='opIn' || kind==='opPay'){
+    const t=VesselService.opTransactions().find(x=>x.id===id);
+    if(!t){ toast('Phiếu đã bị xóa','bad'); return; }
+    commitMutation(()=>{
+      if(kind==='opIn'){ t.bankAccountId=bankId; }
+      else { const p=(t.payments||[])[idx]; if(p) p.bankAccountId=bankId; }
+      touchRecord(t);
+    }, {action:'bank_unlinked_assign', fields:['opTransactions'], onOk:()=>{
+      try{ logAuditEvent('bank_unlinked_assign',{kind,id,bankId,actor:actorName()}); }catch(e){}
+      toast('✓ Đã gán TK'); bankUnlinkedModal();
+    }});
+  } else if(kind==='loanDebit'){
+    const l=AccountingService.loans().find(x=>x.id===id);
+    if(!l){ toast('Không thấy khoản vay','bad'); return; }
+    commitMutation(()=>{ l.debitBankAccountId=bankId; touchRecord(l); },
+      {action:'bank_unlinked_assign', fields:['loans'], onOk:()=>{
+      try{ logAuditEvent('bank_unlinked_assign',{kind,id,bankId,actor:actorName()}); }catch(e){}
+      toast('✓ Đã gán TK trích nợ'); bankUnlinkedModal();
+    }});
+  }
+}
+
 function viewBankSnapshots(accId){
   const acc=AccountingService.bankAccounts().find(a=>a.id===accId);
   if(!acc)return;
@@ -44666,6 +45214,10 @@ function _loanModal(l){
         <label>Ngày giải ngân *</label>
         <input type="date" id="ln-start" value="${esc(l.startDate||'')}">
       </div>
+      <div class="field" style="grid-column:1/3">
+        <label>TK trích nợ gốc + lãi <span style="font-weight:400;color:var(--muted);font-size:10px;text-transform:none">(v3.15.19 — NH tự trích TK này mỗi kỳ; kỳ đã trả chảy vào Sổ ngân hàng. Tùy chọn.)</span></label>
+        <select id="ln-debitbank"><option value="">— Chưa gắn TK —</option>${AccountingService.bankAccounts().filter(a=>a.isActive!==false).map(a=>`<option value="${esc(a.id)}" ${l.debitBankAccountId===a.id?'selected':''}>${esc(bankAcctLabel(a))} (${esc(a.ccy||'USD')})</option>`).join('')}</select>
+      </div>
       <div class="field" style="grid-column:1/3;background:rgba(28,58,92,.04);border:1px solid var(--rule);padding:10px 12px;border-radius:6px">
         <label style="display:flex;justify-content:space-between;align-items:center">
           <span>Giải ngân nhiều đợt <span style="color:var(--muted);text-transform:none;font-weight:400;font-size:10px">(để trống = giải ngân 1 lần theo "Số tiền vay" + "Ngày giải ngân")</span></span>
@@ -44797,6 +45349,9 @@ function _saveLoan(id){
     const oldPaid={};
     (loan.paymentSchedule||[]).forEach(p=>{if(p.paid)oldPaid[p.period]=p;});
     Object.assign(loan,{bankName:bank,lender:bank,loanType:type,contractNo:contract,principal:principalEff,ccy,interestRate:rate,termMonths:term,startDate:startEff,endDate:finalEnd,repayMethod:method,paymentFrequency,gracePeriodMonths,note,facilityId,drawdowns:draws,updatedAt:new Date().toISOString()});
+    // v3.15.19: TK trích nợ (Sổ ngân hàng) + hoàn thiện khế ước nháp (tự gom từ giải ngân)
+    loan.debitBankAccountId=((document.getElementById('ln-debitbank')||{}).value||'')||null;
+    if(loan.kuDraft && rate>0 && term>0){ delete loan.kuDraft; try{ logAuditEvent('ku_draft_complete',{loanId:loan.id, contractNo:contract, actor:actorName()}); }catch(e){} }
     // Regenerate schedule + re-apply prepays + paid flags
     loanApplyPrepay(loan);  // builds schedule from base + applies all prepayments
     loan.paymentSchedule.forEach(p=>{if(oldPaid[p.period]){p.paid=true; p.paidDate=oldPaid[p.period].paidDate;}});
@@ -44811,6 +45366,7 @@ function _saveLoan(id){
       prepayments:[],
       note, status:'active',
       facilityId,  // v2.85.0: liên kết hạn mức
+      debitBankAccountId:(((document.getElementById('ln-debitbank')||{}).value||'')||null),  // v3.15.19: Sổ NH
       createdAt:new Date().toISOString(), createdBy:actorName()
     };
     loan.paymentSchedule=generateLoanSchedule(loan);
@@ -44855,7 +45411,7 @@ function viewLoanSchedule(id){
   const totalPrincipal=sched.reduce((s,p)=>s+(+p.principal||0),0);
   const totalInterest=sched.reduce((s,p)=>s+(+p.interest||0),0);
   const paidCount=sched.filter(p=>p.paid).length;
-  const isLongTerm = l.loanType==='medium' || l.loanType==='long';
+  const isLongTerm = l.status!=='closed';  // v3.15.18: khối Trả trước hạn mở cho CẢ vay ngắn hạn (giữ tên biến, đổi điều kiện)
   const prepays = (l.prepayments||[]).slice().sort((a,b)=>(a.date||'').localeCompare(b.date||''));
   const totalPrepay = prepays.reduce((s,p)=>s+(+p.amount||0),0);
   const freqLabel = {1:'Tháng',3:'Quý',6:'Nửa năm',12:'Năm'}[+l.paymentFrequency||1]||'Tháng';
@@ -44936,8 +45492,10 @@ function viewLoanSchedule(id){
           </thead>
           <tbody>
             ${sched.map(p=>{
-              const rowStyle = p.paid ? 'opacity:.55' : (p.isGrace ? 'background:var(--paper-3)' : (p.isPrepayPayoff ? 'background:rgba(var(--accent-rgb,65,65,65),.1);font-weight:600' : ''));
-              const typeChip = p.isPrepayPayoff
+              const rowStyle = p.isPrepayPartial ? 'background:rgba(var(--accent-rgb,65,65,65),.1);font-weight:600' : (p.paid ? 'opacity:.55' : (p.isGrace ? 'background:var(--paper-3)' : (p.isPrepayPayoff ? 'background:rgba(var(--accent-rgb,65,65,65),.1);font-weight:600' : '')));
+              const typeChip = p.isPrepayPartial
+                ? '<span class="ds-need" style="font-size:10px" title="Trả trước 1 phần gốc — dư nợ giảm từ ngày này. Sửa/xóa qua bảng Trả trước hạn phía trên.">TT TRƯỚC 1 PHẦN</span>'
+                : (p.isPrepayPayoff
                 ? '<span class="ds-need" style="font-size:10px">TT TRƯỚC</span>'
                 : (p._gracePartial
                   ? '<span class="ds-need" style="font-size:10px" title="Ân hạn một phần — phần gốc hoãn vẫn tính lãi">ÂN HẠN 1 PHẦN</span>'
@@ -44945,11 +45503,11 @@ function viewLoanSchedule(id){
                     ? '<span class="ds-need" style="font-size:10px">ÂN HẠN+</span>'
                     : (p.isGrace
                       ? '<span class="ds-need" data-dot="warn" style="font-size:10px">ÂN HẠN</span>'
-                      : '<span style="color:var(--muted);font-size:10px">—</span>')));
+                      : '<span style="color:var(--muted);font-size:10px">—</span>'))));
               return `
               <tr style="${rowStyle}">
                 <td>${p.period}</td>
-                <td>${esc(p.dueDate)}${(!p.paid && !p.isPrepayPayoff && canEditTreasury())?` <button class="icon-btn" style="font-size:10px;padding:1px 4px" onclick="editScheduleDate('${esc(l.id)}',${p.period})" title="Sửa ngày thu lãi — app tính lại lãi theo số ngày thực tế">✎</button>`:''}${p.dayBased?' <span title="Lãi tính theo số ngày thực tế" style="color:var(--accent);font-size:10px">⊙</span>':''}</td>
+                <td>${esc(p.dueDate)}${(!p.paid && !p.isPrepayPayoff && !p.isPrepayPartial && canEditTreasury())?` <button class="icon-btn" style="font-size:10px;padding:1px 4px" onclick="editScheduleDate('${esc(l.id)}',${p.period})" title="Sửa ngày thu lãi — app tính lại lãi theo số ngày thực tế">✎</button>`:''}${p.dayBased?' <span title="Lãi tính theo số ngày thực tế" style="color:var(--accent);font-size:10px">⊙</span>':''}</td>
                 <td class="num" style="color:var(--muted);font-size:10px">${p._interestDays!=null?p._interestDays:''}</td>
                 <td class="num" style="padding-right:14px">${(+p.principal||0).toLocaleString()}</td>
                 <td class="num">${(+p.interest||0).toLocaleString()}</td>
@@ -44958,7 +45516,7 @@ function viewLoanSchedule(id){
                 <td>${typeChip}</td>
                 <td>${p.paid?'<span class="ds-need" data-dot="good" style="font-size:10px">ĐÃ TRẢ '+(p.paidDate?esc(p.paidDate):'')+'</span>':'<span class="ds-need" data-dot="warn" style="font-size:10px">CHƯA</span>'}</td>
                 <td>
-                  ${p.isPrepayPayoff ? ''  // Prepay payoff: cannot toggle, handled via prepay delete
+                  ${(p.isPrepayPayoff || p.isPrepayPartial) ? ''  // Prepay: cannot toggle, handled via prepay delete
                     : (p.paid
                       ? `<button class="icon-btn" onclick="_loanUnmarkPaid('${esc(l.id)}',${p.period})" title="Bỏ đánh dấu">↩</button>`
                       : `<button class="icon-btn" onclick="_loanMarkPaid('${esc(l.id)}',${p.period})" title="Đánh dấu đã trả">✓</button>`)}
@@ -45285,7 +45843,8 @@ function loanAddPrepay(loanId){
   if(!canEditTreasury()){toast('Chỉ Admin / Kế toán trưởng','bad');return;}
   const l=AccountingService.loans().find(x=>x.id===loanId);
   if(!l){toast('Không tìm thấy','bad');return;}
-  if(l.loanType==='short'){toast('Trả trước hạn chỉ áp dụng vay trung-dài hạn','bad');return;}
+  // v3.15.18 (Sếp duyệt): MỞ trả trước 1 phần cho CẢ vay ngắn hạn (trước chặn loanType==='short').
+  if(l.status==='closed'){toast('Khoản vay đã đóng','bad');return;}
   const remaining = loanRemainingPrincipal(l);
   const body=`
     <div style="font-size:13px;display:grid;grid-template-columns:1fr 1fr;gap:10px">
@@ -45349,13 +45908,17 @@ function _loanDoPrepay(loanId){
     addedBy:actorName(), addedAt:new Date().toISOString()
   });
   // Recalc schedule
+  // v3.15.18: map cờ paid theo dueDate (KHÔNG theo period) — chèn dòng trả trước 1 phần
+  //   làm đánh số kỳ xê dịch, map theo period sẽ gắn cờ nhầm kỳ.
   const oldPaid={};
-  (l.paymentSchedule||[]).forEach(p=>{if(p.paid && !p.isPrepayPayoff)oldPaid[p.period]=p;});
+  (l.paymentSchedule||[]).forEach(p=>{if(p.paid && !p.isPrepayPayoff && !p.isPrepayPartial)oldPaid[(p.dueDate||'')+'|'+(p.isGrace?1:0)]=p;});
   loanApplyPrepay(l);
   // Restore paid flags (only for periods that still exist)
   l.paymentSchedule.forEach(p=>{
-    if(!p.isPrepayPayoff && oldPaid[p.period]){
-      p.paid=true; p.paidDate=oldPaid[p.period].paidDate;
+    const op = (!p.isPrepayPayoff && !p.isPrepayPartial) ? oldPaid[(p.dueDate||'')+'|'+(p.isGrace?1:0)] : null;
+    if(op){
+      p.paid=true; p.paidDate=op.paidDate;
+      if(op.linkedApId) p.linkedApId=op.linkedApId;  // giữ link AP lãi đã tạo
     }
   });
   // Close loan if all paid (loanApplyPrepay handles this for full payoff)
@@ -45394,11 +45957,13 @@ function loanDeletePrepay(loanId, ppId){
   }
   l.prepayments=l.prepayments.filter(x=>x.id!==ppId);
   // Recalc schedule
+  // v3.15.18: map cờ paid theo dueDate (xem _loanDoPrepay) — không map dòng trả trước 1 phần.
   const oldPaid={};
-  (l.paymentSchedule||[]).forEach(p=>{if(p.paid && !p.isPrepayPayoff)oldPaid[p.period]=p;});
+  (l.paymentSchedule||[]).forEach(p=>{if(p.paid && !p.isPrepayPayoff && !p.isPrepayPartial)oldPaid[(p.dueDate||'')+'|'+(p.isGrace?1:0)]=p;});
   loanApplyPrepay(l);
   l.paymentSchedule.forEach(p=>{
-    if(!p.isPrepayPayoff && oldPaid[p.period]){p.paid=true; p.paidDate=oldPaid[p.period].paidDate;}
+    const op = (!p.isPrepayPayoff && !p.isPrepayPartial) ? oldPaid[(p.dueDate||'')+'|'+(p.isGrace?1:0)] : null;
+    if(op){p.paid=true; p.paidDate=op.paidDate; if(op.linkedApId) p.linkedApId=op.linkedApId;}
   });
   // Update status
   if((l.paymentSchedule||[]).every(x=>x.paid)){l.status='closed';}
@@ -46436,7 +47001,7 @@ function apBatchPayOne(batchId, orderId){
       <div class="field"><label>Ngày trả</label><input type="date" id="bp1-date" value="${todayISO()}"></div>
       <div class="field"><label>Tổng chi đợt này (${ccy})</label><input type="number" id="bp1-amount" value="${defAmt}" step="any"></div>
       <div class="field">${isUsd?`<label>Tỷ giá (VND/USD)</label><input type="number" id="bp1-fx" step="any" placeholder="Gợi ý ${(+S.fxRate||25000).toLocaleString('vi-VN')}">`:`<label>Tỷ giá</label><input type="number" id="bp1-fx" value="0" disabled>`}</div>
-      <div class="field" style="grid-column:span 2"><label>Hình thức *</label><select id="bp1-method"><option value="bank" ${(f0._payMethod!=='cash')?'selected':''}>Chuyển khoản</option><option value="cash" ${f0._payMethod==='cash'?'selected':''}>Tiền mặt</option></select></div>
+      <div class="field" style="grid-column:span 2"><label>Hình thức *</label><select id="bp1-method"><option value="bank" ${(f0._payMethod!=='cash'&&f0._payMethod!=='loan')?'selected':''}>Chuyển khoản</option><option value="cash" ${f0._payMethod==='cash'?'selected':''}>Tiền mặt</option><option value="loan" ${f0._payMethod==='loan'?'selected':''}>💳 Giải ngân (vay NH)</option></select></div>
       <div class="field"><label>Tài khoản NH *</label><select id="bp1-bank"><option value="">— Chọn —</option>${bankOpts}</select></div>
       <div class="field"><label>Tiền phí</label><select id="bp1-feeccy"><option value="VND" selected>VND</option>${ccy&&ccy!=='VND'?`<option value="${ccy}">${ccy} (theo phiếu)</option>`:''}${(ccy!=='USD')?`<option value="USD">USD</option>`:''}</select></div>
       <div class="field"><label>Phí ngân hàng</label><input type="number" id="bp1-bankfee" value="0" step="any"></div>
@@ -46489,14 +47054,18 @@ function apBatchPaySaveOne(batchId, orderId){
       const a=alloc.get(r.id)||0; if(a<=0) return;
       const pay={date, amount:a, fxRate, note:(note?note+' · ':'')+'Chi cả phiếu ('+recs.length+' dòng)', method, recordedBy:actorName(), recordedAt:nowIso};
       if(bankAccountId) pay.bankAccountId=bankAccountId;
-      const _pb=r._payBankId||'', _pm=(r._payMethod==='transfer'||r._payMethod==='loan')?'bank':(r._payMethod||'');
+      // v3.15.19: 'loan' giữ danh tính (trước ép về 'bank')
+      const _pb=r._payBankId||'', _pm=(r._payMethod==='transfer')?'bank':(r._payMethod||'');
       if((_pb&&_pb!==bankAccountId)||(_pm&&_pm!==method)){ pay.adjustedFromPlan=true; pay.plannedBankId=_pb; pay.plannedMethod=r._payMethod||''; }
       if(first){ if(_bf>0)pay.bankFee=_bf; if(_of>0)pay.otherFee=_of; if(_fn)pay.feeNote=_fn; if(_bf>0||_of>0)pay.feeCcy=((g('bp1-feeccy')||{}).value)||'VND'; first=false; }
       r.payments=r.payments||[]; r.payments.push(pay);
       try{ touchRecord(r); }catch(e){ r.updatedAt=nowIso; }
-      if(acc){ bankDelta += _arPayAmountInCcy(pay, ccy, acc.ccy||'USD'); }
+      // v3.15.19: giải ngân — không trừ TK (tiền từ hạn mức thẳng NCC); tự gom khế ước nháp
+      if(method==='loan' && bankAccountId){
+        try{ _kuDraftAttach(r, pay, bankAccountId); }catch(e){ console.warn('[kuDraftAttach]',e); }
+      } else if(acc){ bankDelta += _arPayAmountInCcy(pay, ccy, acc.ccy||'USD'); }
     });
-    if(acc){
+    if(acc && method!=='loan'){
       const feeAmt=_bf+_of;
       const _fcB=((g('bp1-feeccy')||{}).value)||'VND';   /* v3.11.77 */
       const _fxB=(ccy==='USD') ? (fxRate||+S.fxRate||0) : (+S.fxRate||fxRate||0);
@@ -46509,7 +47078,7 @@ function apBatchPaySaveOne(batchId, orderId){
       if(o){ o.status='paid'; o.paidAt=nowIso; o.paidBy=actorName(); ordRef=o; }
     }
   };
-  commitMutation(_do, {action:'ap_batch_pay_one', fields:['payables','bankAccounts'], onOk:()=>{
+  commitMutation(_do, {action:'ap_batch_pay_one', fields:(method==='loan'?['payables','bankAccounts','loans']:['payables','bankAccounts']), onOk:()=>{
     try{ logAuditEvent('ap_batch_pay_one',{batchId, amount, ccy, lines:[...alloc.keys()].length, fee:_bf+_of, orderId:orderId||'', actor:actorName()}); }catch(e){}
     closeModal(); renderAll();
     toast('Đã ghi chi cả phiếu: '+fmtFull(amount,ccy)+' cho '+[...alloc.keys()].length+' dòng'+((_bf+_of)>0?' + phí '+fmtFull(_bf+_of,ccy):''),'good');
@@ -53557,8 +54126,9 @@ function addArPayment(kind,id){
       <div class="field" style="grid-column:span 3"><label>Quy đổi VND (tự tính)</label><input type="text" id="pay-vnd" readonly style="background:var(--paper-2);font-weight:600"></div>
       <div class="field" style="grid-column:span 3"><label>Hình thức thanh toán *</label>
         <select id="pay-method" onchange="payMethodChanged()">
-          <option value="bank" ${(r._payMethod==='transfer'||r._payMethod==='loan'||!r._payMethod)?'selected':''}>Chuyển khoản (qua ngân hàng)</option>
+          <option value="bank" ${(r._payMethod==='transfer'||!r._payMethod)?'selected':''}>Chuyển khoản (qua ngân hàng)</option>
           <option value="cash" ${r._payMethod==='cash'?'selected':''}>Tiền mặt</option>
+          ${kind==='ap'?`<option value="loan" ${r._payMethod==='loan'?'selected':''}>💳 Giải ngân (vay NH) — NH chi thẳng NCC, không qua TK công ty</option>`:''}
         </select>
       </div>
       <div class="field" id="pay-bank-wrap" style="grid-column:span 3"><label>Tài khoản ngân hàng ${kind==='ap'?'chi tiền':'nhận tiền'} *</label>
@@ -53674,7 +54244,8 @@ function saveArPayment(kind,id){
   // v3.07.53: ghi nhận nếu KT thực chi KHÁC ngân hàng/hình thức đã chọn lúc trình ký (truy vết).
   if(kind==='ap'){
     const _plannedBank=r._payBankId||'';
-    const _plannedMethod=(r._payMethod==='transfer'||r._payMethod==='loan')?'bank':(r._payMethod||'');
+    // v3.15.19: 'loan' giữ nguyên là 'loan' (trước ép về 'bank' → mất danh tính giải ngân + adjustedFromPlan giả)
+    const _plannedMethod=(r._payMethod==='transfer')?'bank':(r._payMethod||'');
     if((_plannedBank && _plannedBank!==bankAccountId) || (_plannedMethod && _plannedMethod!==method)){
       pay.adjustedFromPlan=true;
       pay.plannedBankId=_plannedBank;
@@ -53703,7 +54274,8 @@ function saveArPayment(kind,id){
   // → có thể MẤT khoản thanh toán vừa ghi sau khi đồng bộ.
   try{ touchRecord(r); }catch(e){ r.updatedAt=new Date().toISOString(); }
   // v1.87.0: cập nhật số dư tài khoản — AR thu thì +, AP trả thì − (chỉ khi qua ngân hàng)
-  if(bankAccountId){
+  // v3.15.19: method='loan' (giải ngân) — tiền từ hạn mức đi THẲNG NCC, KHÔNG chạm số dư TK.
+  if(bankAccountId && method!=='loan'){
     const acc=AccountingService.bankAccounts().find(a=>a.id===bankAccountId);
     if(acc){
       const delta=_arPayAmountInCcy(pay, r.ccy, acc.ccy||'USD');
@@ -53723,8 +54295,13 @@ function saveArPayment(kind,id){
       try{ touchRecord(acc); }catch(e){ acc.updatedAt=new Date().toISOString(); }
     }
   }
+  // v3.15.19: GIẢI NGÂN → app TỰ GOM vào khế ước nháp cùng NH + ngày + ccy (Sếp duyệt 11/08).
+  if(kind==='ap' && method==='loan' && bankAccountId){
+    try{ _kuDraftAttach(r, pay, bankAccountId); }catch(e){ console.warn('[kuDraftAttach]',e); }
+  }
   };
-  commitMutation(_doPay, {action:'ar_pay', fields:[list,'bankAccounts'], onOk:()=>{
+  const _payFields=(kind==='ap' && method==='loan') ? [list,'bankAccounts','loans'] : [list,'bankAccounts'];
+  commitMutation(_doPay, {action:'ar_pay', fields:_payFields, onOk:()=>{
     // v3.11.16: chuỗi chi cả phiếu — lấy dòng kế TRƯỚC closeModal (closeModal không đụng queue)
     const _next=(_apBatchPayQueue&&_apBatchPayQueue.length)?_apBatchPayQueue.shift():null;
     if(_apBatchPayTotal) _apBatchPayDone++;
@@ -53741,7 +54318,8 @@ function removeArPayment(kind,id,idx){
   if(!confirm(`Xóa lần thanh toán ngày ${p.date} (${fmtFull(p.amount,r.ccy)})?`))return;
   commitMutation(()=>{
   // v1.87.0: hoàn lại số dư ngân hàng nếu lần TT này đã ghi vào một tài khoản
-  if(p.bankAccountId){
+  // v3.15.19: payment 'loan' (giải ngân) KHÔNG từng trừ TK → không hoàn; đồng thời gỡ khỏi khế ước nháp.
+  if(p.bankAccountId && p.method!=='loan'){
     const acc=AccountingService.bankAccounts().find(a=>a.id===p.bankAccountId);
     if(acc){
       const amtInAcc=_arPayAmountInCcy(p, r.ccy, acc.ccy||'USD');
@@ -53750,9 +54328,17 @@ function removeArPayment(kind,id,idx){
       try{ touchRecord(acc); }catch(e){ acc.updatedAt=new Date().toISOString(); }  // v3.06.00: dấu sync (số dư NH)
     }
   }
+  if(p.method==='loan' && p.linkedLoanId){
+    const _l=AccountingService.loans().find(x=>x.id===p.linkedLoanId);
+    if(_l && _l.kuDraft){
+      _l.principal=Math.max(0,(+_l.principal||0)-(+p.amount||0));
+      if(_l.principal<=0){ try{ markDeleted([_l.id],'loans'); }catch(e){} S.loans=AccountingService.loans().filter(x=>x.id!==_l.id); }
+      else { try{ touchRecord(_l); }catch(e){} }
+    }
+  }
   r.payments.splice(idx,1);
   try{ touchRecord(r); }catch(e){ r.updatedAt=new Date().toISOString(); }  // v3.06.00: dấu sync (AR/AP đã sửa payments)
-  }, {action:'ar_pay_remove', fields:[list,'bankAccounts'], onOk:()=>{
+  }, {action:'ar_pay_remove', fields:(p.method==='loan'?[list,'bankAccounts','loans','deletedIds']:[list,'bankAccounts']), onOk:()=>{
   closeModal();
   // Re-open the edit modal to show updated payments list
   if(kind==='ap') openPayableModal(id); else openReceivableModal(id);
@@ -55556,7 +56142,10 @@ function openOpReceiveForm(){
       <div class="field"><label>Ngoại tệ</label><select id="orf-ccy" onchange="_orfCcyChanged()">${ccyOpts}</select></div>
       <div class="field" id="orf-fx-wrap" style="display:none"><label>Tỷ giá → VND <span id="orf-fx-lbl" style="color:var(--muted);font-size:10px;text-transform:none;font-weight:400">(1 NT = ? VND)</span></label><input type="text" inputmode="decimal" class="num" id="orf-fx" placeholder="VD: 26.300" oninput="opNumFmtLive(this,_orfUsdRecalc)" style="text-align:right;font-family:var(--font-mono)"></div>
     </div>
-    <div id="orf-usd-line" style="font-size:11px;color:var(--muted);margin-top:-4px"></div>`;
+    <div id="orf-usd-line" style="font-size:11px;color:var(--muted);margin-top:-4px"></div>
+    <div class="field" style="margin-top:8px"><label>Tài khoản NH nhận tiền <span style="font-weight:400;color:var(--muted);font-size:10px;text-transform:none">(tùy chọn — chọn để ghi tăng Sổ ngân hàng; bỏ trống nếu chưa rõ/tiền mặt)</span></label>
+      <select id="orf-bank"><option value="">— Chưa gắn TK —</option>${AccountingService.bankAccounts().filter(a=>a.isActive!==false).map(a=>`<option value="${esc(a.id)}">${esc(bankAcctLabel(a))} (${esc(a.ccy||'USD')})</option>`).join('')}</select>
+    </div>`;
   openModal('💵 Thu hộ chủ tàu', body,
     '<button class="btn-sec" onclick="closeModal()">Hủy</button><button class="btn-primary" onclick="_opReceiveSave()">💾 Lưu khoản thu hộ</button>');
   setTimeout(()=>{ try{ document.getElementById('orf-desc').focus(); }catch(e){} },100);
@@ -55600,6 +56189,9 @@ function _opReceiveSave(){
     amountUsd:cv.usd||0, vatPercent:0, vatAmount:0, amountGross:amount,
     reportToOwner:true, createdBy:actorName(), createdByDept:(typeof getActorDeptName==='function'?getActorDeptName():''), createdAt:new Date().toISOString()
   };
+  // v3.15.19: TK NH nhận tiền (tùy chọn) → Sổ ngân hàng ghi THU
+  const _orfBank=((document.getElementById('orf-bank')||{}).value||'');
+  if(_orfBank) rec.bankAccountId=_orfBank;
   commitMutation(()=>{ VesselService.addOpTransaction(rec); }, {action:'op_receive', fields:['opTransactions'], onOk:()=>{
   try{ logAuditEvent('op_receive',{vesselId, amount, ccy, usd:cv.usd}); }catch(e){}
   if(typeof renderAll==='function') renderAll();
@@ -58460,6 +59052,9 @@ function openOpNccPayment(id){
       <div class="field"><label>Phí khác (${ccy})</label><input type="number" id="op-ncc-otherfee" value="0" step="any" placeholder="0"></div>
     </div>
     <div class="field"><label>Diễn giải phí (tùy chọn)</label><input type="text" id="op-ncc-feenote" placeholder="VD: phí chuyển tiền đợt này"></div>
+    <div class="field"><label>Tài khoản NH chi tiền <span style="font-weight:400;color:var(--muted);font-size:10px;text-transform:none">(tùy chọn — chọn để ghi giảm Sổ ngân hàng; bỏ trống nếu tiền mặt/chưa rõ)</span></label>
+      <select id="op-ncc-bank"><option value="">— Chưa gắn TK —</option>${AccountingService.bankAccounts().filter(a=>a.isActive!==false).map(a=>`<option value="${esc(a.id)}">${esc(bankAcctLabel(a))} (${esc(a.ccy||'USD')})</option>`).join('')}</select>
+    </div>
     <div class="field"><label>Ghi chú (tùy chọn)</label><input type="text" id="op-ncc-pay-note" placeholder="VD: chuyển khoản VCB / tiền mặt"></div>`;
   openModal('💰 Thanh toán NCC — đợt mới', body,
     `<button class="btn-sec" onclick="closeModal();showOpTxDetail('${id}')">Hủy</button><button class="btn-pri" onclick="opSaveNccPayment('${id}')">Lưu đợt</button>`);
@@ -58504,6 +59099,9 @@ function opSaveNccPayment(id){
   commitMutation(()=>{
   t.payments=t.payments||[];
   const _pay={date, amount:amt, ccy, note, by:actorName(), at:new Date().toISOString()};
+  // v3.15.19: TK NH chi tiền (tùy chọn) → Sổ ngân hàng ghi CHI + phí
+  const _nccBank=((document.getElementById('op-ncc-bank')||{}).value||'');
+  if(_nccBank) _pay.bankAccountId=_nccBank;
   if(_bf>0) _pay.bankFee=_bf;
   if(_of>0) _pay.otherFee=_of;
   if(_fn) _pay.feeNote=_fn;
@@ -81844,6 +82442,7 @@ async function hrmAttImportBsrPdf(inputEl){
   if(!files.length) return;
   const per=(document.getElementById('hrm-att-period')||{}).value||'';
   if(!per){ toast('Chọn kỳ trước khi import','bad'); return; }
+  if(typeof DecompressionStream==='undefined'){ toast('Trình duyệt không hỗ trợ DecompressionStream — cần Chrome/Edge 80+','bad'); return; }
   const st=document.getElementById('hrm-att-status');
   const setSt=t=>{ if(st) st.textContent=t; };
   setSt('Đang đọc '+files.length+' file PDF…');
@@ -81852,10 +82451,14 @@ async function hrmAttImportBsrPdf(inputEl){
     const f=files[i];
     setSt('Đọc ('+(i+1)+'/'+files.length+'): '+f.name);
     try{
-      const u8=await _bsrToU8(f);
-      const txt=await _bsrTsExtract(u8);
-      const d=_bsrTsParseOne(txt);
-      if(!d || !d.name){ warns.push(f.name+': không đọc được tên chuyên gia'); continue; }
+      /* v3.15.14 FIX: đúng chữ ký hàm — _bsrToU8 nhận CHUỖI latin1 (không nhận File),
+         _bsrTsParseOne nhận MẢNG items (không nhận text). Trước gọi sai → 'reading map' của null. */
+      const u8=new Uint8Array(await f.arrayBuffer());
+      const items=await _bsrTsExtract(u8);
+      if(!items){ warns.push(f.name+': không đọc được nội dung — file scan ảnh hoặc sai mẫu?'); continue; }
+      const d=_bsrTsParseOne(items);
+      if(!d || d.err){ warns.push(f.name+': '+((d&&d.err)||'không đọc được dữ liệu')); continue; }
+      if(!d.name){ warns.push(f.name+': không đọc được tên chuyên gia'); continue; }
       if(d.period && d.period!==per) warns.push(f.name+': kỳ trong file là '+d.period+' ≠ kỳ đang chọn '+per);
       (d.checks||[]).forEach(c=>warns.push(f.name+': '+c));
       const emp=_bsrTsMatchEmp(d);

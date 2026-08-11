@@ -1,4 +1,4 @@
-/* Seahorse Manager — Service Worker  [BUILD-TAG: v3.15.12 — BCC Đội tàu FM02: cột E mang tàu → parser gán thẳng vessel + preview/màn xem tách 2 cột ⛴ Tàu | Chức danh + hết cảnh báo oan; tương thích ngược file kiểu cũ (tàu ở tiêu đề nhóm)]
+/* Seahorse Manager — Service Worker  [BUILD-TAG: v3.15.19 — Sổ ngân hàng: sổ dẫn xuất per-TK (mỏ neo snapshot + giao dịch sau snapshot) + đối chiếu sao kê; gắn TK cho thu hộ/chi hộ; TK trích nợ vay → kỳ đã trả vào sổ; hình thức Giải ngân (không trừ TK) tự gom khế ước nháp + tách; chuyển tiền nội bộ NH↔NH/NH↔quỹ; mục chưa gắn TK]
    Strategy: Network-first for index.html (so updates load fast),
              Cache-first for static assets (icons, manifest).
    Cache version bumps automatically when SW_VERSION changes below.
@@ -6,7 +6,7 @@
    để force trình duyệt invalidate cache cũ.
 */
 
-const SW_VERSION = 'v3.15.12';
+const SW_VERSION = 'v3.15.19';
 const CACHE_NAME = `seahorse-${SW_VERSION}`;
 
 // Pre-cache critical files on install
