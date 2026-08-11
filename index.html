@@ -3778,7 +3778,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.15.24';
+const APP_VERSION='3.15.25';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -81476,15 +81476,19 @@ function _hrmDashPayAgg(P){
   const att=(S.hrAttendance||[]).filter(a=>a&&a.period===P);
   const gotSet=new Set(att.map(a=>a.profile));
   const attMissing=ATT.filter(k=>!gotSet.has(k)).map(k=>String(HRM_BCC_PROFILES[k].label||k).replace(/ \(Excel lương\)/,''));
-  const periods=(S.payrollPeriods||[]).filter(p=>p&&p.period===P);
+  const periods=(S.payrollPeriods||[]).filter(p=>p&&!p._deleted&&p.period===P);   /* v3.15.25 FIX: loại kỳ ĐÃ XÓA — trước kỳ xóa vẫn cộng vào thuế/BHXH */
   const byProf={}; periods.forEach(p=>{ byProf[p.profile]=p; });
   const profMissing=PROFS.filter(k=>!byProf[k]).map(k=>PAY_PROFILE_LABEL[k]);
   const stCount={}; periods.forEach(p=>{ const s=p.status||'draft'; stCount[s]=(stCount[s]||0)+1; });
   const payLine=Object.keys(stCount).map(s=>{ const m=(typeof PAY_STATUS_META!=='undefined'&&PAY_STATUS_META[s])||{label:s}; return stCount[s]+' '+m.label; }).join(' · ')||'chưa tạo kỳ nào';
-  const VND_PROFS=['office','crew','tech'];
+  /* v3.15.25 FIX: trước lọc cứng ['office','crew','tech'] → kỳ STER GROSS / khoán / expat VND bị LOẠI
+     khỏi thuế/BHXH. Nay lọc theo TIỀN TỆ kỳ (_payCcy==='VND') — đúng tiêu đề "bảng lương VND".
+     Số cộng MỌI TRẠNG THÁI (kể cả nháp) — hiện ngay khi kỳ đã Tính, không chờ trình ký/duyệt;
+     trả về nháp KHÔNG xóa số (result còn trong kỳ); chỉ kỳ ĐÃ XÓA mới rời khỏi card. */
+  const _isVnd=p=>(typeof _payCcy==='function'?_payCcy(p):'VND')==='VND';
   let pit=0, insEmp=0, insCo=0;
   periods.forEach(p=>{
-    if(!VND_PROFS.includes(p.profile)) return;
+    if(!_isVnd(p)) return;
     (p.rows||[]).forEach(r=>{ const R=(r&&r.result)||{}; pit+=(+R.pit||0); insEmp+=(+R.insEmp||0); insCo+=(+R.insCompany||0); });
   });
   let tsSubmitted=0; try{ tsSubmitted=HRService.timesheets().filter(t=>t&&t.period===P&&t.status==='submitted').length; }catch(e){}
@@ -81498,9 +81502,9 @@ function _hrmDashPayAgg(P){
 /* Dòng chi tiết per NV (chỉ profile VND) cho 2 modal Thuế/BHXH */
 function _hrmDashDetailRows(P){
   const A=_hrmDashPayAgg(P);
-  const VND_PROFS=['office','crew','tech'];
+  const _isVnd=p=>(typeof _payCcy==='function'?_payCcy(p):'VND')==='VND';   /* v3.15.25: đồng bộ với agg */
   const out=[];
-  A.periods.forEach(p=>{ if(!VND_PROFS.includes(p.profile)) return;
+  A.periods.forEach(p=>{ if(!_isVnd(p)) return;
     (p.rows||[]).forEach(r=>{ if(r) out.push({p,r}); });
   });
   return {A,out};
@@ -81589,7 +81593,7 @@ function hrmRenderDash(){
       (payCanViewPayroll()
         ? card('Kỳ lương', A.nPeriods+'/'+A.profTotal+' kỳ', payDot, `openPayrollPeriods()`, hrmEsc(A.payLine)) +
           card('Thuế TNCN kỳ', fmtCcy(A.pit,'VND'), '#8b5a2b', `hrmShowPitDetail()`,
-            'khấu trừ trên bảng lương VND', _btn('hrmShowPitDetail','Chi tiết')) +
+            'khấu trừ bảng lương VND — hiện ngay khi kỳ đã Tính (mọi trạng thái)', _btn('hrmShowPitDetail','Chi tiết')) +
           card('BHXH kỳ (NV + Cty)', fmtCcy(A.insEmp+A.insCo,'VND'), '#2a5a8c', `hrmShowBhxhDetail()`,
             `NV ${fmtCcy(A.insEmp,'VND')} · Cty ${fmtCcy(A.insCo,'VND')}`, _btn('hrmShowBhxhDetail','Chi tiết'))
         : '');  /* v3.12.07: số liệu lương trên Dashboard NS chỉ KT/KTT/CEO — HR không thấy */
