@@ -3778,7 +3778,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.15.20';
+const APP_VERSION='3.15.23';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -19115,16 +19115,24 @@ function payDashboard(){
    Engine đã tính sẵn phần công ty ở field chuẩn hóa insCompany (office AN · crew AOco · gross Vco);
    hàm này THUẦN ĐỌC — không đụng engine, không đụng _payPeriodCostGroups (health N3 đang dùng).
    Trục BP: crew/khoan → TÀU (anyVesselName) · chuyên gia/expat → DỰ ÁN · còn lại → PHÒNG BAN
-   (cùng nếp _payPeriodCostGroups). VND là ma trận chính; ngoại tệ tách bảng riêng, KHÔNG cộng chéo. */
+   (cùng nếp _payPeriodCostGroups). VND là ma trận chính; ngoại tệ tách bảng riêng, KHÔNG cộng chéo.
+   v3.15.21 (Sếp 11/8 check màn hình): (a) BP TRÙNG TÊN ("HCNS" / "Phòng Hành chính Nhân sự" /
+   "…[HCNS]" thành 3 dòng) → canon hóa qua hrDeptCanon + hrDeptDisplay trước khi gom (đúng bài
+   chống-trùng v3.13.91); (b) TÀU: ưu tiên r.vesselTimesheet.vesselId (tàu THÁNG ĐÓ theo BCC absorb)
+   rồi mới e.vesselId — mỗi tàu 1 dòng; (c) NGOẠI TỆ (Chuyên gia O&M/VP…): QUY ĐỔI VND theo TỶ GIÁ
+   TẠI KỲ p.fxTemp (đúng tỷ giá engine dùng tính TNCN) và vào ma trận chính với nhãn BP riêng
+   ('Chuyên gia O&M', 'Chuyên gia VP (Expat)'…); kỳ THIẾU fxTemp → KHÔNG quy đổi bừa, giữ bảng
+   ngoại tệ riêng + cảnh báo ⚠ để Sếp vào kỳ điền tỷ giá. */
 function _payYearCostData(year){
   const periods=PayrollService.periods().filter(p=>p&&!p._deleted&&String(p.period||'').slice(0,4)===String(year));
   const empById={}; HRService.employees().forEach(e=>{ empById[e.id]=e; });
   const groups={}; const Z=()=>Array(12).fill(0);
   const mTot=Z(), mGross=Z(), mPit=Z(), mInsEmp=Z(), mInsCo=Z(), mNv=Z();
-  const fxCcy={}; let missIns=0;
+  const fxCcy={}; let missIns=0, missFx=0, fxConv=0;
   periods.forEach(p=>{
     const mi=+String(p.period||'').slice(5,7)-1; if(mi<0||mi>11) return;
     const ccy=_payCcy(p);
+    const fx=(ccy!=='VND')?(+p.fxTemp||0):1;   /* v3.15.21: tỷ giá TẠI KỲ (fxTemp) — cùng tỷ giá engine dùng tính TNCN */
     const isCrewLike=(p.profile==='crew'||p.profile==='crew_khoan');
     (p.rows||[]).forEach(r=>{
       const x=r.result||{}; if(x._engineMismatch) return;
@@ -19135,31 +19143,44 @@ function _payYearCostData(year){
       const insCo=(+x.insCompany||+x.AN||+x.AOco||+x.Vco||0);
       if(!gross && !insCo) return;
       const cost=gross+insCo;
-      if(ccy!=='VND'){   /* ngoại tệ: gom riêng theo mã tiền, tuyệt đối không cộng chéo */
+      if(ccy!=='VND' && !fx){   /* v3.15.21: kỳ ngoại tệ THIẾU tỷ giá → không quy đổi bừa, bảng riêng + ⚠ */
         const f=fxCcy[ccy]=fxCcy[ccy]||{months:Z(),total:0,nv:0};
-        f.months[mi]+=cost; f.total+=cost; f.nv++; return;
+        f.months[mi]+=cost; f.total+=cost; f.nv++; missFx++; return;
       }
+      if(ccy!=='VND') fxConv++;
       /* dòng thiếu insCompany (kỳ tính bằng engine đời trước): đếm cảnh báo, KHÔNG tự tính lại */
       if(x.insCompany==null && x.AN==null && x.AOco==null && x.Vco==null && gross>0
         && (p.profile==='office'||isCrewLike||p.profile==='office_gross'||p.profile==='tech')) missIns++;
       const pit=(x.pit!=null)?(+x.pit||0):((p.profile==='office')?(+x.AK||0):(isCrewLike?(+x.AL||0):0));
       const insEmp=(x.insEmp!=null)?(+x.insEmp||0):((p.profile==='office')?(+x.AL||0):(isCrewLike?(+x.AO||0):0));
       const e=empById[r.empId]||{};
-      let label;
-      if(isCrewLike){ const vid=e.vesselId||''; label=(typeof anyVesselName==='function'&&vid&&anyVesselName(vid))||e.dept||(p.profile==='crew_khoan'?'Nhân sự khoan':'Đội tàu'); }
-      else if(p.profile==='project'||p.profile==='expat'||p.profile==='expert'||p.profile==='expert_om'){
-        const pid=(e.projectIds&&e.projectIds[0])||''; const pr=(S.projects||[]).find(z=>z.id===pid);
-        label=pr?pr.code:(e.dept||PAY_PROFILE_LABEL[p.profile]||'Chuyên gia');
+      let key,label;
+      if(isCrewLike){
+        /* v3.15.21: tàu THÁNG ĐÓ theo BCC absorb (r.vesselTimesheet) trước, rồi mới thẻ NV */
+        const vid=(r.vesselTimesheet&&r.vesselTimesheet.vesselId)||e.vesselId||'';
+        label=(typeof anyVesselName==='function'&&vid&&anyVesselName(vid))||e.dept||(p.profile==='crew_khoan'?'Nhân sự khoan':'Đội tàu');
+        key='V:'+(vid||label);
       }
-      else { label=e.dept||'Văn phòng'; }
-      const g=groups[label]=groups[label]||{label:label,months:Z(),total:0};
-      g.months[mi]+=cost; g.total+=cost;
-      mTot[mi]+=cost; mGross[mi]+=gross; mPit[mi]+=pit; mInsEmp[mi]+=insEmp; mInsCo[mi]+=insCo; mNv[mi]++;
+      else if(p.profile==='expert_om'){ label='Chuyên gia O&M'; key='G:om'; }        /* v3.15.21: BP riêng theo yêu cầu Sếp */
+      else if(p.profile==='expat'){ label='Chuyên gia VP (Expat)'; key='G:expat'; }
+      else if(p.profile==='project'||p.profile==='expert'){
+        const pid=(e.projectIds&&e.projectIds[0])||''; const pr=(S.projects||[]).find(z=>z.id===pid);
+        label=pr?pr.code:(e.dept||PAY_PROFILE_LABEL[p.profile]||'Chuyên gia'); key='P:'+(pid||label);
+      }
+      else {
+        /* v3.15.21: canon hóa phòng ban — "HCNS"/"Phòng Hành chính Nhân sự"/"…[HCNS]" gom 1 dòng */
+        const code=(typeof hrDeptCanon==='function')?hrDeptCanon(e.dept||''):(e.dept||'');
+        label=(code&&typeof hrDeptDisplay==='function'&&hrDeptDisplay(code))||(code&&typeof hrDeptLabel==='function'&&hrDeptLabel(code))||code||e.dept||'Văn phòng';
+        key='D:'+(code||label);
+      }
+      const g=groups[key]=groups[key]||{label:label,months:Z(),total:0};
+      g.months[mi]+=cost*fx; g.total+=cost*fx;
+      mTot[mi]+=cost*fx; mGross[mi]+=gross*fx; mPit[mi]+=pit*fx; mInsEmp[mi]+=insEmp*fx; mInsCo[mi]+=insCo*fx; mNv[mi]++;
     });
   });
   const list=Object.values(groups).sort((a,b)=>b.total-a.total);
   return {year:String(year), list:list, mTot:mTot, mGross:mGross, mPit:mPit, mInsEmp:mInsEmp, mInsCo:mInsCo, mNv:mNv,
-    grand:mTot.reduce((t,v)=>t+v,0), fxCcy:fxCcy, missIns:missIns, nPeriods:periods.length};
+    grand:mTot.reduce((t,v)=>t+v,0), fxCcy:fxCcy, missIns:missIns, missFx:missFx, fxConv:fxConv, nPeriods:periods.length};
 }
 function payYearCostReport(){
   const years=[...new Set(PayrollService.periods().filter(p=>p&&!p._deleted).map(p=>String(p.period||'').slice(0,4)).filter(Boolean))].sort().reverse();
@@ -19211,15 +19232,16 @@ function payYearCostReport(){
   } else if(!canSee){ chart=`<div style="font-size:11px;color:var(--muted);margin-top:8px">Biểu đồ ẩn — tài khoản của bạn không có quyền xem số liệu lương.</div>`; }
   /* ── ngoại tệ (tách riêng) ── */
   const fxTables=Object.keys(D.fxCcy).sort().map(cc=>{ const f=D.fxCcy[cc];
-    return `<div style="font-size:12px;font-weight:600;margin:12px 0 4px">Chi phí lương ${esc(cc)} (tách riêng — không cộng vào VND)</div>
+    return `<div style="font-size:12px;font-weight:600;margin:12px 0 4px">Chi phí lương ${esc(cc)} CHƯA QUY ĐỔI (kỳ thiếu tỷ giá tạm tính — mở kỳ bấm 💱 để điền, báo cáo sẽ tự gộp vào VND)</div>
     <table style="width:100%;border-collapse:collapse;font-size:11px;border:1px solid var(--rule)"><thead><tr style="background:var(--rule);text-align:right"><th style="padding:4px 8px;text-align:left">${esc(cc)}</th>${MN.map(m=>`<th style="padding:4px 6px">${m}</th>`).join('')}<th style="padding:4px 8px">Tổng</th></tr></thead>
     <tbody><tr><td style="padding:4px 8px">Chi phí</td>${f.months.map(v=>`<td style="padding:4px 6px;text-align:right;font-family:monospace">${v?payMaskAmount(v.toLocaleString('en-US',{maximumFractionDigits:2})):'–'}</td>`).join('')}<td style="padding:4px 8px;text-align:right;font-family:monospace;font-weight:600">${payMaskAmount(f.total.toLocaleString('en-US',{maximumFractionDigits:2}))}</td></tr></tbody></table>`; }).join('');
   const body=`
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
       <label style="font-size:11px;color:var(--muted)">Năm:</label>
       <select onchange="window._payYcYear=this.value;payYearCostReport()" style="padding:6px 10px;border:1px solid var(--rule);border-radius:6px;font-size:13px">${yearOpts}</select>
-      <span style="font-size:11px;color:var(--muted)">${D.nPeriods} kỳ lương · CHI PHÍ = GROSS + BHXH công ty (21,5% nền BHXH)</span>
+      <span style="font-size:11px;color:var(--muted)">${D.nPeriods} kỳ lương · CHI PHÍ = GROSS + BHXH công ty (21,5% nền BHXH)${D.fxConv?` · gồm ${D.fxConv} dòng ngoại tệ quy đổi VND theo TỶ GIÁ TẠI KỲ (💱 fxTemp)`:''}</span>
       ${D.missIns?`<span style="font-size:11px;background:#fff3e6;border:1px solid #e8c49a;border-radius:6px;padding:2px 8px">⚠ ${D.missIns} dòng kỳ cũ thiếu BHXH cty (engine đời trước) — mở kỳ bấm Tính lại nếu cần đủ</span>`:''}
+      ${D.missFx?`<span style="font-size:11px;background:#fdecec;border:1px solid #e5a6a6;border-radius:6px;padding:2px 8px">⚠ ${D.missFx} dòng kỳ ngoại tệ THIẾU tỷ giá tạm tính — chưa quy đổi được, xem bảng dưới; mở kỳ bấm 💱 để điền</span>`:''}
     </div>
     <div style="font-size:13px;font-weight:700;margin-bottom:4px">1/ Tổng chi phí lương năm ${esc(String(sel))} (VND)</div>
     <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11.5px;border:1px solid var(--rule)"><thead>${th}</thead>
@@ -19230,7 +19252,7 @@ function payYearCostReport(){
       ${subRow('· BHXH công ty (21,5% — cộng thêm)', D.mInsCo,'#2c6e49')}
       </tbody></table></div>
     ${chart}${fxTables}
-    <div style="font-size:10.5px;color:var(--muted);margin-top:8px">Nguồn: kỳ lương thực tế (mọi trạng thái, trừ kỳ đã xóa). BHXH tính trên NỀN riêng (sổ BH) theo quy định v3.13.55 — không phải trên gross. Chuyên gia USD không có BHXH VN. Số âm/điều chỉnh đã gồm trong gross.</div>`;
+    <div style="font-size:10.5px;color:var(--muted);margin-top:8px">Nguồn: kỳ lương thực tế (mọi trạng thái, trừ kỳ đã xóa). BHXH tính trên NỀN riêng (sổ BH) theo quy định v3.13.55 — không phải trên gross. Ngoại tệ (Chuyên gia O&M/VP…) quy đổi VND theo tỷ giá tạm tính CỦA TỪNG KỲ (💱 fxTemp — cùng tỷ giá dùng tính TNCN); chuyên gia USD không có BHXH VN. Số âm/điều chỉnh đã gồm trong gross. Phòng ban gom theo danh mục chuẩn (hrDeptCanon).</div>`;
   openModal('📊 Sổ chi phí lương năm '+esc(String(sel)), body, `<button class="btn-ghost" onclick="payDashboard()">← Payroll Dashboard</button>`);
   try{ if(typeof setModalWide==='function') setModalWide(true); }catch(e){}
 }
@@ -79693,6 +79715,18 @@ window.spImportGo=function(){
   closeModal(); toast('📥 Đã tạo '+made+' phiên bản thẻ (lô '+batch+')'+(fail?(' · '+fail+' dòng bị chặn'):''), fail?'warn':'good');
   try{ renderAll(); }catch(e){}
 };
+/* v3.15.23 (Sếp 11/8): nút GẬP lịch sử điều chỉnh trong Sổ lương — mặc định LUÔN GẬP khi mở sổ
+   (không lưu trạng thái), bấm ▸ từng dòng hoặc mở hết/gập hết trên tiêu đề cột. Chỉ đổi hiển thị. */
+function slHistToggle(id, btn){
+  const d=document.getElementById(id); if(!d) return;
+  const opening=(d.style.display==='none');
+  d.style.display=opening?'':'none';
+  if(btn) btn.innerHTML=(opening?'▾':'▸')+btn.innerHTML.slice(1);
+}
+function slHistToggleAll(open){
+  document.querySelectorAll('[id^="slh_"]').forEach(d=>{ d.style.display=open?'':'none'; });
+  document.querySelectorAll('[data-slh-btn]').forEach(b=>{ b.innerHTML=(open?'▾':'▸')+b.innerHTML.slice(1); });
+}
 function openSalaryLedger(){
   if(_hrStaffNoSalary()){ toast('Vai Hồ sơ & Chấm công không xem Sổ lương','bad'); return; }   /* v3.14.84 */
   if(!(hrmCanSeeAll()||salaryProfileCanEdit())){ toast('Chỉ BGĐ/HCNS/KTT/Admin','bad'); return; }
@@ -79753,6 +79787,14 @@ function openSalaryLedger(){
     if(fQuick==='raised' && !hist.some(h=>h.eff.slice(0,4)===year)) return;
     rows.push({e, cur, tot, hist, monthsSince, off:_slOff});
   });
+  /* v3.15.22 (Sếp 11/8): SẮP XẾP sổ theo nguyên tắc — ① Chức danh (A→Z, tiếng Việt; chưa có chức danh
+     xếp cuối nhóm) ② Mã NV (SME0003 < SME0009 < SME0027 — so numeric) ③ NV ĐÃ NGHỈ luôn xuống DƯỚI CÙNG
+     (vẫn hiện để tra cứu kỳ cũ theo AS-OF v3.14.49, trong nhóm nghỉ cũng xếp cùng nguyên tắc). */
+  rows.sort((a,b)=>
+    ((a.off?1:0)-(b.off?1:0))
+    || ((String(a.e.title||'').trim()?0:1)-(String(b.e.title||'').trim()?0:1))
+    || String(a.e.title||'').localeCompare(String(b.e.title||''),'vi',{sensitivity:'base'})
+    || String(a.e.smartId||'').localeCompare(String(b.e.smartId||''),'vi',{numeric:true}));
   // KPI + biểu đồ
   const avg=cnt?Math.round(fund/cnt):0;
   /* v3.12.87: bình quân VND CHỈ chia cho số NV nhóm VND (không lấy tổng nhân sự) */
@@ -79779,6 +79821,15 @@ function openSalaryLedger(){
     const _hm=v=>{ const n=Number(v)||0; if(_xUsd) return n.toLocaleString('en-US',{maximumFractionDigits:2})+' USD/tháng'; if(_xTech) return fmtFull(n,'VND'); return fmtFull(n,'VND'); };
     const _vtb=vt=> vt==='BUSINESS_CHANGE' ? '' : `<span style="font-size:8.5px;border:1px solid var(--rule);border-radius:3px;padding:0 3px;color:var(--muted);margin-right:3px" title="Không tính vào thống kê tăng lương">${_SP_VT_LABEL[vt]||vt}</span>`;
     const histHtml=x.hist.slice().reverse().map(h=>`<div style="font-size:10.5px;font-family:var(--font-mono)">${_vtb(h.vt)}${h.eff}: ${_hm(h.before)} → <b>${_hm(h.after)}</b> <span style="color:${h.delta>=0?'var(--good)':'var(--bad)'}">(${h.delta>=0?'+':''}${_hm(h.delta)} · ${h.pct.toFixed(1)}%)</span> · ${esc(h.by)} · ${esc(h.reason)}</div>`).join('')||'<span style="font-size:10px;color:var(--muted)">chưa điều chỉnh</span>';
+    /* v3.15.23 (Sếp 11/8): mặc định GẬP lịch sử — chỉ hiện số lần + lần gần nhất, bấm ▸ mở đầy đủ.
+       Trạng thái không lưu: mỗi lần mở sổ LUÔN ở trạng thái gập theo yêu cầu. */
+    const _hLast=x.hist.length?x.hist[x.hist.length-1]:null;
+    const histCell = x.hist.length
+      ? `<div><div style="font-size:10.5px;font-family:var(--font-mono);display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+           <button class="btn-ghost" data-slh-btn style="font-size:9.5px;padding:0 6px;line-height:16px" onclick="slHistToggle('slh_${i}',this)" title="Mở/gập lịch sử đầy đủ">▸ ${x.hist.length} lần</button>
+           <span style="color:var(--muted)">gần nhất</span> ${_vtb(_hLast.vt)}${_hLast.eff}: ${_hm(_hLast.before)} → <b>${_hm(_hLast.after)}</b></div>
+         <div id="slh_${i}" style="display:none;margin-top:3px;border-left:2px solid var(--rule);padding-left:6px">${histHtml}</div></div>`
+      : histHtml;
     return `<tr style="border-top:1px solid var(--rule)${x.off?';opacity:.55':''}">
       <td style="padding:6px 8px;font-size:12px"><a href="javascript:void(0)" onclick="openSalaryProfileCard('${e.id}')" style="font-weight:600;color:var(--accent)">${esc(e.fullName)}</a>${x.off?` <span style="font-size:9px;background:#f3e8e8;color:#9a4b4b;border-radius:3px;padding:0 4px" title="Đã nghỉ — vẫn xem được thẻ, phục vụ kỳ lương lúc còn làm việc">🔚 nghỉ ${esc((e.resignDate||e.terminationDate||'').slice(0,10))}</span>`:''}<br><span style="font-family:var(--font-mono);font-size:10px;color:var(--muted)">${esc(e.smartId||'')}</span></td>
       <td style="padding:6px 8px;font-size:11px">${esc((function(){const _c=hrDeptCanon(e.dept||'');return _c?hrDeptLabel(_c):(e.dept||'—');})())}<br><span style="color:var(--muted)">${esc(e.title||'')}</span></td>
@@ -79803,7 +79854,7 @@ function openSalaryLedger(){
           +'<br><span style="font-size:9.5px;color:var(--muted)">'+_sub+'</span>'
           +'<br><span style="font-size:10px;color:var(--muted)">BH '+Math.round(+(x.cur.data.bhxhBase)||0).toLocaleString('vi-VN')+'₫ (luôn VNĐ)</span>';
       })()}</td>
-      <td style="padding:6px 8px;max-width:340px">${histHtml}</td>
+      <td style="padding:6px 8px;max-width:340px">${histCell}</td>
       <td style="padding:6px 8px;text-align:center;font-size:10.5px;${x.monthsSince>=10?'color:#b8730a;font-weight:700':''}">${x.monthsSince===999?'—':x.monthsSince+' th'}</td>
     </tr>`;
   }).join('');
@@ -79853,7 +79904,7 @@ function openSalaryLedger(){
       <thead><tr style="background:var(--rule);font-size:9.5px;text-transform:uppercase">
         <th style="padding:5px 8px;text-align:left">Nhân sự</th><th style="padding:5px 8px;text-align:left">Bộ phận · Chức vụ</th>
         <th style="padding:5px 8px;text-align:left">Vào làm · HĐ</th><th style="padding:5px 8px;text-align:right">Thu nhập cố định</th>
-        <th style="padding:5px 8px;text-align:left">Lịch sử điều chỉnh (đủ mọi lần)</th><th style="padding:5px 8px">Từ lần tăng cuối</th></tr></thead>
+        <th style="padding:5px 8px;text-align:left">Lịch sử điều chỉnh <button class="btn-ghost" style="font-size:9px;padding:0 5px;line-height:15px" onclick="slHistToggleAll(true)" title="Mở đầy đủ lịch sử mọi nhân sự">▾ mở hết</button><button class="btn-ghost" style="font-size:9px;padding:0 5px;line-height:15px" onclick="slHistToggleAll(false)" title="Gập về tóm tắt">▸ gập hết</button></th><th style="padding:5px 8px">Từ lần tăng cuối</th></tr></thead>
       <tbody>${trs||'<tr><td colspan="6" style="padding:14px;text-align:center;color:var(--muted)">Không có dữ liệu khớp bộ lọc</td></tr>'}</tbody></table>`;
   openModal('📒 Sổ theo dõi lương nhân sự — báo cáo quản trị', body,
     `${salaryProfileCanEdit()?'<button class="btn-ghost" onclick="spImportOpen()" title="Nhập hàng loạt PHIÊN BẢN THẺ LƯƠNG hồi tố từ Excel (MSNV | Hiệu lực YYYY-MM | các mức) — chỉ TẠO BẢN MỚI, không sửa/xóa bản cũ, trùng kỳ tự bỏ qua">📥 Import thẻ hồi tố</button>':''}<button class="btn-ghost" onclick="gradeAdminOpen()" title="Phân loại quản trị theo chức vụ + thống kê min/trung vị/bq/max từ Thẻ lương — không ảnh hưởng tính lương">🏷 Grade & thống kê</button><button class="btn-ghost" onclick="closeModal()">Đóng</button>`);
