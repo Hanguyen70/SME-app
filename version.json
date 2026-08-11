@@ -1,5 +1,5 @@
 {
-  "version": "3.15.05",
-  "swVersion": "v3.15.05",
-  "notes": "v3.15.05: XUẤT EXCEL BẢNG LƯƠNG CHUYÊN GIA bám mẫu thật đang dùng — từ 8 cột gộp lên 36 cột đối chiếu được từng dòng: số HĐLĐ, chức danh, rate ngày/giờ, giờ công tách 3 loại (thường/OT1.2/OT1.5), lương thường và lương OT tính riêng, ngày+mức trợ cấp, Mob/Demob, hoàn phí, back charge tách nhà/điện thoại/xe/tạm ứng/khác, số tiền chuyển. Thêm cột diện cư trú + thu nhập chịu thuế + gross quy đổi + thuế công ty nộp thay (v3.15.02), cột Note hiện lý do khi chưa đủ căn cứ tính thuế. Kèm thông tin chuyển tiền: email, tên/số TK, ngân hàng, SWIFT."
+  "version": "3.15.12",
+  "swVersion": "v3.15.12",
+  "notes": "v3.15.12: CHÍNH SÁCH LƯƠNG chuyển hẳn về Nhân sự (HRM) — nút ⚖️ Chính sách lương nằm cùng hàng với Dashboard/Danh sách/Chấm công/Sổ lương/Kiểm tra dữ liệu; gỡ khỏi Payroll Dashboard. Lý do: đây là mục CHUNG toàn công ty (thuế TNCN, bảo hiểm, lương tối thiểu vùng, công đoàn), không riêng của kỳ lương. Nút quay lại đổi thành Đóng (không còn phụ thuộc Payroll Dashboard); bỏ chữ kỹ thuật Policy V2 khỏi tiêu đề."
 }

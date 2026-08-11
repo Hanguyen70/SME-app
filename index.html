@@ -3614,6 +3614,9 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
         <input type="file" id="tbns-import-file" accept=".pdf" style="display:none" onchange="tbNsImportFile(this)">
         <button class="btn-ghost" id="hrm-btn-ledger" onclick="if(typeof FLAG_SALARY_PROFILE!=='undefined'&&FLAG_SALARY_PROFILE){openSalaryLedger()}else{toast('Tính năng Thẻ lương chưa bật (flag_salary_profile)','warn')}" title="Sổ theo dõi lương nhân sự — báo cáo quản trị từ Thẻ lương">📒 Sổ lương</button>
         <button class="btn-ghost" id="hrm-btn-scc" onclick="sccOpen()" title="Kiểm tra dữ liệu Thẻ lương — chỉ đọc, không sửa gì">🔎 Kiểm tra dữ liệu</button>
+        <!-- v3.15.12 (Sếp 11/8): CHÍNH SÁCH LƯƠNG là mục CHUNG của toàn công ty (thuế, bảo hiểm,
+             lương tối thiểu vùng, công đoàn) → chuyển hẳn về Nhân sự, không nằm trong Payroll Dashboard nữa. -->
+        <button class="btn-ghost" id="hrm-btn-policy" onclick="payrollPolicyUI()" title="Chính sách chung: thuế TNCN, bảo hiểm, lương tối thiểu vùng, công đoàn — áp theo kỳ hiệu lực">⚖️ Chính sách lương</button>
       </div>
     </div>
 
@@ -3647,7 +3650,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
         <label style="font-size:11px;color:var(--muted)">Kỳ:</label>
         <input type="month" id="hrm-att-period" style="padding:6px 8px;border:1px solid var(--rule);border-radius:6px;font-size:13px">
         <label style="font-size:11px;color:var(--muted);margin-left:6px">Loại bảng:</label>
-        <select id="hrm-att-profile" style="padding:6px 8px;border:1px solid var(--rule);border-radius:6px;font-size:13px">
+        <select id="hrm-att-profile" onchange="{const p=this.value==='BCC_CG_PDF';const a=document.getElementById('hrm-att-btn-xls'),b=document.getElementById('hrm-att-btn-pdf');if(a)a.style.display=p?'none':'';if(b)b.style.display=p?'':'none';}" style="padding:6px 8px;border:1px solid var(--rule);border-radius:6px;font-size:13px">
           <option value="BCC_VP">BCC Văn phòng</option>
           <option value="BCC_VP_BP">BCC VP — mẫu theo bộ phận (SME-HR-PR02-FM01)</option>
           <option value="BCC_DOITAU">BCC Đội tàu</option>
@@ -3657,7 +3660,9 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
           <option value="BCC_KYTHUAT">BCC Bộ phận Kỹ thuật (Excel lương)</option>
         </select>
         <input type="file" id="hrm-att-file" accept=".xlsx,.xls" style="display:none" onchange="hrmAttImportExcel(this)">
-        <button class="btn-ghost" style="padding:6px 14px;font-size:13px" onclick="hrmAttPickFile()">📥 Import BCC (Excel đã ký)</button>
+        <button class="btn-ghost" id="hrm-att-btn-xls" style="padding:6px 14px;font-size:13px" onclick="hrmAttPickFile()">📥 Import BCC (Excel đã ký)</button>
+        <input type="file" id="hrm-att-pdf" accept="application/pdf" multiple style="display:none" onchange="hrmAttImportBsrPdf(this)">
+        <button class="btn-ghost" id="hrm-att-btn-pdf" style="padding:6px 14px;font-size:13px;display:none" onclick="document.getElementById('hrm-att-pdf').click()">📥 Import Timesheet BSR (PDF — nhiều file)</button>
         <span id="hrm-att-status" style="font-size:13px;color:var(--muted)"></span>
       </div>
       <div id="hrm-att-preview"></div>
@@ -3771,7 +3776,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.15.05';
+const APP_VERSION='3.15.12';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -17872,12 +17877,8 @@ function payComputeCrew(inp, prof){
   const AK=(AJ>0)?AJ:0;
   const AL=_payPit(AK, prof.pitBrackets);
   const AS=Math.round(AH-AL-AO-AR);
-  /* ──────────────────────────────────────────────────────────────────────────
-     v3.15.03 (Sếp chốt 10/8): NHÁNH KHÔNG CƯ TRÚ cho đội tàu — cùng nguyên tắc
-     đã áp cho chuyên gia. Diện lấy từ sổ residency, KHÔNG suy từ quốc tịch/tiền tệ.
-     Chỉ rẽ nhánh khi inp._residency==='nonresident'; mọi trường hợp còn lại
-     (cư trú, hoặc chưa khai) chạy Y NGUYÊN đường cũ ⇒ không đổi 1 đồng của
-     113 thẻ crew hiện hữu. Thực lĩnh KHÔNG ĐỔI (hợp đồng NET): chỉ đổi gross + thuế. */
+  /* v3.15.03: nhánh KHÔNG CƯ TRÚ cho đội tàu (gross=net/0,8, thuế 20%, không GTGC).
+     Chỉ rẽ khi khai nonresident; cư trú/chưa khai chạy y nguyên đường cũ. Thực lĩnh không đổi. */
   if(String(inp._residency||'')==='nonresident'){
     const netTax=Math.max(0, AB-AC);            /* NET chịu thuế = tổng − khoản miễn */
     const grossNR=(netTax>0)?Math.round(netTax/0.8):0;
@@ -17892,15 +17893,10 @@ function payComputeCrew(inp, prof){
     grossTotal:AH, netTotal:AB, pit:AL, insEmp:AO, insCompany:AOco, takeHome:AS};
 }
 /* Tính lương 1 chuyên gia/dự án (USD). inp = {G(rate/ngày),J(giờ thường),K(OT1.2),L(OT1.5),Q(ngày trợ cấp),R(mức/ngày),T(Mob/Demob),U(hoàn phí),W,X,Y,Z,AA(các khoản nhà/đt/xe/ứng/khác — cộng vào V)}. */
-/* ────────────────────────────────────────────────────────────────────────────
-   v3.15.02 (Sếp chốt 10/8): GROSS-UP + PIT theo DIỆN CƯ TRÚ — hợp đồng lương NET.
-   NGUYÊN TẮC: người lao động nhận đủ NET; công ty nộp thuế thay ⇒ THỰC LĨNH KHÔNG ĐỔI,
-   chỉ sinh thêm gross và số công ty nộp thay.
-   Diện lấy từ sổ residency (hrTaxAttrs) — KHÔNG suy từ quốc tịch, tiền tệ hay nhóm kỳ.
-     · không cư trú : gross = net ÷ (1 − 20%) ; thuế = gross × 20% ; KHÔNG giảm trừ
-     · cư trú       : gross = _payNet2Gross(net) ; thuế = _payPit(gross)  (đường sẵn có)
-   Thiếu khai residency → trả pending: KHÔNG tự đoán, KHÔNG tính bừa.
-   Khoản AD (thu-chi hộ) KHÔNG chịu thuế (Sếp chốt) → trừ khỏi cơ sở tính thuế. */
+/* v3.15.02 (Sếp 10/8): gross-up + PIT theo diện cư trú (hợp đồng NET → thực lĩnh KHÔNG đổi).
+   Diện lấy từ sổ residency, không suy từ quốc tịch/tiền tệ/nhóm kỳ.
+   Không cư trú: gross=net/0,8, thuế 20%, không giảm trừ. Cư trú: _payNet2Gross + _payPit.
+   Thiếu khai/thiếu tỷ giá → pending, không tính bừa. Khoản AD không chịu thuế. */
 function _payResidencyAt(empId, period){
   try{
     const d=String(period||'')+'-15';
@@ -18403,15 +18399,9 @@ function payTplSave(){
    CHÉP cấu hình engine và ghi đè MỘT trường standardDays — 3 hàm payCompute* GIỮ NGUYÊN
    (chúng vốn đã nhận prof làm tham số thứ 2). Kỳ KHÔNG có standardDays → dùng cấu hình chung
    như trước (tương thích ngược 100% với kỳ cũ). */
-/* ────────────────────────────────────────────────────────────────────────────
-   v3.14.96 (Sếp chốt 10/8): BỘ THAM SỐ PIT THEO KỲ — 2026 H1 vs H2.
-   CĂN CỨ: bảng lương ĐÃ CHI T1–T6/2026 (sheet "Đội tàu (gửi VR)" file
-   Payroll-SME-_06_2026.xlsx) dùng GTGC 11tr/4,4tr + biểu 7 bậc + bảng quy đổi
-   NET→GROSS cũ. Từ kỳ 07/2026 dùng bộ mới (15,5/6,2 + biểu 5 bậc).
-   PHẠM VI: CHỈ 3 tham số PIT (gtgcSelf, gtgcDependent, pitBrackets, grossBrackets).
-   KHÔNG đụng: công thức 9 hàm engine, BHXH (nền lấy từ thẻ lương, trần chưa từng
-   chạm — nền cao nhất thực tế 9tr << trần), standardDays, mọi thứ khác.
-   KỲ NGOÀI 2026: giữ nguyên hành vi cũ, không đổi 1 đồng.        */
+/* v3.14.96 (Sếp 10/8): tham số PIT theo kỳ — T1-T6/2026 dùng bộ cũ (GTGC 11/4,4 + biểu 7 bậc
+   + NET→GROSS cũ) khớp bảng ĐÃ CHI; từ T7 dùng bộ mới. Chỉ đổi tham số, không đụng engine/BHXH.
+   Kỳ ngoài 2026 giữ nguyên. */
 const PAY_PIT_H1_2026 = {
   gtgcSelf: 11000000, gtgcDependent: 4400000,
   /* biểu 7 bậc TT 111/2013 — khớp nguyên văn công thức cột AE sheet "Đội tàu (gửi VR)" */
@@ -18927,16 +18917,63 @@ function payrollPolicyUI(){
   const tabBar=_ppBanner
     + tabs.map(([k,l])=>`<button class="btn-ghost" style="${k===tab?'background:var(--accent);color:#fff;':''}font-size:12px;padding:5px 10px" onclick="_ppTab('${k}')">${l}</button>`).join('');
   let body='';
+  /* v3.15.10 (Sếp 11/8): DIỄN GIẢI CHÍNH SÁCH BẰNG NGÔN NGỮ THÔNG DỤNG.
+     Bộ chính sách áp theo ĐÚNG KỲ HIỆU LỰC — không còn bước duyệt, KTT xem/sửa trực tiếp.
+     Cột mã kỹ thuật GIỮ NGUYÊN (chữ nhỏ dưới tên) để tương thích cách tính/liên kết/đối chiếu. */
+  const POL_VI={
+    PIT_DEDUCTION:'Giảm trừ gia cảnh', PIT_BRACKET:'Biểu thuế thu nhập cá nhân',
+    PIT_NONRESIDENT:'Thuế cho người không cư trú', PIT_EXEMPT_MEAL:'Tiền ăn ca được miễn thuế',
+    PIT_EXEMPT_OT:'Tiền làm thêm giờ được miễn thuế', DEPENDENT_RULE:'Điều kiện người phụ thuộc',
+    SI_RATE_VN:'Tỷ lệ bảo hiểm — người Việt', SI_RATE_FOREIGN:'Tỷ lệ bảo hiểm — người nước ngoài',
+    SI_CAP:'Mức lương đóng bảo hiểm tối đa', MIN_WAGE_REGION:'Lương tối thiểu vùng',
+    UNION_FEE:'Kinh phí và đoàn phí công đoàn'
+  };
+  const _dmy=s=>{ const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s||'')); return m?(m[3]+'/'+m[2]+'/'+m[1]):String(s||''); };
+  const _polRange=p=>{
+    const f=String(p.effectiveFrom||''), t=String(p.effectiveTo||'');
+    if(!t) return 'Từ '+_dmy(f);
+    if(/^(\d{4})-01-01$/.test(f) && f.slice(0,4)+'-12-31'===t) return 'Cả năm '+f.slice(0,4);
+    return _dmy(f)+' – '+_dmy(t);
+  };
+  /* Trạng thái theo NGÀY HIỆU LỰC, không theo cờ duyệt (Sếp chốt: áp đúng kỳ quy định). */
+  const _polState=p=>{
+    const today=new Date().toISOString().slice(0,10);
+    if(p.effectiveFrom && today < p.effectiveFrom) return ['Sắp áp dụng','#8a5a12','#fff7e6'];
+    if(p.effectiveTo && today > p.effectiveTo) return ['Đã hết hiệu lực','#6b7d8a','#f2f5f7'];
+    return ['Đang áp dụng','#1a7f4b','#eafaf0'];
+  };
+  const _n=v=>(+v||0).toLocaleString('vi-VN')+'đ';
+  const _pct=v=>((+v||0)*100).toFixed(1).replace(/\.0$/,'')+'%';
+  /* Diễn giải giá trị: đọc được thay vì in JSON. Không nhận dạng được thì rơi về JSON gốc. */
+  const _polDesc=p=>{
+    const v=p.values||{}, t=p.policyType;
+    try{
+      if(t==='PIT_DEDUCTION') return 'Bản thân <b>'+_n(v.gtgcSelf)+'</b>/tháng · mỗi người phụ thuộc <b>'+_n(v.gtgcDependent)+'</b>/tháng';
+      if(t==='PIT_BRACKET'){ const b=v.brackets; return b?('<b>'+b.length+' bậc</b> — mốc '+b.slice(0,4).map(x=>Math.round(x[0]/1e6)+'tr').join(' · ')+'…'):'Theo biểu bậc thang trong hệ thống'; }
+      if(t==='PIT_NONRESIDENT') return 'Thuế suất phẳng <b>'+_pct(v.rate)+'</b> trên thu nhập phát sinh tại Việt Nam, không giảm trừ gia cảnh';
+      if(t==='PIT_EXEMPT_MEAL') return v.cap==null ? '<b>Không có mức trần</b> — áp theo quy chế công ty' : ('Miễn tối đa <b>'+_n(v.cap)+'</b>/người/tháng');
+      if(t==='DEPENDENT_RULE') return 'Thu nhập bình quân tháng của người phụ thuộc <b>không quá '+_n(v.incomeThreshold)+'</b>';
+      if(t==='SI_RATE_VN'||t==='SI_RATE_FOREIGN'){ const ee=v.ee||{}, er=v.er||{};
+        const sum=o=>Object.keys(o).reduce((s,k)=>s+(+o[k]||0),0);
+        return 'Người lao động đóng <b>'+_pct(sum(ee))+'</b> (hưu trí '+_pct(ee.pension)+' · y tế '+_pct(ee.health)+(+ee.unemp?(' · thất nghiệp '+_pct(ee.unemp)):' · không đóng thất nghiệp')+')'
+          + (sum(er)?(' · doanh nghiệp đóng <b>'+_pct(sum(er))+'</b>'):''); }
+      if(t==='SI_CAP'){ const r=v.capUnempByRegion||{};
+        return 'Hưu trí và y tế: tối đa <b>'+_n(v.capMain)+'</b>'+(r.I?(' · thất nghiệp theo vùng, cao nhất '+_n(r.I)+' (vùng I)'):''); }
+      if(t==='MIN_WAGE_REGION') return ['I','II','III','IV'].filter(k=>v[k]).map(k=>'Vùng '+k+' <b>'+_n(v[k])+'</b>').join(' · ');
+      if(t==='UNION_FEE') return 'Doanh nghiệp đóng <b>'+_pct(v.kpcdEr)+'</b> · đoàn viên đóng <b>'+_pct(v.unionFeeEe)+'</b>'+(v.cap==null?' · chưa đặt mức trần':'');
+    }catch(e){}
+    return '<span style="font-family:monospace;font-size:10.5px;color:#7a8792">'+esc(JSON.stringify(v))+'</span>';
+  };
   const th=cols=>`<thead><tr style="background:var(--rule);text-align:left">${cols.map(c=>`<th style="padding:4px 8px;font-size:11px">${c}</th>`).join('')}</tr></thead>`;
   if(tab==='pol'){
     const rows=PPS.policies().map(p=>`<tr style="border-bottom:1px solid var(--rule)">
-      <td style="padding:4px 8px;font-family:monospace;font-size:11px">${esc(p.policyType)}</td>
-      <td style="padding:4px 8px;font-size:11px;white-space:nowrap">${esc(p.effectiveFrom)} → ${esc(p.effectiveTo||'∞')}</td>
-      <td style="padding:4px 8px;font-size:11px;font-family:monospace;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(JSON.stringify(p.values))}">${esc(JSON.stringify(p.values))}</td>
+      <td style="padding:5px 8px;font-size:12px"><b>${esc(POL_VI[p.policyType]||p.policyType)}</b><div style="font-family:monospace;font-size:10px;color:#93a4b0">${esc(p.policyType)}</div></td>
+      <td style="padding:5px 8px;font-size:12px;white-space:nowrap">${esc(_polRange(p))}</td>
+      <td style="padding:5px 8px;font-size:12px">${_polDesc(p)}</td>
       <td style="padding:4px 8px;font-size:11px;color:var(--muted);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(p.legalBasis||'')}">${esc(p.legalBasis||'')}</td>
-      <td style="padding:4px 8px;font-size:11px;text-align:center">${p.status==='approved'?'✅':(p.pendingKtt?'🟡 chờ KTT':'📝 draft')}</td>
-      <td style="padding:4px 8px;text-align:center">${p.status!=='approved'?`<button class="btn-ghost" style="font-size:10px;padding:2px 8px" onclick="_ppConfirmPol('${p.id}')">Xác nhận</button>`:''}</td></tr>`).join('')||'<tr><td colspan="6" style="padding:12px;text-align:center;color:var(--muted)">Chưa seed — bấm 🌱 Seed Timeline</td></tr>';
-    body=`<table style="width:100%;border-collapse:collapse;border:1px solid var(--rule)">${th(['Loại','Hiệu lực','Giá trị (data — KTT sửa được)','Căn cứ pháp lý','TT',''])}<tbody>${rows}</tbody></table>`;
+      <td style="padding:4px 8px;font-size:11px;text-align:center">${(()=>{const s=_polState(p);return `<span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:10.5px;font-weight:600;color:${s[1]};background:${s[2]}">${s[0]}</span>`;})()}</td>
+      <td style="padding:4px 8px;text-align:center"><button class="btn-ghost" style="font-size:10px;padding:2px 8px" onclick="_ppConfirmPol('${p.id}')" title="Ghi nhận KTT đã đối chiếu căn cứ">Đã đối chiếu</button></td></tr>`).join('')||'<tr><td colspan="6" style="padding:12px;text-align:center;color:var(--muted)">Chưa seed — bấm 🌱 Seed Timeline</td></tr>';
+    body=`<table style="width:100%;border-collapse:collapse;border:1px solid var(--rule)">${th(['Chính sách','Áp dụng','Nội dung','Căn cứ pháp lý','Trạng thái',''])}<tbody>${rows}</tbody></table>`;
   } else if(tab==='set'){
     body=PPS.sets().map(s=>{
       const mem=PPS.REQUIRED_SET_MEMBERS.map(t=>{ const m=s.members[t]; const p=m&&PPS.policies().find(x=>x.id===m.policyId); return `<div style="font-size:11px;padding:2px 0">${p?(p.pendingKtt?'🟡':'✅'):'❌'} <span style="font-family:monospace">${esc(t)}</span> → ${p?esc(p.id):'(thiếu)'}</div>`; }).join('');
@@ -18993,8 +19030,8 @@ function payrollPolicyUI(){
       <table style="width:100%;border-collapse:collapse;border:1px solid var(--rule)"><tbody>${_meCos||'<tr><td style="padding:8px;color:var(--muted)">Chưa có danh sách công ty</td></tr>'}</tbody></table>`;
   }
   const banner=`<div style="font-size:11px;background:#fff8e6;border:1px solid #e8d49a;border-radius:8px;padding:6px 10px;margin-bottom:10px">GĐ1 kiến trúc lõi (v1.3): store + seed + duyệt. <b>CHƯA nối vào tính lương</b> — engine không đổi (xem 🔐 Self-check).</div>`;
-  openModal('⚖️ Chính sách lương — Policy V2', banner+`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">${tabBar}</div>`+body,
-    `<button class="btn-ghost" onclick="payDashboard()">← Dashboard</button>
+  openModal('⚖️ Chính sách lương', banner+`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">${tabBar}</div>`+body,
+    `<button class="btn-ghost" onclick="closeModal()">← Đóng</button>
      <button class="btn-ghost" onclick="_ppSeed()">🌱 Seed Timeline</button>
      <button class="btn-ghost" onclick="_ppGenCal()">📅 Sinh lịch 2026</button>
      <button class="btn-ghost" onclick="_ppSelfCheck()">🔐 Self-check</button>
@@ -19055,7 +19092,7 @@ function payDashboard(){
     <table style="width:100%;border-collapse:collapse;font-size:13px;border:1px solid var(--rule)"><thead><tr style="background:var(--rule);text-align:left">
       <th style="padding:5px 8px">Nhóm</th><th style="padding:5px 8px;text-align:center">NV</th><th style="padding:5px 8px;text-align:right">Quỹ lương</th><th style="padding:5px 8px;text-align:right">TNCN</th><th style="padding:5px 8px;text-align:right">BHXH</th><th style="padding:5px 8px;text-align:right">Thực chi</th>
     </tr></thead><tbody>${profRows}</tbody></table>`;
-  openModal('📊 Payroll Dashboard', body, `<button class="btn-ghost" onclick="openPayrollPeriods()">← Kỳ lương</button>${(isPayrollAdmin()||(typeof canOperatePayroll==='function'&&canOperatePayroll()))?`<button class="btn-ghost" onclick="payrollPolicyUI()">⚖️ Chính sách</button>`:''}`);
+  openModal('📊 Payroll Dashboard', body, `<button class="btn-ghost" onclick="openPayrollPeriods()">← Kỳ lương</button><!-- v3.15.12: nút ⚖️ Chính sách đã chuyển sang Nhân sự (mục chung toàn công ty) -->`);
 }
 /* ═══ v3.14.40 (Sếp duyệt 06/8 — 3 người thiếu T01 không có đường vào kỳ đã tạo): NẠP NV CÒN THIẾU.
    PURE helper chạy lại ĐÚNG bộ lọc 4 cửa của payPeriodCreateCommit (3.13.61 nạp theo engine THẺ,
@@ -19072,12 +19109,8 @@ function _payEmpActiveInPeriod(e, period){
   const d=String(e.resignDate||e.terminationDate||'').slice(0,10);
   return !!d && d>=String(period)+'-01';
 }
-/* ────────────────────────────────────────────────────────────────────────────
-   v3.14.98 (Sếp chốt 10/8): CỬA LỌC TIỀN TỆ khi nạp NV vào kỳ.
-   Tiền tệ của NGƯỜI = data.ccy trên THẺ LƯƠNG hiệu lực tại kỳ (trường đã có sẵn từ 3.13.60).
-   Tiền tệ của KỲ = _payCcy(p) (3.14.97). Chỉ nạp khi KHỚP.
-   TƯƠNG THÍCH NGƯỢC: thẻ chưa khai ccy → coi như VND (đúng mặc định form).
-   Kỳ chưa khai ccy → _payCcy trả về hành vi cũ ⇒ mọi kỳ/thẻ cũ lọc y như trước. */
+/* v3.14.98: cửa lọc tiền tệ khi nạp NV — data.ccy của thẻ phải khớp _payCcy(kỳ).
+   Thẻ/kỳ chưa khai → coi VND, lọc y như trước. */
 function _spCcyMatchPeriod(spV, p){
   const cardCcy=String((spV&&spV.data&&spV.data.ccy)||'VND').toUpperCase();
   return cardCcy===_payCcy(p);
@@ -19330,9 +19363,8 @@ function openPayPeriodDetail(id){
   const total=(p.rows||[]).reduce((s,r)=>s+payRowFinalTakeHome(r),0);
   const coBadge=p.companyId?` <span class="ds-need" title="Pháp nhân trả lương">🏛 ${esc(companyName(p.companyId))}</span>`:(((S.companies||[]).length>1)?' <span class="ds-need" style="color:#9a5b12">🏛 chưa xác định</span>':'');
   // thanh tiến trình
-  /* v3.15.03 (Sếp chốt 10/8): TỶ GIÁ TẠM TÍNH — CHỈ hiện khi kỳ chi bằng NGOẠI TỆ.
-     Quy đổi sang VND để áp biểu lũy tiến (diện cư trú) và ghi sổ.
-     KHÔNG đổi số tiền trả NLĐ (hợp đồng NET, trả nguyên tệ). */
+  /* v3.15.03: tỷ giá tạm tính — CHỈ hiện ở kỳ ngoại tệ. Dùng quy đổi tính thuế/ghi sổ,
+     không đổi tiền trả NLĐ. */
   const fxBadge = (ccy==='VND') ? '' :
     (p.fxTemp ? `<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:#eaf6fb;color:#0f6b8c;cursor:pointer;font-weight:600" title="Tỷ giá tạm tính ${ccy}→VND — dùng tính thuế TNCN" onclick="payPeriodSetFxTemp('${p.id}')">💱 ${(+p.fxTemp).toLocaleString('vi-VN')}</span>`
               : `<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:#fff7e6;color:#9a5b12;cursor:pointer;font-weight:600" title="Chưa có tỷ giá — NV diện cư trú trong kỳ này chưa tính được thuế" onclick="payPeriodSetFxTemp('${p.id}')">💱 chưa có tỷ giá</span>`);
@@ -19453,7 +19485,9 @@ function openPayPeriodDetail(id){
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
       <div><b style="font-size:13px">${esc(p.period)}</b> · ${esc(PAY_PROFILE_LABEL[p.profile])} · ${(p.rows||[]).length} NV ${payStatusChip(st)}</div>
       <div style="display:flex;gap:6px;flex-wrap:wrap">${actions}
-        ${si<payStatusIdx('approved')?`<button class="btn-sec" style="font-size:11px" onclick="payPullAttendance('${id}')" title="Kéo chấm công đã khóa vào kỳ (GĐ1)">📥 Kéo chấm công</button><button class="btn-sec" style="font-size:11px" onclick="payPullSalaryProfiles('${id}')" title="Kéo MỨC lương từ thẻ lương hiệu lực (H1)">🪪 Kéo thẻ lương</button><!-- v3.14.82: GỠ nút 🔄 Nạp NV còn thiếu (nguồn HRM) — danh sách kỳ nay theo BCC, 📥 Kéo chấm công kiêm thêm/loại người --><button class="btn-sec" style="font-size:11px" onclick="phOpen('${id}')" title="🩺 Sức khỏe lương — 14 phép kiểm N1/N2 (Phase 1, warn-only)">🩺 Sức khỏe</button><button class="btn-sec" style="font-size:11px" onclick="payApplyExtras('${id}')" title="Áp khoản thu/chi phát sinh ĐÃ DUYỆT vào kỳ (GĐ2)">🧮 Áp phát sinh</button><button class="btn-sec" style="font-size:11px" onclick="payExtrasOpen('${p.period}')" title="Quản lý khoản phát sinh">➕ Khoản PS</button>${(p.profile==='project'||p.profile==='expat')?`<button class="btn-sec" style="font-size:11px" onclick="omImportOpen()" title="Import lương chuyên gia O&M — Summary/Detail đối chiếu bắt buộc (GĐ4)">📥 O&M</button>`:''}`:''}
+        ${si<payStatusIdx('approved')?`<button class="btn-sec" style="font-size:11px" onclick="payPullAttendance('${id}')" title="Kéo chấm công đã khóa vào kỳ (GĐ1)">📥 Kéo chấm công</button><button class="btn-sec" style="font-size:11px" onclick="payPullSalaryProfiles('${id}')" title="Kéo MỨC lương từ thẻ lương hiệu lực (H1)">🪪 Kéo thẻ lương</button><!-- v3.14.82: GỠ nút 🔄 Nạp NV còn thiếu (nguồn HRM) — danh sách kỳ nay theo BCC, 📥 Kéo chấm công kiêm thêm/loại người --><button class="btn-sec" style="font-size:11px" onclick="phOpen('${id}')" title="🩺 Sức khỏe lương — 14 phép kiểm N1/N2 (Phase 1, warn-only)">🩺 Sức khỏe</button><button class="btn-sec" style="font-size:11px" onclick="payApplyExtras('${id}')" title="Áp khoản thu/chi phát sinh ĐÃ DUYỆT vào kỳ (GĐ2)">🧮 Áp phát sinh</button><button class="btn-sec" style="font-size:11px" onclick="payExtrasOpen('${p.period}')" title="Quản lý khoản phát sinh">➕ Khoản PS</button><!-- v3.15.08 (Sếp 11/8): GỠ nút 📥 O&M khỏi kỳ lương. Chấm công chuyên gia nay import ở
+             tab Chấm công (BCC Chuyên gia O&M — Timesheet BSR PDF) rồi kéo vào kỳ bằng 📥 Kéo chấm công
+             như mọi bộ phận khác; khoản thu-chi hộ nhập ở ➕ Khoản PS. Một luồng, đúng phân quyền. -->`:''}
         <button class="btn-sec" style="font-size:11px" onclick="payPeriodExportExcel('${id}')" title="Xuất Excel">📊 Excel</button>
         <button class="btn-sec" style="font-size:11px" onclick="payShowExceptions('${id}')" title="Báo cáo ngoại lệ — dữ liệu bất thường">🔍 Ngoại lệ</button>
         ${si>=payStatusIdx('approved')?`<button class="btn-sec" style="font-size:11px" onclick="payAdjustLocked('${id}')" title="Kỳ đã duyệt/khóa — điều chỉnh bằng khoản phát sinh ghi vào kỳ sau (không sửa kết quả cũ)">➕ Phiếu điều chỉnh</button><button class="btn-sec" style="font-size:11px" onclick="payBankBatchOpen('${id}')" title="Bảng chuyển lương NH — batch có kiểm soát (GĐ5)">🏦 Bảng NH</button><button class="btn-sec" style="font-size:11px" onclick="payslipBatchAll('${id}')" title="Xuất tất cả phiếu lương (in/PDF hàng loạt)">🧾 Phiếu lương HL</button>`:''}
@@ -20043,9 +20077,11 @@ function _bsrTsParseOne(items){
   return {name,passport,period,J,L,hStd,hOt,nLe,noteLe,checks};
 }
 /* Khớp hồ sơ: ưu tiên hộ chiếu == idNo, fallback tên bỏ dấu */
+/* v3.15.06: một nguồn duy nhất xác định "là chuyên gia" cho mọi bộ lọc import O&M. */
+function _payIsExpertType(t){ const x=String(t||''); return x==='expert'||x==='expert_om'; }
 function _bsrTsMatchEmp(row){
   const norm=t=>String(t||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim().toUpperCase();
-  const emps=HRService.employees().filter(e=>e.status!=='inactive' && e.type==='expert');   /* v3.14.95: chỉ khớp trong nhóm chuyên gia — tránh trúng nhầm NV trùng tên */
+  const emps=HRService.employees().filter(e=>e.status!=='inactive' && _payIsExpertType(e.type));   /* v3.15.06 FIX: HRM có 2 loại chuyên gia (expert + expert_om); v3.14.95 chỉ nhận expert nên nhóm O&M biến mất. · v3.14.95: chỉ khớp trong nhóm chuyên gia — tránh trúng nhầm NV trùng tên */
   if(row.passport){ const hit=emps.find(e=>String(e.idNo||'').trim().toUpperCase()===row.passport.toUpperCase()); if(hit) return hit; }
   if(row.name){ const nn=norm(row.name); const hit=emps.find(e=>norm(e.fullName)===nn); if(hit) return hit; }
   return null;
@@ -20071,7 +20107,7 @@ function bsrTsImportFiles(inputEl){
       }catch(e){ rows.push({file:f.name, err:'Lỗi đọc: '+(e&&e.message||e)}); }
     }
     window._bsrTsPending={rows:rows, per:per, prof:prof};
-    const emps=HRService.employees().filter(e=>e.status!=='inactive' && e.type==='expert');   /* v3.14.95 (Sếp 10/8): CHỈ đề xuất hồ sơ CHUYÊN GIA — không lẫn toàn bộ NV */
+    const emps=HRService.employees().filter(e=>e.status!=='inactive' && _payIsExpertType(e.type));   /* v3.15.06 FIX: HRM có 2 loại chuyên gia (expert + expert_om); v3.14.95 chỉ nhận expert nên nhóm O&M biến mất. · v3.14.95 (Sếp 10/8): CHỈ đề xuất hồ sơ CHUYÊN GIA — không lẫn toàn bộ NV */
     const opts=e0=>'<option value="">— chọn hồ sơ —</option>'+emps.map(e=>'<option value="'+e.id+'"'+(e0===e.id?' selected':'')+'>'+esc(e.smartId||'')+' · '+esc(e.fullName||'')+'</option>').join('');
     const trs=rows.map((r,i)=>{
       if(r.err) return '<tr style="border-bottom:1px solid var(--rule)"><td style="padding:4px 6px;font-size:11px">'+esc(r.file)+'</td><td colspan="5" style="padding:4px 6px;font-size:11px;color:#b3261e">⚠ '+esc(r.err)+'</td></tr>';
@@ -20161,7 +20197,7 @@ function _omAdParse(aoa){
 function _omAdMatchEmp(r){
   const normPaf=v=>String(v==null?'':v).trim().replace(/^0+/,'');
   const normName=t=>String(t||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim().toUpperCase();
-  const emps=HRService.employees().filter(e=>e.status!=='inactive' && e.type==='expert');   /* v3.14.95: chỉ khớp trong nhóm chuyên gia */
+  const emps=HRService.employees().filter(e=>e.status!=='inactive' && _payIsExpertType(e.type));   /* v3.15.06 FIX: HRM có 2 loại chuyên gia (expert + expert_om); v3.14.95 chỉ nhận expert nên nhóm O&M biến mất. · v3.14.95: chỉ khớp trong nhóm chuyên gia */
   if(r.paf){ const p0=normPaf(r.paf); const hit=emps.find(e=>e.pafNo && normPaf(e.pafNo)===p0); if(hit) return hit; }
   const nn=normName(r.name);
   return emps.find(e=>normName(e.fullName)===nn)||null;
@@ -20182,7 +20218,7 @@ function omAdImportExcel(inputEl){
       const gOk=parsed.grandPrinted==null || Math.abs(gSum-parsed.grandPrinted)<=0.02;
       parsed.rows.forEach(r=>{ const emp=_omAdMatchEmp(r); if(emp){ r.empId=emp.id; r.smartId=emp.smartId; } });
       window._omAdPending={rows:parsed.rows, per:per, prof:prof, file:f.name, gSum:gSum, gPrinted:parsed.grandPrinted, gOk:gOk};
-      const emps=HRService.employees().filter(e=>e.status!=='inactive' && e.type==='expert');   /* v3.14.95 (Sếp 10/8): CHỈ đề xuất hồ sơ CHUYÊN GIA — không lẫn toàn bộ NV */
+      const emps=HRService.employees().filter(e=>e.status!=='inactive' && _payIsExpertType(e.type));   /* v3.15.06 FIX: HRM có 2 loại chuyên gia (expert + expert_om); v3.14.95 chỉ nhận expert nên nhóm O&M biến mất. · v3.14.95 (Sếp 10/8): CHỈ đề xuất hồ sơ CHUYÊN GIA — không lẫn toàn bộ NV */
       const opts=e0=>'<option value="">— chọn hồ sơ —</option>'+emps.map(e=>'<option value="'+e.id+'"'+(e0===e.id?' selected':'')+'>'+esc(e.smartId||'')+' · '+esc(e.fullName||'')+'</option>').join('');
       const fm2=v=>(+v||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
       const trs=parsed.rows.map((r,i)=>{
@@ -20606,6 +20642,8 @@ function payExtrasOpen(prefPeriod){
       <button class="btn-sec" style="font-size:11px" onclick="pexImportOpen()" title="File Excel: MSNV | Loại | Số tiền | Kỳ | Chịu thuế | Mô tả | Chứng từ — tạo hàng loạt NHÁP chờ KTT duyệt">📥 Nhập lô Excel</button>
       <button class="btn-sec" style="font-size:11px" onclick="document.getElementById('pex-file').click()">📥 Import Excel</button>
       <input type="file" id="pex-file" accept=".xlsx,.xls" style="display:none" onchange="payExtraImportExcel(this)">
+      <button class="btn-sec" style="font-size:11px" onclick="document.getElementById('pex-ad-file').click()" title="File Allowance/Deduction của chuyên gia O&M — mỗi cột (House/Phone/Car/Advance/Others) thành một khoản CHI">📥 Import A-D chuyên gia</button>
+      <input type="file" id="pex-ad-file" accept=".xlsx,.xls" style="display:none" onchange="pexImportAdExcel(this)">
       <button class="btn-sec" style="font-size:11px" onclick="payExtraRollbackBatch()">↩ Rollback batch</button>
       <button class="btn-sec" style="font-size:11px" onclick="pitSettlementOpen()" title="Quyết toán thuế TNCN năm từ các kỳ đã khóa (H2)">🧾 Quyết toán TNCN</button>
       <button class="btn-sec" style="font-size:11px" onclick="siEventsOpen()" title="BHXH: quét biến động tăng/giảm/điều chỉnh + xuất D02-LT (H3)">🛡 BHXH biến động</button>
@@ -20721,6 +20759,72 @@ function payExtraRollbackBatch(){
   toast('Rollback batch '+b+': xóa '+removed.length+' khoản nháp'+(approvedLeft?(' · '+approvedLeft+' khoản đã duyệt GIỮ (cần đảo tay)'):''),'good');
   payExtrasOpen();
 }
+/* v3.15.11 (Sếp 11/8 — thống nhất luồng, bước 3/3): IMPORT FILE A-D CHUYÊN GIA
+   NGAY TẠI THU/CHI PHÁT SINH. Mỗi cột tiền (House/Phone/Car/Advance/Others/Mob-Demob/Refund)
+   thành MỘT khoản riêng, rồi đi qua đúng luồng preview → duyệt → 🧮 Áp phát sinh tại kỳ
+   như mọi khoản khác. Tái dùng bộ đọc _omAdParse/_omAdMatchEmp đã có. Khoản A-D KHÔNG chịu
+   thuế (Sếp chốt 10/8) nên taxable=false. */
+const PEX_AD_COLS=[
+  ['W','Tiền nhà công ty chi hộ',-1], ['X','Tiền điện thoại công ty chi hộ',-1],
+  ['Y','Tiền xe công ty chi hộ',-1],  ['Z','Tạm ứng đã nhận',-1],
+  ['AA','Khoản chi hộ khác',-1],      ['T','Mob/Demob',1], ['U','Hoàn phí (visa, taxi)',1]
+];
+function pexImportAdExcel(inputEl){
+  const f=inputEl.files&&inputEl.files[0]; if(!f) return; inputEl.value='';
+  const per=prompt('Kỳ áp dụng cho các khoản này (YYYY-MM):', (new Date()).toISOString().slice(0,7));
+  if(per===null) return;
+  if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(per||'').trim())){ toast('Kỳ sai định dạng YYYY-MM','bad'); return; }
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    try{
+      const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});
+      const aoa=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:''});
+      const P=_omAdParse(aoa);
+      if(P.errors&&P.errors.length && !(P.rows||[]).length){ alert('Không đọc được file:\n\n'+P.errors.join('\n')); return; }
+      const batchId='PEXAD'+Date.now().toString(36).toUpperCase();
+      const items=[], errs=(P.errors||[]).slice();
+      (P.rows||[]).forEach(r=>{
+        const emp=_omAdMatchEmp(r);
+        if(!emp){ errs.push('Chưa khớp hồ sơ: '+(r.name||r.paf||'?')); return; }
+        (r.checks||[]).forEach(c=>errs.push((r.name||'')+': '+c));
+        PEX_AD_COLS.forEach(([k,label,sg])=>{
+          const v=Math.abs(+r[k]||0); if(v<0.005) return;
+          items.push({ id:'pex_'+Date.now().toString(36)+k+Math.random().toString(36).slice(2,5), batchId,
+            empId:emp.id, _name:emp.fullName||r.name, period:String(per).trim(), effectivePeriod:String(per).trim(),
+            sign:((+r[k]||0)<0?-1:sg), amount:v, currency:'USD',
+            taxable:false, insuranceApplicable:false, showOnPayslip:true,
+            desc:label, docRef:'A-D '+(r.paf||''), sourceType:'import', sourceId:batchId, reversalOf:'',
+            status:'draft', createdBy:(typeof CURRENT_USER!=='undefined'&&CURRENT_USER&&CURRENT_USER.name)||'',
+            createdAt:new Date().toISOString(), approvedBy:'', approvedAt:'',
+            auditTrail:[{at:new Date().toISOString(), by:(typeof CURRENT_USER!=='undefined'&&CURRENT_USER&&CURRENT_USER.name)||'', act:'import', note:'Import A-D chuyên gia · '+label}] });
+        });
+      });
+      if(!items.length){ alert('Không tạo được khoản nào.\n\n'+errs.join('\n')); return; }
+      const eH=errs.length?`<div style="margin-bottom:8px;max-height:22vh;overflow:auto">${errs.map(e=>`<div style="color:#8a5a12;font-size:11px">⚠ ${esc(e)}</div>`).join('')}</div>`:'';
+      const iH=items.map(it=>`<tr style="border-bottom:1px solid var(--rule)">
+        <td style="padding:3px 6px;font-size:11px">${esc(it._name)}</td>
+        <td style="padding:3px 6px;font-size:11px">${esc(it.desc)}</td>
+        <td style="padding:3px 6px;text-align:right;font-family:monospace;font-size:11px">${it.sign<0?'−':'+'}${it.amount.toLocaleString('en-US',{minimumFractionDigits:2})}</td></tr>`).join('');
+      window._pexAdPending=items;
+      openModal('📥 Import A-D chuyên gia · kỳ '+esc(per)+' · batch '+batchId, `
+        ${eH}
+        <div style="font-size:12px;margin-bottom:6px">${items.length} khoản từ ${(P.rows||[]).length} chuyên gia · <b>không chịu thuế</b>, không tính BHXH</div>
+        <div style="max-height:46vh;overflow:auto"><table style="width:100%;border-collapse:collapse">${iH}</table></div>`,
+        `<button class="btn-sec" onclick="closeModal()">Hủy</button>
+         <button class="btn-primary" onclick="pexImportAdConfirm()">Tạo ${items.length} khoản</button>`);
+    }catch(e){ toast('Lỗi đọc file: '+(e&&e.message||e),'bad'); }
+  };
+  reader.readAsArrayBuffer(f);
+}
+function pexImportAdConfirm(){
+  const items=window._pexAdPending||[]; if(!items.length) return;
+  if(!Array.isArray(S.payExtras)) S.payExtras=[];   /* v3.15.11 FIX: kho thật là payExtras */
+  items.forEach(it=>{ S.payExtras.push(it); try{ touchRecord(it); }catch(e){} });
+  window._pexAdPending=null;
+  saveState(); closeModal();
+  toast('Đã tạo '+items.length+' khoản — cần DUYỆT trước khi áp vào kỳ','good');
+  try{ payExtrasOpen(); }catch(e){}
+}
 function payExtraImportExcel(inputEl){
   const f=inputEl.files&&inputEl.files[0]; if(!f) return; inputEl.value='';
   const reader=new FileReader();
@@ -20826,7 +20930,11 @@ const PAY_ATT_MAP={
   /* v3.13.32 chuyên gia/OM: BCC_CHUYENGIA cột GIỜ → chữ engine payComputeExpert.
      _ignore = cột THÔNG SỐ TIỀN trong file (đơn giá lấy từ THẺ LƯƠNG — nguồn sự thật) — bỏ qua không cảnh báo. */
   expert_om:{ J:['NORMAL'], K:['OT12'], L:['OT15'], Q:['ALLOW_DAYS'],
-    _ignore:['BASIC_DAY','BASIC_HR','NET_USD','ALLOW_RATE'] }
+    _ignore:['BASIC_DAY','BASIC_HR','NET_USD','ALLOW_RATE'] },
+  /* v3.15.09 (Sếp 11/8): KỲ nhóm Chuyên gia/Dự án mang profile 'project' — nay kéo được từ BCC
+     (nguồn PDF Timesheet BSR hoặc Excel lương). Mức tiền vẫn lấy từ THẺ LƯƠNG, BCC chỉ đổ GIỜ/NGÀY. */
+  project:{ J:['NORMAL'], K:['OT12'], L:['OT15'], Q:['ALLOW_DAYS'],
+    _ignore:['BASIC_DAY','BASIC_HR','NET_USD','ALLOW_RATE','DAYS','LEAVE'] }
 };
 /* PURE — dựng bảng chênh lệch, test được bằng VM. Trả {items:[{empId,name,status,changes:{F:{from,to,manual}}}], extraAtt:[...]} */
 function _payAttBuildDiff(p, att, map){
@@ -20894,7 +21002,12 @@ function payPullAttendance(periodId){
   if(payStatusIdx(p.status)>=payStatusIdx('approved')){ toast('Kỳ đã duyệt/khóa — không kéo chấm công. Cần điều chỉnh: dùng phiếu điều chỉnh.','warn'); return; }
   const map=PAY_ATT_MAP[p.profile];
   if(!map){ toast('Kỳ '+(PAY_PROFILE_LABEL[p.profile]||p.profile)+' không kéo từ bảng chấm công (nguồn là import chuyên gia/O&M)','warn'); return; }
-  const wantP = (p.profile==='crew'||p.profile==='crew_khoan') ? ['BCC_DOITAU'] : ['BCC_VP','BCC_VP_BP'];
+  /* v3.15.09: chọn đúng họ BCC theo nhóm kỳ — chuyên gia lấy từ BCC O&M (PDF hoặc Excel). */
+  const wantP = (p.profile==='crew'||p.profile==='crew_khoan') ? ['BCC_DOITAU']
+    : (p.profile==='project') ? ['BCC_CG_PDF','BCC_CHUYENGIA']
+    : (p.profile==='expat') ? ['BCC_EXPAT']
+    : (p.profile==='tech') ? ['BCC_KYTHUAT']
+    : ['BCC_VP','BCC_VP_BP'];
   const cands=(S.hrAttendance||[]).filter(a=>wantP.indexOf(a.profile)>=0);
   if(!cands.length){ toast('Chưa có kỳ chấm công loại phù hợp trong HRM','warn'); return; }
   const opts=cands.map(a=>{
@@ -23974,12 +24087,9 @@ function pitSettleToExtras(Y){
 
 /* Đánh giá tư cách GTGC + cư trú CẢ NĂM cho quyết toán. Trả:
    {status:'FULL_YEAR_RESIDENT'|'NON_RESIDENT'|'PENDING_REVIEW'|'DATA_INCOMPLETE', gtgcSelfMonths:12|0, reason} */
-/* ────────────────────────────────────────────────────────────────────────────
-   v3.15.01 (Sếp chốt 10/8): DỰ KIẾN DIỆN CƯ TRÚ tự đếm ngày công cả năm.
-   CHỈ GỢI Ý — KTT vẫn là người tích chọn cư trú/không cư trú tại sổ hrTaxAttrs.
-   App KHÔNG tự quyết, KHÔNG ghi vào hồ sơ, KHÔNG đổi bất kỳ số tiền nào.
-   Nguồn: ô ngày công đã nhập trong các kỳ lương của năm (không thêm trường mới).
-   Chuyên gia (project/expert_om) tính theo GIỜ → quy ra ngày = giờ ÷ hoursPerDay. */
+/* v3.15.01: dự kiến diện cư trú — tự cộng ngày công cả năm từ các kỳ lương.
+   CHỈ GỢI Ý: KTT vẫn tích chọn, app không tự quyết/không ghi hồ sơ/không đổi số.
+   Chuyên gia tính theo giờ → ngày = giờ ÷ 8. */
 const TAX_DAY_FIELDS={
   office:      ['M','N','O','P','Q','R','S','T','U','WN'],
   office_gross:['G'],
@@ -24762,8 +24872,11 @@ function payPullSalaryProfiles(periodId){
   if(payStatusIdx(p.status)>=payStatusIdx('approved')){ toast('Kỳ đã duyệt/khóa','warn'); return; }
   /* v3.12.94 GĐ3: MỞ cho 'tech' — thẻ lương nay có techSeaRate/techOfficeRate/techDockRate
      qua Salary Grade, nên kéo được như office/crew. Chuyên gia vẫn dùng import O&M. */
-  if(['office','crew','tech','crew_khoan','office_gross'].indexOf(p.profile)<0){   /* v3.14.54: +office_gross — thẻ GROSS (STER) nay là nguồn thật */
-    toast('Kỳ chuyên gia: mức từ import O&M, không dùng thẻ','warn'); return;
+  /* v3.15.09 (Sếp 11/8): MỞ cho 'project'. Trước đây mức chuyên gia đến từ modal Import O&M;
+     modal đã gỡ nên thẻ lương là nguồn duy nhất (expert_usdPerDay / expert_allowDays /
+     expert_livingAllowance). Không mở thì kỳ chuyên gia không có mức tiền để tính. */
+  if(['office','crew','tech','crew_khoan','office_gross','project'].indexOf(p.profile)<0){
+    toast('Nhóm kỳ này chưa hỗ trợ kéo thẻ lương','warn'); return;
   }
   const items=_paySpBuildDiff(p);
   window._pspCache={periodId, items};
@@ -24994,11 +25107,8 @@ function payPeriodUnlock(id){
 
 /* v3.07.75: XUẤT BẢNG LƯƠNG (Excel) + PHIẾU LƯƠNG (payslip). project+expat → tiếng Anh, USD. */
 function _payIsUsd(profile){ return profile==='project'||profile==='expat'; }
-/* ────────────────────────────────────────────────────────────────────────────
-   v3.14.97 (Sếp chốt 10/8 — lương ngoại tệ RUB/USD): TIỀN TỆ CỦA KỲ.
-   NGUỒN DUY NHẤT: p.ccy nếu kỳ có khai; nếu KHÔNG → giữ NGUYÊN hành vi cũ
-   (project/expat = USD, còn lại = VND) ⇒ mọi kỳ đã tạo trước bản này không đổi 1 đồng.
-   Nhận cả object kỳ lẫn chuỗi profile để thay _payIsUsd tại chỗ. */
+/* v3.14.97: tiền tệ của KỲ. p.ccy nếu có; không có → hành vi cũ (project/expat=USD, còn lại VND)
+   nên kỳ cũ không đổi. Nhận object kỳ hoặc chuỗi profile. */
 const PAY_CCY_LIST=['VND','USD','RUB','EUR','SGD','JPY','KRW','CNY','GBP','AUD','THB','MYR','NOK'];
 function _payCcy(p){
   if(p && typeof p==='object'){
@@ -25220,11 +25330,8 @@ function _payCoName(p){
 }
 /* ═══ v3.14.66 (Sếp 08/8) — PHIẾU LƯƠNG CHI TIẾT: chấm công tháng + từng cấu phần tiền
    (ngày/giờ × đơn giá × hệ số, mức từ THẺ LƯƠNG), khớp tổng máy tuyệt đối (chênh → 'Cấu phần khác'). ═══ */
-/* ────────────────────────────────────────────────────────────────────────────
-   v3.15.04 (Sếp chốt 10/8): MỤC A — MỨC LƯƠNG ÁP DỤNG (diễn giải ghi THEO HĐLĐ).
-   Mục đích: NV tự kiểm tra đơn giá và các mức DẪN XUẤT (dock/nằm bờ/ngoài giờ…),
-   vì các mức này suy ra từ mức gốc chứ không nhập tay.
-   PURE — chỉ đọc thẻ lương + inputs, không tính lại lương, không đổi số. */
+/* v3.15.04: mục A — mức lương áp dụng, diễn giải theo HĐLĐ. In cả mức DẪN XUẤT kèm công thức
+   để NV tự kiểm. PURE: chỉ đọc, không tính lại lương. */
 function _payslipRates(p, row){
   const n=v=>+v||0, inp=row.inputs||{};
   const prof=(typeof PayrollService!=='undefined'&&PayrollService.profileByKey(p.profile))||((typeof defaultPayProfiles==='function')&&defaultPayProfiles()[p.profile])||{};
@@ -25337,7 +25444,11 @@ function _payslipDetail(p, row){
     }
   }
   const sum=earn.reduce((t,x)=>t+x[2],0);
-  if(target && Math.abs(sum-target)>=1) earn.push(['Cấu phần khác','', Math.round(target-sum)]);
+  /* v3.15.07 (Sếp 11/8): chênh NHỎ chỉ là dư làm tròn đơn giá → cộng vào dòng cuối,
+     không in 'Cấu phần khác: 2' gây khó hiểu cho NV. Chênh lớn vẫn hiện riêng để KT soi. */
+  if(target){ const d=Math.round(target-sum);
+    if(Math.abs(d)>=1000) earn.push(['Cấu phần khác','', d]);
+    else if(d!==0 && earn.length) earn[earn.length-1][2]+=d; }
   return {att, earn, total: target||sum};
 }
 function _payslipHtml(p, row, opts){
@@ -25369,11 +25480,8 @@ function _payslipHtml(p, row, opts){
       : (_psBase.map(l=>`<tr><td style="padding:4px 0;color:#333">${l[0]}</td><td style="text-align:right;font-family:monospace">${fm(l[1])}</td></tr>`).join('')
         + (adLines2.length ? ('<tr><td colspan="2" style="padding:7px 0 2px;font-weight:600;color:#1c3a5c;border-top:1px dashed #bbb">Other allowance &amp; deduction / Thu-chi hộ khác</td></tr>'
           + adLines2.map(l=>`<tr><td style="padding:4px 0 4px 10px;color:#333">${esc(l[0])}</td><td style="text-align:right;font-family:monospace;color:${l[1]<0?'#c0392b':'#111'}">${fm(l[1])}</td></tr>`).join('')) : ''));
-    /* ──────────────────────────────────────────────────────────────────────
-       v3.15.04 (Sếp chốt 10/8): MỤC D — CÔNG TY NỘP THAY, song ngữ.
-       Hợp đồng lương NET ⇒ khối này KHÔNG trừ vào NET PAY, chỉ cho biết công ty
-       gánh bao nhiêu. Chỉ hiện khi engine đã tính được thuế; thiếu khai cư trú
-       hoặc thiếu tỷ giá thì hiện dòng nhắc, KHÔNG in số bừa. */
+    /* v3.15.04: mục D — công ty nộp thay, song ngữ. Hợp đồng NET nên KHÔNG trừ vào NET PAY.
+       Thiếu căn cứ → hiện dòng nhắc, không in số bừa. */
     const _psTaxBlock = (r.taxPending)
       ? `<div style="margin-top:14px;padding:8px 10px;border-left:3px solid #b8860b;background:#fffbf0;font-size:11.5px;color:#5c4318">
            ⚠ ${esc(r.taxReason||'Chưa đủ căn cứ tính thuế')} — mục thuế chưa hiển thị.
@@ -25428,6 +25536,7 @@ function _payslipHtml(p, row, opts){
     const take=(+(r.takeHome!=null?r.takeHome:0)||0)+adj;
     const grossUp=Math.max(0, GRv-NETv);
     /* v3.14.66: chi tiết cấu phần + chấm công + Bộ phận/Chức danh (crew: Tàu/Chức danh) */
+    const full=opts.full===true;   /* v3.15.07: 2 chế độ — rút gọn (gửi NV) / đầy đủ (lưu HR·KT) */
     const det=_payslipDetail(p, row);
     const AM=+((row.inputs||{}).AM)||0;
     const isGross=(p.profile==='office_gross');
@@ -25472,6 +25581,13 @@ function _payslipHtml(p, row, opts){
           <tr><td style="padding:3px 0;color:#333">BHXH/BHYT/BHTN phần doanh nghiệp</td><td style="text-align:right;font-family:monospace">${fm(INSc)}</td></tr>
           <tr style="border-top:1px solid #ddd"><td style="padding:3px 0;color:#333;font-weight:600">Tổng BH hai bên (NV + DN · ${insPct}% nền BH)</td><td style="text-align:right;font-family:monospace;font-weight:600">${fm(INSe+INSc)}</td></tr>
         </table>`
+      : (!full ? `<div style="font-size:11px;font-weight:700;color:#1e7d44;margin:10px 0 4px">CÔNG TY NỘP THAY <span style="font-weight:400;color:#888">/ Paid by the company</span></div>
+        <table style="width:100%;font-size:12px;border-collapse:collapse">
+          <tr><td style="padding:3px 0;color:#333">Thuế thu nhập cá nhân <span style="color:#999">/ Personal income tax</span></td><td style="text-align:right;font-family:monospace">${fm(PITv)}</td></tr>
+          <tr><td style="padding:3px 0;color:#333">Bảo hiểm bắt buộc (${insPct}%) <span style="color:#999">/ Statutory insurance</span></td><td style="text-align:right;font-family:monospace">${fm(INSe+INSc)}</td></tr>
+          <tr style="border-top:1px solid #ddd"><td style="padding:3px 0;font-weight:600">Tổng công ty nộp thay <span style="font-weight:400;color:#999">/ Total</span></td><td style="text-align:right;font-family:monospace;font-weight:700">${fm(PITv+INSe+INSc)}</td></tr>
+        </table>
+        <div style="font-size:10px;color:#666;margin-top:4px;line-height:1.35">Lương của bạn là lương NET — thuế và bảo hiểm do công ty nộp thay, không trừ vào thực lĩnh.<br><span style="color:#999">Your salary is a net figure; tax and insurance are borne by the company.</span></div>`
       : `<div style="font-size:11px;font-weight:700;color:#1e7d44;margin:10px 0 4px">PHẦN CÔNG TY NỘP THAY — KHÔNG trừ vào lương của bạn</div>
         <table style="width:100%;font-size:12px;border-collapse:collapse">
           <tr><td style="padding:3px 0;color:#333">Thuế TNCN (công ty nộp thay)</td><td style="text-align:right;font-family:monospace">${fm(PITv)}</td></tr>
@@ -25480,19 +25596,20 @@ function _payslipHtml(p, row, opts){
           <tr style="border-top:1px solid #ddd"><td style="padding:3px 0;color:#333;font-weight:600">Tổng BH hai bên (NV + DN · ${insPct}% nền BH)</td><td style="text-align:right;font-family:monospace;font-weight:600">${fm(INSe+INSc)}</td></tr>
           ${AM?`<tr><td style="padding:3px 0;color:#333">Khấu trừ khác</td><td style="text-align:right;font-family:monospace;color:#c0392b">−${fm(AM)}</td></tr>`:''}
           <tr><td style="padding:3px 0;color:#888;font-size:10px" colspan="2">Tham khảo quy đổi gross-up: ${fm(grossUp)} (gross ${fm(GRv)})</td></tr>
-        </table>`;
+        </table>`);
     return `<div ${wrapId}style="position:relative;font-family:Arial,sans-serif;color:#111;max-width:560px;margin:0 auto;padding:24px;border:1px solid #ccc;page-break-after:always">${_draftWm}
       <div style="text-align:center;border-bottom:2px solid #1c3a5c;padding-bottom:10px;margin-bottom:14px">
         <div style="font-weight:700;font-size:16px">${esc(co)}</div>
         <div style="font-size:20px;font-weight:700;margin-top:6px;letter-spacing:1px">PHIẾU LƯƠNG</div>
         <div style="font-size:13px;color:#555">Kỳ lương: tháng ${esc(p.period)}</div>
+        <div style="font-size:10px;color:#888;margin-top:2px">${full?'BẢN LƯU NỘI BỘ / Internal copy':'BẢN GỬI NHÂN VIÊN / Employee copy'}</div>
       </div>
       <table style="width:100%;font-size:13px;margin-bottom:12px"><tbody>
         <tr><td style="color:#666;padding:2px 0">Nhân viên:</td><td style="text-align:right;font-weight:600">${esc(row.name||'')}</td></tr>
         <tr><td style="color:#666;padding:2px 0">MSNV:</td><td style="text-align:right">${esc(row.smartId||'')}</td></tr>
         ${who?`<tr><td style="color:#666;padding:2px 0">${(p.profile==='crew'||p.profile==='crew_khoan')?'Tàu — Chức danh:':'Bộ phận — Chức danh:'}</td><td style="text-align:right">${esc(who)}</td></tr>`:''}
       </tbody></table>
-      ${ratesHtml}${attHtml}
+      ${ratesHtml}${full?attHtml:''}
       <table style="width:100%;font-size:13px;border-collapse:collapse">
         <thead><tr style="border-bottom:1px solid #ccc"><th style="text-align:left;padding:5px 0">Khoản mục</th><th style="text-align:right">Số tiền (VND)</th></tr></thead>
         <tbody>
@@ -25540,7 +25657,10 @@ function payslipShow(periodId, empId){
   const _sendBtn = _empEmail
     ? `<button class="btn-sec" onclick="payslipSendEmail('${periodId}','${empId}')" title="Gửi phiếu lương này qua email cho NV — sẽ mở cửa sổ soạn để bạn kiểm tra trước khi gửi">📧 Gửi email</button>`
     : `<button class="btn-sec" disabled title="NV chưa có email — sửa hồ sơ NV để thêm" style="opacity:.5;cursor:not-allowed">📧 Gửi email</button>`;
-  openModal(usd?'🧾 Payslip':'🧾 Phiếu lương', _payslipHtml(p,row), `<button class="btn-ghost" onclick="openPayPeriodDetail('${periodId}')">← Quay lại</button>${_sendBtn}<button class="btn-primary" onclick="payslipPrint()">🖨 In / PDF</button>`);
+  /* v3.15.07: 2 chế độ — mặc định RÚT GỌN (gửi NV); KT/HR bật ĐẦY ĐỦ để lưu hồ sơ. */
+  const _full=!!payslipShow._full;
+  const _tgl=`<button class="btn-sec" onclick="payslipShow._full=${_full?'false':'true'};payslipShow('${periodId}','${empId}')">${_full?'📄 Bản gửi NV':'📋 Bản đầy đủ'}</button>`;
+  openModal(usd?'🧾 Payslip':'🧾 Phiếu lương', _payslipHtml(p,row,{full:_full}), `<button class="btn-ghost" onclick="openPayPeriodDetail('${periodId}')">← Quay lại</button>${_tgl}${_sendBtn}<button class="btn-primary" onclick="payslipPrint()">🖨 In / PDF</button>`);
 }
 /* HOTFIX (chính sách email): GỬI PHIẾU LƯƠNG qua email — nút NGAY TẠI payslip.
    Mở composer mode preview: NV KIỂM TRA nội dung/người nhận TRƯỚC KHI bấm Gửi. KHÔNG tự gửi. */
@@ -81669,6 +81789,13 @@ const HRM_BCC_PROFILES={
     isExpert:true,  // nhóm chuyên gia: đơn vị GIỜ + USD, định danh theo TÊN (không MSNV)
     skipNames:['TỔNG','TONG','TOTAL','EMPLOYEE NAME','BẢNG TÍNH']
   },
+  /* v3.15.08 (Sếp 11/8): BCC Chuyên gia O&M nguồn PDF — cùng kho hrAttendance như mọi BCC khác,
+     nên dùng chung xem/khóa/ghi đè/xuất Excel. Nguồn: Timesheet BSR, mỗi file 1 chuyên gia. */
+  BCC_CG_PDF:{
+    label:'BCC Chuyên gia O&M — Timesheet BSR (PDF)',
+    source:'pdf',
+    workCols:[ ['NORMAL',0,'Giờ thường'],['OT15',1,'OT×1.5 (lễ)'],['DAYS',2,'Ngày công'],['LEAVE',3,'Ngày nghỉ'] ]
+  },
   BCC_EXPAT:{
     label:'BCC Chuyên gia VP / Expat (Excel lương)',
     headerRow:6, dataStart:7,
@@ -81706,18 +81833,51 @@ const HRM_BCC_PROFILES={
   }
 };
 
+/* v3.15.08 (Sếp 11/8): IMPORT TIMESHEET BSR (PDF) NGAY TẠI CHẤM CÔNG.
+   Nhiều file PDF (mỗi chuyên gia 1 file) → gộp thành MỘT bảng BCC của cả nhóm,
+   lưu vào kho hrAttendance như mọi BCC khác ⇒ dùng chung xem/khóa/ghi đè/xuất Excel,
+   và kỳ lương kéo BCC theo đúng đường của các bộ phận khác.
+   Tái dùng bộ đọc PDF đã có (_bsrToU8/_bsrTsExtract/_bsrTsParseOne), không viết mới. */
+async function hrmAttImportBsrPdf(inputEl){
+  const files=Array.from((inputEl&&inputEl.files)||[]);
+  try{ inputEl.value=''; }catch(e){}
+  if(!files.length) return;
+  const per=(document.getElementById('hrm-att-period')||{}).value||'';
+  if(!per){ toast('Chọn kỳ trước khi import','bad'); return; }
+  const st=document.getElementById('hrm-att-status');
+  const setSt=t=>{ if(st) st.textContent=t; };
+  setSt('Đang đọc '+files.length+' file PDF…');
+  const rows=[], warns=[];
+  for(let i=0;i<files.length;i++){
+    const f=files[i];
+    setSt('Đọc ('+(i+1)+'/'+files.length+'): '+f.name);
+    try{
+      const u8=await _bsrToU8(f);
+      const txt=await _bsrTsExtract(u8);
+      const d=_bsrTsParseOne(txt);
+      if(!d || !d.name){ warns.push(f.name+': không đọc được tên chuyên gia'); continue; }
+      if(d.period && d.period!==per) warns.push(f.name+': kỳ trong file là '+d.period+' ≠ kỳ đang chọn '+per);
+      (d.checks||[]).forEach(c=>warns.push(f.name+': '+c));
+      const emp=_bsrTsMatchEmp(d);
+      if(!emp) warns.push(f.name+': chưa khớp hồ sơ HRM cho "'+d.name+'" — chọn tay ở bảng dưới');
+      rows.push({ msnv:(emp&&emp.smartId)||'', name:d.name, title:(emp&&(emp.title||emp.position))||'',
+        unit:d.passport||'', total:(+d.J||0)+(+d.L||0),
+        cols:{ NORMAL:+d.J||0, OT15:+d.L||0, DAYS:(+d.hStd||0)/8, LEAVE:+d.nLe||0 },
+        _matched:!!emp, empId:(emp&&emp.id)||'', _file:f.name, _passport:d.passport||'' });
+    }catch(e){ warns.push(f.name+': lỗi đọc — '+(e&&e.message||e)); }
+  }
+  setSt('');
+  if(!rows.length){ toast('Không đọc được chuyên gia nào từ '+files.length+' file','bad');
+    if(warns.length) alert('Chi tiết:\n\n'+warns.join('\n')); return; }
+  _hrmAttPending={ period:per, profile:'BCC_CG_PDF', sheetName:'Timesheet BSR',
+    fileName:files.length===1?files[0].name:(files.length+' file PDF'), rows:rows, warnings:warns };
+  hrmAttRenderPreview();
+}
 function hrmAttPickFile(){
   const per=(document.getElementById('hrm-att-period')||{}).value||'';
   if(!per){ toast('Chọn kỳ (tháng/năm) trước khi import','bad'); return; }
   const profSel=(document.getElementById('hrm-att-profile')||{}).value||'';
-  if(profSel==='BCC_CG_PDF'){
-    /* v3.14.94: lối tắt màn Chấm công → luồng import O&M kỳ lương (timesheet BSR PDF).
-       Quyền do omImportOpen tự kiểm (admin/KT). Gọi đồng bộ trong gesture để click() file input hợp lệ. */
-    omImportOpen();
-    const pe=document.getElementById('om-per'); if(pe) pe.value=per;
-    const fi=document.getElementById('bsr-ts-files'); if(fi) fi.click();
-    return;
-  }
+  if(profSel==='BCC_CG_PDF'){ toast('Loại bảng này nhận file PDF — bấm nút “Import Timesheet BSR (PDF)”','warn'); return; }
   const f=document.getElementById('hrm-att-file'); if(f) f.click();
 }
 
