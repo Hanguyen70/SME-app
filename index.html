@@ -3778,7 +3778,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.15.34';
+const APP_VERSION='3.15.35';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -19276,9 +19276,9 @@ function payYearCostReport(){
 const FLAG_PAY_VERIFY=true;   /* admin/KT/HR-có-quyền-lương thấy nút (Release Sync V2: gate trình ký để GĐ-V3) */
 const PAY_VERIFY_TOL=1;       /* ±1đ mỗi ô */
 const PAY_VERIFY_FIELDS=[     /* key=field chuẩn hóa app · required=cột lõi · kw=từ khóa auto-map tiêu đề (đã bỏ dấu) */
-  {key:'workDays',  label:'Ngày công',  required:true,  kw:['ngay cong','so cong','tong cong','cong lam viec','work day','days']},
+  {key:'workDays',  label:'Ngày công',  required:true,  multi:true, kw:['ngay cong','so cong','tong cong','cong lam viec','cong di bien','cong giam sat','cong gs','cong lap dat','work day','days']},   /* v3.15.35: multi=nhiều cột Excel cộng dồn về 1 chỉ tiêu (file HR tách công thường/đi biển/GS) */
   {key:'grossTotal',label:'GROSS',      required:true,  kw:['gross','tong thu nhap','tong luong','thu nhap chiu thue truoc','tong cong luong']},
-  {key:'insEmp',    label:'BHXH NV',    required:true,  kw:['bhxh nv','bh nv','bao hiem nv','trich bh nv','10,5','10.5','bhxh nguoi lao dong','trich theo luong nv']},
+  {key:'insEmp',    label:'BHXH NV',    required:true,  kw:['bhxh nv','bh nv','bao hiem nv','trich bh nv','10,5','10.5','bhxh nguoi lao dong','trich theo luong nv','thu bhxh']},   /* v3.15.35: file HR ghi 'Thu BHXH, BHYT, BHTN' */
   {key:'pit',       label:'Thuế TNCN',  required:true,  kw:['tncn','thue thu nhap','thue tn']},
   {key:'takeHome',  label:'Thực lãnh',  required:true,  kw:['thuc lanh','thuc linh','thuc nhan','con lai','net nhan','luong net','tien nhan']},
   {key:'insCompany',label:'BHXH Cty',   required:false, kw:['bhxh cty','bh cong ty','21,5','21.5','bhxh nguoi su dung']},
@@ -19311,7 +19311,7 @@ function _pvAppVal(p, r, key){
 /* PARSER — PURE: wb (SheetJS) → {header, cols:[{c,title}], rows:[{msnv,name,vals:{c:num|null,raw}}], sheet} */
 function payVerifyParseSheet(ws){
   const A=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:''});
-  let hi=-1, msnvC=-1, nameC=-1;
+  let hi=-1, msnvC=-1, nameC=-1, byName=false;
   for(let i=0;i<Math.min(A.length,15);i++){
     const row=A[i]||[];
     for(let c=0;c<row.length;c++){
@@ -19320,23 +19320,36 @@ function payVerifyParseSheet(ws){
     }
     if(hi>=0) break;
   }
-  if(hi<0) return {err:'Không tìm thấy cột MSNV trong 15 dòng đầu — file phải có cột mã nhân viên'};
+  /* v3.15.35 (Sếp 11/8 — bảng lương HR T1–T6 CHƯA có mã NV): không thấy MSNV → dò cột HỌ TÊN làm khóa.
+     Khớp tên theo luật CHẶT ở bước reconcile (chuẩn hóa bỏ dấu; trùng tên/không thấy = treo chọn tay). */
+  if(hi<0){
+    for(let i=0;i<Math.min(A.length,15) && hi<0;i++){
+      const row=A[i]||[];
+      for(let c=0;c<row.length;c++){
+        if(/^(ho ten|ho va ten|ten nhan vien|full name)$/.test(_pvNorm(row[c]))){ hi=i; nameC=c; byName=true; break; }
+      }
+    }
+  }
+  if(hi<0) return {err:'Không tìm thấy cột MSNV hay Họ tên trong 15 dòng đầu — file phải có một trong hai cột này'};
   const hrow=A[hi]||[];
   const cols=[];
   for(let c=0;c<hrow.length;c++){
-    const t=String(hrow[c]||'').trim(); if(!t||c===msnvC) continue;
-    if(nameC<0 && /ho ten|ho va ten|ten nhan vien|full name/.test(_pvNorm(t))){ nameC=c; continue; }
+    const t=String(hrow[c]||'').trim(); if(!t||c===msnvC||c===nameC) continue;
+    if(!byName && nameC<0 && /ho ten|ho va ten|ten nhan vien|full name/.test(_pvNorm(t))){ nameC=c; continue; }
+    if(/^(stt|so tt)$/.test(_pvNorm(t))) continue;
     cols.push({c, title:t});
   }
   const rows=[];
   for(let i=hi+1;i<A.length;i++){
-    const row=A[i]||[]; const ms=String(row[msnvC]||'').trim();
-    if(!ms) continue;
-    if(_pvNorm(ms).indexOf('tong')===0||_pvNorm(ms).indexOf('cong')===0) continue;   /* dòng tổng cộng */
+    const row=A[i]||[];
+    const key=String((byName?row[nameC]:row[msnvC])||'').trim();
+    if(!key) continue;
+    if(/#ref/i.test(key)) continue;                                          /* v3.15.35: dòng lỗi #REF! trong file HR */
+    if(_pvNorm(key).indexOf('tong')===0||_pvNorm(key).indexOf('cong ty')===0) continue;   /* dòng tổng cộng */
     const vals={}; cols.forEach(cl=>{ vals[cl.c]=_pvNum(row[cl.c]); });
-    rows.push({msnv:ms, name:String(nameC>=0?(row[nameC]||''):'').trim(), vals});
+    rows.push({msnv:byName?'':key, name:byName?key:String(nameC>=0?(row[nameC]||''):'').trim(), vals});
   }
-  return {headerRow:hi, msnvC, nameC, cols, rows};
+  return {headerRow:hi, msnvC, nameC, byName, cols, rows};
 }
 /* AUTO-MAP tiêu đề cột → field. Trùng khớp NHIỀU field hoặc không khớp → '' (UNMAPPED, chọn tay). */
 function payVerifyAutoMap(cols){
@@ -19351,25 +19364,40 @@ function payVerifyAutoMap(cols){
 /* RECONCILE — PURE: đối chiếu từng NV × từng cột đã map. Trả verdict + chi tiết từng ô.
    PASS ⇔ đủ cột lõi map + mọi MSNV Excel khớp NV app + không NV app nào (có số) vắng mặt + 0 ô lệch >TOL. */
 function payVerifyReconcile(p, parsed, mapping){
-  const emps={}; HRService.employees().forEach(e=>{ if(e&&e.smartId) emps[_pvNorm(e.smartId)]=e; });
+  const emps={}; const empById={};
+  HRService.employees().forEach(e=>{ if(!e) return; empById[e.id]=e; if(e.smartId) emps[_pvNorm(e.smartId)]=e; });
+  /* v3.15.35: danh bạ HỌ TÊN chuẩn hóa — TRÙNG TÊN thì đánh dấu, không bao giờ tự khớp */
+  const empByName={}, dupNames={};
+  HRService.employees().forEach(e=>{ if(!e) return; const k=_pvNorm(e.fullName||e.name||''); if(!k) return;
+    if(empByName[k]){ dupNames[k]=1; } else empByName[k]=e; });
+  const aliases=((S.payrollConfig||{}).pvNameAlias)||{};   /* khớp tay đã lưu: normName → empId */
   const appRows={}; (p.rows||[]).forEach(r=>{ if(r&&r.empId) appRows[r.empId]=r; });
   const mappedCols=Object.keys(mapping).filter(c=>mapping[c]);
   const fieldsUsed=[...new Set(mappedCols.map(c=>mapping[c]))];
+  const fieldCols={}; mappedCols.forEach(c=>{ (fieldCols[mapping[c]]=fieldCols[mapping[c]]||[]).push(c); });   /* v3.15.35: nhiều cột → 1 chỉ tiêu (cộng dồn) */
   const missCore=PAY_VERIFY_FIELDS.filter(f=>f.required&&fieldsUsed.indexOf(f.key)<0).map(f=>f.label);
-  const out={cells:[], unmatchedXls:[], missingXls:[], diffs:0, okCells:0, missCore, nRows:0};
+  const out={cells:[], unmatchedXls:[], missingXls:[], diffs:0, okCells:0, missCore, nRows:0, byName:!!parsed.byName};
   const seenEmp={};
   parsed.rows.forEach(xr=>{
-    const e=emps[_pvNorm(xr.msnv)];
-    if(!e){ out.unmatchedXls.push(xr.msnv+(xr.name?' — '+xr.name:'')); return; }
+    let e=null, label='';
+    if(parsed.byName){
+      const nk=_pvNorm(xr.name); label=xr.name;
+      if(aliases[nk] && empById[aliases[nk]]) e=empById[aliases[nk]];
+      else if(!dupNames[nk] && empByName[nk]) e=empByName[nk];
+      if(!e){ out.unmatchedXls.push({label:xr.name+(dupNames[nk]?' — TRÙNG TÊN trong danh bạ, phải chọn tay':''), nk}); return; }
+    } else {
+      e=emps[_pvNorm(xr.msnv)]; label=xr.msnv+(xr.name?' — '+xr.name:'');
+      if(!e){ out.unmatchedXls.push({label, nk:''}); return; }
+    }
     const r=appRows[e.id];
-    if(!r){ out.unmatchedXls.push(xr.msnv+' — có trong Excel, KHÔNG có trong kỳ app'); return; }
+    if(!r){ out.unmatchedXls.push({label:label+' — có trong Excel, KHÔNG có trong kỳ app', nk:''}); return; }
     seenEmp[e.id]=1; out.nRows++;
-    mappedCols.forEach(c=>{
-      const key=mapping[c];
-      const av=_pvAppVal(p,r,key), xv=xr.vals[c];
+    Object.keys(fieldCols).forEach(key=>{
+      const av=_pvAppVal(p,r,key);
+      let xv=null; fieldCols[key].forEach(c=>{ const v=xr.vals[c]; if(v!=null) xv=(xv==null?0:xv)+v; });
       const tol=(key==='workDays')?0.011:PAY_VERIFY_TOL;
       const bad=(xv==null)||Math.abs(av-xv)>tol;
-      out.cells.push({empId:e.id, msnv:xr.msnv, name:r.name||xr.name, key, app:av, xls:xv, ok:!bad});
+      out.cells.push({empId:e.id, msnv:xr.msnv||e.smartId||'', name:r.name||xr.name, key, app:av, xls:xv, ok:!bad});
       if(bad) out.diffs++; else out.okCells++;
     });
   });
@@ -19418,9 +19446,20 @@ function payVerifyMapRender(){
   const trs=parsed.cols.map(cl=>`<tr style="border-bottom:1px solid var(--rule)"><td style="padding:4px 8px">${esc(cl.title)}</td><td style="padding:4px 8px"><select onchange="window._pvMap['${cl.c}']=this.value" style="font-size:11px;padding:3px 6px;border:1px solid var(--rule);border-radius:6px">${opts(cl.c)}</select>${map[cl.c]===''?'<span style="font-size:10px;color:#9a5b12"> · chưa nhận diện — chọn tay hoặc bỏ qua</span>':''}</td></tr>`).join('');
   document.getElementById('pv-stage').innerHTML=`
     <div style="font-size:12px;font-weight:600;margin-bottom:4px">Bước 1 — Ghép cột Excel ↔ chỉ tiêu app (${parsed.rows.length} dòng NV · header dòng ${parsed.headerRow+1})</div>
+    ${parsed.byName?`<div style="font-size:11px;background:#fff3e6;border:1px solid #e8c49a;border-radius:8px;padding:5px 10px;margin-bottom:6px">⚠ File <b>KHÔNG có cột MSNV</b> — app khớp theo <b>HỌ TÊN</b> (bỏ dấu, không phân biệt hoa/thường). Tên trùng hoặc không thấy sẽ treo lại cho Sếp/KT chọn tay ở bước sau; lựa chọn được LƯU để các tháng T1–T6 sau tự nhớ. Nhiều cột công (thường/đi biển/GS…) chọn cùng "Ngày công" — app tự cộng dồn.</div>`:''}
     <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Cột không nhận diện được app KHÔNG tự đoán — Sếp/KT chọn tay. Cột bỏ qua sẽ không đối chiếu.</div>
     <table style="width:100%;border-collapse:collapse;font-size:11.5px;border:1px solid var(--rule)"><thead><tr style="background:var(--rule)"><th style="padding:4px 8px;text-align:left">Tiêu đề cột Excel</th><th style="padding:4px 8px;text-align:left">Chỉ tiêu app</th></tr></thead><tbody>${trs}</tbody></table>
     <button class="btn-primary" style="margin-top:10px" onclick="payVerifyRun()">▶ Chạy đối chiếu</button>`;
+}
+function payVerifySaveAliases(){
+  /* v3.15.35: lưu khớp tay tên→NV vào payrollConfig.pvNameAlias (sync theo salary_fund) rồi chạy lại */
+  const sels=document.querySelectorAll('[data-pv-nk]'); if(!sels.length) return;
+  S.payrollConfig=S.payrollConfig||{}; const al=S.payrollConfig.pvNameAlias=S.payrollConfig.pvNameAlias||{};
+  let saved=0;
+  sels.forEach(s=>{ const nk=s.getAttribute('data-pv-nk'); if(nk&&s.value){ al[nk]=s.value; saved++; } });
+  try{ saveState(); }catch(e){}
+  toast('Đã lưu '+saved+' khớp tên — chạy lại đối chiếu','good');
+  payVerifyRun();
 }
 function _pvRowsHash(p){
   try{ const s=JSON.stringify((p.rows||[]).map(r=>[r.empId,r.result,payRowAdjustTotal(r)])); return (typeof _ppHash==='function')?_ppHash(s):String(s.length); }catch(e){ return ''; }
@@ -19456,13 +19495,25 @@ function payVerifyRun(){
   }).join('');
   const warn=[];
   if(R.missCore.length) warn.push('⚠ Excel THIẾU cột lõi: '+R.missCore.join(', '));
-  if(R.unmatchedXls.length) warn.push('⚠ '+R.unmatchedXls.length+' MSNV trong Excel không khớp kỳ app: '+R.unmatchedXls.slice(0,10).map(esc).join(' · ')+(R.unmatchedXls.length>10?' …':''));
+  if(R.unmatchedXls.length) warn.push('⚠ '+R.unmatchedXls.length+' dòng Excel không khớp được NV trong kỳ app: '+R.unmatchedXls.slice(0,10).map(u=>esc(u.label||String(u))).join(' · ')+(R.unmatchedXls.length>10?' …':''));
   if(R.missingXls.length) warn.push('⚠ '+R.missingXls.length+' NV có lương trong app nhưng VẮNG trong Excel: '+R.missingXls.slice(0,10).map(esc).join(' · ')+(R.missingXls.length>10?' …':''));
+  /* v3.15.35: file không MSNV — bảng KHỚP TAY các tên treo, lưu alias (payrollConfig.pvNameAlias) dùng lại cho T1–T6 */
+  let matchUi='';
+  const needMatch=R.unmatchedXls.filter(u=>u&&u.nk);
+  if(needMatch.length){
+    const empOpts=HRService.employees().filter(e=>e&&!e._deleted).sort((a,b)=>String(a.fullName||'').localeCompare(String(b.fullName||''),'vi'))
+      .map(e=>`<option value="${e.id}">${esc(e.smartId||'')} · ${esc(e.fullName||'')}</option>`).join('');
+    matchUi=`<div style="border:1px solid #e8c49a;border-radius:8px;padding:8px 10px;margin:8px 0;background:#fffdf6">
+      <div style="font-size:12px;font-weight:600;margin-bottom:4px">Khớp tay ${needMatch.length} tên chưa nhận diện (lưu 1 lần — các tháng sau tự nhớ):</div>
+      ${needMatch.map((u,i)=>`<div style="display:flex;gap:8px;align-items:center;margin:3px 0;font-size:11.5px"><div style="min-width:220px">${esc(u.label)}</div><select data-pv-nk="${esc(u.nk)}" style="font-size:11px;padding:3px 6px;border:1px solid var(--rule);border-radius:6px"><option value="">— bỏ qua dòng này —</option>${empOpts}</select></div>`).join('')}
+      <button class="btn-primary" style="margin-top:6px;font-size:11px" onclick="payVerifySaveAliases()">💾 Lưu khớp tên & chạy lại đối chiếu</button></div>`;
+  }
   document.getElementById('pv-stage').innerHTML=`
     <div style="padding:10px;border-radius:10px;margin-bottom:8px;font-weight:700;background:${R.verdict==='PASS'?'#eafaf0':'#fdecec'};color:${R.verdict==='PASS'?'#1e7d44':'#c0392b'}">
       ${R.verdict==='PASS'?'✅ KHỚP 100% — '+R.nRows+' NV × '+cols.length+' chỉ tiêu ('+R.okCells+' ô, dung sai ±'+PAY_VERIFY_TOL+'đ). Đủ điều kiện Trình duyệt.':'❌ CHƯA KHỚP — '+R.diffs+' ô lệch / '+(R.okCells+R.diffs)+' ô. App KHÔNG tự sửa — Nhân sự rà lại Excel hoặc KT rà đầu vào app (BCC/thẻ/phát sinh).'}
     </div>
     ${warn.map(w=>`<div style="font-size:11px;color:#9a5b12;margin:2px 0">${w}</div>`).join('')}
+    ${matchUi}
     <div style="overflow:auto;max-height:52vh"><table style="width:100%;border-collapse:collapse;font-size:11px;border:1px solid var(--rule)">
       <thead><tr style="background:var(--rule);position:sticky;top:0"><th style="padding:4px 8px;text-align:left">NV</th>${cols.map(f=>`<th style="padding:4px 6px;text-align:right">${f.label}</th>`).join('')}</tr></thead>
       <tbody>${trs}</tbody></table></div>
