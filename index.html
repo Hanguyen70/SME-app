@@ -3778,7 +3778,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.15.33';
+const APP_VERSION='3.15.34';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -21642,7 +21642,7 @@ function _hrReqApply(e, req){
   const pl=req.payload||{};
   if(req.type==='contract_renew'){ set('contractType',pl.contractType); set('contractSignDate',pl.contractSignDate); set('contractEndDate',pl.contractEndDate); }
   else if(req.type==='transfer'){ set('dept',pl.dept); set('division',pl.division); set('title',pl.title); set('linkVesselId',pl.linkVesselId); }
-  else if(req.type==='terminate'){ set('status','inactive'); if(pl.lastDay) set('lastWorkDay',pl.lastDay); }
+  else if(req.type==='terminate'){ set('status','inactive'); if(pl.lastDay) set('lastWorkDay',pl.lastDay); set('resignDate', pl.lastDay||req.effectiveFrom||new Date().toISOString().slice(0,10)); }   /* v3.15.34: workflow nghỉ việc cũng phải ghi Ngày nghỉ — nguồn cho biến động dashboard + BHXH */
   return changes;
 }
 /* ═══════════ v3.12.06 — CẢNH BÁO HẾT HẠN HĐLĐ: THAO TÁC NHANH TỪNG DÒNG ═══════════
@@ -82069,12 +82069,20 @@ function _hrmDashGovernance(bd){
   // 1) Vào - Ra 12 tháng
   /* v3.15.24 FIX (Sếp check 11/8 — "+180 vào T6/2026"): trước đếm hrHistory kind create/terminate =
      ngày TẠO HỒ SƠ trong app → import lô hiện thành "tuyển 180 người". Nay đếm theo NGÀY THỰC:
-     vào = e.startDate (ngày vào làm), ra = e.resignDate/terminationDate — luôn đúng cả khi import hồi tố. */
+     vào = e.startDate (ngày vào làm), ra = e.resignDate/terminationDate — luôn đúng cả khi import hồi tố.
+     v3.15.34 FIX (NV nghỉ bằng đổi Trạng thái không có resignDate → lọt lưới): với NV inactive THIẾU
+     ngày nghỉ, fallback DỮ LIỆU THẬT theo thứ tự lastWorkDay → ngày sự kiện Nghỉ việc trong hrHistory.
+     Từ nay 2 đường nghỉ việc đều tự ghi resignDate — fallback chỉ đỡ hồ sơ cũ. */
   const months=[]; for(let i=11;i>=0;i--){ const d=new Date(now.getFullYear(), now.getMonth()-i, 1); months.push(d.toISOString().slice(0,7)); }
+  const _histTermAt={};
+  (S.hrHistory||[]).forEach(h=>{ if(h&&h.kind==='terminate'&&h.empId){ const m=String(h.at||'').slice(0,10);
+    if(m && (!_histTermAt[h.empId] || _histTermAt[h.empId]<m)) _histTermAt[h.empId]=m; } });
   const inN={}, outN={};
   (S.hrEmployees||[]).forEach(e=>{ if(!e||e._deleted) return;
     const sm=String(e.startDate||'').slice(0,7); if(sm) inN[sm]=(inN[sm]||0)+1;
-    const om=String(e.resignDate||e.terminationDate||'').slice(0,7); if(om) outN[om]=(outN[om]||0)+1; });
+    let od=String(e.resignDate||e.terminationDate||'').slice(0,10);
+    if(!od && e.status==='inactive') od=String(e.lastWorkDay||_histTermAt[e.id]||'').slice(0,10);
+    const om=od.slice(0,7); if(om) outN[om]=(outN[om]||0)+1; });
   const ioRows=months.map(m=>`<div style="display:flex;gap:8px;font-size:11px;font-family:var(--font-mono)"><div style="width:64px;color:var(--muted)">${m}</div><div style="width:60px;color:#1e7d44">+${inN[m]||0}</div><div style="width:60px;color:#b3261e">−${outN[m]||0}</div></div>`).join('');
   // 2) Quỹ lương 6 kỳ gần nhất
   /* v3.15.24 FIX: trước lọc CỨNG status>='locked' + chỉ 3 nhóm office/tech/crew → kỳ ĐÃ DUYỆT và
@@ -82862,6 +82870,13 @@ function hrmSaveEmployee(id, opts){
         hrmLogHistory(id, kind, watch[k], oldShow, newShow, '');
       }
     });
+    /* v3.15.34 (Sếp check 11/8 — NV nghỉ không hiện biến động): đổi Trạng thái → inactive mà chưa điền
+       Ngày nghỉ → resignDate trống → card Vào−Ra không đếm được. Tự ghi resignDate = ngày thao tác + nhắc
+       chỉnh nếu ngày nghỉ thực khác. KHÔNG đụng hồ sơ đã có ngày. */
+    if((e.status!=='inactive') && newData.status==='inactive' && !String(newData.resignDate||'').trim() && !String(e.resignDate||e.terminationDate||'').trim()){
+      newData.resignDate=new Date().toISOString().slice(0,10);
+      toast('Đã tự ghi Ngày nghỉ = hôm nay ('+newData.resignDate+') — nếu ngày nghỉ thực khác, mở lại hồ sơ chỉnh trường Ngày nghỉ','warn');
+    }
     Object.assign(e, newData, {smartId});
     // v3.11.18 ROOT-CAUSE "sửa hồ sơ NV không lưu": mergeByID chọn bản thắng theo updatedAt,
     //   HÒA → CLOUD thắng. HRM save trước đây KHÔNG touch → bản vừa sửa có updatedAt CŨ
