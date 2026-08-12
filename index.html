@@ -3778,7 +3778,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.15.35';
+const APP_VERSION='3.15.36';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -19429,23 +19429,47 @@ function payVerifyOpen(id){
     rd.onload=function(e2){
       try{
         const wb=XLSX.read(new Uint8Array(e2.target.result),{type:'array'});
-        const ws=wb.Sheets[wb.SheetNames[0]];
-        const parsed=payVerifyParseSheet(ws);
-        if(parsed.err){ document.getElementById('pv-stage').innerHTML='<div style="color:#c0392b;font-size:12px">⚠ '+esc(parsed.err)+'</div>'; return; }
-        window._pvParsed=parsed; window._pvFileName=f.name;
-        window._pvMap=payVerifyAutoMap(parsed.cols);
-        payVerifyMapRender();
+        window._pvWb=wb; window._pvFileName=f.name;
+        /* v3.15.36 (Sếp chạy file thật 12/8): file HR MỖI NHÓM MỘT SHEET (Data base SME / kỹ thuật /
+           Đội tàu…) — đọc sheet đầu làm đối chiếu chéo nhóm sai toàn tập (4 NV kỹ thuật vs kỳ office).
+           Nhiều sheet → BẮT CHỌN sheet đúng nhóm trước, hiện số dòng NV từng sheet để dễ nhận. */
+        if(wb.SheetNames.length>1){ payVerifySheetPick(); } else { payVerifyUseSheet(wb.SheetNames[0]); }
       }catch(err){ document.getElementById('pv-stage').innerHTML='<div style="color:#c0392b;font-size:12px">Lỗi đọc file: '+esc(String(err.message||err))+'</div>'; }
     };
     rd.readAsArrayBuffer(f);
   };
+}
+function payVerifySheetPick(){
+  const wb=window._pvWb; if(!wb) return;
+  const items=wb.SheetNames.map(sn=>{
+    let info='';
+    try{ const t=payVerifyParseSheet(wb.Sheets[sn]); info=t.err?'không nhận diện được cột khóa':(t.rows.length+' dòng NV · khóa '+(t.byName?'Họ tên':'MSNV')); }
+    catch(e){ info='không đọc được'; }
+    return {sn, info};
+  });
+  document.getElementById('pv-stage').innerHTML=`
+    <div style="font-size:12px;font-weight:600;margin-bottom:4px">Bước 0 — File có ${wb.SheetNames.length} sheet: chọn ĐÚNG sheet của nhóm lương đang đối chiếu</div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Mỗi nhóm (SME/Kỹ thuật/Đội tàu…) HR để một sheet riêng — chọn sai nhóm sẽ báo lệch toàn tập. App không tự đoán.</div>
+    ${items.map(it=>`<div style="display:flex;align-items:center;gap:10px;padding:4px 0;border-bottom:1px dotted var(--rule)">
+      <button class="btn-sec" style="font-size:11px;min-width:190px;text-align:left" onclick="payVerifyUseSheet('${esc(it.sn).replace(/'/g,"\\'")}')">📄 ${esc(it.sn)}</button>
+      <span style="font-size:11px;color:var(--muted)">${esc(it.info)}</span></div>`).join('')}`;
+}
+function payVerifyUseSheet(sn){
+  const wb=window._pvWb; if(!wb||!wb.Sheets[sn]){ toast('Không thấy sheet','bad'); return; }
+  const parsed=payVerifyParseSheet(wb.Sheets[sn]);
+  if(parsed.err){ document.getElementById('pv-stage').innerHTML='<div style="color:#c0392b;font-size:12px">⚠ Sheet '+esc(sn)+': '+esc(parsed.err)+'</div>'; return; }
+  parsed.sheetName=sn;
+  window._pvParsed=parsed;
+  window._pvMap=payVerifyAutoMap(parsed.cols);
+  payVerifyMapRender();
 }
 function payVerifyMapRender(){
   const parsed=window._pvParsed, map=window._pvMap;
   const opts=k=>['<option value="">— KHÔNG đối chiếu (bỏ qua) —</option>'].concat(PAY_VERIFY_FIELDS.map(f=>`<option value="${f.key}"${map[k]===f.key?' selected':''}>${f.label}${f.required?' (lõi)':''}</option>`)).join('');
   const trs=parsed.cols.map(cl=>`<tr style="border-bottom:1px solid var(--rule)"><td style="padding:4px 8px">${esc(cl.title)}</td><td style="padding:4px 8px"><select onchange="window._pvMap['${cl.c}']=this.value" style="font-size:11px;padding:3px 6px;border:1px solid var(--rule);border-radius:6px">${opts(cl.c)}</select>${map[cl.c]===''?'<span style="font-size:10px;color:#9a5b12"> · chưa nhận diện — chọn tay hoặc bỏ qua</span>':''}</td></tr>`).join('');
   document.getElementById('pv-stage').innerHTML=`
-    <div style="font-size:12px;font-weight:600;margin-bottom:4px">Bước 1 — Ghép cột Excel ↔ chỉ tiêu app (${parsed.rows.length} dòng NV · header dòng ${parsed.headerRow+1})</div>
+    <div style="font-size:12px;font-weight:600;margin-bottom:4px">Bước 1 — Ghép cột Excel ↔ chỉ tiêu app (${parsed.rows.length} dòng NV · header dòng ${parsed.headerRow+1}${parsed.sheetName?` · sheet <span style="color:#2a5a8c">${esc(parsed.sheetName)}</span>`:''})
+      ${(window._pvWb&&window._pvWb.SheetNames.length>1)?`<button class="btn-ghost" style="font-size:10px;padding:1px 8px;margin-left:6px" onclick="payVerifySheetPick()">↩ Đổi sheet</button>`:''}</div>
     ${parsed.byName?`<div style="font-size:11px;background:#fff3e6;border:1px solid #e8c49a;border-radius:8px;padding:5px 10px;margin-bottom:6px">⚠ File <b>KHÔNG có cột MSNV</b> — app khớp theo <b>HỌ TÊN</b> (bỏ dấu, không phân biệt hoa/thường). Tên trùng hoặc không thấy sẽ treo lại cho Sếp/KT chọn tay ở bước sau; lựa chọn được LƯU để các tháng T1–T6 sau tự nhớ. Nhiều cột công (thường/đi biển/GS…) chọn cùng "Ngày công" — app tự cộng dồn.</div>`:''}
     <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Cột không nhận diện được app KHÔNG tự đoán — Sếp/KT chọn tay. Cột bỏ qua sẽ không đối chiếu.</div>
     <table style="width:100%;border-collapse:collapse;font-size:11.5px;border:1px solid var(--rule)"><thead><tr style="background:var(--rule)"><th style="padding:4px 8px;text-align:left">Tiêu đề cột Excel</th><th style="padding:4px 8px;text-align:left">Chỉ tiêu app</th></tr></thead><tbody>${trs}</tbody></table>
@@ -19470,7 +19494,7 @@ function payVerifyRun(){
   const R=payVerifyReconcile(p, parsed, map);
   /* lưu hồ sơ đối chiếu — chứng cứ kiểm, có hash chống trôi */
   const rec={ id:'PV-'+p.period+'-'+Date.now().toString(36), periodId:p.id, period:p.period,
-    fileName:window._pvFileName||'', rowsHash:_pvRowsHash(p),
+    fileName:window._pvFileName||'', sheetName:parsed.sheetName||'', rowsHash:_pvRowsHash(p),
     mapping:JSON.parse(JSON.stringify(map)), verdict:R.verdict,
     summary:{nRows:R.nRows, okCells:R.okCells, diffs:R.diffs, unmatchedXls:R.unmatchedXls.length, missingXls:R.missingXls.length, missCore:R.missCore},
     ranAt:new Date().toISOString(), ranBy:(CURRENT_USER&&CURRENT_USER.name)||'' };
