@@ -3778,7 +3778,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.15.36';
+const APP_VERSION='3.15.39';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -19276,13 +19276,13 @@ function payYearCostReport(){
 const FLAG_PAY_VERIFY=true;   /* admin/KT/HR-có-quyền-lương thấy nút (Release Sync V2: gate trình ký để GĐ-V3) */
 const PAY_VERIFY_TOL=1;       /* ±1đ mỗi ô */
 const PAY_VERIFY_FIELDS=[     /* key=field chuẩn hóa app · required=cột lõi · kw=từ khóa auto-map tiêu đề (đã bỏ dấu) */
-  {key:'workDays',  label:'Ngày công',  required:true,  multi:true, kw:['ngay cong','so cong','tong cong','cong lam viec','cong di bien','cong giam sat','cong gs','cong lap dat','work day','days']},   /* v3.15.35: multi=nhiều cột Excel cộng dồn về 1 chỉ tiêu (file HR tách công thường/đi biển/GS) */
-  {key:'grossTotal',label:'GROSS',      required:true,  kw:['gross','tong thu nhap','tong luong','thu nhap chiu thue truoc','tong cong luong']},
+  {key:'workDays',  label:'Ngày công',  required:false, kw:['tong cong','tong ngay cong']},   /* v3.15.39 NGUYÊN TẮC SO SÁNH THUẦN (Sếp 12/8): mỗi chỉ tiêu ↔ ĐÚNG 1 CỘT — bỏ cộng dồn nhiều cột (app không tự áp công thức hộ HR). Excel không có cột TỔNG công thì không so ngày công; hạ khỏi cột lõi. */
+  {key:'grossTotal',label:'GROSS',      required:true,  kw:['(gross)']},   /* v3.15.38: khớp cụm '(gross)' CÓ NGOẶC — sheet HR còn cột 'Quy đổi sang GROSS' trung gian; bỏ 'tong luong'/'tong thu nhap' — quá rộng, dính cả +100%KPI/net/thu nhập chịu thuế (ca Lê Trí Thành 422tr = cộng 4 cột). File HR luôn ghi '(Gross)'. */
   {key:'insEmp',    label:'BHXH NV',    required:true,  kw:['bhxh nv','bh nv','bao hiem nv','trich bh nv','10,5','10.5','bhxh nguoi lao dong','trich theo luong nv','thu bhxh']},   /* v3.15.35: file HR ghi 'Thu BHXH, BHYT, BHTN' */
   {key:'pit',       label:'Thuế TNCN',  required:true,  kw:['tncn','thue thu nhap','thue tn']},
   {key:'takeHome',  label:'Thực lãnh',  required:true,  kw:['thuc lanh','thuc linh','thuc nhan','con lai','net nhan','luong net','tien nhan']},
   {key:'insCompany',label:'BHXH Cty',   required:false, kw:['bhxh cty','bh cong ty','21,5','21.5','bhxh nguoi su dung']},
-  {key:'netTotal',  label:'NET',        required:false, kw:['tong net']}
+  {key:'netTotal',  label:'NET',        required:false, kw:['tong net','(net)','luong net']}
 ];
 function _pvNorm(s){ return String(s==null?'':s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/đ/g,'d').replace(/\s+/g,' ').trim(); }
 function _pvNum(v){   /* số VN '1.234.567' / '1.234,5' / '1,234,567' / number — KHÔNG đoán khi không ra số: trả null */
@@ -19359,6 +19359,10 @@ function payVerifyAutoMap(cols){
     const hits=PAY_VERIFY_FIELDS.filter(f=>f.kw.some(k=>t.indexOf(k)>=0));
     map[cl.c]=(hits.length===1)?hits[0].key:'';
   });
+  /* v3.15.39 (Sếp chốt nguyên tắc 12/8 — CHỈ SO SÁNH, không tính toán/suy diễn/áp công thức):
+     MỌI chỉ tiêu ↔ đúng 1 cột. Auto-map chỉ là GỢI Ý; trúng ≥2 cột → bỏ map tất cả, người chạy chọn tay. */
+  const cnt={}; Object.keys(map).forEach(c=>{ if(map[c]) cnt[map[c]]=(cnt[map[c]]||0)+1; });
+  Object.keys(map).forEach(c=>{ if(map[c] && cnt[map[c]]>1) map[c]=''; });
   return map;
 }
 /* RECONCILE — PURE: đối chiếu từng NV × từng cột đã map. Trả verdict + chi tiết từng ô.
@@ -19374,9 +19378,12 @@ function payVerifyReconcile(p, parsed, mapping){
   const appRows={}; (p.rows||[]).forEach(r=>{ if(r&&r.empId) appRows[r.empId]=r; });
   const mappedCols=Object.keys(mapping).filter(c=>mapping[c]);
   const fieldsUsed=[...new Set(mappedCols.map(c=>mapping[c]))];
-  const fieldCols={}; mappedCols.forEach(c=>{ (fieldCols[mapping[c]]=fieldCols[mapping[c]]||[]).push(c); });   /* v3.15.35: nhiều cột → 1 chỉ tiêu (cộng dồn) */
+  const fieldCols={}; mappedCols.forEach(c=>{ (fieldCols[mapping[c]]=fieldCols[mapping[c]]||[]).push(c); });
+  /* v3.15.39 NGUYÊN TẮC: mỗi chỉ tiêu ↔ ĐÚNG 1 cột — BẤT KỲ chỉ tiêu nào gắn ≥2 cột = lỗi mapping, FAIL ngay (app không cộng hộ) */
+  const multiErr=Object.keys(fieldCols).filter(k=>fieldCols[k].length>1)
+    .map(k=>(PAY_VERIFY_FIELDS.find(x=>x.key===k)||{label:k}).label+' ('+fieldCols[k].length+' cột)');
   const missCore=PAY_VERIFY_FIELDS.filter(f=>f.required&&fieldsUsed.indexOf(f.key)<0).map(f=>f.label);
-  const out={cells:[], unmatchedXls:[], missingXls:[], diffs:0, okCells:0, missCore, nRows:0, byName:!!parsed.byName};
+  const out={cells:[], unmatchedXls:[], missingXls:[], diffs:0, okCells:0, missCore, multiErr, nRows:0, byName:!!parsed.byName};
   const seenEmp={};
   parsed.rows.forEach(xr=>{
     let e=null, label='';
@@ -19394,7 +19401,7 @@ function payVerifyReconcile(p, parsed, mapping){
     seenEmp[e.id]=1; out.nRows++;
     Object.keys(fieldCols).forEach(key=>{
       const av=_pvAppVal(p,r,key);
-      let xv=null; fieldCols[key].forEach(c=>{ const v=xr.vals[c]; if(v!=null) xv=(xv==null?0:xv)+v; });
+      const xv=xr.vals[fieldCols[key][0]];   /* v3.15.39: đúng 1 cột — không cộng dồn */
       const tol=(key==='workDays')?0.011:PAY_VERIFY_TOL;
       const bad=(xv==null)||Math.abs(av-xv)>tol;
       out.cells.push({empId:e.id, msnv:xr.msnv||e.smartId||'', name:r.name||xr.name, key, app:av, xls:xv, ok:!bad});
@@ -19406,7 +19413,7 @@ function payVerifyReconcile(p, parsed, mapping){
     const hasVal=PAY_VERIFY_FIELDS.some(f=>Math.abs(_pvAppVal(p,r,f.key))>PAY_VERIFY_TOL);
     if(hasVal) out.missingXls.push((r.smartId?r.smartId+' — ':'')+(r.name||r.empId));   /* zero-row bỏ qua */
   });
-  out.verdict=(!out.missCore.length && !out.unmatchedXls.length && !out.missingXls.length && out.diffs===0 && out.nRows>0)?'PASS':'FAIL';
+  out.verdict=(!out.missCore.length && !out.multiErr.length && !out.unmatchedXls.length && !out.missingXls.length && out.diffs===0 && out.nRows>0)?'PASS':'FAIL';
   return out;
 }
 /* ═══ UI GĐ-V2 ═══ */
@@ -19470,7 +19477,8 @@ function payVerifyMapRender(){
   document.getElementById('pv-stage').innerHTML=`
     <div style="font-size:12px;font-weight:600;margin-bottom:4px">Bước 1 — Ghép cột Excel ↔ chỉ tiêu app (${parsed.rows.length} dòng NV · header dòng ${parsed.headerRow+1}${parsed.sheetName?` · sheet <span style="color:#2a5a8c">${esc(parsed.sheetName)}</span>`:''})
       ${(window._pvWb&&window._pvWb.SheetNames.length>1)?`<button class="btn-ghost" style="font-size:10px;padding:1px 8px;margin-left:6px" onclick="payVerifySheetPick()">↩ Đổi sheet</button>`:''}</div>
-    ${parsed.byName?`<div style="font-size:11px;background:#fff3e6;border:1px solid #e8c49a;border-radius:8px;padding:5px 10px;margin-bottom:6px">⚠ File <b>KHÔNG có cột MSNV</b> — app khớp theo <b>HỌ TÊN</b> (bỏ dấu, không phân biệt hoa/thường). Tên trùng hoặc không thấy sẽ treo lại cho Sếp/KT chọn tay ở bước sau; lựa chọn được LƯU để các tháng T1–T6 sau tự nhớ. Nhiều cột công (thường/đi biển/GS…) chọn cùng "Ngày công" — app tự cộng dồn.</div>`:''}
+    ${parsed.byName?`<div style="font-size:11px;background:#fff3e6;border:1px solid #e8c49a;border-radius:8px;padding:5px 10px;margin-bottom:6px">⚠ File <b>KHÔNG có cột MSNV</b> — app khớp theo <b>HỌ TÊN</b> (bỏ dấu, không phân biệt hoa/thường). Tên trùng hoặc không thấy sẽ treo lại cho Sếp/KT chọn tay ở bước sau; lựa chọn được LƯU để các tháng T1–T6 sau tự nhớ.</div>`:''}
+    <div style="font-size:11px;background:#eef4fb;border:1px solid #bcd2e8;border-radius:8px;padding:5px 10px;margin-bottom:6px">📏 <b>Nguyên tắc:</b> đây là bước SO SÁNH — ĐỐI CHIẾU thuần: app không tính toán, không suy diễn, không tự áp công thức. Mỗi chỉ tiêu ↔ <b>đúng 1 cột Excel</b> (gắn 2 cột là lỗi). Auto-map chỉ là gợi ý — người chạy xác nhận đúng cột trước khi chạy. Excel không có cột tổng ngày công thì không so chỉ tiêu đó.</div>
     <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Cột không nhận diện được app KHÔNG tự đoán — Sếp/KT chọn tay. Cột bỏ qua sẽ không đối chiếu.</div>
     <table style="width:100%;border-collapse:collapse;font-size:11.5px;border:1px solid var(--rule)"><thead><tr style="background:var(--rule)"><th style="padding:4px 8px;text-align:left">Tiêu đề cột Excel</th><th style="padding:4px 8px;text-align:left">Chỉ tiêu app</th></tr></thead><tbody>${trs}</tbody></table>
     <button class="btn-primary" style="margin-top:10px" onclick="payVerifyRun()">▶ Chạy đối chiếu</button>`;
@@ -19519,6 +19527,7 @@ function payVerifyRun(){
   }).join('');
   const warn=[];
   if(R.missCore.length) warn.push('⚠ Excel THIẾU cột lõi: '+R.missCore.join(', '));
+  if(R.multiErr&&R.multiErr.length) warn.push('⚠ Chỉ tiêu gắn NHIỀU cột — nguyên tắc mỗi chỉ tiêu ↔ đúng 1 cột, app không cộng hộ. Sửa Bước 1: '+R.multiErr.join(', '));
   if(R.unmatchedXls.length) warn.push('⚠ '+R.unmatchedXls.length+' dòng Excel không khớp được NV trong kỳ app: '+R.unmatchedXls.slice(0,10).map(u=>esc(u.label||String(u))).join(' · ')+(R.unmatchedXls.length>10?' …':''));
   if(R.missingXls.length) warn.push('⚠ '+R.missingXls.length+' NV có lương trong app nhưng VẮNG trong Excel: '+R.missingXls.slice(0,10).map(esc).join(' · ')+(R.missingXls.length>10?' …':''));
   /* v3.15.35: file không MSNV — bảng KHỚP TAY các tên treo, lưu alias (payrollConfig.pvNameAlias) dùng lại cho T1–T6 */
@@ -19537,6 +19546,7 @@ function payVerifyRun(){
       ${R.verdict==='PASS'?'✅ KHỚP 100% — '+R.nRows+' NV × '+cols.length+' chỉ tiêu ('+R.okCells+' ô, dung sai ±'+PAY_VERIFY_TOL+'đ). Đủ điều kiện Trình duyệt.':'❌ CHƯA KHỚP — '+R.diffs+' ô lệch / '+(R.okCells+R.diffs)+' ô. App KHÔNG tự sửa — Nhân sự rà lại Excel hoặc KT rà đầu vào app (BCC/thẻ/phát sinh).'}
     </div>
     ${warn.map(w=>`<div style="font-size:11px;color:#9a5b12;margin:2px 0">${w}</div>`).join('')}
+    <div style="font-size:10.5px;color:var(--muted);margin:4px 0;padding:4px 8px;border:1px dashed var(--rule);border-radius:6px">📄 Nguồn đã so: sheet <b>${esc(parsed.sheetName||'(duy nhất)')}</b> · ${PAY_VERIFY_FIELDS.filter(f=>Object.values(map).indexOf(f.key)>=0).map(f=>`<b>${f.label}</b> ← ${Object.keys(map).filter(c=>map[c]===f.key).map(c=>{const cl=parsed.cols.find(x=>String(x.c)===String(c));return '"'+esc((cl?cl.title:c).slice(0,30))+'"';}).join(' + ')}`).join(' · ')} — sai cột thì ↩ Đổi sheet / chỉnh Bước 1 rồi chạy lại.</div>
     ${matchUi}
     <div style="overflow:auto;max-height:52vh"><table style="width:100%;border-collapse:collapse;font-size:11px;border:1px solid var(--rule)">
       <thead><tr style="background:var(--rule);position:sticky;top:0"><th style="padding:4px 8px;text-align:left">NV</th>${cols.map(f=>`<th style="padding:4px 6px;text-align:right">${f.label}</th>`).join('')}</tr></thead>
