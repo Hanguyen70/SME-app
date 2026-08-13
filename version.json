@@ -1,5 +1,5 @@
 {
-  "version": "3.15.53",
-  "swVersion": "v3.15.53",
-  "notes": "v3.15.53 (Sếp 13/8: 'không cần nút — chỉ Asineran đang sai, sửa duy nhất ca này; tạo mới thì chọn ngay khi tạo'): (1) GỠ nút 🏷 cố định vừa thêm ở v3.15.52. (2) DATA-FIX MỘT LẦN chạy khi mở tab Ngân quỹ: mọi khoản vay của bên cho vay tên bắt đầu 'Asineran' chưa có quyết định tay → đặt 🏢 Công ty + lenderTypeManual (auto vĩnh viễn không đổi lại), ghi audit lender_type_datafix + toast xác nhận; điều kiện tự hết sau lần sửa đầu — các lần mở sau không làm gì. (3) Quy trình từ nay: form + Món vay mới đã có ô 'Phân loại bên cho vay' (v3.15.45) — chọn ngay khi tạo; khoản trùng tên danh mục Tài khoản NH vẫn tự gắn 🏦; nếu có khoản quên chọn, các nút 'Phân loại' điều kiện (chỉ hiện khi còn khoản trống) vẫn hoạt động như cũ. Test 4/4 (khớp prefix ASINERAN, tôn trọng manual có sẵn, không đụng NH khác)."
+  "version": "3.15.55",
+  "swVersion": "v3.15.55",
+  "notes": "v3.15.55 (Sếp 13/8: 'Sổ chi phí lãi vay cần hiển thị như bản trước — có cả phần công ty, trả lại Asineran vào bảng'): bảng ×12 tháng (KHỐI 1) giờ gồm MỌI bên cho vay, phân bảng theo TIỀN TỆ của khoản vay — Asineran (USD) và X6M LTD nằm ở bảng USD, các NH VND ở bảng VND; mỗi bên có icon phân biệt 🏦 NH / 🏢 Cty / 👤 CN (⚠ nếu chưa phân loại); cột đầu đổi nhãn 'Bên cho vay'; dòng ĐÃ TRẢ/PHẢI TRẢ, biểu đồ cột chồng + donut tự gồm đủ vì cùng nguồn. GIỮ chỉ 🏦: Phí lãi/ngày HÔM NAY (đơn giá chi phí ngày) + WAIR — header note ghi rõ 'KHỐI 2 (phí/ngày + WAIR) = chỉ 🏦'. Đánh giá tín dụng NH (📊) không đổi — thuần ngân hàng. Test 8/8."
 }

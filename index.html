@@ -3779,7 +3779,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.15.53';
+const APP_VERSION='3.15.55';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -43816,6 +43816,7 @@ function renderBanking(){
   let interestDueLongThisMonth = 0;     // lãi tháng này của vay trung + dài hạn
   // v3.06.00: dư nợ TÁCH theo 3 mức hạn (quy đổi về displayCcy để cộng được)
   let loanShortUsd = 0, loanMediumUsd = 0, loanLongUsd = 0, loanUnschedUsd = 0;
+  let loanNonBankUsd = 0;  // v3.15.54: vay Cty/CN/chưa PL — tách khỏi 3 dòng hạn (chỉ 🏦)
   // v3.06.00: tổng gốc ĐÃ TRẢ (gốc vay ban đầu − dư nợ còn lại) — theo tiền gốc + quy USD.
   //   Tính trên TẤT CẢ khoản vay (gồm đã tất toán = trả hết gốc).
   const principalPaidByCcy = {};
@@ -43836,7 +43837,8 @@ function renderBanking(){
     totalLoanByCcy[ccy] = (totalLoanByCcy[ccy]||0) + remaining;
     const remUsd = toDisplay(remaining, ccy);
     const lt = l.loanType||'unscheduled';
-    if(lt==='short') loanShortUsd += remUsd;
+    if((l.lenderType||'')!=='bank'){ loanNonBankUsd += remUsd; }  // v3.15.54: 🏢/👤 gộp 1 dòng
+    else if(lt==='short') loanShortUsd += remUsd;
     else if(lt==='medium') loanMediumUsd += remUsd;
     else if(lt==='long') loanLongUsd += remUsd;
     else loanUnschedUsd += remUsd;
@@ -43871,7 +43873,7 @@ function renderBanking(){
   const kpi = document.getElementById('bank-kpi');
   if(kpi){
     const _dCcy = S.displayCcy||'USD';
-    const _loanTotalUsd = loanShortUsd + loanMediumUsd + loanLongUsd + loanUnschedUsd;
+    const _loanTotalUsd = loanShortUsd + loanMediumUsd + loanLongUsd + loanUnschedUsd + loanNonBankUsd;
     const _pct = (v)=> _loanTotalUsd>0 ? Math.round(v/_loanTotalUsd*100) : 0;
     // sub-row dư nợ theo 3 mức hạn
     const _termRow = (label,val,color)=>`
@@ -43905,10 +43907,11 @@ function renderBanking(){
         <div class="kpi-label">Tổng dư nợ vay</div>
         ${_ccyStack(totalLoanByCcy,'var(--warn)')}
         <div style="margin-top:6px;border-top:1px dashed var(--rule);padding-top:5px">
-          ${_termRow('Ngắn hạn',loanShortUsd,'var(--ink)')}
-          ${_termRow('Trung hạn',loanMediumUsd,'var(--ink)')}
-          ${_termRow('Dài hạn',loanLongUsd,'var(--ink)')}
-          ${loanUnschedUsd>0?_termRow('Chưa phân kỳ',loanUnschedUsd,'var(--muted)'):''}
+          ${_termRow('🏦 Ngắn hạn',loanShortUsd,'var(--ink)')}
+          ${_termRow('🏦 Trung hạn',loanMediumUsd,'var(--ink)')}
+          ${_termRow('🏦 Dài hạn',loanLongUsd,'var(--ink)')}
+          ${loanUnschedUsd>0?_termRow('🏦 Chưa phân kỳ',loanUnschedUsd,'var(--muted)'):''}
+          ${loanNonBankUsd>0?_termRow('🏢 Cty & cá nhân',loanNonBankUsd,'var(--muted)'):''}
         </div>
         <div class="kpi-sub" style="margin-top:4px">${activeLoans.length} món vay · quy đổi ${_dCcy}</div>
       </div>
@@ -71494,13 +71497,13 @@ function _loanWairChart(Y, mode){
 function _loanInterestMonthly(Y, ccy){
   const lenders={};
   (AccountingService.loans()||[]).forEach(l=>{
-    if(!l||l.lenderType!=='bank') return;
+    if(!l) return;   /* v3.15.55 (Sếp): Sổ hiện MỌI bên cho vay — NH + Cty/CN, icon phân biệt */
     if((l.ccy||'VND')!==ccy) return;
     const k=_loanLenderKey(l);
     (l.paymentSchedule||[]).forEach(p=>{
       const dd=String((p&&p.dueDate)||''); if(dd.slice(0,4)!==String(Y)) return;
       const m=+dd.slice(5,7); const it=+p.interest||0; if(!it||!m) return;
-      const o=(lenders[k]=lenders[k]||{m:Array(13).fill(0),paid:Array(13).fill(0),due:Array(13).fill(0),tot:0});
+      const o=(lenders[k]=lenders[k]||{m:Array(13).fill(0),paid:Array(13).fill(0),due:Array(13).fill(0),tot:0,lt:(l.lenderType||'')});
       o.m[m]+=it; o.tot+=it;
       if(p.paidDate) o.paid[m]+=it; else o.due[m]+=it;
     });
@@ -71525,9 +71528,9 @@ function loanCostBookOpen(){
     const fmt=ccy==='VND'?fmtV:(v=>_negU((Math.round(v*100)/100).toLocaleString('en-US')));
     const g=Array(13).fill(0), gp=Array(13).fill(0), gd=Array(13).fill(0); let gt=0;
     keys.forEach(k=>{ for(let m=1;m<=12;m++){ g[m]+=L[k].m[m]; gp[m]+=L[k].paid[m]; gd[m]+=L[k].due[m]; } gt+=L[k].tot; });
-    const tr=keys.map((k,i)=>`<tr><td style="white-space:nowrap;padding:3px 6px;border-bottom:1px solid var(--rule)"><span style="display:inline-block;width:9px;height:9px;background:${PAL[i%8]};border-radius:2px;margin-right:5px"></span><b>${esc(k)}</b></td>${Array.from({length:12},(_,m)=>`<td style="padding:3px 5px;text-align:right;font-family:monospace;border-bottom:1px solid var(--rule)">${L[k].m[m+1]?fmt(L[k].m[m+1]):'–'}</td>`).join('')}<td style="padding:3px 6px;text-align:right;font-family:monospace;border-bottom:1px solid var(--rule)"><b>${fmt(L[k].tot)}</b></td></tr>`).join('');
+    const tr=keys.map((k,i)=>`<tr><td style="white-space:nowrap;padding:3px 6px;border-bottom:1px solid var(--rule)"><span style="display:inline-block;width:9px;height:9px;background:${PAL[i%8]};border-radius:2px;margin-right:5px"></span>${L[k].lt==='bank'?'🏦':L[k].lt==='company'?'🏢':L[k].lt==='person'?'👤':'⚠'} <b>${esc(k)}</b></td>${Array.from({length:12},(_,m)=>`<td style="padding:3px 5px;text-align:right;font-family:monospace;border-bottom:1px solid var(--rule)">${L[k].m[m+1]?fmt(L[k].m[m+1]):'–'}</td>`).join('')}<td style="padding:3px 6px;text-align:right;font-family:monospace;border-bottom:1px solid var(--rule)"><b>${fmt(L[k].tot)}</b></td></tr>`).join('');
     const html=`<div style="overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:11px;border:1px solid var(--rule)">
-      <thead><tr style="background:var(--rule)"><th style="padding:4px 6px;text-align:left">Ngân hàng (${ccy})</th>${MON.map(m=>`<th style="padding:4px 5px;text-align:right">${m}</th>`).join('')}<th style="padding:4px 6px;text-align:right">Grand Total</th></tr></thead>
+      <thead><tr style="background:var(--rule)"><th style="padding:4px 6px;text-align:left">Bên cho vay (${ccy})</th>${MON.map(m=>`<th style="padding:4px 5px;text-align:right">${m}</th>`).join('')}<th style="padding:4px 6px;text-align:right">Grand Total</th></tr></thead>
       <tbody>${tr}
       <tr style="background:#eef4fb;font-weight:700;border-top:2px solid var(--rule)"><td style="padding:3px 6px">Grand Total</td>${Array.from({length:12},(_,m)=>`<td style="padding:3px 5px;text-align:right;font-family:monospace">${g[m+1]?fmt(g[m+1]):'–'}</td>`).join('')}<td style="padding:3px 6px;text-align:right;font-family:monospace">${fmt(gt)}</td></tr>
       <tr style="color:var(--good);font-size:10px"><td style="padding:2px 6px">· trong đó ĐÃ TRẢ</td>${Array.from({length:12},(_,m)=>`<td style="padding:2px 5px;text-align:right;font-family:monospace">${gp[m+1]?fmt(gp[m+1]):'–'}</td>`).join('')}<td style="padding:2px 6px;text-align:right;font-family:monospace">${fmt(gp.reduce((t,v)=>t+v,0))}</td></tr>
@@ -71562,7 +71565,7 @@ function loanCostBookOpen(){
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
       <label style="font-size:12px">Năm:</label>
       <select onchange="window._lcbYear=+this.value;loanCostBookOpen()" style="font-size:12px;padding:4px 8px;border:1px solid var(--rule);border-radius:6px">${[Y-2,Y-1,Y,Y+1].filter(y=>y>=2024).map(y=>`<option value="${y}" ${y===Y?'selected':''}>${y}</option>`).join('')}</select>
-      <span style="font-size:11px;color:var(--muted)">Chỉ khoản 🏦 NGÂN HÀNG${nNonBank?(' · đã loại '+nNonBank+' khoản Cty/CN'):''}${unclassed?(' · <b style="color:#9a5b12">⚠ '+unclassed+' chưa phân loại</b> <button class="btn-sec" style="font-size:10px;padding:0 6px" onclick="loanLenderTypeBulk()">Phân loại</button>'):''} · KHỐI 1 = lãi theo lịch trả (số đã tính sẵn) · KHỐI 2 = dư × LS ÷ 365 (ACT/365)</span>
+      <span style="font-size:11px;color:var(--muted)">MỌI bên cho vay: 🏦 NH · 🏢 Cty · 👤 CN${unclassed?(' · <b style="color:#9a5b12">⚠ '+unclassed+' chưa phân loại</b> <button class="btn-sec" style="font-size:10px;padding:0 6px" onclick="loanLenderTypeBulk()">Phân loại</button>'):''} · KHỐI 1 = lãi theo lịch trả (số đã tính sẵn) · KHỐI 2 (phí/ngày + WAIR) = chỉ 🏦, dư × LS ÷ 365 (ACT/365)</span>
     </div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
       <div style="flex:1;min-width:170px;border:1px solid var(--rule);border-radius:10px;padding:8px 10px">Phí lãi/ngày HÔM NAY<br><b style="font-size:16px">${fmtV(ipdNow.vnd)} đ</b>${ipdNow.usd?('<div style="font-size:10px">+ '+ipdNow.usd.toLocaleString('en-US')+' $/ngày (tách riêng)</div>'):''}<div style="font-size:9.5px;color:var(--muted)">phục vụ ĐƠN GIÁ CHI PHÍ NGÀY</div></div>
