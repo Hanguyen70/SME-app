@@ -2214,6 +2214,8 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
     <div class="section-head">
       <div class="section-title">Tín dụng &amp; Vay</div>
       <button class="btn-sec" onclick="addLoan()" style="font-size:11px">+ Món vay mới</button>
+      <button class="btn-sec" onclick="creditAssessOpen()" style="font-size:11px" title="Bảng WAIR · LS quý · lãi đã trả/phải trả — chỉ khoản 🏦">📊 Đánh giá tín dụng NH</button>
+      <button class="btn-sec" onclick="loanCostBookOpen()" style="font-size:11px" title="Chi phí lãi theo NH×tháng + biến động phí/ngày (đơn giá chi phí ngày)">📉 Sổ chi phí lãi vay</button>
     </div>
     <!-- v2.65.0: Bộ lọc khoản vay — giúp tìm nhanh khi có nhiều món vay -->
     <div id="loan-filter-bar" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:rgba(0,0,0,.02);border:1px solid var(--rule);padding:8px 12px;margin-bottom:10px;font-size:13px">
@@ -2246,8 +2248,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
       <span id="loan-filter-count" style="color:var(--muted);margin-left:auto"></span>
     </div>
     <div id="loans-list"></div>
-    <!-- v3.14.08: Đánh giá tín dụng ngân hàng — lãi & lãi suất -->
-    <div id="credit-assess" style="margin-top:18px"></div>
+    <!-- v3.15.46 ⓑ: Đánh giá tín dụng chuyển thành nút 📊 trên header (modal) — trang gọn, hết trùng trục nhóm với danh sách vay -->
   </div>
 </section>
 
@@ -3778,7 +3779,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.15.42';
+const APP_VERSION='3.15.47';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -19502,25 +19503,39 @@ function payVerifyExportBB(){
   const colTitle=key=>Object.keys(map).filter(c=>map[c]===key).map(c=>{const cl=parsed.cols.find(x=>String(x.c)===String(c));return cl?cl.title:c;}).join(' + ');
   const fLabel=key=>(PAY_VERIFY_FIELDS.find(f=>f.key===key)||{label:key}).label;
   const nf=v=>v==null?'trống/không phải số':Math.round(v);
+  /* v3.15.44 (Sếp 13/8): xuất theo CHUẨN STYLE CHUNG của app — ExcelExporter (xlsx-js-style):
+     title navy · sectionBar từng phần · headerCell chữ trắng · dataCell kèm numFmt #,##0 + zebra ·
+     totalCell. XLSXStyle chưa tải → fallback SheetJS trơn (cấu trúc giữ nguyên). Đồng thời sửa
+     layout bị cắt chữ (Image 2): nhãn thông tin merge 2 cột, độ rộng cột đặt lại. */
+  const XS=window.XLSXStyle, EE=(typeof ExcelExporter!=='undefined')?ExcelExporter:null;
+  const styled=!!(XS&&EE&&(!EE.ready||EE.ready()));
+  const NUMF='#,##0';
+  const DC=(v,o)=>styled?EE.dataCell(v,o||{}):((v==null)?'':v);
+  const HC=(t,a)=>styled?EE.headerCell(t,a):t;
+  const SB=t=>styled?EE.sectionBar(t):t;
+  const TT=t=>styled?EE.title(t):t;
+  const SU=t=>styled?EE.sub(t):t;
+  const TC=(v,o)=>styled?EE.totalCell(v,o||{}):((v==null)?'':v);
   const aoa=[]; const merges=[]; let r=0;
   const push=(row)=>{ aoa.push(row); r++; };
-  const wide=(txt)=>{ merges.push({s:{r:r,c:0},e:{r:r,c:9}}); push([txt]); };
-  push(['SEAHORSE MARINE & ENERGY JSC']); merges.push({s:{r:0,c:0},e:{r:0,c:9}});
-  wide('Số: '+bbNo);
+  const wide=(cell)=>{ merges.push({s:{r:r,c:0},e:{r:r,c:9}}); push([cell]); };
+  wide(DC('SEAHORSE MARINE & ENERGY JSC',{bold:true}));
+  wide(DC('Số: '+bbNo,{color:'6B7280'}));
   push([]);
-  wide('BIÊN BẢN ĐỐI CHIẾU BẢNG LƯƠNG — APP ↔ EXCEL NHÂN SỰ');
-  wide('(Chỉ GHI NHẬN SO SÁNH — mỗi chỉ tiêu ↔ đúng 1 cột; không kết luận bên nào sai. Nguyên nhân do hai bộ phận rà và ghi vào cột Phân loại/Ghi chú)');
+  wide(TT('BIÊN BẢN ĐỐI CHIẾU BẢNG LƯƠNG — APP ↔ EXCEL NHÂN SỰ'));
+  wide(SU('(Chỉ GHI NHẬN SO SÁNH — mỗi chỉ tiêu ↔ đúng 1 cột; không kết luận bên nào sai. Nguyên nhân do hai bộ phận rà và ghi vào cột Phân loại/Ghi chú)'));
   push([]);
-  const info=(a,b,c,d)=>{ merges.push({s:{r:r,c:1},e:{r:r,c:3}},{s:{r:r,c:5},e:{r:r,c:9}}); push([a,b,'','',c,d]); };
+  const info=(a,b,c,d)=>{ merges.push({s:{r:r,c:0},e:{r:r,c:1}},{s:{r:r,c:2},e:{r:r,c:4}},{s:{r:r,c:5},e:{r:r,c:6}},{s:{r:r,c:7},e:{r:r,c:9}});
+    push([HC(a),'',DC(b),'','',HC(c),'',DC(d)]); };
   info('Kỳ lương',p.period,'Nhóm lương',(PAY_PROFILE_LABEL[p.profile]||p.profile)+' — '+((typeof _payCcy==='function'&&_payCcy(p))||'VND'));
   info('File Excel HR',(L.rec&&L.rec.fileName)||'','Sheet đã so',parsed.sheetName||'(duy nhất)');
   info('Ngày giờ chạy',String((L.rec&&L.rec.ranAt)||'').slice(0,16).replace('T',' '),'Người chạy',(L.rec&&L.rec.ranBy)||'');
   info('Dung sai','±'+PAY_VERIFY_TOL+' đ/ô (ngày công ±0.01)','Kết luận máy',R.verdict==='PASS'?('✅ KHỚP 100% — '+R.okCells+' ô'):('❌ CHƯA KHỚP — '+R.diffs+' ô lệch / '+(R.okCells+R.diffs)+' ô so'));
   const usedKeys=[...new Set(R.cells.map(c=>c.key))];
-  wide('Nguồn cột đã so: '+usedKeys.map(k=>fLabel(k)+' ← "'+colTitle(k)+'"').join(' · '));
+  wide(DC('Nguồn cột đã so: '+usedKeys.map(k=>fLabel(k)+' ← "'+colTitle(k)+'"').join(' · '),{color:'6B7280'}));
   push([]);
-  wide('PHẦN A — TÓM TẮT');
-  const sumRow=(a,b)=>{ merges.push({s:{r:r,c:0},e:{r:r,c:7}},{s:{r:r,c:8},e:{r:r,c:9}}); push([a,'','','','','','','',b]); };
+  wide(SB('PHẦN A — TÓM TẮT'));
+  const sumRow=(a,b)=>{ merges.push({s:{r:r,c:0},e:{r:r,c:7}},{s:{r:r,c:8},e:{r:r,c:9}}); push([DC(a),'','','','','','','',TC(b,{align:'right'})]); };
   sumRow('Số NV hai bên cùng có, đã so',R.nRows);
   sumRow('Số ô so sánh',R.okCells+R.diffs);
   sumRow('Số ô KHỚP',R.okCells);
@@ -19530,37 +19545,43 @@ function payVerifyExportBB(){
   const dCells=R.cells.filter(c=>c.xls==null);
   sumRow('Ô trống/không phải số — lỗi file (Phần D)',dCells.length);
   push([]);
-  wide('PHẦN B — CHI TIẾT Ô LỆCH (app KHÔNG tự sửa — hai bộ phận rà từng dòng, chọn Phân loại + ghi nguyên nhân)');
-  push(['STT','MSNV','Họ tên','Chỉ tiêu','Cột Excel nguồn','Số APP','Số EXCEL','Lệch (Excel−App)','Phân loại (chọn 1)*','Ghi chú nguyên nhân — bộ phận rà điền']);
+  wide(SB('PHẦN B — CHI TIẾT Ô LỆCH (app KHÔNG tự sửa — hai bộ phận rà từng dòng, chọn Phân loại + ghi nguyên nhân)'));
+  push(['STT','MSNV','Họ tên','Chỉ tiêu','Cột Excel nguồn','Số APP','Số EXCEL','Lệch (Excel−App)','Phân loại (chọn 1)*','Ghi chú nguyên nhân — bộ phận rà điền'].map((t,i)=>HC(t,i>=5&&i<=7?'right':'left')));
   let stt=0, sumApp=0, sumXls=0, sumAbs=0;
   R.cells.filter(c=>!c.ok && c.xls!=null).forEach(c=>{
     stt++; const d=Math.round(c.xls-c.app);
     sumApp+=Math.round(c.app); sumXls+=Math.round(c.xls); sumAbs+=Math.abs(d);
-    push([stt,c.msnv,c.name||'',fLabel(c.key),colTitle(c.key),Math.round(c.app),Math.round(c.xls),d,'','']);
+    const bg=(stt%2===0&&styled)?EE.C.zebra:null;
+    push([DC(stt,{align:'center',bg}),DC(c.msnv,{bg}),DC(c.name||'',{bg}),DC(fLabel(c.key),{bg,color:'9C3A2E',bold:true}),DC(colTitle(c.key),{bg}),
+      DC(Math.round(c.app),{num:NUMF,align:'right',bg}),DC(Math.round(c.xls),{num:NUMF,align:'right',bg}),
+      DC(d,{num:NUMF,align:'right',bg,color:'9C3A2E',bold:true}),DC('',{bg}),DC('',{bg})]);
   });
-  if(!stt) wide('(Không có ô lệch số — mọi lệch nếu có nằm ở Phần C/D)');
-  else{ merges.push({s:{r:r,c:0},e:{r:r,c:4}}); push(['TỔNG LỆCH TUYỆT ĐỐI','','','','',sumApp,sumXls,sumAbs,'','']); }
-  wide('* Phân loại: ① Khác định nghĩa cột · ② Khác công thức tính · ③ Lệch dữ liệu nguồn (thẻ lương/BCC/phát sinh) · ④ Lỗi file Excel · ⑤ Nghi sai app (chuyển IT kiểm engine) · ⑥ Khác');
+  if(!stt) wide(DC('(Không có ô lệch số — mọi lệch nếu có nằm ở Phần C/D)'));
+  else{ merges.push({s:{r:r,c:0},e:{r:r,c:4}});
+    push([TC('TỔNG LỆCH TUYỆT ĐỐI','','','','',),'','','','',TC(sumApp,{num:NUMF,align:'right'}),TC(sumXls,{num:NUMF,align:'right'}),TC(sumAbs,{num:NUMF,align:'right'}),TC(''),TC('')].slice(0,10)); }
+  wide(DC('* Phân loại: ① Khác định nghĩa cột · ② Khác công thức tính · ③ Lệch dữ liệu nguồn (thẻ lương/BCC/phát sinh) · ④ Lỗi file Excel · ⑤ Nghi sai app (chuyển IT kiểm engine) · ⑥ Khác',{color:'6B7280'}));
   push([]);
-  wide('PHẦN C — KHÔNG KHỚP HAI CHIỀU');
-  wide('C1 · Dòng Excel không khớp được NV trong kỳ app: '+(R.unmatchedXls.length?R.unmatchedXls.map(u=>u.label||String(u)).join(' · '):'(không có)'));
-  wide('C2 · NV có lương trong app nhưng VẮNG trong Excel: '+(R.missingXls.length?R.missingXls.join(' · '):'(không có)'));
+  wide(SB('PHẦN C — KHÔNG KHỚP HAI CHIỀU'));
+  wide(DC('C1 · Dòng Excel không khớp được NV trong kỳ app: '+(R.unmatchedXls.length?R.unmatchedXls.map(u=>u.label||String(u)).join(' · '):'(không có)'),{wrap:true}));
+  wide(DC('C2 · NV có lương trong app nhưng VẮNG trong Excel: '+(R.missingXls.length?R.missingXls.join(' · '):'(không có)'),{wrap:true}));
   push([]);
-  wide('PHẦN D — Ô TRỐNG/KHÔNG PHẢI SỐ (lỗi file — Nhân sự sửa file gốc)');
-  wide(dCells.length?dCells.map(c=>c.msnv+' — '+(c.name||'')+': ô '+fLabel(c.key)).join(' · '):'(không có)');
+  wide(SB('PHẦN D — Ô TRỐNG/KHÔNG PHẢI SỐ (lỗi file — Nhân sự sửa file gốc)'));
+  wide(DC(dCells.length?dCells.map(c=>c.msnv+' — '+(c.name||'')+': ô '+fLabel(c.key)).join(' · '):'(không có)',{wrap:true}));
   push([]);
-  wide('PHẦN E — THỐNG NHẤT XỬ LÝ');
-  wide('Hai bộ phận thống nhất hạn rà xong các dòng Phần B: ngày ____ / ____ / ______. Kỳ lương CHỈ được Chuyển kế toán khi đối chiếu lại đạt KHỚP 100%.');
+  wide(SB('PHẦN E — THỐNG NHẤT XỬ LÝ'));
+  wide(DC('Hai bộ phận thống nhất hạn rà xong các dòng Phần B: ngày ____ / ____ / ______. Kỳ lương CHỈ được Chuyển kế toán khi đối chiếu lại đạt KHỚP 100%.'));
   push([]);
   merges.push({s:{r:r,c:0},e:{r:r,c:2}},{s:{r:r,c:3},e:{r:r,c:5}},{s:{r:r,c:6},e:{r:r,c:9}});
-  push(['NGƯỜI LẬP (Kế toán)','','','NHÂN SỰ','','','KẾ TOÁN TRƯỞNG','','','']);
+  push([DC('NGƯỜI LẬP (Kế toán)',{bold:true,align:'center'}),'','',DC('NHÂN SỰ',{bold:true,align:'center'}),'','',DC('KẾ TOÁN TRƯỞNG',{bold:true,align:'center'})]);
   merges.push({s:{r:r,c:0},e:{r:r,c:2}},{s:{r:r,c:3},e:{r:r,c:5}},{s:{r:r,c:6},e:{r:r,c:9}});
-  push(['(Ký, họ tên)','','','(Ký, họ tên)','','','(Ký, họ tên)','','','']);
-  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  push([DC('(Ký, họ tên)',{align:'center',color:'6B7280'}),'','',DC('(Ký, họ tên)',{align:'center',color:'6B7280'}),'','',DC('(Ký, họ tên)',{align:'center',color:'6B7280'})]);
+  const U=styled?XS.utils:XLSX.utils;
+  const ws=U.aoa_to_sheet(aoa);
   ws['!merges']=merges;
-  ws['!cols']=[{wch:6},{wch:10},{wch:22},{wch:12},{wch:26},{wch:14},{wch:14},{wch:14},{wch:18},{wch:42}];
-  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Biên bản lệch');
-  XLSX.writeFile(wb,bbNo+'.xlsx');
+  ws['!cols']=[{wch:14},{wch:11},{wch:22},{wch:12},{wch:26},{wch:14},{wch:14},{wch:15},{wch:18},{wch:42}];
+  ws['!rows']=aoa.map((_,i)=>({hpt:(i===3)?24:((i===4)?20:15)}));
+  const wb=U.book_new(); U.book_append_sheet(wb,ws,'Biên bản lệch');
+  (styled?XS:XLSX).writeFile(wb,bbNo+'.xlsx');
   try{ _payAudit(p,'verify_bb','Xuất biên bản đối chiếu '+bbNo+' ('+R.verdict+', '+R.diffs+' ô lệch)'); if(L.rec){ L.rec.bbNo=bbNo; L.rec.bbAt=new Date().toISOString(); } saveState(); }catch(e){}
   toast('📤 Đã xuất '+bbNo+'.xlsx','good');
 }
@@ -19907,25 +19928,39 @@ function _payFlowWizard(p, id, projBtn){
   const rowsN=(p.rows||[]).length;
   const s1=!!p.attSource || rowsN>0;
   const spAble=['office','crew','tech','crew_khoan','office_gross','project'].indexOf(p.profile)>=0;
-  const s2=!spAble || (p.rows||[]).some(r=>r&&r.spSource);
-  const s3=(p.rows||[]).some(r=>r&&r.result&&Object.keys(r.result).length>0);
+  /* v3.15.43 RÀ SOÁT W1: some→EVERY — kéo BCC lại thêm người, NV mới CHƯA có mức mà B2 vẫn ✓
+     → tính ra 0 lặng lẽ. Nay mọi dòng phải có spSource (NV giữ mức tay: mở màn Kéo thẻ bấm Giữ tay
+     vẫn được set spSource — đã kiểm code apply; chỉ NV chưa thẻ/mới thêm mới bị ⚠). */
+  const spMiss=spAble?(p.rows||[]).filter(r=>r&&!r.spSource).length:0;
+  const s2=!spAble || (rowsN>0 && spMiss===0);
+  /* v3.15.43 RÀ SOÁT W2: some→EVERY — dòng NV mới thêm chưa Tính mà B3 vẫn ✓. */
+  const cmpMiss=(p.rows||[]).filter(r=>r&&!(r.result&&Object.keys(r.result).length>0)).length;
+  const s3=rowsN>0 && cmpMiss===0;
   const s4=payStatusIdx(p.status)>=payStatusIdx('validated');
-  const canV=(typeof FLAG_PAY_VERIFY!=='undefined'&&FLAG_PAY_VERIFY&&(isAdmin()||canCheckAcc()||payHrCanViewPayroll()));
-  const s5=(typeof _pvGateCheck==='function')?(_pvGateCheck(p)===null && !!(S.payVerifySheets||[]).find(v=>v&&v.periodId===p.id&&!v._deleted)):false;
+  /* v3.15.43 RÀ SOÁT W3: tách CỔNG (s5ok) khỏi QUYỀN (canV) — trước đây flag tắt hoặc người không
+     quyền verify làm cur=-1: KHÔNG còn nút primary nào (deadlock UI). Flag tắt → B5 tự ✓ 'cổng tắt';
+     người thiếu quyền → B5 mờ ghi rõ cần ai chạy, B6 vẫn theo cổng thật (_pvGateCheck). */
+  const flagOn=(typeof FLAG_PAY_VERIFY!=='undefined'&&FLAG_PAY_VERIFY);
+  const canV=flagOn&&(isAdmin()||canCheckAcc()||payHrCanViewPayroll());
+  const gateOk=(typeof _pvGateCheck==='function')?(_pvGateCheck(p)===null):true;
+  const hasRec=!!(S.payVerifySheets||[]).find(v=>v&&v.periodId===p.id&&!v._deleted);
+  const s5=!flagOn || (gateOk && hasRec);
   const steps=[
     {ic:'📥',t:'Kéo chấm công',done:s1,ok:true,fn:`payPullAttendance('${id}')`,sub:s1?(rowsN+' NV'):'',need:'Cần BCC tháng đã KHÓA trong HRM',redo:'Kéo lại (roster/công đổi theo BCC)'},
-    {ic:'🪪',t:'Kéo thẻ lương',done:s2,ok:s1,fn:`payPullSalaryProfiles('${id}')`,sub:(!spAble?'nhóm này không dùng thẻ':''),need:'Làm sau khi Kéo chấm công',redo:'Kéo lại mức từ thẻ hiệu lực'},
-    {ic:'⚡',t:s3?'Tính lại':'Tính cả bảng',done:s3,ok:s1&&s2,fn:`payPeriodComputeAll('${id}')`,need:'Cần công (①) + mức (②)',redo:'Tính lại toàn bộ (làm hết hiệu lực đối chiếu ⑤)'},
+    {ic:'🪪',t:'Kéo thẻ lương',done:s2,ok:s1,fn:`payPullSalaryProfiles('${id}')`,sub:(!spAble?'nhóm này không dùng thẻ':(spMiss?('⚠ '+spMiss+' NV chưa đổ mức'):'')),need:'Làm sau khi Kéo chấm công',redo:'Kéo lại mức từ thẻ hiệu lực'},
+    {ic:'⚡',t:s3?'Tính lại':'Tính cả bảng',done:s3,ok:s1&&s2,fn:`payPeriodComputeAll('${id}')`,sub:(!s3&&cmpMiss&&rowsN?('⚠ '+cmpMiss+' dòng chưa tính'):''),need:'Cần công (①) + mức (②)',redo:'Tính lại toàn bộ (làm hết hiệu lực đối chiếu ⑤)'},
     {ic:'✔',t:'Kiểm tra (Validate)',done:s4,ok:s3,fn:`payPeriodValidate('${id}')`,need:'Cần đã Tính (③)',redo:''},
-    {ic:'🔍',t:'Đối chiếu Excel HR',done:s5,ok:s3&&canV,fn:`payVerifyOpen('${id}')`,need:canV?'Cần đã Tính (③)':'Cần quyền xem lương',redo:'Đối chiếu lại / xem kết quả'},
+    {ic:'🔍',t:'Đối chiếu Excel HR',done:s5,ok:s3&&canV,fn:canV?`payVerifyOpen('${id}')`:'',sub:(!flagOn?'cổng tắt':''),need:flagOn?(canV?'Cần đã Tính (③)':'Cần admin/KT/HR-có-quyền-lương chạy đối chiếu'):'Cổng máy kiểm đang tắt',redo:'Đối chiếu lại / xem kết quả'},
     {ic:'📤',t:'Chuyển kế toán',done:false,ok:s4&&s5,fn:`payPeriodSubmit('${id}')`,need:'Cần Validate (④) + Đối chiếu KHỚP còn hiệu lực (⑤)',redo:''}
   ];
   let cur=-1;
   for(let i=0;i<steps.length;i++){ if(!steps[i].done && steps[i].ok){ cur=i; break; } }
+  /* v3.15.43 W3: mọi bước xong/kẹt quyền mà chưa tới đích → hiện ghi chú thay vì trống */
+  const stuckNote=(cur<0)?`<span style="font-size:11px;color:#9a5b12">⏸ ${!s5&&flagOn&&!canV?'Chờ người có quyền chạy Đối chiếu Excel HR (bước ⑤)':'Chờ điều kiện bước kế tiếp'}</span>`:'';
   const chip=(st,i)=>{
     const num='<span style="opacity:.75">'+(i+1)+'.</span> ';
     if(st.done && i!==cur) return `<button class="btn-ghost" style="font-size:11px;padding:3px 9px;border:1px solid #bfe3cd;border-radius:14px;background:#eafaf0;color:#1e7d44" ${st.fn?`onclick="${st.fn}"`:''} title="${esc(st.redo||'Đã xong')}">✓ ${num}${st.ic} ${st.t}${st.sub?(' · '+esc(st.sub)):''}</button>`;
-    if(i===cur) return `<button class="btn-primary" style="font-size:12px;padding:6px 14px" onclick="${st.fn}" title="${esc(st.need)}">${num}${st.ic} ${st.t}</button>`;
+    if(i===cur) return `<button class="btn-primary" style="font-size:12px;padding:6px 14px" onclick="${st.fn}" title="${esc(st.need)}">${num}${st.ic} ${st.t}${st.sub?(' <span style=\"font-size:10px;font-weight:400\">· '+esc(st.sub)+'</span>'):''}</button>`;
     return `<span style="font-size:11px;padding:3px 9px;border:1px dashed var(--rule);border-radius:14px;color:var(--muted);opacity:.65" title="${esc(st.need)}">${num}${st.ic} ${st.t}</span>`;
   };
   const arrow='<span style="color:var(--muted);font-size:11px">→</span>';
@@ -19936,7 +19971,7 @@ function _payFlowWizard(p, id, projBtn){
   if(projBtn) opt.push(projBtn);
   if(p.status==='validated') opt.push(`<button class="btn-ghost" style="font-size:10.5px;padding:2px 8px" onclick="payPeriodBack('${id}')">↩ Về Nháp</button>`);
   return `<div style="border:1px solid var(--rule);border-radius:10px;padding:8px 10px;margin-bottom:10px;background:#fbfcfe">
-    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${main}</div>
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${main}${stuckNote}</div>
     ${opt.length?`<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px;padding-top:6px;border-top:1px dashed var(--rule)"><span style="font-size:10px;color:var(--muted)">Tùy chọn:</span>${opt.join('')}</div>`:''}
   </div>`;
 }
@@ -21615,6 +21650,7 @@ function payApplyExtras(periodId){
     if(!ex.length && !(row.adjustments||[]).some(a=>a._extraId) && !row._extrasTaxApplied) return;
     try{ row.result=payComputeRow(p, row); n++; }catch(e){}
   });
+  if(n>0) _payAutoDraft(p,'Áp khoản phát sinh');   /* v3.15.44 R1 */
   _payAudit(p,'apply_extras','Áp khoản phát sinh · '+n+' NV'+(insWarn.length?(' · ⚠ BHXH cần chỉnh thẻ: '+insWarn.join(', ')):''));
   saveState(); openPayPeriodDetail(periodId);
   toast('Đã áp khoản phát sinh cho '+n+' NV'+(insWarn.length?(' · ⚠ '+insWarn.length+' NV có khoản tính BHXH — cập nhật thẻ lương/lương đóng BH tay'):''),'good');
@@ -21822,6 +21858,7 @@ function _payPullApply(periodId){
     try{ row.result=payComputeRow(p, row); }catch(e){}   /* v3.14.62: qua payComputeRow */
   });
   p.attSource={attId:att.id, attPeriod:att.period, pulledAt:new Date().toISOString(), pulledBy:(CURRENT_USER&&CURRENT_USER.name)||''};
+  _payAutoDraft(p,'Kéo chấm công');   /* v3.15.44 R1 */
   _payAudit(p,'pull_attendance','Kéo BCC '+att.period+' ('+(HRM_BCC_PROFILES[att.profile]||{}).label+') · '+nSet+' ô đổ · '+nKeep+' ô giữ tay'
     +(nAdd?(' · +'+nAdd+' người theo BCC: '+_addNames.join(', ')):'')
     +(nDrop?(' · −'+nDrop+' người ngoài BCC: '+_dropNames.join(', ')):''));   /* v3.14.82 */
@@ -25610,6 +25647,7 @@ function payToggleProjAllow(periodId){
   const on=!(p.projAllow===true);
   p.projAllow=on;
   (p.rows||[]).forEach(row=>{ try{ row.result=payComputeRow(p,row); }catch(e){} });
+  _payAutoDraft(p,(p.projAllow?'BẬT':'TẮT')+' PC dự án');   /* v3.15.44 R1 */
   _payAudit(p,'proj_allow', (on?'BẬT':'TẮT')+' PC dự án tháng cho cả kỳ (mức theo thẻ từng người, W engine)');
   saveState();
   if(window._projToggleFromList){ window._projToggleFromList=false; openPayrollPeriods(); }   /* v3.14.57: bấm từ danh sách → ở lại danh sách */
@@ -25672,6 +25710,7 @@ function _payPullSpApply(){
     row.spSource={profileId:it._pid, version:it._pver, pulledAt:new Date().toISOString(), pulledBy:(CURRENT_USER&&CURRENT_USER.name)||''};
     try{ row.result=payComputeRow(p, row); }catch(e){}
   });
+  _payAutoDraft(p,'Kéo thẻ lương');   /* v3.15.44 R1 */
   _payAudit(p,'pull_salary_profiles','Kéo thẻ lương · '+nSet+' ô đổ · '+nKeep+' giữ tay'+(nNoCard?(' · '+nNoCard+' NV chưa có thẻ'):''));
   saveState(); closeModal(); openPayPeriodDetail(p.id);
   toast('Đã kéo thẻ lương: '+nSet+' ô'+(nKeep?(' · '+nKeep+' giữ tay'):'')+(nNoCard?(' · ⚠ '+nNoCard+' NV chưa có thẻ lương'):''),'good');
@@ -25728,8 +25767,20 @@ function payRowSave(periodId, empId){
   openPayPeriodDetail(periodId);
   toast('Đã lưu & tính cho '+row.name,'good');
 }
+/* v3.15.44 R1 (Sếp duyệt 13/8): THAO TÁC ĐỔI DỮ LIỆU khi kỳ ĐÃ KIỂM TRA (validated/preview cổ)
+   → tự hạ về NHÁP + audit — dấu 'Đã kiểm tra' không được sống sót qua thay đổi dữ liệu.
+   Áp cho: Kéo chấm công · Kéo thẻ lương · Áp phát sinh · bật/tắt PC dự án · Tính lại. */
+function _payAutoDraft(p, why){
+  if(p && (p.status==='validated'||p.status==='preview')){
+    p.status='draft'; p.validationOk=false;
+    p.validationMsg='↩ Về Nháp tự động: '+why+' làm dữ liệu đổi — cần Kiểm tra (Validate) lại';
+    try{ _payAudit(p,'auto_draft','Tự về Nháp: '+why+' sau khi đã Kiểm tra'); }catch(e){}
+    try{ toast('↩ Kỳ về Nháp tự động ('+why+') — Kiểm tra lại trước khi trình','warn'); }catch(e){}
+  }
+}
 function payPeriodComputeAll(id){
   const p=payPeriodById(id); if(!p||p.status==='locked') return;
+  _payAutoDraft(p,'Tính lại toàn bộ');   /* v3.15.44 R1 */
   let cnt=0;
   const _blocked=[];
   (p.rows||[]).forEach(r=>{ if(r.inputs && Object.keys(r.inputs).length){
@@ -44350,7 +44401,24 @@ function renderBanking(){
              + '<button class="btn-primary" style="margin-top:10px;font-size:13px" onclick="loanFilterReset()">↺ Xóa lọc — xem tất cả '+loans.length+' khoản</button></div>';
       }
       loanBox.innerHTML = html;
-      _renderCreditAssess();   /* v3.14.08: khối Đánh giá tín dụng NH */
+      /* v3.15.46 T2 + v3.15.47 (Sếp check 13/8: 'App đã có sẵn, app tự lọc'): tự phân loại 🏦 theo
+         2 DANH MỤC NH SẴN CÓ trong app — ① khoản đã gán HẠN MỨC NH (facilityId); ② bên cho vay TRÙNG
+         TÊN với danh mục Tài khoản NH (Cash positions) hoặc Hạn mức tín dụng (khớp nguyên tên hoặc
+         tên + chi nhánh, VD 'BIDV Vũng Tàu' khớp 'BIDV'). Vẫn là liên kết dữ liệu nội bộ — không đoán
+         mờ; tên không có trong danh mục thì để lại chờ tick tay. Chạy mỗi render, chỉ ghi khi có đổi. */
+      { const _norm=s=>String(s||'').trim().toUpperCase();
+        const _dir=new Set();
+        try{ (AccountingService.bankAccounts()||[]).forEach(b=>{ const k=_norm(b&&b.bankName); if(k) _dir.add(k); }); }catch(e){}
+        try{ ((S.creditFacilities)||[]).forEach(f=>{ const k=_norm(f&&f.bankName); if(k) _dir.add(k); }); }catch(e){}
+        const _isBankName=nm=>{ const k=_norm(nm); if(!k) return false; if(_dir.has(k)) return true;
+          for(const d of _dir){ if(k.indexOf(d+' ')===0) return true; } return false; };
+        let _ab=0;
+        AccountingService.loans().forEach(l=>{
+          if(!l||l.lenderType) return;
+          if(l.facilityId || _isBankName(_loanLenderKey(l))){ l.lenderType='bank'; try{touchRecord(l);}catch(e){} _ab++; }
+        });
+        if(_ab){ try{saveState();}catch(e){} toast('🏦 Tự phân loại '+_ab+' khoản vay theo danh mục NH sẵn có (hạn mức + tài khoản NH)','good'); } }
+      /* v3.15.46 ⓑ: khối Đánh giá tín dụng chuyển thành NÚT mở modal — không render inline nữa */
     }
   }
 }
@@ -44404,6 +44472,7 @@ function loanQuickAssignSave(loanId){
   const newFid=sel?(sel.value||null):null;
   commitMutation(()=>{
     l.facilityId=newFid;
+    if(newFid && !l.lenderType) l.lenderType='bank';   /* v3.15.46 T2: gán hạn mức NH ⇒ bên cho vay là NH (liên kết dữ liệu, không đoán tên) */
     try{ touchRecord(l); }catch(e){ l.updatedAt=new Date().toISOString(); }
   }, {action:'loan_assign_facility', fields:['loans'], onOk:()=>{
     closeModal();
@@ -45914,6 +45983,16 @@ function _loanModal(l){
         <input type="text" id="ln-bank" value="${esc(l.bankName||l.lender||'')}" placeholder="VRB, ACB, CHEN ZHIFU INV CO LTD...">
         <div style="font-size:10px;color:var(--muted);font-style:normal;margin-top:3px">App sẽ nhóm các khoản vay theo bên cho vay này</div>
       </div>
+      <div class="field"><!-- v3.15.45 GĐ-L1 (Sếp OK 13/8): PHÂN LOẠI bên cho vay — nền cho báo cáo chỉ-Ngân-hàng; không đoán theo tên -->
+        <label>Phân loại bên cho vay *</label>
+        <select id="ln-lendertype">
+          <option value="" ${!l.lenderType?'selected':''}>— Chưa phân loại —</option>
+          <option value="bank" ${l.lenderType==='bank'?'selected':''}>🏦 Ngân hàng</option>
+          <option value="company" ${l.lenderType==='company'?'selected':''}>🏢 Công ty</option>
+          <option value="person" ${l.lenderType==='person'?'selected':''}>👤 Cá nhân</option>
+        </select>
+        <div style="font-size:10px;color:var(--muted);font-style:normal;margin-top:3px">Đánh giá tín dụng NH & phí lãi/ngày CHỈ tính khoản 🏦</div>
+      </div>
       <div class="field">
         <label>Loại vay * <span style="color:var(--muted);text-transform:none;font-weight:400;font-size:10px">(theo số kỳ trả — gợi ý)</span></label>
         <select id="ln-type">
@@ -46050,6 +46129,7 @@ function _saveLoan(id){
   const err=document.getElementById('ln-err');
   err.textContent='';
   const bank=document.getElementById('ln-bank').value.trim();
+  let lenderType=(document.getElementById('ln-lendertype')||{}).value||'';   /* v3.15.45 GĐ-L1 */
   const type=document.getElementById('ln-type').value;
   const contract=document.getElementById('ln-contract').value.trim();
   const principal=+document.getElementById('ln-principal').value;
@@ -46097,7 +46177,7 @@ function _saveLoan(id){
     // Preserve paid status from old schedule
     const oldPaid={};
     (loan.paymentSchedule||[]).forEach(p=>{if(p.paid)oldPaid[p.period]=p;});
-    Object.assign(loan,{bankName:bank,lender:bank,loanType:type,contractNo:contract,principal:principalEff,ccy,interestRate:rate,termMonths:term,startDate:startEff,endDate:finalEnd,repayMethod:method,paymentFrequency,gracePeriodMonths,note,facilityId,drawdowns:draws,updatedAt:new Date().toISOString()});
+    Object.assign(loan,{bankName:bank,lender:bank,lenderType,loanType:type,contractNo:contract,principal:principalEff,ccy,interestRate:rate,termMonths:term,startDate:startEff,endDate:finalEnd,repayMethod:method,paymentFrequency,gracePeriodMonths,note,facilityId,drawdowns:draws,updatedAt:new Date().toISOString()});
     // v3.15.19: TK trích nợ (Sổ ngân hàng) + hoàn thiện khế ước nháp (tự gom từ giải ngân)
     loan.debitBankAccountId=((document.getElementById('ln-debitbank')||{}).value||'')||null;
     if(loan.kuDraft && rate>0 && term>0){ delete loan.kuDraft; try{ logAuditEvent('ku_draft_complete',{loanId:loan.id, contractNo:contract, actor:actorName()}); }catch(e){} }
@@ -46107,7 +46187,7 @@ function _saveLoan(id){
   } else {
     loan={
       id:'LOAN-'+uid().slice(-6),
-      bankName:bank, lender:bank, loanType:type, contractNo:contract,
+      bankName:bank, lender:bank, lenderType, loanType:type, contractNo:contract,
       principal:principalEff, ccy, interestRate:rate, termMonths:term,
       startDate:startEff, endDate:finalEnd, repayMethod:method,
       paymentFrequency, gracePeriodMonths,
@@ -62237,7 +62317,14 @@ function renderDashboard(){
   // Tính nhất quán với tab Ngân quỹ (loanRemainingPrincipal). Hiển thị TÁCH RIÊNG
   // khỏi "Phải trả người bán" — đúng bản chất kế toán (2 khoản mục khác nhau).
   const loansAll=AccountingService.loans().filter(l=>l && (l.status==='active'||!l.status));
-  const loanOutstanding=loansAll.reduce((s,l)=>s+toDisplay(loanRemainingPrincipal(l), l.ccy||'VND'),0);
+  /* v3.15.45 (Sếp 13/8): card DƯ NỢ chỉ 🏦 NGÂN HÀNG (lenderType) + thêm CHI PHÍ LÃI/NGÀY.
+     Khoản chưa phân loại KHÔNG cộng — cảnh báo kèm nút phân loại (không đoán theo tên).
+     'Dự kiến trả nợ vay tháng này' GIỮ mọi khoản — dòng tiền phải trả thì Cty/CN cũng phải trả. */
+  const loansBank=loansAll.filter(l=>l.lenderType==='bank');
+  const loansUnclassed=loansAll.filter(l=>!l.lenderType);
+  const loanUnclassedAmt=loansUnclassed.reduce((s,l)=>s+toDisplay(loanRemainingPrincipal(l), l.ccy||'VND'),0);
+  const loanOutstanding=loansBank.reduce((s,l)=>s+toDisplay(loanRemainingPrincipal(l), l.ccy||'VND'),0);
+  const _ipd=(typeof loanInterestPerDay==='function')?loanInterestPerDay():{vnd:0,usd:0};
   // Dự kiến trả nợ vay tháng này = các kỳ chưa trả, dueDate rơi vào tháng này (gốc + lãi)
   let loanDueThisMonth=0;
   loansAll.forEach(l=>{
@@ -62329,9 +62416,10 @@ function renderDashboard(){
     </div>
     <div class="kpi-grid" style="margin-top:0;border:none;border-top:1px solid var(--rule)">
       <div class="kpi" style="border-right:1px solid var(--rule);grid-column:span 2;cursor:pointer" onclick="navTo('banking')" title="Click để vào Ngân quỹ — Vốn vay">
-        <div class="kpi-label">Dư nợ vay ngân hàng</div>
+        <div class="kpi-label">Dư nợ vay ngân hàng 🏦</div>
         <div class="kpi-value" style="color:var(--accent)">${fmt(loanOutstanding)}</div>
-        <div class="kpi-sub">${loansAll.length} khoản vay · gốc còn lại</div>
+        <div class="kpi-sub">${loansBank.length} khoản 🏦 · gốc còn lại · <b>lãi ~${fmt(_ipd.vnd)}/ngày</b>${_ipd.usd?(' + '+_ipd.usd.toLocaleString('en-US')+' $/ngày'):''}</div>
+        ${loansUnclassed.length?`<div class="kpi-sub" style="color:#9a5b12">⚠ ${loansUnclassed.length} khoản chưa phân loại (${fmt(loanUnclassedAmt)}) — chưa tính <button class="btn-sec" style="font-size:9px;padding:0 6px" onclick="event.stopPropagation();loanLenderTypeBulk()">Phân loại</button></div>`:''}
       </div>
       <div class="kpi" style="background:${statusOk?'rgba(61,107,61,.06)':'rgba(168,54,43,.08)'};grid-column:span 2;text-align:center">
         <div class="kpi-label">= Dự kiến cuối kỳ (dòng tiền) · <span style="color:${statusColor}">${statusLabel}</span></div>
@@ -71257,6 +71345,309 @@ function _loanTermBucket(l){
   if(t<=60) return 'Trung hạn';
   return 'Dài hạn';   /* v3.14.21 (Sếp 05/8): tách 3 loại chuẩn TCTD — ngắn ≤12 · trung 12–60 · dài >60 tháng */
 }
+/* v3.15.45 GĐ-L2 LÕI — PHÍ LÃI VAY NGÂN HÀNG / NGÀY (phục vụ ĐƠN GIÁ CHI PHÍ NGÀY + card dashboard).
+   3 quy ước theo phương án đã trình Sếp 13/8 (mặc định — đổi được khi Sếp chốt khác):
+   ① dư nợ giảm theo NGÀY TRẢ THỰC (paidDate) — kỳ đến hạn chưa trả vẫn chịu lãi trên dư cũ;
+   ② ACT/365 thống nhất toàn app; ③ ngoại tệ TÁCH RIÊNG theo nguyên tệ, không cộng chéo.
+   CHỈ khoản 🏦 lenderType='bank'; khoản chưa phân loại KHÔNG tính (đếm cảnh báo, không đoán). */
+function _loanRateAt(l, d){
+  let best=l.startDate?String(l.startDate).slice(0,10):'0000', r=+l.interestRate||0;
+  (l.reschedules||[]).forEach(rs=>{
+    if(rs&&rs.action==='change_rate'&&rs.date&&(+rs.rate||0)>0){
+      const dd=String(rs.date).slice(0,10);
+      if(dd<=d && dd>=best){ best=dd; r=+rs.rate; }
+    }
+  });
+  return r;
+}
+function _loanPrincipalAt(l, d){
+  let rem=+l.principal||0;
+  (l.paymentSchedule||[]).forEach(p=>{
+    const pd=p&&p.paidDate?String(p.paidDate).slice(0,10):'';
+    if(pd && pd<=d) rem-=(+p.principal||0);
+  });
+  return Math.max(0, rem);
+}
+function loanInterestPerDay(dateISO){
+  const d=String(dateISO||new Date().toISOString()).slice(0,10);
+  const out={date:d, vnd:0, usd:0, byCcy:{}, byLender:{}, nLoans:0, unclassified:0};
+  (AccountingService.loans()||[]).forEach(l=>{
+    if(!l||(l.status&&l.status!=='active')) return;
+    const sd=l.startDate?String(l.startDate).slice(0,10):'';
+    if(sd && sd>d) return;
+    if(l.lenderType!=='bank'){ if(!l.lenderType) out.unclassified++; return; }
+    const rem=_loanPrincipalAt(l,d); if(rem<=0) return;
+    const r=_loanRateAt(l,d); if(r<=0) return;
+    const per=Math.round(rem*r/100/365*100)/100;   /* ACT/365 */
+    const c=(l.ccy||'VND').toUpperCase();
+    out.byCcy[c]=(out.byCcy[c]||0)+per;
+    const k=_loanLenderKey(l); out.byLender[k]=(out.byLender[k]||0)+per;
+    out.nLoans++;
+  });
+  out.vnd=Math.round(out.byCcy.VND||0); out.usd=Math.round((out.byCcy.USD||0)*100)/100;
+  return out;
+}
+/* ═══ v3.15.46 GĐ-L2 (Sếp OK 13/8) — MODAL ĐÁNH GIÁ + SỔ CHI PHÍ LÃI VAY NGÂN HÀNG ═══ */
+function creditAssessOpen(){
+  openModal('📊 Đánh giá tín dụng ngân hàng',
+    `<div id="credit-assess"></div><div id="ca-wair" style="margin-top:14px"></div>`,
+    `<button class="btn-ghost" onclick="closeModal()">Đóng</button>`);
+  try{ setModalWide(true); }catch(e){}
+  _renderCreditAssess();
+  try{ document.getElementById('ca-wair').innerHTML=_loanWairChart(new Date().getFullYear()); }catch(e){}
+}
+/* WAIR CUỐI THÁNG từng NH (chỉ 🏦, VND) = Σ(dư(d)×LS(d))/Σdư(d) tại ngày cuối tháng — số thực từ lõi GĐ-L2 */
+function _loanWairMonthly(Y){
+  const banks={};
+  (AccountingService.loans()||[]).forEach(l=>{
+    if(!l||(l.status&&l.status!=='active')||l.lenderType!=='bank'||(l.ccy||'VND')!=='VND') return;
+    (banks[_loanLenderKey(l)]=banks[_loanLenderKey(l)]||[]).push(l);
+  });
+  const today=new Date().toISOString().slice(0,10);
+  const out={lenders:Object.keys(banks).sort(), months:[]};
+  for(let m=1;m<=12;m++){
+    const d=new Date(Date.UTC(Y,m,0)).toISOString().slice(0,10);   /* ngày cuối tháng m */
+    if(d>today){ out.months.push(null); continue; }
+    const row={};
+    out.lenders.forEach(k=>{
+      let sw=0,sr=0;
+      banks[k].forEach(l=>{
+        const sd=l.startDate?String(l.startDate).slice(0,10):''; if(sd&&sd>d) return;
+        const rem=_loanPrincipalAt(l,d); if(rem<=0) return;
+        sr+=rem; sw+=rem*_loanRateAt(l,d);
+      });
+      row[k]=sr>0?(sw/sr):null;
+    });
+    out.months.push(row);
+  }
+  return out;
+}
+function _loanWairChart(Y){
+  const W=_loanWairMonthly(Y);
+  if(!W.lenders.length) return '';
+  const PAL=['#4472c4','#c0504d','#9bbb59','#8064a2','#4bacc6','#f79646','#2c4d75','#772c2a'];
+  const vals=[]; W.months.forEach(r=>{ if(r) W.lenders.forEach(k=>{ if(r[k]!=null) vals.push(r[k]); }); });
+  if(!vals.length) return '';
+  const vmax=Math.max(...vals)*1.15, vmin=Math.max(0,Math.min(...vals)*0.85);
+  const X0=46,Y0=14,PW=920,PH=150;
+  const yOf=v=>Y0+PH-((v-vmin)/(vmax-vmin||1))*PH;
+  let svg='';
+  const asBars=W.lenders.length<=5;
+  if(asBars){
+    W.months.forEach((r,mi)=>{
+      if(!r) return;
+      const cx=X0+PW/12*mi+PW/24;
+      const bw=Math.min(14,(PW/12-8)/W.lenders.length);
+      W.lenders.forEach((k,li)=>{ const v=r[k]; if(v==null) return;
+        const x=cx-(W.lenders.length*bw)/2+li*bw;
+        svg+=`<rect x="${x.toFixed(1)}" y="${yOf(v).toFixed(1)}" width="${(bw-1.5).toFixed(1)}" height="${(Y0+PH-yOf(v)).toFixed(1)}" fill="${PAL[li%8]}"><title>${esc(k)} · T${mi+1}: ${v.toFixed(2)}%/năm</title></rect>`; });
+    });
+  } else {
+    W.lenders.forEach((k,li)=>{
+      const pts=[]; W.months.forEach((r,mi)=>{ if(r&&r[k]!=null) pts.push((X0+PW/12*mi+PW/24).toFixed(1)+','+yOf(r[k]).toFixed(1)); });
+      if(pts.length>1) svg+=`<polyline points="${pts.join(' ')}" fill="none" stroke="${PAL[li%8]}" stroke-width="2"><title>${esc(k)}</title></polyline>`;
+    });
+  }
+  let ax=''; for(let m=0;m<12;m++) ax+=`<text x="${(X0+PW/12*m+PW/24).toFixed(0)}" y="${Y0+PH+14}" text-anchor="middle" font-size="10" fill="var(--muted)">T${m+1}</text>`;
+  const leg=W.lenders.map((k,li)=>`<span style="font-size:10.5px;margin-right:10px"><span style="display:inline-block;width:9px;height:9px;background:${PAL[li%8]};border-radius:2px;margin-right:4px"></span>${esc(k)}</span>`).join('');
+  return `<div style="border:1px solid var(--rule);border-radius:8px;padding:10px">
+    <div style="text-align:center;font-weight:600;font-size:12px;margin-bottom:2px">Lãi suất BQ gia quyền (WAIR) cuối tháng theo NH — ${Y} (%/năm, VND)</div>
+    <div style="text-align:center;margin-bottom:4px">${leg}</div>
+    <svg viewBox="0 0 990 ${Y0+PH+22}" style="width:100%">${svg}${ax}</svg>
+    <div style="font-size:10px;color:var(--muted)">= Σ(dư nợ × LS hiệu lực) ÷ Σ dư nợ tại ngày cuối tháng — từ lịch trả thực (paidDate) + sự kiện đổi lãi suất.${asBars?'':' (>5 NH: hiển thị dạng đường)'}</div></div>`;
+}
+/* KHỐI 1 SỔ: lãi theo NH × 12 tháng — dùng ĐÚNG số interest trong lịch trả (nguồn Đánh giá tín dụng, không tính mới) */
+function _loanInterestMonthly(Y, ccy){
+  const lenders={};
+  (AccountingService.loans()||[]).forEach(l=>{
+    if(!l||l.lenderType!=='bank') return;
+    if((l.ccy||'VND')!==ccy) return;
+    const k=_loanLenderKey(l);
+    (l.paymentSchedule||[]).forEach(p=>{
+      const dd=String((p&&p.dueDate)||''); if(dd.slice(0,4)!==String(Y)) return;
+      const m=+dd.slice(5,7); const it=+p.interest||0; if(!it||!m) return;
+      const o=(lenders[k]=lenders[k]||{m:Array(13).fill(0),paid:Array(13).fill(0),due:Array(13).fill(0),tot:0});
+      o.m[m]+=it; o.tot+=it;
+      if(p.paidDate) o.paid[m]+=it; else o.due[m]+=it;
+    });
+  });
+  return lenders;
+}
+/* SERIES PHÍ/NGÀY + SỰ KIỆN BIẾN ĐỘNG trong năm (chỉ 🏦) */
+function _loanDailySeries(Y){
+  const today=new Date().toISOString().slice(0,10);
+  const end=(String(Y)===today.slice(0,4))?today:(String(Y)+'-12-31');
+  const days=[], events=[];
+  let d=new Date(String(Y)+'-01-01T00:00:00Z'); let prev=null;
+  const evOf=(iso)=>{
+    const labs=[];
+    (AccountingService.loans()||[]).forEach(l=>{
+      if(!l||l.lenderType!=='bank') return;
+      const nm=_loanLenderKey(l)+(l.contractNo?(' · '+l.contractNo):'');
+      if(String(l.startDate||'').slice(0,10)===iso) labs.push({t:'💳 Vay mới/giải ngân',nm,r:_loanRateAt(l,iso)});
+      (l.paymentSchedule||[]).forEach(p=>{ if(p&&(+p.principal||0)>0&&String(p.paidDate||'').slice(0,10)===iso) labs.push({t:'💰 Trả gốc',nm,r:_loanRateAt(l,iso)}); });
+      (l.reschedules||[]).forEach(rs=>{ if(rs&&rs.action==='change_rate'&&String(rs.date||'').slice(0,10)===iso) labs.push({t:'📈 Đổi lãi suất → '+(+rs.rate||0)+'%',nm,r:+rs.rate||0}); });
+    });
+    return labs;
+  };
+  while(true){
+    const iso=d.toISOString().slice(0,10);
+    if(iso>end) break;
+    const o=loanInterestPerDay(iso);
+    days.push({d:iso, vnd:o.vnd, usd:o.usd});
+    if(prev && (o.vnd!==prev.vnd || o.usd!==prev.usd)){
+      events.push({d:iso, labs:evOf(iso), from:prev.vnd, to:o.vnd, fromU:prev.usd, toU:o.usd});
+    }
+    prev={vnd:o.vnd, usd:o.usd};
+    d=new Date(d.getTime()+86400000);
+  }
+  return {days, events, last:prev};
+}
+function loanCostBookOpen(){
+  if(!isAdmin() && !canCheckAcc()){ toast('Chỉ admin/kế toán','bad'); return; }
+  const Y=window._lcbYear||new Date().getFullYear();
+  window._lcbYear=Y;
+  const nNonBank=(AccountingService.loans()||[]).filter(l=>l&&(l.lenderType==='company'||l.lenderType==='person')).length;
+  const unclassed=(AccountingService.loans()||[]).filter(l=>l&&!l.lenderType&&(l.status==='active'||!l.status)).length;
+  const fmtV=v=>_negU(Math.round(v).toLocaleString('vi-VN'));
+  const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const PAL=['#4472c4','#c0504d','#9bbb59','#8064a2','#4bacc6','#f79646','#2c4d75','#772c2a'];
+  const S1=_loanDailySeries(Y);
+  const ipdNow=S1.last||{vnd:0,usd:0};
+  const avg=S1.days.length?Math.round(S1.days.reduce((t,x)=>t+x.vnd,0)/S1.days.length):0;
+  const mn=S1.days.length?S1.days.reduce((a,b)=>a.vnd<=b.vnd?a:b):null;
+  const mx=S1.days.length?S1.days.reduce((a,b)=>a.vnd>=b.vnd?a:b):null;
+  const buildTable=(ccy)=>{
+    const L=_loanInterestMonthly(Y,ccy);
+    const keys=Object.keys(L).sort((a,b)=>L[b].tot-L[a].tot);
+    if(!keys.length) return {html:'',keys:[],L,g:Array(13).fill(0),gt:0};
+    const fmt=ccy==='VND'?fmtV:(v=>_negU((Math.round(v*100)/100).toLocaleString('en-US')));
+    const g=Array(13).fill(0), gp=Array(13).fill(0), gd=Array(13).fill(0); let gt=0;
+    keys.forEach(k=>{ for(let m=1;m<=12;m++){ g[m]+=L[k].m[m]; gp[m]+=L[k].paid[m]; gd[m]+=L[k].due[m]; } gt+=L[k].tot; });
+    const tr=keys.map((k,i)=>`<tr><td style="white-space:nowrap;padding:3px 6px;border-bottom:1px solid var(--rule)"><span style="display:inline-block;width:9px;height:9px;background:${PAL[i%8]};border-radius:2px;margin-right:5px"></span><b>${esc(k)}</b></td>${Array.from({length:12},(_,m)=>`<td style="padding:3px 5px;text-align:right;font-family:monospace;border-bottom:1px solid var(--rule)">${L[k].m[m+1]?fmt(L[k].m[m+1]):'–'}</td>`).join('')}<td style="padding:3px 6px;text-align:right;font-family:monospace;border-bottom:1px solid var(--rule)"><b>${fmt(L[k].tot)}</b></td></tr>`).join('');
+    const html=`<div style="overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:11px;border:1px solid var(--rule)">
+      <thead><tr style="background:var(--rule)"><th style="padding:4px 6px;text-align:left">Ngân hàng (${ccy})</th>${MON.map(m=>`<th style="padding:4px 5px;text-align:right">${m}</th>`).join('')}<th style="padding:4px 6px;text-align:right">Grand Total</th></tr></thead>
+      <tbody>${tr}
+      <tr style="background:#eef4fb;font-weight:700;border-top:2px solid var(--rule)"><td style="padding:3px 6px">Grand Total</td>${Array.from({length:12},(_,m)=>`<td style="padding:3px 5px;text-align:right;font-family:monospace">${g[m+1]?fmt(g[m+1]):'–'}</td>`).join('')}<td style="padding:3px 6px;text-align:right;font-family:monospace">${fmt(gt)}</td></tr>
+      <tr style="color:var(--good);font-size:10px"><td style="padding:2px 6px">· trong đó ĐÃ TRẢ</td>${Array.from({length:12},(_,m)=>`<td style="padding:2px 5px;text-align:right;font-family:monospace">${gp[m+1]?fmt(gp[m+1]):'–'}</td>`).join('')}<td style="padding:2px 6px;text-align:right;font-family:monospace">${fmt(gp.reduce((t,v)=>t+v,0))}</td></tr>
+      <tr style="color:var(--warn);font-size:10px"><td style="padding:2px 6px">· còn PHẢI TRẢ</td>${Array.from({length:12},(_,m)=>`<td style="padding:2px 5px;text-align:right;font-family:monospace">${gd[m+1]?fmt(gd[m+1]):'–'}</td>`).join('')}<td style="padding:2px 6px;text-align:right;font-family:monospace">${fmt(gd.reduce((t,v)=>t+v,0))}</td></tr></tbody></table></div>`;
+    return {html,keys,L,g,gt};
+  };
+  const TV=buildTable('VND'), TU=buildTable('USD');
+  let chart='';
+  if(TV.keys.length){
+    const gmax=Math.max(...TV.g.slice(1))||1;
+    const X0=30,PW=900,PH=170,YT=12;
+    let bars='',line=''; const pts=[];
+    for(let m=1;m<=12;m++){
+      const cx=X0+PW/12*(m-1)+10, bw=PW/12-20;
+      let acc=0;
+      TV.keys.forEach((k,i)=>{ const v=TV.L[k].m[m]; if(!v) return;
+        const hh=v/gmax*PH; acc+=hh;
+        bars+=`<rect x="${cx.toFixed(1)}" y="${(YT+PH-acc).toFixed(1)}" width="${bw.toFixed(1)}" height="${hh.toFixed(1)}" fill="${PAL[i%8]}"><title>${esc(k)} · ${MON[m-1]}: ${fmtV(v)}đ</title></rect>`; });
+      if(TV.g[m]) pts.push((cx+bw/2).toFixed(1)+','+(YT+PH-TV.g[m]/gmax*PH-3).toFixed(1));
+    }
+    if(pts.length>1) line=`<polyline points="${pts.join(' ')}" fill="none" stroke="#ed7d31" stroke-width="2.5"/>`;
+    let ax=''; for(let m=0;m<12;m++) ax+=`<text x="${(X0+PW/12*m+PW/24).toFixed(0)}" y="${YT+PH+14}" text-anchor="middle" font-size="10" fill="var(--muted)">${MON[m]}</text>`;
+    chart=`<div style="flex:2;min-width:420px;border:1px solid var(--rule);border-radius:8px;padding:8px"><div style="text-align:center;font-weight:600;font-size:12px">Chi phí lãi vay NH ${Y} (VND) — cột chồng theo NH + đường tổng</div><svg viewBox="0 0 950 ${YT+PH+20}" style="width:100%">${bars}${line}${ax}</svg></div>`;
+  }
+  let donut='';
+  if(TV.keys.length&&TV.gt>0){
+    let acc=0; const segs=TV.keys.map((k,i)=>{ const a0=acc/TV.gt*360; acc+=TV.L[k].tot; const a1=acc/TV.gt*360; return `${PAL[i%8]} ${a0.toFixed(1)}deg ${a1.toFixed(1)}deg`; }).join(',');
+    const leg=TV.keys.map((k,i)=>`<div style="font-size:10.5px"><span style="display:inline-block;width:9px;height:9px;background:${PAL[i%8]};border-radius:2px;margin-right:4px"></span>${esc(k)} <b>${Math.round(TV.L[k].tot/TV.gt*100)}%</b></div>`).join('');
+    donut=`<div style="flex:1;min-width:230px;border:1px solid var(--rule);border-radius:8px;padding:8px"><div style="text-align:center;font-weight:600;font-size:12px;margin-bottom:6px">Tỷ trọng lãi ${Y}</div><div style="display:flex;gap:12px;align-items:center;justify-content:center"><div style="width:120px;height:120px;border-radius:50%;background:conic-gradient(${segs});position:relative"><div style="position:absolute;inset:32px;border-radius:50%;background:var(--paper,#fff)"></div></div><div>${leg}</div></div></div>`;
+  }
+  let stepChart='';
+  if(S1.days.length>1){
+    const vmax=Math.max(...S1.days.map(x=>x.vnd))*1.1||1;
+    const X0=10,PW=940,PH=90,YT=8;
+    const pts=S1.days.map((x,i)=>(X0+i/(S1.days.length-1)*PW).toFixed(1)+','+(YT+PH-x.vnd/vmax*PH).toFixed(1)).join(' ');
+    stepChart=`<div style="border:1px solid var(--rule);border-radius:8px;padding:8px;margin-bottom:8px"><svg viewBox="0 0 960 ${YT+PH+10}" style="width:100%"><polyline points="${pts}" fill="none" stroke="#2a5a8c" stroke-width="2"/></svg><div style="font-size:10px;color:var(--muted);text-align:center">Phí lãi/ngày (VND) từ 01/01 → nay — mỗi bậc = một sự kiện bên dưới</div></div>`;
+  }
+  const evRows=S1.events.map(e=>{
+    const lab=e.labs.length?e.labs.map(x=>x.t+' <span style="color:var(--muted)">('+esc(x.nm)+')</span>').join('<br>'):'(thay đổi dư/lãi suất)';
+    const rate=(e.labs.length===1&&e.labs[0].r)?(e.labs[0].r.toFixed(2)+'%'):'—';
+    const dv=e.to-e.from;
+    return `<tr><td style="white-space:nowrap;padding:3px 6px;border-bottom:1px solid var(--rule);font-family:monospace">${e.d.slice(8,10)}/${e.d.slice(5,7)}</td><td style="padding:3px 6px;border-bottom:1px solid var(--rule)">${lab}</td><td style="padding:3px 6px;text-align:right;font-family:monospace;border-bottom:1px solid var(--rule)">${rate}</td><td style="padding:3px 6px;text-align:right;font-family:monospace;border-bottom:1px solid var(--rule)">${fmtV(e.from)} → <b>${fmtV(e.to)}</b>${(e.toU!==e.fromU)?('<div style="font-size:9px">$ '+e.fromU+' → '+e.toU+'</div>'):''}</td><td style="padding:3px 6px;text-align:right;font-family:monospace;border-bottom:1px solid var(--rule);color:${dv>0?'var(--bad)':'var(--good)'};font-weight:700">${dv>0?'+':''}${fmtV(dv)}</td></tr>`;
+  }).join('');
+  const body=`
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+      <label style="font-size:12px">Năm:</label>
+      <select onchange="window._lcbYear=+this.value;loanCostBookOpen()" style="font-size:12px;padding:4px 8px;border:1px solid var(--rule);border-radius:6px">${[Y-2,Y-1,Y,Y+1].filter(y=>y>=2024).map(y=>`<option value="${y}" ${y===Y?'selected':''}>${y}</option>`).join('')}</select>
+      <span style="font-size:11px;color:var(--muted)">Chỉ khoản 🏦 NGÂN HÀNG${nNonBank?(' · đã loại '+nNonBank+' khoản Cty/CN'):''}${unclassed?(' · <b style="color:#9a5b12">⚠ '+unclassed+' chưa phân loại</b> <button class="btn-sec" style="font-size:10px;padding:0 6px" onclick="loanLenderTypeBulk()">Phân loại</button>'):''} · KHỐI 1 = lãi theo lịch trả (số đã tính sẵn) · KHỐI 2 = dư × LS ÷ 365 (ACT/365)</span>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+      <div style="flex:1;min-width:170px;border:1px solid var(--rule);border-radius:10px;padding:8px 10px">Phí lãi/ngày HÔM NAY<br><b style="font-size:16px">${fmtV(ipdNow.vnd)} đ</b>${ipdNow.usd?('<div style="font-size:10px">+ '+ipdNow.usd.toLocaleString('en-US')+' $/ngày (tách riêng)</div>'):''}<div style="font-size:9.5px;color:var(--muted)">phục vụ ĐƠN GIÁ CHI PHÍ NGÀY</div></div>
+      <div style="flex:1;min-width:170px;border:1px solid var(--rule);border-radius:10px;padding:8px 10px">BQ năm ${Y}<br><b style="font-size:16px">${fmtV(avg)} đ/ngày</b><div style="font-size:9.5px;color:var(--muted)">${mn?('min '+fmtV(mn.vnd)+' ('+mn.d.slice(5)+')'):''}${mx?(' — max '+fmtV(mx.vnd)+' ('+mx.d.slice(5)+')'):''}</div></div>
+      <div style="flex:1;min-width:170px;border:1px solid var(--rule);border-radius:10px;padding:8px 10px">Tổng lãi năm (VND)<br><b style="font-size:16px">${fmtV(TV.gt||0)} đ</b><div style="font-size:9.5px;color:var(--muted)"><span style="color:var(--good)">đã trả</span> + <span style="color:var(--warn)">phải trả</span> — chi tiết bảng 1</div></div>
+    </div>
+    <div style="font-size:12.5px;font-weight:700;margin:6px 0 4px">1/ Chi phí lãi theo ngân hàng × 12 tháng — theo lịch trả từng khoản</div>
+    ${TV.html||'<div style="font-size:11px;color:var(--muted)">Chưa có khoản vay 🏦 VND có lãi trong năm '+Y+'.</div>'}
+    ${TU.html?('<div style="font-size:11px;font-weight:600;margin:8px 0 3px">Ngoại tệ USD (tách riêng — không cộng chéo)</div>'+TU.html):''}
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:10px">${chart}${donut}</div>
+    <div style="font-size:12.5px;font-weight:700;margin:14px 0 4px">2/ Biến động phí lãi/ngày — chỉ ngày có sự kiện (giải ngân · trả gốc · đổi lãi suất)</div>
+    ${stepChart}
+    <table style="width:100%;border-collapse:collapse;font-size:11px;border:1px solid var(--rule)">
+      <thead><tr style="background:var(--rule)"><th style="padding:4px 6px;text-align:left">Ngày</th><th style="padding:4px 6px;text-align:left">Sự kiện</th><th style="padding:4px 6px;text-align:right">LS</th><th style="padding:4px 6px;text-align:right">Phí/ngày cũ → mới</th><th style="padding:4px 6px;text-align:right">Δ</th></tr></thead>
+      <tbody>${evRows||'<tr><td colspan="5" style="padding:10px;text-align:center;color:var(--muted)">Chưa có biến động trong năm</td></tr>'}</tbody></table>
+    <div style="margin-top:12px">${_loanWairChart(Y)}</div>
+    <div style="font-size:10px;color:var(--muted);margin-top:8px">Nguyên tắc: dư nợ giảm theo NGÀY TRẢ THỰC (paidDate — kỳ đến hạn chưa trả vẫn chịu lãi) · ACT/365 · ngoại tệ tách nguyên tệ · khoản chưa phân loại KHÔNG tính. API cho màn đơn giá: loanInterestPerDay(ngày) → {vnd, usd, byLender}.</div>`;
+  openModal('📉 Sổ chi phí lãi vay ngân hàng '+Y, body,
+    `<button class="btn-ghost" onclick="closeModal()">Đóng</button>
+     <button class="btn-primary" onclick="loanCostBookExport()">⬇ Xuất Excel chuỗi ngày</button>`);
+  try{ setModalWide(true); }catch(e){}
+}
+function loanCostBookExport(){
+  const Y=window._lcbYear||new Date().getFullYear();
+  const S1=_loanDailySeries(Y);
+  if(!S1.days.length){ toast('Chưa có dữ liệu','warn'); return; }
+  const XS=window.XLSXStyle, EE=(typeof ExcelExporter!=='undefined')?ExcelExporter:null;
+  const styled=!!(XS&&EE&&(!EE.ready||EE.ready()));
+  const DC=(v,o)=>styled?EE.dataCell(v,o||{}):((v==null)?'':v);
+  const HC=t=>styled?EE.headerCell(t,'right'):t;
+  const lastBy=loanInterestPerDay(S1.days[S1.days.length-1].d).byLender;
+  const lenders=Object.keys(lastBy).sort();
+  const aoa=[[styled?ExcelExporter.title('CHUỖI PHÍ LÃI VAY NH THEO NGÀY — '+Y+' (đơn giá chi phí ngày · ACT/365 · paidDate thực)'):('CHUỖI PHÍ LÃI VAY NH THEO NGÀY — '+Y)]];
+  const merges=[{s:{r:0,c:0},e:{r:0,c:2+lenders.length}}];
+  aoa.push(['Ngày','Phí/ngày VND','Phí/ngày USD'].concat(lenders.map(k=>k+' (VND)')).map(HC));
+  S1.days.forEach((x,i)=>{
+    const by=loanInterestPerDay(x.d).byLender;
+    const bg=(styled&&i%2)?ExcelExporter.C.zebra:null;
+    aoa.push([DC(x.d,{bg}),DC(x.vnd,{num:'#,##0',align:'right',bg}),DC(x.usd||0,{num:'#,##0.00',align:'right',bg})]
+      .concat(lenders.map(k=>DC(Math.round(by[k]||0),{num:'#,##0',align:'right',bg}))));
+  });
+  const U=styled?XS.utils:XLSX.utils;
+  const ws=U.aoa_to_sheet(aoa); ws['!merges']=merges;
+  ws['!cols']=[{wch:12},{wch:15},{wch:13}].concat(lenders.map(()=>({wch:16})));
+  const wb=U.book_new(); U.book_append_sheet(wb,ws,'PhiLai_'+Y);
+  (styled?XS:XLSX).writeFile(wb,'PhiLaiVayNH_theo_ngay_'+Y+'.xlsx');
+  toast('⬇ Đã xuất chuỗi '+S1.days.length+' ngày','good');
+}
+/* v3.15.45 GĐ-L1: PHÂN LOẠI HÀNG LOẠT bên cho vay — gom theo lender, admin/KT tick 1 lần cho mọi
+   khoản của bên đó; không đoán theo tên. */
+function loanLenderTypeBulk(){
+  if(!isAdmin() && !canCheckAcc()){ toast('Chỉ admin/kế toán','bad'); return; }
+  const all=AccountingService.loans().filter(l=>l&&!l.lenderType);
+  if(!all.length){ toast('Mọi khoản vay đã phân loại ✓','good'); return; }
+  const byLender={};
+  all.forEach(l=>{ const k=_loanLenderKey(l); (byLender[k]=byLender[k]||[]).push(l); });
+  const rows=Object.keys(byLender).sort().map((k,i)=>`<tr style="border-bottom:1px solid var(--rule)">
+    <td style="padding:5px 8px"><b>${esc(k)}</b> <span style="font-size:10px;color:var(--muted)">· ${byLender[k].length} khoản</span></td>
+    <td style="padding:5px 8px"><select data-llt="${esc(k)}" style="font-size:11px;padding:3px 6px;border:1px solid var(--rule);border-radius:6px">
+      <option value="">— để sau —</option><option value="bank">🏦 Ngân hàng</option><option value="company">🏢 Công ty</option><option value="person">👤 Cá nhân</option></select></td></tr>`).join('');
+  openModal('🏷 Phân loại bên cho vay ('+Object.keys(byLender).length+' bên chưa khai)',
+    `<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Chọn loại cho từng BÊN CHO VAY — áp cho mọi khoản vay của bên đó. App không tự đoán theo tên.</div>
+     <table style="width:100%;border-collapse:collapse;font-size:12px;border:1px solid var(--rule)"><tbody>${rows}</tbody></table>`,
+    `<button class="btn-sec" onclick="closeModal()">Đóng</button><button class="btn-primary" onclick="loanLenderTypeBulkSave()">💾 Lưu phân loại</button>`);
+}
+function loanLenderTypeBulkSave(){
+  const sels=document.querySelectorAll('[data-llt]'); let nL=0,nK=0;
+  sels.forEach(s=>{ const k=s.getAttribute('data-llt'), v=s.value; if(!v) return;
+    AccountingService.loans().forEach(l=>{ if(l&&!l.lenderType&&_loanLenderKey(l)===k){ l.lenderType=v; try{touchRecord(l);}catch(e){} nK++; } }); nL++; });
+  if(!nL){ toast('Chưa chọn loại nào','warn'); return; }
+  saveState(); closeModal(); toast('Đã phân loại '+nL+' bên · '+nK+' khoản vay','good');
+  try{ _renderCreditAssess(); }catch(e){}
+}
 function _renderCreditAssess(){
   /* v3.14.21 (Sếp 05/8): TÁCH BẢNG theo loại vay — 🟢 NGẮN HẠN · 🟡 TRUNG HẠN · 🔴 DÀI HẠN (+ Chưa khai
      kỳ hạn nếu có) — bỏ cột Loại vay, mỗi phần một bảng riêng để so sánh đối chiếu CÙNG LOẠI.
@@ -71265,8 +71656,16 @@ function _renderCreditAssess(){
   if(!el) return;
   if(typeof _creditLenderInterestStats!=='function'){ el.innerHTML=''; return; }
   const Y=new Date().getFullYear();
-  const loans=AccountingService.loans().filter(l=>l && (l.status==='active'||!l.status));
-  if(!loans.length){ el.innerHTML=''; return; }
+  /* v3.15.45 GĐ-L1 (Sếp 13/8): CHỈ đánh giá NGÂN HÀNG — loại khoản vay Công ty/Cá nhân; chưa phân
+     loại thì KHÔNG đoán theo tên, hiện nút phân loại hàng loạt. */
+  const allActive=AccountingService.loans().filter(l=>l && (l.status==='active'||!l.status));
+  const loans=allActive.filter(l=>l.lenderType==='bank');
+  const nNonBank=allActive.filter(l=>l.lenderType==='company'||l.lenderType==='person').length;
+  const unclassed=allActive.filter(l=>!l.lenderType);
+  const _classNote='<div style="font-size:11px;color:var(--muted);margin:4px 0 8px">Chỉ khoản vay 🏦 NGÂN HÀNG'
+    +(nNonBank?(' · đã loại '+nNonBank+' khoản Cty/Cá nhân'):'')
+    +(unclassed.length?(' · <b style="color:#9a5b12">⚠ '+unclassed.length+' khoản chưa phân loại</b> <button class="btn-sec" style="font-size:10px;padding:1px 8px" onclick="loanLenderTypeBulk()">Phân loại ngay</button>'):'')+'</div>';
+  if(!loans.length){ el.innerHTML=(unclassed.length||nNonBank)?('<div class="section-head"><div class="section-title">📊 Đánh giá tín dụng ngân hàng</div></div>'+_classNote):''; return; }
   const _dArrow=(cur,prev)=>{ if(prev==null||cur==null) return '';
     const d=cur-prev; if(Math.abs(d)<0.005) return ' <span style="font-size:9px;color:var(--muted)">＝</span>';
     return ' <span style="font-size:9px;color:'+(d>0?'var(--bad)':'var(--good)')+'">'+(d>0?'▲':'▼')+Math.abs(d).toFixed(2)+'</span>'; };
@@ -71276,7 +71675,7 @@ function _renderCreditAssess(){
   loans.forEach(l=>{ const b=_loanTermBucket(l); const ld=(l.lender||l.bankName||'(Chưa rõ)').trim();
     byBucket[b]=byBucket[b]||{}; (byBucket[b][ld]=byBucket[b][ld]||[]).push(l); });
   const Yn=Y, Yp=Y-1;
-  let html='<div class="section-head"><div class="section-title">📊 Đánh giá tín dụng ngân hàng <span style="font-weight:400;color:var(--muted);font-size:11px;text-transform:none">— lãi (đồng) &amp; lãi suất (%/năm) · năm '+Y+' · tách theo loại vay</span></div></div>';
+  let html='<div class="section-head"><div class="section-title">📊 Đánh giá tín dụng ngân hàng <span style="font-weight:400;color:var(--muted);font-size:11px;text-transform:none">— lãi (đồng) &amp; lãi suất (%/năm) · năm '+Y+' · tách theo loại vay</span></div></div>'+_classNote;
   let any=false;
   BUCKETS.forEach(([bucket,icon,note])=>{
     const byLender=byBucket[bucket]; if(!byLender) return;
