@@ -3778,7 +3778,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.15.39';
+const APP_VERSION='3.15.42';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -19391,7 +19391,12 @@ function payVerifyReconcile(p, parsed, mapping){
       const nk=_pvNorm(xr.name); label=xr.name;
       if(aliases[nk] && empById[aliases[nk]]) e=empById[aliases[nk]];
       else if(!dupNames[nk] && empByName[nk]) e=empByName[nk];
-      if(!e){ out.unmatchedXls.push({label:xr.name+(dupNames[nk]?' — TRÙNG TÊN trong danh bạ, phải chọn tay':''), nk}); return; }
+      if(!e){
+        /* v3.15.41: dòng KHÔNG khớp tên và KHÔNG có bất kỳ ô số nào = dòng trang trí của file
+           (tiêu đề khối 'A. KHỐI VĂN PHÒNG…', 'Người lập'…) → bỏ im, không bắt khớp tay */
+        const hasNum=Object.keys(xr.vals).some(c=>xr.vals[c]!=null);
+        if(!hasNum) return;
+        out.unmatchedXls.push({label:xr.name+(dupNames[nk]?' — TRÙNG TÊN trong danh bạ, phải chọn tay':''), nk}); return; }
     } else {
       e=emps[_pvNorm(xr.msnv)]; label=xr.msnv+(xr.name?' — '+xr.name:'');
       if(!e){ out.unmatchedXls.push({label, nk:''}); return; }
@@ -19483,6 +19488,82 @@ function payVerifyMapRender(){
     <table style="width:100%;border-collapse:collapse;font-size:11.5px;border:1px solid var(--rule)"><thead><tr style="background:var(--rule)"><th style="padding:4px 8px;text-align:left">Tiêu đề cột Excel</th><th style="padding:4px 8px;text-align:left">Chỉ tiêu app</th></tr></thead><tbody>${trs}</tbody></table>
     <button class="btn-primary" style="margin-top:10px" onclick="payVerifyRun()">▶ Chạy đối chiếu</button>`;
 }
+/* v3.15.41 (Sếp duyệt mẫu 12/8): 📤 XUẤT BIÊN BẢN ĐỐI CHIẾU theo đúng khung mẫu BienBan_DoiChieu_Lech:
+   đầu biên bản (số BB-DCL-<kỳ>-<nhóm>-<stt> tự tăng theo số lần đối chiếu của kỳ) → A Tóm tắt →
+   B Chi tiết ô lệch (Phân loại ①–⑥ + Ghi chú để 2 bộ phận điền) → C Không khớp 2 chiều → D Ô lỗi file →
+   E Thống nhất xử lý + 3 chữ ký. SheetJS bản trong app không ghi được màu nền/font — biên bản xuất là
+   bản CẤU TRÚC CHUẨN (merge + độ rộng cột đủ in ký); bản màu dùng mẫu gốc đã duyệt. */
+function payVerifyExportBB(){
+  const L=window._pvLastRun; if(!L||!L.R){ toast('Chưa có kết quả đối chiếu trong phiên — chạy đối chiếu trước','warn'); return; }
+  const p=payPeriodById(window._pvPeriodId); if(!p){ toast('Không thấy kỳ','bad'); return; }
+  const R=L.R, parsed=L.parsed, map=L.map;
+  const seq=(S.payVerifySheets||[]).filter(v=>v&&v.periodId===p.id&&!v._deleted).length;
+  const bbNo='BB-DCL-'+p.period+'-'+String(p.profile||'').toUpperCase()+'-'+String(seq).padStart(3,'0');
+  const colTitle=key=>Object.keys(map).filter(c=>map[c]===key).map(c=>{const cl=parsed.cols.find(x=>String(x.c)===String(c));return cl?cl.title:c;}).join(' + ');
+  const fLabel=key=>(PAY_VERIFY_FIELDS.find(f=>f.key===key)||{label:key}).label;
+  const nf=v=>v==null?'trống/không phải số':Math.round(v);
+  const aoa=[]; const merges=[]; let r=0;
+  const push=(row)=>{ aoa.push(row); r++; };
+  const wide=(txt)=>{ merges.push({s:{r:r,c:0},e:{r:r,c:9}}); push([txt]); };
+  push(['SEAHORSE MARINE & ENERGY JSC']); merges.push({s:{r:0,c:0},e:{r:0,c:9}});
+  wide('Số: '+bbNo);
+  push([]);
+  wide('BIÊN BẢN ĐỐI CHIẾU BẢNG LƯƠNG — APP ↔ EXCEL NHÂN SỰ');
+  wide('(Chỉ GHI NHẬN SO SÁNH — mỗi chỉ tiêu ↔ đúng 1 cột; không kết luận bên nào sai. Nguyên nhân do hai bộ phận rà và ghi vào cột Phân loại/Ghi chú)');
+  push([]);
+  const info=(a,b,c,d)=>{ merges.push({s:{r:r,c:1},e:{r:r,c:3}},{s:{r:r,c:5},e:{r:r,c:9}}); push([a,b,'','',c,d]); };
+  info('Kỳ lương',p.period,'Nhóm lương',(PAY_PROFILE_LABEL[p.profile]||p.profile)+' — '+((typeof _payCcy==='function'&&_payCcy(p))||'VND'));
+  info('File Excel HR',(L.rec&&L.rec.fileName)||'','Sheet đã so',parsed.sheetName||'(duy nhất)');
+  info('Ngày giờ chạy',String((L.rec&&L.rec.ranAt)||'').slice(0,16).replace('T',' '),'Người chạy',(L.rec&&L.rec.ranBy)||'');
+  info('Dung sai','±'+PAY_VERIFY_TOL+' đ/ô (ngày công ±0.01)','Kết luận máy',R.verdict==='PASS'?('✅ KHỚP 100% — '+R.okCells+' ô'):('❌ CHƯA KHỚP — '+R.diffs+' ô lệch / '+(R.okCells+R.diffs)+' ô so'));
+  const usedKeys=[...new Set(R.cells.map(c=>c.key))];
+  wide('Nguồn cột đã so: '+usedKeys.map(k=>fLabel(k)+' ← "'+colTitle(k)+'"').join(' · '));
+  push([]);
+  wide('PHẦN A — TÓM TẮT');
+  const sumRow=(a,b)=>{ merges.push({s:{r:r,c:0},e:{r:r,c:7}},{s:{r:r,c:8},e:{r:r,c:9}}); push([a,'','','','','','','',b]); };
+  sumRow('Số NV hai bên cùng có, đã so',R.nRows);
+  sumRow('Số ô so sánh',R.okCells+R.diffs);
+  sumRow('Số ô KHỚP',R.okCells);
+  sumRow('Số ô LỆCH — chi tiết Phần B',R.diffs);
+  sumRow('Dòng Excel không khớp được NV (Phần C1)',R.unmatchedXls.length);
+  sumRow('NV có lương trong app nhưng vắng trong Excel (Phần C2)',R.missingXls.length);
+  const dCells=R.cells.filter(c=>c.xls==null);
+  sumRow('Ô trống/không phải số — lỗi file (Phần D)',dCells.length);
+  push([]);
+  wide('PHẦN B — CHI TIẾT Ô LỆCH (app KHÔNG tự sửa — hai bộ phận rà từng dòng, chọn Phân loại + ghi nguyên nhân)');
+  push(['STT','MSNV','Họ tên','Chỉ tiêu','Cột Excel nguồn','Số APP','Số EXCEL','Lệch (Excel−App)','Phân loại (chọn 1)*','Ghi chú nguyên nhân — bộ phận rà điền']);
+  let stt=0, sumApp=0, sumXls=0, sumAbs=0;
+  R.cells.filter(c=>!c.ok && c.xls!=null).forEach(c=>{
+    stt++; const d=Math.round(c.xls-c.app);
+    sumApp+=Math.round(c.app); sumXls+=Math.round(c.xls); sumAbs+=Math.abs(d);
+    push([stt,c.msnv,c.name||'',fLabel(c.key),colTitle(c.key),Math.round(c.app),Math.round(c.xls),d,'','']);
+  });
+  if(!stt) wide('(Không có ô lệch số — mọi lệch nếu có nằm ở Phần C/D)');
+  else{ merges.push({s:{r:r,c:0},e:{r:r,c:4}}); push(['TỔNG LỆCH TUYỆT ĐỐI','','','','',sumApp,sumXls,sumAbs,'','']); }
+  wide('* Phân loại: ① Khác định nghĩa cột · ② Khác công thức tính · ③ Lệch dữ liệu nguồn (thẻ lương/BCC/phát sinh) · ④ Lỗi file Excel · ⑤ Nghi sai app (chuyển IT kiểm engine) · ⑥ Khác');
+  push([]);
+  wide('PHẦN C — KHÔNG KHỚP HAI CHIỀU');
+  wide('C1 · Dòng Excel không khớp được NV trong kỳ app: '+(R.unmatchedXls.length?R.unmatchedXls.map(u=>u.label||String(u)).join(' · '):'(không có)'));
+  wide('C2 · NV có lương trong app nhưng VẮNG trong Excel: '+(R.missingXls.length?R.missingXls.join(' · '):'(không có)'));
+  push([]);
+  wide('PHẦN D — Ô TRỐNG/KHÔNG PHẢI SỐ (lỗi file — Nhân sự sửa file gốc)');
+  wide(dCells.length?dCells.map(c=>c.msnv+' — '+(c.name||'')+': ô '+fLabel(c.key)).join(' · '):'(không có)');
+  push([]);
+  wide('PHẦN E — THỐNG NHẤT XỬ LÝ');
+  wide('Hai bộ phận thống nhất hạn rà xong các dòng Phần B: ngày ____ / ____ / ______. Kỳ lương CHỈ được Chuyển kế toán khi đối chiếu lại đạt KHỚP 100%.');
+  push([]);
+  merges.push({s:{r:r,c:0},e:{r:r,c:2}},{s:{r:r,c:3},e:{r:r,c:5}},{s:{r:r,c:6},e:{r:r,c:9}});
+  push(['NGƯỜI LẬP (Kế toán)','','','NHÂN SỰ','','','KẾ TOÁN TRƯỞNG','','','']);
+  merges.push({s:{r:r,c:0},e:{r:r,c:2}},{s:{r:r,c:3},e:{r:r,c:5}},{s:{r:r,c:6},e:{r:r,c:9}});
+  push(['(Ký, họ tên)','','','(Ký, họ tên)','','','(Ký, họ tên)','','','']);
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  ws['!merges']=merges;
+  ws['!cols']=[{wch:6},{wch:10},{wch:22},{wch:12},{wch:26},{wch:14},{wch:14},{wch:14},{wch:18},{wch:42}];
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Biên bản lệch');
+  XLSX.writeFile(wb,bbNo+'.xlsx');
+  try{ _payAudit(p,'verify_bb','Xuất biên bản đối chiếu '+bbNo+' ('+R.verdict+', '+R.diffs+' ô lệch)'); if(L.rec){ L.rec.bbNo=bbNo; L.rec.bbAt=new Date().toISOString(); } saveState(); }catch(e){}
+  toast('📤 Đã xuất '+bbNo+'.xlsx','good');
+}
 function payVerifySaveAliases(){
   /* v3.15.35: lưu khớp tay tên→NV vào payrollConfig.pvNameAlias (sync theo salary_fund) rồi chạy lại */
   const sels=document.querySelectorAll('[data-pv-nk]'); if(!sels.length) return;
@@ -19507,6 +19588,7 @@ function payVerifyRun(){
     summary:{nRows:R.nRows, okCells:R.okCells, diffs:R.diffs, unmatchedXls:R.unmatchedXls.length, missingXls:R.missingXls.length, missCore:R.missCore},
     ranAt:new Date().toISOString(), ranBy:(CURRENT_USER&&CURRENT_USER.name)||'' };
   (S.payVerifySheets=S.payVerifySheets||[]).push(rec);
+  window._pvLastRun={R:R, parsed:parsed, map:JSON.parse(JSON.stringify(map)), rec:rec};   /* v3.15.41: nguồn cho 📤 Xuất biên bản */
   try{ _payAudit(p,'verify_excel','Đối chiếu Excel HR: '+R.verdict+' ('+R.diffs+' ô lệch, '+R.unmatchedXls.length+'+'+R.missingXls.length+' NV không khớp)'); }catch(e){}
   try{ if(typeof touchRecord==='function') touchRecord(p); }catch(e){}
   saveState();
@@ -19542,6 +19624,7 @@ function payVerifyRun(){
       <button class="btn-primary" style="margin-top:6px;font-size:11px" onclick="payVerifySaveAliases()">💾 Lưu khớp tên & chạy lại đối chiếu</button></div>`;
   }
   document.getElementById('pv-stage').innerHTML=`
+    <div style="display:flex;justify-content:flex-end;margin-bottom:4px"><button class="btn-sec" style="font-size:11px" onclick="payVerifyExportBB()" title="Xuất Biên bản đối chiếu theo mẫu Sếp duyệt 12/8 — lệch Phần B để 2 bộ phận rà, ký 3 bên">📤 Xuất biên bản lệch</button></div>
     <div style="padding:10px;border-radius:10px;margin-bottom:8px;font-weight:700;background:${R.verdict==='PASS'?'#eafaf0':'#fdecec'};color:${R.verdict==='PASS'?'#1e7d44':'#c0392b'}">
       ${R.verdict==='PASS'?'✅ KHỚP 100% — '+R.nRows+' NV × '+cols.length+' chỉ tiêu ('+R.okCells+' ô, dung sai ±'+PAY_VERIFY_TOL+'đ). Đủ điều kiện Trình duyệt.':'❌ CHƯA KHỚP — '+R.diffs+' ô lệch / '+(R.okCells+R.diffs)+' ô. App KHÔNG tự sửa — Nhân sự rà lại Excel hoặc KT rà đầu vào app (BCC/thẻ/phát sinh).'}
     </div>
@@ -19812,6 +19895,51 @@ function payPeriodSetFxTemp(id){
   try{ touchRecord(p); }catch(e){}
   saveState(); openPayPeriodDetail(id); toast('Đã lưu tỷ giá '+fx.toLocaleString('vi-VN'),'good');
 }
+/* v3.15.42 (Sếp 12/8 — "nút xuất hiện lần lượt nối tiếp sau từng bước, không liệt kê"): WIZARD LUỒNG
+   TẠO & TÍNH LƯƠNG. Điều tra chốt trình tự nghiệp vụ + marker sẵn có (không thêm cờ):
+   ①📥 Kéo chấm công (cần BCC KHÓA; dựng roster+công; marker p.attSource) → ②🪪 Kéo thẻ lương (đổ MỨC,
+   marker row.spSource; nhóm không dùng thẻ tự bỏ qua) → ③⚡ Tính cả bảng (engine; marker row.result)
+   → ④✔ Kiểm tra (Validate; status) → ⑤🔍 Đối chiếu Excel HR (PASS còn hiệu lực — _pvGateCheck)
+   → ⑥📤 Chuyển kế toán. Tùy chọn giữa chừng: ➕ Khoản PS (nhập/duyệt/áp — từ khi có bảng) · 🩺 Sức khỏe.
+   Hiển thị: bước xong = chip ✓ xanh (bấm để làm lại) · bước HIỆN TẠI = nút đen to · bước sau = mờ,
+   tooltip ghi rõ cần gì. Chỉ áp giai đoạn soạn (Nháp/Đã kiểm tra); từ Đã trình duyệt giữ UI cụm AP. */
+function _payFlowWizard(p, id, projBtn){
+  const rowsN=(p.rows||[]).length;
+  const s1=!!p.attSource || rowsN>0;
+  const spAble=['office','crew','tech','crew_khoan','office_gross','project'].indexOf(p.profile)>=0;
+  const s2=!spAble || (p.rows||[]).some(r=>r&&r.spSource);
+  const s3=(p.rows||[]).some(r=>r&&r.result&&Object.keys(r.result).length>0);
+  const s4=payStatusIdx(p.status)>=payStatusIdx('validated');
+  const canV=(typeof FLAG_PAY_VERIFY!=='undefined'&&FLAG_PAY_VERIFY&&(isAdmin()||canCheckAcc()||payHrCanViewPayroll()));
+  const s5=(typeof _pvGateCheck==='function')?(_pvGateCheck(p)===null && !!(S.payVerifySheets||[]).find(v=>v&&v.periodId===p.id&&!v._deleted)):false;
+  const steps=[
+    {ic:'📥',t:'Kéo chấm công',done:s1,ok:true,fn:`payPullAttendance('${id}')`,sub:s1?(rowsN+' NV'):'',need:'Cần BCC tháng đã KHÓA trong HRM',redo:'Kéo lại (roster/công đổi theo BCC)'},
+    {ic:'🪪',t:'Kéo thẻ lương',done:s2,ok:s1,fn:`payPullSalaryProfiles('${id}')`,sub:(!spAble?'nhóm này không dùng thẻ':''),need:'Làm sau khi Kéo chấm công',redo:'Kéo lại mức từ thẻ hiệu lực'},
+    {ic:'⚡',t:s3?'Tính lại':'Tính cả bảng',done:s3,ok:s1&&s2,fn:`payPeriodComputeAll('${id}')`,need:'Cần công (①) + mức (②)',redo:'Tính lại toàn bộ (làm hết hiệu lực đối chiếu ⑤)'},
+    {ic:'✔',t:'Kiểm tra (Validate)',done:s4,ok:s3,fn:`payPeriodValidate('${id}')`,need:'Cần đã Tính (③)',redo:''},
+    {ic:'🔍',t:'Đối chiếu Excel HR',done:s5,ok:s3&&canV,fn:`payVerifyOpen('${id}')`,need:canV?'Cần đã Tính (③)':'Cần quyền xem lương',redo:'Đối chiếu lại / xem kết quả'},
+    {ic:'📤',t:'Chuyển kế toán',done:false,ok:s4&&s5,fn:`payPeriodSubmit('${id}')`,need:'Cần Validate (④) + Đối chiếu KHỚP còn hiệu lực (⑤)',redo:''}
+  ];
+  let cur=-1;
+  for(let i=0;i<steps.length;i++){ if(!steps[i].done && steps[i].ok){ cur=i; break; } }
+  const chip=(st,i)=>{
+    const num='<span style="opacity:.75">'+(i+1)+'.</span> ';
+    if(st.done && i!==cur) return `<button class="btn-ghost" style="font-size:11px;padding:3px 9px;border:1px solid #bfe3cd;border-radius:14px;background:#eafaf0;color:#1e7d44" ${st.fn?`onclick="${st.fn}"`:''} title="${esc(st.redo||'Đã xong')}">✓ ${num}${st.ic} ${st.t}${st.sub?(' · '+esc(st.sub)):''}</button>`;
+    if(i===cur) return `<button class="btn-primary" style="font-size:12px;padding:6px 14px" onclick="${st.fn}" title="${esc(st.need)}">${num}${st.ic} ${st.t}</button>`;
+    return `<span style="font-size:11px;padding:3px 9px;border:1px dashed var(--rule);border-radius:14px;color:var(--muted);opacity:.65" title="${esc(st.need)}">${num}${st.ic} ${st.t}</span>`;
+  };
+  const arrow='<span style="color:var(--muted);font-size:11px">→</span>';
+  const main=steps.map((st,i)=>chip(st,i)).join(arrow);
+  const opt=[];
+  if(s3) opt.push(`<button class="btn-ghost" style="font-size:10.5px;padding:2px 8px" onclick="payExtrasOpen('${p.period}','${id}')" title="Tùy chọn — nhập/duyệt khoản phát sinh rồi 🧮 Áp vào kỳ (trong modal); áp xong nên chạy lại bước ⑤">➕ Khoản PS</button>`);
+  if(s3) opt.push(`<button class="btn-ghost" style="font-size:10.5px;padding:2px 8px" onclick="phOpen('${id}')" title="Tùy chọn — 🩺 chạy bộ phép kiểm sức khỏe trước khi Validate">🩺 Sức khỏe</button>`);
+  if(projBtn) opt.push(projBtn);
+  if(p.status==='validated') opt.push(`<button class="btn-ghost" style="font-size:10.5px;padding:2px 8px" onclick="payPeriodBack('${id}')">↩ Về Nháp</button>`);
+  return `<div style="border:1px solid var(--rule);border-radius:10px;padding:8px 10px;margin-bottom:10px;background:#fbfcfe">
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${main}</div>
+    ${opt.length?`<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px;padding-top:6px;border-top:1px dashed var(--rule)"><span style="font-size:10px;color:var(--muted)">Tùy chọn:</span>${opt.join('')}</div>`:''}
+  </div>`;
+}
 function openPayPeriodDetail(id){
   if(!(payCanViewPayroll() || isHrRole())){ toast('Bảng lương chỉ dành cho Kế toán / Kế toán trưởng / HR','bad'); return; }  /* v3.12.40: HR vào được, số tiền ẩn */
   const p=payPeriodById(id); if(!p){ toast('Không tìm thấy kỳ','bad'); return; }
@@ -19888,9 +20016,9 @@ function openPayPeriodDetail(id){
   const btn=(fn,label,style)=>`<button class="btn-${style||'sec'}" style="font-size:11px;${style==='danger'?'background:var(--bad);border-color:var(--bad);color:var(--paper-2)':''}" onclick="${fn}('${id}')">${label}</button>`;
   const btn2=(onclick,label,style)=>`<button class="btn-${style||'sec'}" style="font-size:11px;${style==='danger'?'background:var(--bad);border-color:var(--bad);color:var(--paper-2)':''}" onclick="${onclick}">${label}</button>`;
   const projBtn=_payProjAllowScope(p.profile)?('<button class="btn-ghost" style="border:1.5px solid '+(p.projAllow===true?'#1e7d44;color:#1e7d44':'var(--rule);color:var(--muted)')+';font-weight:600" onclick="payToggleProjAllow(\''+p.id+'\')" title="PC dự án hưởng THEO THÁNG — mức từng người lấy từ ô PC dự án trên THẺ LƯƠNG; bật/tắt cho CẢ KỲ, không chọn từng người">💼 PC dự án: '+(p.projAllow===true?'ĐANG BẬT':'TẮT')+'</button>'):'';
-  if(st==='draft'){ actions=btn('payPeriodComputeAll','⚡ Tính cả bảng')+btn('payPeriodValidate','✔ Kiểm tra (Validate)','primary')+projBtn+((typeof FLAG_PAY_VERIFY!=='undefined'&&FLAG_PAY_VERIFY&&(isAdmin()||canCheckAcc()||payHrCanViewPayroll()))?btn('payVerifyOpen','🔍 Đối chiếu Excel HR'):''); }   /* v3.14.61 (Sếp 07/8 — thực dùng): 💼 CHUYỂN LẠI VÀO TRONG kỳ (thuận tay khi thao tác); 🗑 vẫn ở danh sách. Khi BẬT: cột "PC khác" tự hiện tiền W+WD×WN (thiết kế 3.14.34 sẵn có, cần Kéo thẻ đổ mức). */
-  else if(st==='validated'){ actions=btn('payPeriodComputeAll','⚡ Tính lại')+btn('payPeriodSubmit','📤 Chuyển kế toán','primary')+projBtn+btn('payPeriodBack','↩ Về Nháp')+((typeof FLAG_PAY_VERIFY!=='undefined'&&FLAG_PAY_VERIFY&&(isAdmin()||canCheckAcc()||payHrCanViewPayroll()))?btn('payVerifyOpen','🔍 Đối chiếu Excel HR'):''); }   /* v3.15.29 GĐ-V2: máy kiểm bảng lương */   /* v3.14.61: 💼 về lại trong kỳ */   /* v3.14.45 (Sếp 06/8): BỎ bước Xem trước — hàm rỗng chỉ đổi status (di sản 3.07.74), Đã kiểm tra → Trình duyệt thẳng. Kỳ cũ đang ở 'preview' vẫn render nhánh riêng bên dưới. */
-  else if(st==='preview'){ actions=btn('payPeriodSubmit','📤 Chuyển kế toán','primary')+btn('payPeriodBack','↩ Về Nháp'); }
+  if(st==='draft'){ actions=''; /* v3.15.42: nút vào WIZARD lần lượt — đường lui: khôi phục chuỗi btn Tính/Validate/verify cũ */ }   /* v3.14.61 (Sếp 07/8 — thực dùng): 💼 CHUYỂN LẠI VÀO TRONG kỳ (thuận tay khi thao tác); 🗑 vẫn ở danh sách. Khi BẬT: cột "PC khác" tự hiện tiền W+WD×WN (thiết kế 3.14.34 sẵn có, cần Kéo thẻ đổ mức). */
+  else if(st==='validated'){ actions=''; /* v3.15.42: WIZARD đảm nhiệm (Tính lại/Đối chiếu/Chuyển KT/Về Nháp) */ }   /* v3.15.29 GĐ-V2: máy kiểm bảng lương */   /* v3.14.61: 💼 về lại trong kỳ */   /* v3.14.45 (Sếp 06/8): BỎ bước Xem trước — hàm rỗng chỉ đổi status (di sản 3.07.74), Đã kiểm tra → Trình duyệt thẳng. Kỳ cũ đang ở 'preview' vẫn render nhánh riêng bên dưới. */
+  else if(st==='preview'){ actions=''; /* v3.15.42: WIZARD (kỳ cổ còn 'preview' đi cùng luồng) */ }
   else if(st==='submitted'){
     /* v3.15.32 Ω1: kỳ đã Chuyển kế toán — hiện tiến độ ký cụm AP, không còn nút duyệt trong kỳ */
     if(p._postedApIds&&p._postedApIds.length){
@@ -19950,12 +20078,11 @@ function openPayPeriodDetail(id){
   }
   const body=`
     <div style="margin-bottom:8px"><div style="display:flex;gap:3px;align-items:center;flex-wrap:wrap;margin-bottom:10px">${flowBar}${fxBadge}</div></div>
+    ${(st==='draft'||st==='validated'||st==='preview')?_payFlowWizard(p,id,projBtn):''}
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
       <div><b style="font-size:13px">${esc(p.period)}</b> · ${esc(PAY_PROFILE_LABEL[p.profile])} · ${(p.rows||[]).length} NV ${payStatusChip(st)}</div>
       <div style="display:flex;gap:6px;flex-wrap:wrap">${actions}
-        ${si<payStatusIdx('approved')?`<button class="btn-sec" style="font-size:11px" onclick="payPullAttendance('${id}')" title="Kéo chấm công đã khóa vào kỳ (GĐ1)">📥 Kéo chấm công</button><button class="btn-sec" style="font-size:11px" onclick="payPullSalaryProfiles('${id}')" title="Kéo MỨC lương từ thẻ lương hiệu lực (H1)">🪪 Kéo thẻ lương</button><!-- v3.14.82: GỠ nút 🔄 Nạp NV còn thiếu (nguồn HRM) — danh sách kỳ nay theo BCC, 📥 Kéo chấm công kiêm thêm/loại người --><button class="btn-sec" style="font-size:11px" onclick="phOpen('${id}')" title="🩺 Sức khỏe lương — 14 phép kiểm N1/N2 (Phase 1, warn-only)">🩺 Sức khỏe</button><button class="btn-sec" style="font-size:11px" onclick="payApplyExtras('${id}')" title="Áp khoản thu/chi phát sinh ĐÃ DUYỆT vào kỳ (GĐ2)">🧮 Áp phát sinh</button><button class="btn-sec" style="font-size:11px" onclick="payExtrasOpen('${p.period}')" title="Quản lý khoản phát sinh">➕ Khoản PS</button><!-- v3.15.08 (Sếp 11/8): GỠ nút 📥 O&M khỏi kỳ lương. Chấm công chuyên gia nay import ở
-             tab Chấm công (BCC Chuyên gia O&M — Timesheet BSR PDF) rồi kéo vào kỳ bằng 📥 Kéo chấm công
-             như mọi bộ phận khác; khoản thu-chi hộ nhập ở ➕ Khoản PS. Một luồng, đúng phân quyền. -->`:''}
+        <!-- v3.15.42: chuỗi nút Kéo chấm công/Kéo thẻ/Sức khỏe/Khoản PS chuyển vào WIZARD lần lượt bên dưới -->
         <button class="btn-sec" style="font-size:11px" onclick="payPeriodExportExcel('${id}')" title="Xuất Excel">📊 Excel</button>
         <button class="btn-sec" style="font-size:11px" onclick="payShowExceptions('${id}')" title="Báo cáo ngoại lệ — dữ liệu bất thường">🔍 Ngoại lệ</button>
         ${si>=payStatusIdx('approved')?`<button class="btn-sec" style="font-size:11px" onclick="payAdjustLocked('${id}')" title="Kỳ đã duyệt/khóa — điều chỉnh bằng khoản phát sinh ghi vào kỳ sau (không sửa kết quả cũ)">➕ Phiếu điều chỉnh</button><button class="btn-sec" style="font-size:11px" onclick="payBankBatchOpen('${id}')" title="Bảng chuyển lương NH — batch có kiểm soát (GĐ5)">🏦 Bảng NH</button><button class="btn-sec" style="font-size:11px" onclick="payslipBatchAll('${id}')" title="Xuất tất cả phiếu lương (in/PDF hàng loạt)">🧾 Phiếu lương HL</button>`:''}
@@ -21203,8 +21330,10 @@ function _meApplyTax(p, row, res){
   o._me=_mkAudit(o, tc, null);
   return o;
 }
-function payExtrasOpen(prefPeriod){
+function payExtrasOpen(prefPeriod, fromPeriodId){
   if(!isAdmin() && !canCheckAcc()){ toast('Chỉ admin/kế toán','bad'); return; }
+  /* v3.15.40: nhớ kỳ nguồn (mở từ kỳ lương nào) để nút 🧮 Áp phát sinh trong modal áp đúng kỳ đó */
+  if(fromPeriodId!==undefined) window._pexFromPeriodId=fromPeriodId||'';
   const per=prefPeriod||new Date().toISOString().slice(0,7);
   const list=(S.payExtras||[]).filter(x=>x&&!x._deleted).sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
   const rowsH=list.map(x=>{
@@ -21224,6 +21353,7 @@ function payExtrasOpen(prefPeriod){
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
       <button class="btn-sec" style="font-size:11px" onclick="payExtraForm()">➕ Nhập 1 khoản</button>
       <button class="btn-sec" style="font-size:11px" onclick="pexImportOpen()" title="File Excel: MSNV | Loại | Số tiền | Kỳ | Chịu thuế | Mô tả | Chứng từ — tạo hàng loạt NHÁP chờ KTT duyệt">📥 Nhập lô Excel</button>
+      ${window._pexFromPeriodId?`<button class="btn-primary" style="font-size:11px" onclick="payApplyExtras(window._pexFromPeriodId)" title="v3.15.40: chuyển từ thanh nút kỳ vào đây — áp khoản ĐÃ DUYỆT đúng kỳ vào bảng lương (Tính lại các dòng liên quan), tự quay về kỳ">🧮 Áp phát sinh vào kỳ</button>`:''}
       <!-- v3.15.33 B1 (audit Sếp 11/8): nút "Import Excel" trực tiếp gỡ — TRÙNG mục đích với "Nhập lô Excel"
            nhưng KHÁC cơ chế duyệt → dễ nhập kép, khó truy vết. MỘT đường: 📥 Nhập lô Excel (pexImportOpen,
            tạo NHÁP chờ KTT duyệt). Hàm payExtraImportExcel giữ + guard bên dưới — đường lui: khôi phục 2 dòng. -->
