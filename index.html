@@ -3779,7 +3779,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.15.49';
+const APP_VERSION='3.15.51';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -44406,18 +44406,23 @@ function renderBanking(){
          TÊN với danh mục Tài khoản NH (Cash positions) hoặc Hạn mức tín dụng (khớp nguyên tên hoặc
          tên + chi nhánh, VD 'BIDV Vũng Tàu' khớp 'BIDV'). Vẫn là liên kết dữ liệu nội bộ — không đoán
          mờ; tên không có trong danh mục thì để lại chờ tick tay. Chạy mỗi render, chỉ ghi khi có đổi. */
-      { const _norm=s=>String(s||'').trim().toUpperCase();
+      { /* v3.15.50 FIX (Sếp báo 13/8: Asineran chọn Công ty vẫn lọc vào Bank): ① danh mục tên CHỈ lấy
+           từ TÀI KHOẢN NH (Cash positions — chắc chắn là NH thật); BỎ Hạn mức tín dụng khỏi danh mục vì
+           hạn mức có thể mở cho bên vay CÔNG TY; ② facilityId chỉ suy ra 🏦 khi bankName của hạn mức đó
+           khớp danh mục TK NH; ③ tuyệt đối KHÔNG đụng bản ghi người dùng đã chọn tay (lenderTypeManual). */
+        const _norm=s=>String(s||'').trim().toUpperCase();
         const _dir=new Set();
         try{ (AccountingService.bankAccounts()||[]).forEach(b=>{ const k=_norm(b&&b.bankName); if(k) _dir.add(k); }); }catch(e){}
-        try{ ((S.creditFacilities)||[]).forEach(f=>{ const k=_norm(f&&f.bankName); if(k) _dir.add(k); }); }catch(e){}
         const _isBankName=nm=>{ const k=_norm(nm); if(!k) return false; if(_dir.has(k)) return true;
           for(const d of _dir){ if(k.indexOf(d+' ')===0) return true; } return false; };
+        const _facBank=fid=>{ const f=((S.creditFacilities)||[]).find(x=>x&&x.id===fid); return f?_isBankName(f.bankName):false; };
         let _ab=0;
         AccountingService.loans().forEach(l=>{
-          if(!l||l.lenderType) return;
-          if(l.facilityId || _isBankName(_loanLenderKey(l))){ l.lenderType='bank'; try{touchRecord(l);}catch(e){} _ab++; }
+          if(!l||l.lenderType||l.lenderTypeManual) return;
+          if((l.facilityId&&_facBank(l.facilityId)) || _isBankName(_loanLenderKey(l))){
+            l.lenderType='bank'; l.lenderTypeBy='auto'; try{touchRecord(l);}catch(e){} _ab++; }
         });
-        if(_ab){ try{saveState();}catch(e){} toast('🏦 Tự phân loại '+_ab+' khoản vay theo danh mục NH sẵn có (hạn mức + tài khoản NH)','good'); } }
+        if(_ab){ try{saveState();}catch(e){} toast('🏦 Tự phân loại '+_ab+' khoản vay theo danh mục Tài khoản NH','good'); } }
       /* v3.15.46 ⓑ: khối Đánh giá tín dụng chuyển thành NÚT mở modal — không render inline nữa */
     }
   }
@@ -44472,7 +44477,7 @@ function loanQuickAssignSave(loanId){
   const newFid=sel?(sel.value||null):null;
   commitMutation(()=>{
     l.facilityId=newFid;
-    if(newFid && !l.lenderType) l.lenderType='bank';   /* v3.15.46 T2: gán hạn mức NH ⇒ bên cho vay là NH (liên kết dữ liệu, không đoán tên) */
+    if(newFid && !l.lenderType && !l.lenderTypeManual){ l.lenderType='bank'; l.lenderTypeBy='auto'; }   /* v3.15.50: chỉ khi chưa có quyết định tay; render tự kiểm facility có phải NH thật */
     try{ touchRecord(l); }catch(e){ l.updatedAt=new Date().toISOString(); }
   }, {action:'loan_assign_facility', fields:['loans'], onOk:()=>{
     closeModal();
@@ -46130,6 +46135,7 @@ function _saveLoan(id){
   err.textContent='';
   const bank=document.getElementById('ln-bank').value.trim();
   let lenderType=(document.getElementById('ln-lendertype')||{}).value||'';   /* v3.15.45 GĐ-L1 */
+  const lenderTypeManual=!!lenderType;   /* v3.15.50: người dùng chọn trong form = quyết định tay, auto không được đụng */
   const type=document.getElementById('ln-type').value;
   const contract=document.getElementById('ln-contract').value.trim();
   const principal=+document.getElementById('ln-principal').value;
@@ -46177,7 +46183,7 @@ function _saveLoan(id){
     // Preserve paid status from old schedule
     const oldPaid={};
     (loan.paymentSchedule||[]).forEach(p=>{if(p.paid)oldPaid[p.period]=p;});
-    Object.assign(loan,{bankName:bank,lender:bank,lenderType,loanType:type,contractNo:contract,principal:principalEff,ccy,interestRate:rate,termMonths:term,startDate:startEff,endDate:finalEnd,repayMethod:method,paymentFrequency,gracePeriodMonths,note,facilityId,drawdowns:draws,updatedAt:new Date().toISOString()});
+    Object.assign(loan,{bankName:bank,lender:bank,lenderType,lenderTypeManual:(lenderTypeManual||loan.lenderTypeManual||false),lenderTypeBy:(lenderTypeManual?'manual':loan.lenderTypeBy),loanType:type,contractNo:contract,principal:principalEff,ccy,interestRate:rate,termMonths:term,startDate:startEff,endDate:finalEnd,repayMethod:method,paymentFrequency,gracePeriodMonths,note,facilityId,drawdowns:draws,updatedAt:new Date().toISOString()});
     // v3.15.19: TK trích nợ (Sổ ngân hàng) + hoàn thiện khế ước nháp (tự gom từ giải ngân)
     loan.debitBankAccountId=((document.getElementById('ln-debitbank')||{}).value||'')||null;
     if(loan.kuDraft && rate>0 && term>0){ delete loan.kuDraft; try{ logAuditEvent('ku_draft_complete',{loanId:loan.id, contractNo:contract, actor:actorName()}); }catch(e){} }
@@ -46187,7 +46193,7 @@ function _saveLoan(id){
   } else {
     loan={
       id:'LOAN-'+uid().slice(-6),
-      bankName:bank, lender:bank, lenderType, loanType:type, contractNo:contract,
+      bankName:bank, lender:bank, lenderType, lenderTypeManual, lenderTypeBy:(lenderTypeManual?'manual':''), loanType:type, contractNo:contract,
       principal:principalEff, ccy, interestRate:rate, termMonths:term,
       startDate:startEff, endDate:finalEnd, repayMethod:method,
       paymentFrequency, gracePeriodMonths,
@@ -71408,7 +71414,7 @@ function _loanWairMonthly(Y){
   for(let m=1;m<=12;m++){
     const d=new Date(Date.UTC(Y,m,0)).toISOString().slice(0,10);   /* ngày cuối tháng m */
     if(d>today){ out.months.push(null); continue; }
-    const row={};
+    const row={}; let tw=0,tr=0;
     out.lenders.forEach(k=>{
       let sw=0,sr=0;
       banks[k].forEach(l=>{
@@ -71417,16 +71423,24 @@ function _loanWairMonthly(Y){
         sr+=rem; sw+=rem*_loanRateAt(l,d);
       });
       row[k]=sr>0?(sw/sr):null;
+      tw+=sw; tr+=sr;
     });
     out.months.push(row);
+    (out.sys=out.sys||[]).push(tr>0?(tw/tr):null);   /* v3.15.51: WAIR TOÀN HỆ THỐNG NH — trọng số theo dư nợ */
   }
+  out.sys=out.sys||[];
   return out;
 }
-function _loanWairChart(Y){
+function _loanWairChart(Y, mode){
+  /* v3.15.51 (Sếp 13/8): mode='system' → MỘT ĐƯỜNG toàn hệ thống NH (dùng trong 📉 Sổ chi phí lãi vay);
+     mặc định tách từng NH (dùng trong 📊 Đánh giá tín dụng — so sánh NH). */
   const W=_loanWairMonthly(Y);
   if(!W.lenders.length) return '';
+  const sys=(mode==='system');
   const PAL=['#4472c4','#c0504d','#9bbb59','#8064a2','#4bacc6','#f79646','#2c4d75','#772c2a'];
-  const vals=[]; W.months.forEach(r=>{ if(r) W.lenders.forEach(k=>{ if(r[k]!=null) vals.push(r[k]); }); });
+  const vals=[];
+  if(sys){ W.sys.forEach(v=>{ if(v!=null) vals.push(v); }); }
+  else W.months.forEach(r=>{ if(r) W.lenders.forEach(k=>{ if(r[k]!=null) vals.push(r[k]); }); });
   if(!vals.length) return '';
   const vmax=Math.max(...vals)*1.15, vmin=Math.max(0,Math.min(...vals)*0.85);
   const X0=46,Y0=14,PW=920,PH=150;
@@ -71440,18 +71454,26 @@ function _loanWairChart(Y){
     svg+=`<line x1="${X0}" y1="${y}" x2="${X0+PW}" y2="${y}" stroke="var(--rule,#dfe4ea)" stroke-dasharray="3,3" stroke-width="1"/>`;
     svg+=`<text x="${X0-6}" y="${(+y+3).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--muted)">${v.toFixed(1)}%</text>`;
   }
-  W.lenders.forEach((k,li)=>{
+  if(sys){
     const pts=[];
-    W.months.forEach((r,mi)=>{ if(r&&r[k]!=null) pts.push({x:X0+PW/12*mi+PW/24, y:yOf(r[k]), v:r[k], m:mi+1}); });
-    if(!pts.length) return;
-    if(pts.length>1) svg+=`<polyline points="${pts.map(p=>p.x.toFixed(1)+','+p.y.toFixed(1)).join(' ')}" fill="none" stroke="${PAL[li%8]}" stroke-width="2.2"/>`;
-    pts.forEach(p=>{ svg+=`<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.4" fill="${PAL[li%8]}"><title>${esc(k)} · T${p.m}: ${p.v.toFixed(2)}%/năm</title></circle>`; });
-  });
+    W.sys.forEach((v,mi)=>{ if(v!=null) pts.push({x:X0+PW/12*mi+PW/24, y:yOf(v), v, m:mi+1}); });
+    if(pts.length>1) svg+=`<polyline points="${pts.map(p=>p.x.toFixed(1)+','+p.y.toFixed(1)).join(' ')}" fill="none" stroke="#2a5a8c" stroke-width="2.6"/>`;
+    pts.forEach(p=>{ svg+=`<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.6" fill="#2a5a8c"><title>Toàn hệ thống NH · T${p.m}: ${p.v.toFixed(2)}%/năm</title></circle>
+      <text x="${p.x.toFixed(1)}" y="${(p.y-7).toFixed(1)}" text-anchor="middle" font-size="9" fill="#2a5a8c">${p.v.toFixed(2)}</text>`; });
+  } else {
+    W.lenders.forEach((k,li)=>{
+      const pts=[];
+      W.months.forEach((r,mi)=>{ if(r&&r[k]!=null) pts.push({x:X0+PW/12*mi+PW/24, y:yOf(r[k]), v:r[k], m:mi+1}); });
+      if(!pts.length) return;
+      if(pts.length>1) svg+=`<polyline points="${pts.map(p=>p.x.toFixed(1)+','+p.y.toFixed(1)).join(' ')}" fill="none" stroke="${PAL[li%8]}" stroke-width="2.2"/>`;
+      pts.forEach(p=>{ svg+=`<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.4" fill="${PAL[li%8]}"><title>${esc(k)} · T${p.m}: ${p.v.toFixed(2)}%/năm</title></circle>`; });
+    });
+  }
   let ax=''; for(let m=0;m<12;m++) ax+=`<text x="${(X0+PW/12*m+PW/24).toFixed(0)}" y="${Y0+PH+14}" text-anchor="middle" font-size="10" fill="var(--muted)">T${m+1}</text>`;
-  const leg=W.lenders.map((k,li)=>`<span style="font-size:10.5px;margin-right:10px"><span style="display:inline-block;width:9px;height:9px;background:${PAL[li%8]};border-radius:2px;margin-right:4px"></span>${esc(k)}</span>`).join('');
+  const leg=sys?'':W.lenders.map((k,li)=>`<span style="font-size:10.5px;margin-right:10px"><span style="display:inline-block;width:9px;height:9px;background:${PAL[li%8]};border-radius:2px;margin-right:4px"></span>${esc(k)}</span>`).join('');
   return `<div style="border:1px solid var(--rule);border-radius:8px;padding:10px">
-    <div style="text-align:center;font-weight:600;font-size:12px;margin-bottom:2px">Lãi suất BQ gia quyền (WAIR) cuối tháng theo NH — ${Y} (%/năm, VND)</div>
-    <div style="text-align:center;margin-bottom:4px">${leg}</div>
+    <div style="text-align:center;font-weight:600;font-size:12px;margin-bottom:2px">Lãi suất BQ gia quyền (WAIR) cuối tháng — ${sys?'TOÀN HỆ THỐNG NGÂN HÀNG':'theo NH'} · ${Y} (%/năm, VND)</div>
+    ${leg?`<div style="text-align:center;margin-bottom:4px">${leg}</div>`:''}
     <svg viewBox="0 0 990 ${Y0+PH+22}" style="width:100%">${svg}${ax}</svg>
     <div style="font-size:10px;color:var(--muted)">= Σ(dư nợ × LS hiệu lực) ÷ Σ dư nợ tại ngày cuối tháng — từ lịch trả thực (paidDate) + sự kiện đổi lãi suất.</div></div>`;
 }
@@ -71537,7 +71559,7 @@ function loanCostBookOpen(){
     ${TV.html||'<div style="font-size:11px;color:var(--muted)">Chưa có khoản vay 🏦 VND có lãi trong năm '+Y+'.</div>'}
     ${TU.html?('<div style="font-size:11px;font-weight:600;margin:8px 0 3px">Ngoại tệ USD (tách riêng — không cộng chéo)</div>'+TU.html):''}
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:10px">${chart}${donut}</div>
-    <div style="margin-top:12px">${_loanWairChart(Y)}</div>
+    <div style="margin-top:12px">${_loanWairChart(Y,'system')}</div>
     <div style="font-size:10px;color:var(--muted);margin-top:8px">Nguyên tắc: dư nợ giảm theo NGÀY TRẢ THỰC (paidDate — kỳ đến hạn chưa trả vẫn chịu lãi) · ACT/365 · ngoại tệ tách nguyên tệ · khoản chưa phân loại KHÔNG tính. API cho màn đơn giá: loanInterestPerDay(ngày) → {vnd, usd, byLender}.</div>`;
   openModal('📉 Sổ chi phí lãi vay ngân hàng '+Y, body,
     `<button class="btn-ghost" onclick="closeModal()">Đóng</button>`);
@@ -71547,26 +71569,36 @@ function loanCostBookOpen(){
    khoản của bên đó; không đoán theo tên. */
 function loanLenderTypeBulk(){
   if(!isAdmin() && !canCheckAcc()){ toast('Chỉ admin/kế toán','bad'); return; }
-  const all=AccountingService.loans().filter(l=>l&&!l.lenderType);
-  if(!all.length){ toast('Mọi khoản vay đã phân loại ✓','good'); return; }
-  const byLender={};
-  all.forEach(l=>{ const k=_loanLenderKey(l); (byLender[k]=byLender[k]||[]).push(l); });
-  const rows=Object.keys(byLender).sort().map((k,i)=>`<tr style="border-bottom:1px solid var(--rule)">
-    <td style="padding:5px 8px"><b>${esc(k)}</b> <span style="font-size:10px;color:var(--muted)">· ${byLender[k].length} khoản</span></td>
+  /* v3.15.50 (fix ca Asineran): liệt kê TẤT CẢ bên cho vay — chưa phân loại lên đầu, đã phân loại bên
+     dưới hiện rõ nguồn (auto/tay) và SỬA ĐƯỢC ngay tại đây; lưu = ghi đè mọi khoản của bên + đánh dấu
+     quyết định TAY (auto vĩnh viễn không đụng nữa). */
+  const groups={};
+  AccountingService.loans().forEach(l=>{ if(!l) return; const k=_loanLenderKey(l);
+    const g=(groups[k]=groups[k]||{n:0,type:'',by:'',manual:false});
+    g.n++; if(l.lenderType){ g.type=l.lenderType; g.by=l.lenderTypeBy||''; } if(l.lenderTypeManual) g.manual=true; });
+  const keys=Object.keys(groups).sort((a,b)=>((groups[a].type?1:0)-(groups[b].type?1:0))||a.localeCompare(b,'vi'));
+  if(!keys.length){ toast('Chưa có khoản vay nào','warn'); return; }
+  const TL={bank:'🏦 Ngân hàng',company:'🏢 Công ty',person:'👤 Cá nhân'};
+  const rows=keys.map(k=>{ const g=groups[k];
+    const src=g.type?(`<span style="font-size:9.5px;color:var(--muted)">${g.manual?'✍ chọn tay':'⚙ auto'}</span>`):'<span style="font-size:9.5px;color:#9a5b12">⚠ chưa phân loại</span>';
+    return `<tr style="border-bottom:1px solid var(--rule)${g.type?'':';background:#fffdf6'}">
+    <td style="padding:5px 8px"><b>${esc(k)}</b> <span style="font-size:10px;color:var(--muted)">· ${g.n} khoản</span> ${src}</td>
     <td style="padding:5px 8px"><select data-llt="${esc(k)}" style="font-size:11px;padding:3px 6px;border:1px solid var(--rule);border-radius:6px">
-      <option value="">— để sau —</option><option value="bank">🏦 Ngân hàng</option><option value="company">🏢 Công ty</option><option value="person">👤 Cá nhân</option></select></td></tr>`).join('');
-  openModal('🏷 Phân loại bên cho vay ('+Object.keys(byLender).length+' bên chưa khai)',
-    `<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Chọn loại cho từng BÊN CHO VAY — áp cho mọi khoản vay của bên đó. App không tự đoán theo tên.</div>
+      <option value="">${g.type?('— giữ nguyên ('+(TL[g.type]||g.type)+') —'):'— để sau —'}</option>
+      <option value="bank">🏦 Ngân hàng</option><option value="company">🏢 Công ty</option><option value="person">👤 Cá nhân</option></select></td></tr>`; }).join('');
+  openModal('🏷 Phân loại bên cho vay ('+keys.filter(k=>!groups[k].type).length+' bên chưa khai / '+keys.length+' bên)',
+    `<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Chọn loại cho từng BÊN CHO VAY — áp cho MỌI khoản vay của bên đó (kể cả sửa lại phân loại auto sai). Lựa chọn tại đây là quyết định tay — app không tự đổi lại nữa.</div>
      <table style="width:100%;border-collapse:collapse;font-size:12px;border:1px solid var(--rule)"><tbody>${rows}</tbody></table>`,
     `<button class="btn-sec" onclick="closeModal()">Đóng</button><button class="btn-primary" onclick="loanLenderTypeBulkSave()">💾 Lưu phân loại</button>`);
 }
 function loanLenderTypeBulkSave(){
   const sels=document.querySelectorAll('[data-llt]'); let nL=0,nK=0;
   sels.forEach(s=>{ const k=s.getAttribute('data-llt'), v=s.value; if(!v) return;
-    AccountingService.loans().forEach(l=>{ if(l&&!l.lenderType&&_loanLenderKey(l)===k){ l.lenderType=v; try{touchRecord(l);}catch(e){} nK++; } }); nL++; });
+    AccountingService.loans().forEach(l=>{ if(l&&_loanLenderKey(l)===k){ l.lenderType=v; l.lenderTypeManual=true; l.lenderTypeBy='manual'; try{touchRecord(l);}catch(e){} nK++; } }); nL++; });
   if(!nL){ toast('Chưa chọn loại nào','warn'); return; }
-  saveState(); closeModal(); toast('Đã phân loại '+nL+' bên · '+nK+' khoản vay','good');
+  saveState(); closeModal(); toast('Đã phân loại '+nL+' bên · '+nK+' khoản vay (quyết định tay — auto không đổi lại)','good');
   try{ _renderCreditAssess(); }catch(e){}
+  try{ if(typeof renderBanking==='function') renderBanking(); }catch(e){}
 }
 function _renderCreditAssess(){
   /* v3.14.21 (Sếp 05/8): TÁCH BẢNG theo loại vay — 🟢 NGẮN HẠN · 🟡 TRUNG HẠN · 🔴 DÀI HẠN (+ Chưa khai

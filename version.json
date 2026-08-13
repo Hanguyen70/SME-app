@@ -1,5 +1,5 @@
 {
-  "version": "3.15.49",
-  "swVersion": "v3.15.49",
-  "notes": "v3.15.49 (Sếp 13/8: 'không cần theo dõi biến động lãi vay theo ngày — không có giá trị'): GỠ khỏi 📉 Sổ chi phí lãi vay: đường bậc thang phí/ngày, bảng sự kiện biến động (giải ngân/trả gốc/đổi LS), KPI BQ năm min–max, nút ⬇ Xuất Excel chuỗi 365 ngày; xóa luôn 2 hàm _loanDailySeries + loanCostBookExport (mới thêm cùng ngày, chưa gì phụ thuộc — đường lui: khôi phục từ v3.15.48). GIỮ nguyên phần có giá trị: card dashboard 'lãi ~X đ/ngày' + KPI 'Phí lãi/ngày HÔM NAY' trong Sổ (tính trực tiếp loanInterestPerDay — phục vụ đơn giá chi phí ngày), Khối 1 bảng NH×12 tháng + đã trả/phải trả + USD tách + cột chồng/donut, chart WAIR dạng đường. Modal mở nhanh hơn (bỏ vòng lặp 365 ngày × khoản vay)."
+  "version": "3.15.51",
+  "swVersion": "v3.15.51",
+  "notes": "v3.15.51 (Sếp 13/8: 'Biểu đồ WAIR trong Sổ chi phí lãi vay: không lọc theo ngân hàng mà toàn hệ thống ngân hàng'): _loanWairMonthly tính thêm chuỗi WAIR TOÀN HỆ THỐNG mỗi tháng = Σ(dư nợ × LS hiệu lực) ÷ Σ dư nợ trên TOÀN BỘ khoản 🏦 VND (trọng số đúng theo dư — không phải trung bình cộng các NH); _loanWairChart thêm mode 'system': 📉 Sổ chi phí lãi vay hiện MỘT ĐƯỜNG navy toàn hệ thống, in giá trị % ngay trên từng điểm tháng, bỏ legend; 📊 Đánh giá tín dụng giữ bản TÁCH TỪNG NH (đúng vai so sánh ai đắt ai rẻ). Test: trọng số đúng (10 tỷ@7% + 5 tỷ@6.5% → 6.83%), Sổ 1 đường, Đánh giá vẫn nhiều đường."
 }
