@@ -1,5 +1,5 @@
 {
-  "version": "3.15.47",
-  "swVersion": "v3.15.47",
-  "notes": "v3.15.47 (Sếp check 13/8: 'Auto theo hạn mức: App đã có sẵn, app tự lọc'): mở rộng tự phân loại 🏦 dùng đủ 2 DANH MỤC NGÂN HÀNG SẴN CÓ trong app — ① khoản đã gán hạn mức (như v3.15.46); ② bên cho vay TRÙNG TÊN danh mục Tài khoản NH (Cash positions: MSB, MB…) hoặc Hạn mức tín dụng: khớp NGUYÊN TÊN hoặc tên + chi nhánh ('BIDV Vũng Tàu' khớp 'BIDV'), KHÔNG khớp mở rộng kiểu 'MBBANK'≠'MB' — vẫn là liên kết dữ liệu nội bộ, không đoán mờ; tên ngoài danh mục để lại chờ tick tay (thường chỉ còn nhóm vay Cty/Cá nhân). Chạy mỗi lần mở tab Ngân quỹ, chỉ ghi khi có thay đổi, toast báo số khoản đã tự phân loại. Test khớp tên 8/8 (gồm ca bẫy MBBANK)."
+  "version": "3.15.49",
+  "swVersion": "v3.15.49",
+  "notes": "v3.15.49 (Sếp 13/8: 'không cần theo dõi biến động lãi vay theo ngày — không có giá trị'): GỠ khỏi 📉 Sổ chi phí lãi vay: đường bậc thang phí/ngày, bảng sự kiện biến động (giải ngân/trả gốc/đổi LS), KPI BQ năm min–max, nút ⬇ Xuất Excel chuỗi 365 ngày; xóa luôn 2 hàm _loanDailySeries + loanCostBookExport (mới thêm cùng ngày, chưa gì phụ thuộc — đường lui: khôi phục từ v3.15.48). GIỮ nguyên phần có giá trị: card dashboard 'lãi ~X đ/ngày' + KPI 'Phí lãi/ngày HÔM NAY' trong Sổ (tính trực tiếp loanInterestPerDay — phục vụ đơn giá chi phí ngày), Khối 1 bảng NH×12 tháng + đã trả/phải trả + USD tách + cột chồng/donut, chart WAIR dạng đường. Modal mở nhanh hơn (bỏ vòng lặp 365 ngày × khoản vay)."
 }

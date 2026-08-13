@@ -3779,7 +3779,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.15.47';
+const APP_VERSION='3.15.49';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -71431,30 +71431,29 @@ function _loanWairChart(Y){
   const vmax=Math.max(...vals)*1.15, vmin=Math.max(0,Math.min(...vals)*0.85);
   const X0=46,Y0=14,PW=920,PH=150;
   const yOf=v=>Y0+PH-((v-vmin)/(vmax-vmin||1))*PH;
+  /* v3.15.48 (Sếp 13/8: 'dạng đồ thị hợp lý hơn'): bỏ cột nhóm — luôn vẽ ĐƯỜNG mỗi NH một màu
+     + điểm tròn có tooltip + trục % + lưới ngang, xu hướng lãi suất đọc một mắt. */
   let svg='';
-  const asBars=W.lenders.length<=5;
-  if(asBars){
-    W.months.forEach((r,mi)=>{
-      if(!r) return;
-      const cx=X0+PW/12*mi+PW/24;
-      const bw=Math.min(14,(PW/12-8)/W.lenders.length);
-      W.lenders.forEach((k,li)=>{ const v=r[k]; if(v==null) return;
-        const x=cx-(W.lenders.length*bw)/2+li*bw;
-        svg+=`<rect x="${x.toFixed(1)}" y="${yOf(v).toFixed(1)}" width="${(bw-1.5).toFixed(1)}" height="${(Y0+PH-yOf(v)).toFixed(1)}" fill="${PAL[li%8]}"><title>${esc(k)} · T${mi+1}: ${v.toFixed(2)}%/năm</title></rect>`; });
-    });
-  } else {
-    W.lenders.forEach((k,li)=>{
-      const pts=[]; W.months.forEach((r,mi)=>{ if(r&&r[k]!=null) pts.push((X0+PW/12*mi+PW/24).toFixed(1)+','+yOf(r[k]).toFixed(1)); });
-      if(pts.length>1) svg+=`<polyline points="${pts.join(' ')}" fill="none" stroke="${PAL[li%8]}" stroke-width="2"><title>${esc(k)}</title></polyline>`;
-    });
+  const steps=4;
+  for(let i=0;i<=steps;i++){
+    const v=vmin+(vmax-vmin)*i/steps, y=yOf(v).toFixed(1);
+    svg+=`<line x1="${X0}" y1="${y}" x2="${X0+PW}" y2="${y}" stroke="var(--rule,#dfe4ea)" stroke-dasharray="3,3" stroke-width="1"/>`;
+    svg+=`<text x="${X0-6}" y="${(+y+3).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--muted)">${v.toFixed(1)}%</text>`;
   }
+  W.lenders.forEach((k,li)=>{
+    const pts=[];
+    W.months.forEach((r,mi)=>{ if(r&&r[k]!=null) pts.push({x:X0+PW/12*mi+PW/24, y:yOf(r[k]), v:r[k], m:mi+1}); });
+    if(!pts.length) return;
+    if(pts.length>1) svg+=`<polyline points="${pts.map(p=>p.x.toFixed(1)+','+p.y.toFixed(1)).join(' ')}" fill="none" stroke="${PAL[li%8]}" stroke-width="2.2"/>`;
+    pts.forEach(p=>{ svg+=`<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.4" fill="${PAL[li%8]}"><title>${esc(k)} · T${p.m}: ${p.v.toFixed(2)}%/năm</title></circle>`; });
+  });
   let ax=''; for(let m=0;m<12;m++) ax+=`<text x="${(X0+PW/12*m+PW/24).toFixed(0)}" y="${Y0+PH+14}" text-anchor="middle" font-size="10" fill="var(--muted)">T${m+1}</text>`;
   const leg=W.lenders.map((k,li)=>`<span style="font-size:10.5px;margin-right:10px"><span style="display:inline-block;width:9px;height:9px;background:${PAL[li%8]};border-radius:2px;margin-right:4px"></span>${esc(k)}</span>`).join('');
   return `<div style="border:1px solid var(--rule);border-radius:8px;padding:10px">
     <div style="text-align:center;font-weight:600;font-size:12px;margin-bottom:2px">Lãi suất BQ gia quyền (WAIR) cuối tháng theo NH — ${Y} (%/năm, VND)</div>
     <div style="text-align:center;margin-bottom:4px">${leg}</div>
     <svg viewBox="0 0 990 ${Y0+PH+22}" style="width:100%">${svg}${ax}</svg>
-    <div style="font-size:10px;color:var(--muted)">= Σ(dư nợ × LS hiệu lực) ÷ Σ dư nợ tại ngày cuối tháng — từ lịch trả thực (paidDate) + sự kiện đổi lãi suất.${asBars?'':' (>5 NH: hiển thị dạng đường)'}</div></div>`;
+    <div style="font-size:10px;color:var(--muted)">= Σ(dư nợ × LS hiệu lực) ÷ Σ dư nợ tại ngày cuối tháng — từ lịch trả thực (paidDate) + sự kiện đổi lãi suất.</div></div>`;
 }
 /* KHỐI 1 SỔ: lãi theo NH × 12 tháng — dùng ĐÚNG số interest trong lịch trả (nguồn Đánh giá tín dụng, không tính mới) */
 function _loanInterestMonthly(Y, ccy){
@@ -71473,36 +71472,7 @@ function _loanInterestMonthly(Y, ccy){
   });
   return lenders;
 }
-/* SERIES PHÍ/NGÀY + SỰ KIỆN BIẾN ĐỘNG trong năm (chỉ 🏦) */
-function _loanDailySeries(Y){
-  const today=new Date().toISOString().slice(0,10);
-  const end=(String(Y)===today.slice(0,4))?today:(String(Y)+'-12-31');
-  const days=[], events=[];
-  let d=new Date(String(Y)+'-01-01T00:00:00Z'); let prev=null;
-  const evOf=(iso)=>{
-    const labs=[];
-    (AccountingService.loans()||[]).forEach(l=>{
-      if(!l||l.lenderType!=='bank') return;
-      const nm=_loanLenderKey(l)+(l.contractNo?(' · '+l.contractNo):'');
-      if(String(l.startDate||'').slice(0,10)===iso) labs.push({t:'💳 Vay mới/giải ngân',nm,r:_loanRateAt(l,iso)});
-      (l.paymentSchedule||[]).forEach(p=>{ if(p&&(+p.principal||0)>0&&String(p.paidDate||'').slice(0,10)===iso) labs.push({t:'💰 Trả gốc',nm,r:_loanRateAt(l,iso)}); });
-      (l.reschedules||[]).forEach(rs=>{ if(rs&&rs.action==='change_rate'&&String(rs.date||'').slice(0,10)===iso) labs.push({t:'📈 Đổi lãi suất → '+(+rs.rate||0)+'%',nm,r:+rs.rate||0}); });
-    });
-    return labs;
-  };
-  while(true){
-    const iso=d.toISOString().slice(0,10);
-    if(iso>end) break;
-    const o=loanInterestPerDay(iso);
-    days.push({d:iso, vnd:o.vnd, usd:o.usd});
-    if(prev && (o.vnd!==prev.vnd || o.usd!==prev.usd)){
-      events.push({d:iso, labs:evOf(iso), from:prev.vnd, to:o.vnd, fromU:prev.usd, toU:o.usd});
-    }
-    prev={vnd:o.vnd, usd:o.usd};
-    d=new Date(d.getTime()+86400000);
-  }
-  return {days, events, last:prev};
-}
+/* v3.15.49 (Sếp 13/8): GỠ theo dõi biến động phí lãi THEO NGÀY (_loanDailySeries + bảng sự kiện + xuất chuỗi) — 'không có giá trị'. Giữ: phí/ngày HIỆN HÀNH (loanInterestPerDay) cho đơn giá + Khối 1 tháng + WAIR. Đường lui: khôi phục từ v3.15.48. */
 function loanCostBookOpen(){
   if(!isAdmin() && !canCheckAcc()){ toast('Chỉ admin/kế toán','bad'); return; }
   const Y=window._lcbYear||new Date().getFullYear();
@@ -71512,11 +71482,7 @@ function loanCostBookOpen(){
   const fmtV=v=>_negU(Math.round(v).toLocaleString('vi-VN'));
   const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const PAL=['#4472c4','#c0504d','#9bbb59','#8064a2','#4bacc6','#f79646','#2c4d75','#772c2a'];
-  const S1=_loanDailySeries(Y);
-  const ipdNow=S1.last||{vnd:0,usd:0};
-  const avg=S1.days.length?Math.round(S1.days.reduce((t,x)=>t+x.vnd,0)/S1.days.length):0;
-  const mn=S1.days.length?S1.days.reduce((a,b)=>a.vnd<=b.vnd?a:b):null;
-  const mx=S1.days.length?S1.days.reduce((a,b)=>a.vnd>=b.vnd?a:b):null;
+  const ipdNow=loanInterestPerDay();   /* v3.15.49: chỉ số HIỆN HÀNH — bỏ series ngày */
   const buildTable=(ccy)=>{
     const L=_loanInterestMonthly(Y,ccy);
     const keys=Object.keys(L).sort((a,b)=>L[b].tot-L[a].tot);
@@ -71557,19 +71523,6 @@ function loanCostBookOpen(){
     const leg=TV.keys.map((k,i)=>`<div style="font-size:10.5px"><span style="display:inline-block;width:9px;height:9px;background:${PAL[i%8]};border-radius:2px;margin-right:4px"></span>${esc(k)} <b>${Math.round(TV.L[k].tot/TV.gt*100)}%</b></div>`).join('');
     donut=`<div style="flex:1;min-width:230px;border:1px solid var(--rule);border-radius:8px;padding:8px"><div style="text-align:center;font-weight:600;font-size:12px;margin-bottom:6px">Tỷ trọng lãi ${Y}</div><div style="display:flex;gap:12px;align-items:center;justify-content:center"><div style="width:120px;height:120px;border-radius:50%;background:conic-gradient(${segs});position:relative"><div style="position:absolute;inset:32px;border-radius:50%;background:var(--paper,#fff)"></div></div><div>${leg}</div></div></div>`;
   }
-  let stepChart='';
-  if(S1.days.length>1){
-    const vmax=Math.max(...S1.days.map(x=>x.vnd))*1.1||1;
-    const X0=10,PW=940,PH=90,YT=8;
-    const pts=S1.days.map((x,i)=>(X0+i/(S1.days.length-1)*PW).toFixed(1)+','+(YT+PH-x.vnd/vmax*PH).toFixed(1)).join(' ');
-    stepChart=`<div style="border:1px solid var(--rule);border-radius:8px;padding:8px;margin-bottom:8px"><svg viewBox="0 0 960 ${YT+PH+10}" style="width:100%"><polyline points="${pts}" fill="none" stroke="#2a5a8c" stroke-width="2"/></svg><div style="font-size:10px;color:var(--muted);text-align:center">Phí lãi/ngày (VND) từ 01/01 → nay — mỗi bậc = một sự kiện bên dưới</div></div>`;
-  }
-  const evRows=S1.events.map(e=>{
-    const lab=e.labs.length?e.labs.map(x=>x.t+' <span style="color:var(--muted)">('+esc(x.nm)+')</span>').join('<br>'):'(thay đổi dư/lãi suất)';
-    const rate=(e.labs.length===1&&e.labs[0].r)?(e.labs[0].r.toFixed(2)+'%'):'—';
-    const dv=e.to-e.from;
-    return `<tr><td style="white-space:nowrap;padding:3px 6px;border-bottom:1px solid var(--rule);font-family:monospace">${e.d.slice(8,10)}/${e.d.slice(5,7)}</td><td style="padding:3px 6px;border-bottom:1px solid var(--rule)">${lab}</td><td style="padding:3px 6px;text-align:right;font-family:monospace;border-bottom:1px solid var(--rule)">${rate}</td><td style="padding:3px 6px;text-align:right;font-family:monospace;border-bottom:1px solid var(--rule)">${fmtV(e.from)} → <b>${fmtV(e.to)}</b>${(e.toU!==e.fromU)?('<div style="font-size:9px">$ '+e.fromU+' → '+e.toU+'</div>'):''}</td><td style="padding:3px 6px;text-align:right;font-family:monospace;border-bottom:1px solid var(--rule);color:${dv>0?'var(--bad)':'var(--good)'};font-weight:700">${dv>0?'+':''}${fmtV(dv)}</td></tr>`;
-  }).join('');
   const body=`
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
       <label style="font-size:12px">Năm:</label>
@@ -71578,50 +71531,17 @@ function loanCostBookOpen(){
     </div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
       <div style="flex:1;min-width:170px;border:1px solid var(--rule);border-radius:10px;padding:8px 10px">Phí lãi/ngày HÔM NAY<br><b style="font-size:16px">${fmtV(ipdNow.vnd)} đ</b>${ipdNow.usd?('<div style="font-size:10px">+ '+ipdNow.usd.toLocaleString('en-US')+' $/ngày (tách riêng)</div>'):''}<div style="font-size:9.5px;color:var(--muted)">phục vụ ĐƠN GIÁ CHI PHÍ NGÀY</div></div>
-      <div style="flex:1;min-width:170px;border:1px solid var(--rule);border-radius:10px;padding:8px 10px">BQ năm ${Y}<br><b style="font-size:16px">${fmtV(avg)} đ/ngày</b><div style="font-size:9.5px;color:var(--muted)">${mn?('min '+fmtV(mn.vnd)+' ('+mn.d.slice(5)+')'):''}${mx?(' — max '+fmtV(mx.vnd)+' ('+mx.d.slice(5)+')'):''}</div></div>
       <div style="flex:1;min-width:170px;border:1px solid var(--rule);border-radius:10px;padding:8px 10px">Tổng lãi năm (VND)<br><b style="font-size:16px">${fmtV(TV.gt||0)} đ</b><div style="font-size:9.5px;color:var(--muted)"><span style="color:var(--good)">đã trả</span> + <span style="color:var(--warn)">phải trả</span> — chi tiết bảng 1</div></div>
     </div>
     <div style="font-size:12.5px;font-weight:700;margin:6px 0 4px">1/ Chi phí lãi theo ngân hàng × 12 tháng — theo lịch trả từng khoản</div>
     ${TV.html||'<div style="font-size:11px;color:var(--muted)">Chưa có khoản vay 🏦 VND có lãi trong năm '+Y+'.</div>'}
     ${TU.html?('<div style="font-size:11px;font-weight:600;margin:8px 0 3px">Ngoại tệ USD (tách riêng — không cộng chéo)</div>'+TU.html):''}
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:10px">${chart}${donut}</div>
-    <div style="font-size:12.5px;font-weight:700;margin:14px 0 4px">2/ Biến động phí lãi/ngày — chỉ ngày có sự kiện (giải ngân · trả gốc · đổi lãi suất)</div>
-    ${stepChart}
-    <table style="width:100%;border-collapse:collapse;font-size:11px;border:1px solid var(--rule)">
-      <thead><tr style="background:var(--rule)"><th style="padding:4px 6px;text-align:left">Ngày</th><th style="padding:4px 6px;text-align:left">Sự kiện</th><th style="padding:4px 6px;text-align:right">LS</th><th style="padding:4px 6px;text-align:right">Phí/ngày cũ → mới</th><th style="padding:4px 6px;text-align:right">Δ</th></tr></thead>
-      <tbody>${evRows||'<tr><td colspan="5" style="padding:10px;text-align:center;color:var(--muted)">Chưa có biến động trong năm</td></tr>'}</tbody></table>
     <div style="margin-top:12px">${_loanWairChart(Y)}</div>
     <div style="font-size:10px;color:var(--muted);margin-top:8px">Nguyên tắc: dư nợ giảm theo NGÀY TRẢ THỰC (paidDate — kỳ đến hạn chưa trả vẫn chịu lãi) · ACT/365 · ngoại tệ tách nguyên tệ · khoản chưa phân loại KHÔNG tính. API cho màn đơn giá: loanInterestPerDay(ngày) → {vnd, usd, byLender}.</div>`;
   openModal('📉 Sổ chi phí lãi vay ngân hàng '+Y, body,
-    `<button class="btn-ghost" onclick="closeModal()">Đóng</button>
-     <button class="btn-primary" onclick="loanCostBookExport()">⬇ Xuất Excel chuỗi ngày</button>`);
+    `<button class="btn-ghost" onclick="closeModal()">Đóng</button>`);
   try{ setModalWide(true); }catch(e){}
-}
-function loanCostBookExport(){
-  const Y=window._lcbYear||new Date().getFullYear();
-  const S1=_loanDailySeries(Y);
-  if(!S1.days.length){ toast('Chưa có dữ liệu','warn'); return; }
-  const XS=window.XLSXStyle, EE=(typeof ExcelExporter!=='undefined')?ExcelExporter:null;
-  const styled=!!(XS&&EE&&(!EE.ready||EE.ready()));
-  const DC=(v,o)=>styled?EE.dataCell(v,o||{}):((v==null)?'':v);
-  const HC=t=>styled?EE.headerCell(t,'right'):t;
-  const lastBy=loanInterestPerDay(S1.days[S1.days.length-1].d).byLender;
-  const lenders=Object.keys(lastBy).sort();
-  const aoa=[[styled?ExcelExporter.title('CHUỖI PHÍ LÃI VAY NH THEO NGÀY — '+Y+' (đơn giá chi phí ngày · ACT/365 · paidDate thực)'):('CHUỖI PHÍ LÃI VAY NH THEO NGÀY — '+Y)]];
-  const merges=[{s:{r:0,c:0},e:{r:0,c:2+lenders.length}}];
-  aoa.push(['Ngày','Phí/ngày VND','Phí/ngày USD'].concat(lenders.map(k=>k+' (VND)')).map(HC));
-  S1.days.forEach((x,i)=>{
-    const by=loanInterestPerDay(x.d).byLender;
-    const bg=(styled&&i%2)?ExcelExporter.C.zebra:null;
-    aoa.push([DC(x.d,{bg}),DC(x.vnd,{num:'#,##0',align:'right',bg}),DC(x.usd||0,{num:'#,##0.00',align:'right',bg})]
-      .concat(lenders.map(k=>DC(Math.round(by[k]||0),{num:'#,##0',align:'right',bg}))));
-  });
-  const U=styled?XS.utils:XLSX.utils;
-  const ws=U.aoa_to_sheet(aoa); ws['!merges']=merges;
-  ws['!cols']=[{wch:12},{wch:15},{wch:13}].concat(lenders.map(()=>({wch:16})));
-  const wb=U.book_new(); U.book_append_sheet(wb,ws,'PhiLai_'+Y);
-  (styled?XS:XLSX).writeFile(wb,'PhiLaiVayNH_theo_ngay_'+Y+'.xlsx');
-  toast('⬇ Đã xuất chuỗi '+S1.days.length+' ngày','good');
 }
 /* v3.15.45 GĐ-L1: PHÂN LOẠI HÀNG LOẠT bên cho vay — gom theo lender, admin/KT tick 1 lần cho mọi
    khoản của bên đó; không đoán theo tên. */
