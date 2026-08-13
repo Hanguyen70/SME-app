@@ -3779,7 +3779,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.15.51';
+const APP_VERSION='3.15.53';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -44406,6 +44406,19 @@ function renderBanking(){
          TÊN với danh mục Tài khoản NH (Cash positions) hoặc Hạn mức tín dụng (khớp nguyên tên hoặc
          tên + chi nhánh, VD 'BIDV Vũng Tàu' khớp 'BIDV'). Vẫn là liên kết dữ liệu nội bộ — không đoán
          mờ; tên không có trong danh mục thì để lại chờ tick tay. Chạy mỗi render, chỉ ghi khi có đổi. */
+      { /* v3.15.53 DATA-FIX MỘT LẦN (Sếp 13/8): duy nhất bên 'Asineran' bị auto gắn 🏦 sai (hạn mức
+           công ty lọt danh mục cũ v3.15.47) → sửa thành 🏢 Công ty, đánh dấu quyết định tay để auto
+           vĩnh viễn không đụng. Điều kiện tự hết sau lần sửa (manual=true thì skip) — không cần UI. */
+        let _af=0;
+        AccountingService.loans().forEach(l=>{
+          if(!l||l.lenderTypeManual) return;
+          if(String(_loanLenderKey(l)).trim().toUpperCase().indexOf('ASINERAN')===0){
+            l.lenderType='company'; l.lenderTypeManual=true; l.lenderTypeBy='manual';
+            try{touchRecord(l);}catch(e){} _af++;
+          }
+        });
+        if(_af){ try{saveState();}catch(e){} try{logAuditEvent('lender_type_datafix',{lender:'Asineran', to:'company', n:_af});}catch(e){}
+          toast('🏢 Đã sửa phân loại Asineran → Công ty ('+_af+' khoản) — cố định, auto không đổi lại','good'); } }
       { /* v3.15.50 FIX (Sếp báo 13/8: Asineran chọn Công ty vẫn lọc vào Bank): ① danh mục tên CHỈ lấy
            từ TÀI KHOẢN NH (Cash positions — chắc chắn là NH thật); BỎ Hạn mức tín dụng khỏi danh mục vì
            hạn mức có thể mở cho bên vay CÔNG TY; ② facilityId chỉ suy ra 🏦 khi bankName của hạn mức đó

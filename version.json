@@ -1,5 +1,5 @@
 {
-  "version": "3.15.51",
-  "swVersion": "v3.15.51",
-  "notes": "v3.15.51 (Sếp 13/8: 'Biểu đồ WAIR trong Sổ chi phí lãi vay: không lọc theo ngân hàng mà toàn hệ thống ngân hàng'): _loanWairMonthly tính thêm chuỗi WAIR TOÀN HỆ THỐNG mỗi tháng = Σ(dư nợ × LS hiệu lực) ÷ Σ dư nợ trên TOÀN BỘ khoản 🏦 VND (trọng số đúng theo dư — không phải trung bình cộng các NH); _loanWairChart thêm mode 'system': 📉 Sổ chi phí lãi vay hiện MỘT ĐƯỜNG navy toàn hệ thống, in giá trị % ngay trên từng điểm tháng, bỏ legend; 📊 Đánh giá tín dụng giữ bản TÁCH TỪNG NH (đúng vai so sánh ai đắt ai rẻ). Test: trọng số đúng (10 tỷ@7% + 5 tỷ@6.5% → 6.83%), Sổ 1 đường, Đánh giá vẫn nhiều đường."
+  "version": "3.15.53",
+  "swVersion": "v3.15.53",
+  "notes": "v3.15.53 (Sếp 13/8: 'không cần nút — chỉ Asineran đang sai, sửa duy nhất ca này; tạo mới thì chọn ngay khi tạo'): (1) GỠ nút 🏷 cố định vừa thêm ở v3.15.52. (2) DATA-FIX MỘT LẦN chạy khi mở tab Ngân quỹ: mọi khoản vay của bên cho vay tên bắt đầu 'Asineran' chưa có quyết định tay → đặt 🏢 Công ty + lenderTypeManual (auto vĩnh viễn không đổi lại), ghi audit lender_type_datafix + toast xác nhận; điều kiện tự hết sau lần sửa đầu — các lần mở sau không làm gì. (3) Quy trình từ nay: form + Món vay mới đã có ô 'Phân loại bên cho vay' (v3.15.45) — chọn ngay khi tạo; khoản trùng tên danh mục Tài khoản NH vẫn tự gắn 🏦; nếu có khoản quên chọn, các nút 'Phân loại' điều kiện (chỉ hiện khi còn khoản trống) vẫn hoạt động như cũ. Test 4/4 (khớp prefix ASINERAN, tôn trọng manual có sẵn, không đụng NH khác)."
 }
