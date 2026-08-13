@@ -3779,7 +3779,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.15.55';
+const APP_VERSION='3.15.56';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -71627,13 +71627,13 @@ function _renderCreditAssess(){
   /* v3.15.45 GĐ-L1 (Sếp 13/8): CHỈ đánh giá NGÂN HÀNG — loại khoản vay Công ty/Cá nhân; chưa phân
      loại thì KHÔNG đoán theo tên, hiện nút phân loại hàng loạt. */
   const allActive=AccountingService.loans().filter(l=>l && (l.status==='active'||!l.status));
-  const loans=allActive.filter(l=>l.lenderType==='bank');
-  const nNonBank=allActive.filter(l=>l.lenderType==='company'||l.lenderType==='person').length;
+  /* v3.15.56 (Sếp): quay lại như bản cũ — Đánh giá tín dụng gồm MỌI bên cho vay (cả Asineran, X6M),
+     icon 🏦/🏢/👤 phân biệt. WAIR chart cuối modal vẫn chỉ 🏦. */
+  const loans=allActive;
   const unclassed=allActive.filter(l=>!l.lenderType);
-  const _classNote='<div style="font-size:11px;color:var(--muted);margin:4px 0 8px">Chỉ khoản vay 🏦 NGÂN HÀNG'
-    +(nNonBank?(' · đã loại '+nNonBank+' khoản Cty/Cá nhân'):'')
+  const _classNote='<div style="font-size:11px;color:var(--muted);margin:4px 0 8px">MỌI bên cho vay: 🏦 NH · 🏢 Cty · 👤 CN'
     +(unclassed.length?(' · <b style="color:#9a5b12">⚠ '+unclassed.length+' khoản chưa phân loại</b> <button class="btn-sec" style="font-size:10px;padding:1px 8px" onclick="loanLenderTypeBulk()">Phân loại ngay</button>'):'')+'</div>';
-  if(!loans.length){ el.innerHTML=(unclassed.length||nNonBank)?('<div class="section-head"><div class="section-title">📊 Đánh giá tín dụng ngân hàng</div></div>'+_classNote):''; return; }
+  if(!loans.length){ el.innerHTML=''; return; }
   const _dArrow=(cur,prev)=>{ if(prev==null||cur==null) return '';
     const d=cur-prev; if(Math.abs(d)<0.005) return ' <span style="font-size:9px;color:var(--muted)">＝</span>';
     return ' <span style="font-size:9px;color:'+(d>0?'var(--bad)':'var(--good)')+'">'+(d>0?'▲':'▼')+Math.abs(d).toFixed(2)+'</span>'; };
@@ -71642,6 +71642,7 @@ function _renderCreditAssess(){
   const byBucket={};
   loans.forEach(l=>{ const b=_loanTermBucket(l); const ld=(l.lender||l.bankName||'(Chưa rõ)').trim();
     byBucket[b]=byBucket[b]||{}; (byBucket[b][ld]=byBucket[b][ld]||[]).push(l); });
+  const _ltIcon=ls=>{const t=(ls&&ls[0]&&ls[0].lenderType)||''; return t==='bank'?'🏦':t==='company'?'🏢':t==='person'?'👤':'⚠';};
   const Yn=Y, Yp=Y-1;
   let html='<div class="section-head"><div class="section-title">📊 Đánh giá tín dụng ngân hàng <span style="font-weight:400;color:var(--muted);font-size:11px;text-transform:none">— lãi (đồng) &amp; lãi suất (%/năm) · năm '+Y+' · tách theo loại vay</span></div></div>'+_classNote;
   let any=false;
@@ -71656,7 +71657,7 @@ function _renderCreditAssess(){
         const have=qs.filter(x=>x);
         const vol=have.length>=2?(Math.max(...have.map(x=>x.rate))-Math.min(...have.map(x=>x.rate))):null;
         rows+='<tr>'+
-          '<td><b>'+esc(lender)+'</b></td>'+
+          '<td>'+_ltIcon(ls)+' <b>'+esc(lender)+'</b></td>'+
           '<td>'+ccy+'</td>'+
           '<td class="r num">'+_locN(b.remaining,ccy)+'</td>'+
           '<td class="r num" style="font-weight:600">'+(b.wRate?b.wRate.toFixed(2)+'%':'—')+'</td>'+
@@ -71680,7 +71681,7 @@ function _renderCreditAssess(){
         if(!((n.newLoans||0)+(p.newLoans||0)+(n.paidY||0)+(p.paidY||0)+(n.dueY||0))) return;
         const dRate=(n.yearAvg&&p.yearAvg)?(n.yearAvg-p.yearAvg):null;
         const dInt=(n.paidY||0)-(p.paidY||0);
-        cmpRows+='<tr><td><b>'+esc(lender)+'</b></td><td>'+ccy+'</td>'+
+        cmpRows+='<tr><td>'+_ltIcon(ls)+' <b>'+esc(lender)+'</b></td><td>'+ccy+'</td>'+
           '<td class="r num">'+(p.newLoans||0)+'</td><td class="r num">'+(p.newPrincipal?_locN(p.newPrincipal,ccy):'—')+'</td>'+
           '<td class="r num">'+(p.yearAvg?p.yearAvg.toFixed(2)+'%':'—')+'</td><td class="r num">'+(p.paidY?_locN(p.paidY,ccy):'—')+'</td>'+
           '<td class="r num" style="border-left:2px solid var(--rule)">'+(n.newLoans||0)+'</td><td class="r num">'+(n.newPrincipal?_locN(n.newPrincipal,ccy):'—')+'</td>'+
@@ -71695,7 +71696,7 @@ function _renderCreditAssess(){
     html+='<div style="margin-top:14px;font-weight:700;font-size:12px;letter-spacing:.4px">'+icon+' '+bucket.toUpperCase()+' <span style="font-weight:400;color:var(--muted);font-size:10px">('+note+')</span></div>';
     if(rows){
       html+='<div class="tbl-scroll" style="margin-top:4px"><table class="tbl compact">'+
-      '<thead><tr><th>Ngân hàng</th><th>CCY</th><th class="r">Dư nợ</th><th class="r" title="WAIR — Weighted Average Interest Rate: Σ(dư nợ × lãi suất hiện hành) ÷ Σ dư nợ. Chuẩn thuyết minh BCTC/hồ sơ tín dụng — trả lời: vốn vay đang đắt bao nhiêu.">LS BQ dư nợ<br>(WAIR)</th><th class="r" title="Σ lãi suất PHÁT SINH trong năm (vay mới + Đổi lãi suất) ÷ số phát sinh — trả lời: NH đang chào đắt lên hay rẻ đi.">LS BQ năm<br>(phát sinh)</th>'+
+      '<thead><tr><th>Bên cho vay</th><th>CCY</th><th class="r">Dư nợ</th><th class="r" title="WAIR — Weighted Average Interest Rate: Σ(dư nợ × lãi suất hiện hành) ÷ Σ dư nợ. Chuẩn thuyết minh BCTC/hồ sơ tín dụng — trả lời: vốn vay đang đắt bao nhiêu.">LS BQ dư nợ<br>(WAIR)</th><th class="r" title="Σ lãi suất PHÁT SINH trong năm (vay mới + Đổi lãi suất) ÷ số phát sinh — trả lời: NH đang chào đắt lên hay rẻ đi.">LS BQ năm<br>(phát sinh)</th>'+
       '<th class="r" title="Σ lãi suất phát sinh trong quý ÷ số phát sinh trong quý">LS BQ Q1</th><th class="r">Q2</th><th class="r">Q3</th><th class="r">Q4</th><th class="r">Biến động</th>'+
       '<th class="r">Lãi đã trả '+Y+'</th><th class="r">Còn phải trả '+Y+'</th><th class="r">Đã trả '+(Y-1)+'</th><th class="r">Điều chỉnh LS</th></tr></thead>'+
       '<tbody>'+rows+'</tbody></table></div>';

@@ -1,5 +1,5 @@
 {
-  "version": "3.15.55",
-  "swVersion": "v3.15.55",
-  "notes": "v3.15.55 (Sếp 13/8: 'Sổ chi phí lãi vay cần hiển thị như bản trước — có cả phần công ty, trả lại Asineran vào bảng'): bảng ×12 tháng (KHỐI 1) giờ gồm MỌI bên cho vay, phân bảng theo TIỀN TỆ của khoản vay — Asineran (USD) và X6M LTD nằm ở bảng USD, các NH VND ở bảng VND; mỗi bên có icon phân biệt 🏦 NH / 🏢 Cty / 👤 CN (⚠ nếu chưa phân loại); cột đầu đổi nhãn 'Bên cho vay'; dòng ĐÃ TRẢ/PHẢI TRẢ, biểu đồ cột chồng + donut tự gồm đủ vì cùng nguồn. GIỮ chỉ 🏦: Phí lãi/ngày HÔM NAY (đơn giá chi phí ngày) + WAIR — header note ghi rõ 'KHỐI 2 (phí/ngày + WAIR) = chỉ 🏦'. Đánh giá tín dụng NH (📊) không đổi — thuần ngân hàng. Test 8/8."
+  "version": "3.15.56",
+  "swVersion": "v3.15.56",
+  "notes": "v3.15.56 (Sếp 13/8: 'quay lại bản cũ — để nguyên cả Asineran và X6M trong bảng Đánh giá tín dụng ngân hàng'): bỏ lọc chỉ-🏦 (thêm ở v3.15.45) trong modal 📊 Đánh giá tín dụng — cả 2 bảng (bảng chính theo nhóm hạn Ngắn/Trung/Dài + bảng so sánh năm trước/năm nay) giờ gồm MỌI bên cho vay đang mở; mỗi bên có icon 🏦 NH / 🏢 Cty / 👤 CN (⚠ chưa phân loại) trước tên; cột đầu bảng chính đổi nhãn 'Bên cho vay'; ghi chú đầu modal đổi tương ứng, vẫn giữ cảnh báo + nút Phân loại khi còn khoản chưa phân loại. Khoản Cty không khai termMonths sẽ nằm nhóm 'Chưa khai kỳ hạn' như bản cũ. GIỮ chỉ 🏦: WAIR chart cuối modal + Phí lãi/ngày + WAIR trong Sổ. Bảng Hạn mức tín dụng NH giữ nguyên (đúng nghĩa ngân hàng). Không đổi số liệu/công thức — chỉ phạm vi hiển thị."
 }
