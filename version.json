@@ -1,5 +1,5 @@
 {
-  "version": "3.15.66",
-  "swVersion": "v3.15.66",
-  "notes": "v3.15.66 (Sếp chốt 15/8: bỏ hết, tàu không dùng): Tài khoản tàu nay chỉ còn đúng hai tab là Dashboard tàu và Kho vật tư; ba tab Tạm ứng NV, Chi phí Tàu/Dự án và Thu-Chi hộ tàu QL đã bỏ khỏi bộ quyền của tàu. Việc siết được đặt ngay tại cửa kiểm quyền tab và áp cho mọi tài khoản phía tàu chứ không riêng tài khoản mang cờ tài khoản tàu, nên tài khoản đời cũ gắn tàu qua hồ sơ hay tài khoản thuyền trưởng cũng chỉ vào được hai tab đó dù dữ liệu quyền cũ còn ghi năm mục. Kèm theo, app tự dọn lại danh sách tab của các tài khoản tàu hiện có về đúng bộ mới khi khởi động, và vá một vòng lặp âm thầm: bản nâng cấp cũ tự cấp tab Thu-Chi hộ mỗi lần khởi động nên nếu không loại trừ tài khoản tàu thì cứ dọn xong nó lại cấp lại. Nền v3.15.65 giữ nguyên."
+  "version": "3.15.67",
+  "swVersion": "v3.15.67",
+  "notes": "v3.15.67 (Sếp 15/8: kho tàu khác dùng mẫu tồn kho tổng của bản trước, có các cột tàu): Màn Tồn tổng hợp của tàu nay dựng theo đúng khuôn ma trận như bên bờ — mỗi dòng là một vật tư, mỗi kho là một cột, kho của tàu mình đứng cột đầu có dấu neo và tô đậm, cuối bảng là cột tổng. Trước đây tất cả kho khác bị gộp vào một ô chữ nên nhìn không ra hàng đang nằm ở tàu nào. Cột thao tác giữ nguyên luật đã chốt: có tồn ở kho mình thì Xuất dùng, chỉ kho khác còn thì Đề xuất điều chuyển, không kho nào còn thì để trống. Phần tính toán tách thành hàm riêng test được, gồm tồn từng kho, tổng, quyết định nút theo tồn thực tế, tìm kiếm không dấu và ưu tiên xếp hàng đang có tại tàu lên trước. Nền v3.15.66 giữ nguyên."
 }

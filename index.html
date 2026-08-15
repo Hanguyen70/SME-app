@@ -3780,7 +3780,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.15.66';
+const APP_VERSION='3.15.67';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -66531,39 +66531,71 @@ function _vrSave(){
 }
 /* --- Màn TỒN TỔNG HỢP của tàu: kho mình xuất được, kho khác chỉ xem --- */
 let _vsOvSearch='';
+/* v3.15.67 (Sếp 15/8: "Kho tàu khác: sử dụng mẫu tồn kho tổng của bản trước — có các cột tàu"):
+   dựng ma trận tồn cho màn kho của TÀU. dòng = vật tư, cột = từng kho. Hàm thuần, test được.
+   action: 'issue' (kho mình còn → xuất dùng) · 'request' (chỉ kho khác còn → đề xuất điều chuyển)
+           · 'none' (không kho nào còn → báo văn phòng mua, ngoài app). */
+function whVesselMatrix(whs, byWh, myWhId, query){
+  const norm=(x)=>(typeof whNormName==='function')?whNormName(x):String(x||'').toLowerCase();
+  const itemMap={};
+  (whs||[]).forEach(w=>{ Object.values((byWh&&byWh[w.id])||{}).forEach(it=>{
+    if(!itemMap[it.code]) itemMap[it.code]={code:it.code, name:it.name, unit:it.unit};
+  }); });
+  const qtyOf=(wid,code)=>{ const m=((byWh&&byWh[wid])||{})[code]; return m?(+m.qty||0):0; };
+  let rows=Object.values(itemMap).map(it=>{
+    const cells={}; let tot=0;
+    (whs||[]).forEach(w=>{ const q=qtyOf(w.id,it.code); cells[w.id]=q; tot+=q; });
+    const mine=cells[myWhId]||0;
+    return Object.assign({}, it, {cells, tot, mine, action: mine>0?'issue':(tot>0?'request':'none')});
+  }).filter(r=>r.tot!==0);
+  const q=norm(query);
+  if(q) rows=rows.filter(r=>norm(r.name).indexOf(q)>=0 || norm(r.code).indexOf(q)>=0);
+  rows.sort((a,b)=>(b.mine>0?1:0)-(a.mine>0?1:0) || String(a.name||'').localeCompare(String(b.name||''),'vi'));
+  return rows;
+}
 function openVesselStockOverview(){
   const wh=whMyVesselWarehouse();
   if(!wh){ toast('Tài khoản chưa gắn tàu/kho tàu','bad'); return; }
-  const mine=stockByWarehouse(wh.id);
-  const others=stockViewableWarehouses().filter(w=>w.id!==wh.id);
-  const otherBy={}; others.forEach(w=>{ otherBy[w.id]=stockByWarehouse(w.id); });
-  const itemMap={};
-  Object.values(mine).forEach(it=>{ itemMap[it.code]={code:it.code,name:it.name,unit:it.unit}; });
-  others.forEach(w=>{ Object.values(otherBy[w.id]).forEach(it=>{ if(it.qty>0 && !itemMap[it.code]) itemMap[it.code]={code:it.code,name:it.name,unit:it.unit}; }); });
-  let items=Object.values(itemMap).sort((a,b)=>String(a.name).localeCompare(String(b.name),'vi'));
-  const q=whNormName(_vsOvSearch);
-  if(q) items=items.filter(it=>whNormName(it.name).indexOf(q)>=0||whNormName(it.code).indexOf(q)>=0);
-  const rows=items.length? items.map(it=>{
-    const my=(mine[it.code]||{}).qty||0;
-    const oth=others.map(w=>{ const qq=(otherBy[w.id][it.code]||{}).qty||0; return qq>0?esc(w.name)+': '+qq:''; }).filter(Boolean).join(' · ');
+  /* v3.15.67: dùng đúng khuôn MA TRẬN của màn Tồn tổng hợp bên bờ — cột là TỪNG kho, thấy ngay
+     hàng đang nằm ở tàu nào để xin điều chuyển, thay vì một ô text gộp khó đọc. */
+  const whs=stockViewableWarehouses().slice()
+    .sort((a,b)=>(a.id===wh.id?-1:0)-(b.id===wh.id?-1:0) || String(a.name||'').localeCompare(String(b.name||''),'vi'));
+  const byWh={}; whs.forEach(w=>{ byWh[w.id]=stockByWarehouse(w.id); });
+  const rows=whVesselMatrix(whs, byWh, wh.id, _vsOvSearch);
+  const headWh=whs.map(w=>{
+    const t=(typeof WH_TYPES!=='undefined')?(WH_TYPES[w.type]||WH_TYPES.OTHER):{icon:'📦'};
+    const mine=w.id===wh.id;
+    return `<th style="padding:6px 7px;text-align:right;font-size:10px;white-space:nowrap;border-left:1px solid var(--rule);${mine?'background:rgba(28,90,140,.10)':''}" title="${esc(w.name)}">${mine?'⚓':t.icon}<br>${esc((w.name||'').replace(/^Kho\s+/i,'').slice(0,12))}</th>`;
+  }).join('');
+  const actCell=r=>r.action==='issue'
+    ? `<button class="btn-sec" style="font-size:11px" onclick="_vsIssueOpen('${esc(r.code)}')">📤 Xuất dùng</button>`
+    : (r.action==='request'
+      ? `<button class="btn-sec" style="font-size:11px;border-color:#1c5a8c;color:#1c5a8c" onclick="_vsReqOpen('${esc(r.code)}')" title="Kho khác đang có — gửi đề xuất điều chuyển về thủ kho">🔄 Đề xuất</button>`
+      : '<span style="color:var(--muted);font-size:11px">—</span>');
+  const rowsHtml=rows.length? rows.map(r=>{
+    const cells=whs.map(w=>{
+      const q=r.cells[w.id]||0; const mine=w.id===wh.id;
+      return `<td style="padding:4px 7px;text-align:right;font-family:monospace;font-size:11px;border-left:1px solid var(--rule);${mine?'background:rgba(28,90,140,.06);font-weight:700':''}${q===0?';color:var(--muted)':''}">${q||'·'}</td>`;
+    }).join('');
     return `<tr style="border-bottom:1px solid var(--rule)">
-      <td style="padding:6px 8px">${esc(it.name)} <span style="color:var(--muted);font-size:10px;font-family:monospace">${esc(it.code)}</span></td>
-      <td style="padding:6px 8px;text-align:right;font-weight:600;${my<=0?'color:#b23b3b':''}">${my} ${esc(it.unit||'')}</td>
-      <td style="padding:6px 8px;font-size:11px;color:var(--muted)">${oth||'—'}</td>
-      <td style="padding:6px 8px;text-align:right">${my>0
-        ?`<button class="btn-sec" style="font-size:11px" onclick="_vsIssueOpen('${esc(it.code)}')">📤 Xuất dùng</button>`
-        :(oth?`<button class="btn-sec" style="font-size:11px;border-color:#1c5a8c;color:#1c5a8c" onclick="_vsReqOpen('${esc(it.code)}')" title="Kho khác đang có — gửi đề xuất điều chuyển về thủ kho">🔄 Đề xuất điều chuyển</button>`
-              :'<span style="color:var(--muted);font-size:11px" title="Không kho nào còn — báo văn phòng mua ngoài app">—</span>')}</td>
+      <td style="padding:4px 8px;font-size:12px">${esc(r.name||'')}<div style="font-family:monospace;font-size:10px;color:var(--muted)">${esc(r.code)} · ${esc(r.unit||'')}</div></td>
+      ${cells}
+      <td style="padding:4px 9px;text-align:right;font-weight:700;border-left:2px solid var(--accent);background:rgba(28,90,140,.05)">${r.tot.toLocaleString('vi-VN')}</td>
+      <td style="padding:4px 8px;text-align:right;white-space:nowrap">${actCell(r)}</td>
     </tr>`;
-  }).join('') : `<tr><td colspan="4" style="padding:14px;text-align:center;color:var(--muted)">${q?'Không tìm thấy vật tư khớp.':'Kho chưa có tồn — nhận hàng đầu tiên để bắt đầu.'}</td></tr>`;
-  openModal('📊 Tồn tổng hợp — '+esc(wh.name),
+  }).join('')
+   : `<tr><td colspan="${whs.length+3}" style="padding:18px;text-align:center;color:var(--muted)">${_vsOvSearch?'Không tìm thấy vật tư khớp.':'Chưa kho nào có tồn — nhận hàng đầu tiên để bắt đầu.'}</td></tr>`;
+  openModal('📊 Tồn tổng hợp — ⚓ '+esc(wh.name),
     `<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
        <input id="vs-ov-q" value="${esc(_vsOvSearch)}" placeholder="Tìm mã hoặc tên vật tư…" style="flex:1;padding:6px 8px;border:1px solid var(--rule);border-radius:6px;font-size:13px" oninput="_vsOvSearch=this.value" onchange="openVesselStockOverview()">
-       <span style="font-size:11px;color:var(--muted);white-space:nowrap">⚓ Kho mình = xuất được · kho khác chỉ để biết chỗ mượn</span>
+       <span style="font-size:11px;color:var(--muted);white-space:nowrap">⚓ cột tô đậm = kho tàu mình</span>
      </div>
-     <div class="tbl-scroll" style="max-height:430px"><table style="width:100%;border-collapse:collapse;font-size:13px;border:1px solid var(--rule)">
-       <thead><tr style="background:var(--rule);text-align:left"><th style="padding:6px 8px">Vật tư</th><th style="padding:6px 8px;text-align:right">Tại tàu này</th><th style="padding:6px 8px">Tại kho khác</th><th style="padding:6px 8px"></th></tr></thead>
-       <tbody>${rows}</tbody></table></div>
+     <div class="tbl-scroll" style="max-height:430px;overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;border:1px solid var(--rule)">
+       <thead><tr style="background:var(--rule);text-align:left">
+         <th style="padding:6px 8px">Vật tư</th>${headWh}
+         <th style="padding:6px 9px;text-align:right;border-left:2px solid var(--accent)">TỔNG</th>
+         <th style="padding:6px 8px"></th></tr></thead>
+       <tbody>${rowsHtml}</tbody></table></div>
      <div style="font-size:11px;color:var(--muted);margin-top:6px">Có tồn tại kho mình → xuất dùng ngay. Chỉ kho khác còn → bấm 🔄 gửi đề xuất, thủ kho duyệt thì hàng mới về kho tàu rồi mới xuất được. Không kho nào còn → báo văn phòng mua (ngoài app).</div>`,
     `<button class="btn-ghost" onclick="closeModal()">Đóng</button>`);
 }
