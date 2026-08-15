@@ -2808,6 +2808,10 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
           <div style="display:flex;gap:6px;flex-wrap:wrap">
             <button class="btn-sec" style="font-size:13px" onclick="openMaterialMaster()">📦 Vật tư (FAST)</button>
             <button class="btn-sec" style="font-size:13px" onclick="openWarehouseModal(null)">+ Thêm kho</button>
+            <!-- v3.15.76 (Sếp 15/8: "không tìm thấy chỗ để import"): nút này trước chỉ nằm trong
+                 Chứng từ kho → ⋯ Khác, tức 3 cú bấm cho một việc dựng nền cả sổ kho. Đưa thẳng ra
+                 thanh thao tác của trang Kho vật tư. Vẫn gate thủ kho/admin ở trong hàm. -->
+            <button class="btn-sec" style="font-size:13px;border-color:#1c5a8c;color:#1c5a8c" onclick="openOpeningImport()" title="Nạp số tồn ban đầu các kho từ file Excel (một file chứa được nhiều kho)">📦 Nhập tồn đầu kỳ</button>
           </div>
         </div>
       </div>
@@ -3780,7 +3784,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.15.75';
+const APP_VERSION='3.15.76';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -67168,9 +67172,27 @@ function openOpeningImport(){
        <input type="date" id="op-date" value="${new Date().toISOString().slice(0,10)}" style="padding:6px 8px;border:1px solid var(--rule);border-radius:6px">
      </div>
      <button class="btn-primary" onclick="document.getElementById('op-file').click()">📂 Chọn file Excel…</button>
+     <button class="btn-sec" style="margin-left:6px" onclick="_opDownloadTemplate()" title="Tải file mẫu đúng khuôn, kèm danh sách tên kho">⬇ Tải file mẫu</button>
      <input type="file" id="op-file" accept=".xlsx,.xls,.csv" style="display:none" onchange="_opImportFile(this.files[0])">
      <div id="op-preview" style="margin-top:10px"></div>`,
     `<button class="btn-ghost" onclick="closeModal()">Đóng</button>`);
+}
+/* v3.15.76: file mẫu sinh tại chỗ từ DANH MỤC KHO THẬT của máy này — tên kho luôn khớp,
+   không còn cảnh gõ tay rồi bị báo "chưa khớp". */
+function _opDownloadTemplate(){
+  try{
+    const whs=InventoryService.warehouses().filter(w=>w.isActive!==false);
+    const wsData=[['Mã','Tên','ĐVT','Nhóm 1','Nhóm 2','Kho','Số lượng']];
+    const ex=whs[0]?whs[0].name:'Kho VPCT';
+    wsData.push(['VT-ACQUY','Ắc quy khô 12V-200Ah','cái','Điện','Ắc quy',ex,4]);
+    wsData.push(['','','','','','','']);
+    const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(wsData), 'Ton dau ky');
+    const kho=[['TÊN KHO — copy nguyên văn sang cột "Kho"']].concat(whs.map(w=>[w.name]));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(kho), 'Danh muc kho');
+    XLSX.writeFile(wb, 'MAU_Ton_dau_ky_'+new Date().toISOString().slice(0,10)+'.xlsx');
+    toast('Đã tải file mẫu — dòng ví dụ nhớ xóa trước khi import','good');
+  }catch(e){ console.warn('[op-template]',e); toast('Không tạo được file mẫu','bad'); }
 }
 function _opImportFile(file){
   if(!file) return;

@@ -1,5 +1,5 @@
 {
-  "version": "3.15.75",
-  "swVersion": "v3.15.75",
-  "notes": "v3.15.75 (Sếp 15/8: phần chi tiết theo các tàu thuộc về Báo cáo kho, nhập kho chỉ theo đích danh tàu): Bỏ bảng ma trận nhiều kho khỏi màn kho của tàu — thứ này thêm ở bản 3.15.67 là sai ranh giới. Màn kho tàu nay chỉ hiện tồn của chính kho tàu mình với các cột vật tư, đơn vị tính, tồn và nút xuất dùng trên từng dòng; muốn nhìn kho khác đang có gì thì vào Báo cáo kho. Việc xin điều chuyển chuyển lên thanh công cụ: bấm Đề xuất điều chuyển sẽ liệt kê những vật tư đang có ở kho khác kèm tên kho và tổng tồn, chọn dòng cần xin là mở form gửi thủ kho như cũ. Thanh công cụ màn kho tàu gồm bốn việc: Nhận hàng kèm số phiếu chờ, Kiểm kê, Đề xuất điều chuyển và Báo cáo kho. Nền v3.15.74 giữ nguyên."
+  "version": "3.15.76",
+  "swVersion": "v3.15.76",
+  "notes": "v3.15.76 (Sếp 15/8: không tìm thấy chỗ để import): Nút Nhập tồn đầu kỳ trước đây nằm trong Chứng từ kho rồi mới tới nhóm Khác, tức ba cú bấm cho một việc dựng nền cả sổ kho — nay đưa thẳng ra thanh Thao tác kho của trang Kho vật tư, lối cũ vẫn giữ. Quyền không đổi, chỉ thủ kho và admin nạp được. Trong màn import bổ sung nút Tải file mẫu: app tự sinh file Excel đúng bảy cột mà nó đọc được, kèm một sheet liệt kê tên kho lấy từ danh mục thật của máy để copy sang cột Kho — hết cảnh gõ tay tên kho rồi bị báo chưa khớp. Nền v3.15.75 giữ nguyên."
 }
