@@ -3780,7 +3780,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.15.62';
+const APP_VERSION='3.15.64';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -12339,6 +12339,19 @@ function userAssignedProjectIds(){
 }
 /* Tàu QL hộ (S.opVessels) — phân quyền NV.
    Admin: all. NV không có gán → all (backward compat). NV có gán → chỉ tàu được gán. */
+/* v3.15.64 (Sếp chốt 15/8: "App Tàu chỉ hiển thị Trung tâm quản lý tàu của CHÍNH TÀU.
+   Không được hiển thị các tàu khác."): một cửa duy nhất trả danh sách tàu được phép thấy,
+   dùng chung cho mọi nơi hiển thị — thanh tab, dropdown, cửa vào Hub. Phạm vi RỖNG = KHÔNG
+   tàu nào (bẫy "rỗng thì bỏ qua lọc" đã tái diễn 4 lần trong đợt này ở 4 chỗ khác nhau). */
+function vesselsInScope(){
+  const all=VesselService.vessels().slice();
+  let allowed=[];
+  try{ allowed=(typeof userAssignedVesselIds==='function')?userAssignedVesselIds():[]; }catch(e){ allowed=[]; }
+  if(!Array.isArray(allowed)) return [];
+  const set=new Set(allowed);
+  return all.filter(v=>set.has(v.id));
+}
+function canSeeVessel(vid){ return vesselsInScope().some(v=>v.id===vid); }
 function userAssignedOpVesselIds(){
   /* v3.15.61 — GỐC của lỗ "tàu thấy Sổ công nợ NCC toàn công ty" (10,5 tỷ / 89 NCC).
      Tài khoản tàu được tạo với assignedOpVesselIds:[] → rơi vào fallback trả TẤT CẢ tàu QL hộ
@@ -12670,6 +12683,9 @@ function helpDetectRole(){
   if(CURRENT_USER.canApproveL1 || CURRENT_USER.canApproveL2 || CURRENT_USER.canManageUsers) return 'ktt';
   // NV KT: có quyền KT Kiểm hồ sơ
   if(CURRENT_USER.canCheckAcc) return 'nvkt';
+  /* v3.15.63: tài khoản TÀU phải nhận diện TRƯỚC nhánh NV Kho — nó có tab 'inventory' nên
+     trước đây màn chào gọi con tàu là "NV Kho", mô tả sai hẳn công việc trên buồng lái. */
+  if(typeof whIsVesselSideUser==='function' && whIsVesselSideUser()) return 'vessel';
   // NV Kho: có tab kho/tài sản
   const tabs = CURRENT_USER.tabs||[];
   if(tabs.includes('inventory') || tabs.includes('fixed_assets') || tabs.includes('tools')) return 'nvkho';
@@ -13129,6 +13145,7 @@ function showWelcomeModal(userKey, flag){
     admin: {icon:'🛡', title:'Quản trị viên (Admin)', focus:'Toàn quyền hệ thống — tạo NV, cấu hình, duyệt thay, sao lưu, bảo mật'},
     ktt: {icon:'✓✓', title:'Kế toán trưởng (KTT)', focus:'Duyệt hóa đơn 2 cấp (L1+L2), quản lý nhân viên, xuất bảng kê GTGT'},
     nvkt: {icon:'📝', title:'NV Kế toán', focus:'Kiểm tra chứng từ hóa đơn (KT Kiểm) + xuất bảng kê thuế VAT'},
+    vessel: {icon:'⚓', title:'Tài khoản tàu', focus:'Nhận hàng về kho tàu · xuất dùng từ tồn có thật · đề xuất điều chuyển khi hết · kiểm kê kho'},
     nvkho: {icon:'📦', title:'NV Kho', focus:'Quản lý kho vật tư, tài sản cố định, công cụ dụng cụ'},
     nv: {icon:'✎', title:'NV Nhập liệu', focus:'Nhập hóa đơn nhà cung cấp (Phải trả) vào tab 04 Công nợ'}
   }[role] || {icon:'✎', title:'Nhân viên', focus:'Sử dụng các tab được phân quyền'};
@@ -13151,8 +13168,11 @@ function showWelcomeModal(userKey, flag){
       <div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:8px">Tab bạn được truy cập (${CURRENT_USER.tabs.length})</div>
       <div style="display:flex;gap:6px;flex-wrap:wrap">
         ${CURRENT_USER.tabs.map(t=>{
+          /* v3.15.63: 'advances' không nằm trong ALL_TABS nên chip rỗng — đếm 5 mà chỉ hiện 4.
+             Lấy nhãn ngắn làm dự phòng, cùng lắm hiện chính id, không bao giờ để trống. */
           const T=ALL_TABS.find(x=>x.id===t);
-          return T?`<span style="padding:4px 10px;background:rgba(28,58,92,.08);border:1px solid var(--rule);border-radius:2px;font-size:13px;font-family:var(--font-mono)">${esc(T.label)}</span>`:'';
+          const label=T?T.label:((typeof TAB_LABEL_SHORT!=='undefined'&&TAB_LABEL_SHORT[t])||t);
+          return `<span style="padding:4px 10px;background:rgba(28,58,92,.08);border:1px solid var(--rule);border-radius:2px;font-size:13px;font-family:var(--font-mono)">${esc(label)}</span>`;
         }).join('')}
       </div>
     </div>
@@ -34906,8 +34926,9 @@ function fillProjectVesselPicker(){
   if(!sel) return;
   const cur=sel.value;
   // v1.42.0: active only
+  /* v3.15.64: chọn tàu theo PHẠM VI (vesselsInScope) — admin/NV bờ không đổi, phía tàu chỉ tàu mình */
   sel.innerHTML='<option value="">— Không gắn —</option>'+
-    activeOnly(VesselService.vessels()).map(v=>`<option value="${v.id}">${esc(v.name)} (${v.type==='SERVICE'?'DV':'KT'})</option>`).join('');
+    activeOnly(typeof vesselsInScope==='function'?vesselsInScope():VesselService.vessels()).map(v=>`<option value="${v.id}">${esc(v.name)} (${v.type==='SERVICE'?'DV':'KT'})</option>`).join('');
   sel.value=cur;
 }
 
@@ -35370,6 +35391,13 @@ function _gotoOpBookForVessel(vid){
   },80);
 }
 function openOpVesselHub(vid){
+  /* v3.15.64: chặn tại cửa vào theo phạm vi tàu QL hộ được giao (phía tàu = rỗng → không vào được) */
+  try{
+    if(typeof userAssignedOpVesselIds==='function'){
+      const allowed=userAssignedOpVesselIds();
+      if(Array.isArray(allowed) && allowed.indexOf(vid)<0){ toast('Tàu này ngoài phạm vi được giao','bad'); return; }
+    }
+  }catch(e){}
   const v=VesselService.opVessels().find(x=>x.id===vid); if(!v){ toast('Không tìm thấy tàu quản lý','bad'); return; }
   const bal=(typeof opBalance==='function')?opBalance(vid):0;
   const balDisp=toDisplay(bal,'USD');
@@ -35409,6 +35437,9 @@ function openOpVesselHub(vid){
 /* v3.10.33: Modal Dashboard đội tàu — KPI + Cảnh báo + Việc hôm nay. Quyền: admin/BOD/KTT. */
 function openFleetDashboard(){
   // Quyền: chỉ cấp quản lý (không crew)
+  /* v3.15.64: chặn tường minh phía tàu — KPI toàn đội tàu là việc của bờ, dù tài khoản tàu
+     có lỡ mang cờ nào đó thì cũng không được vào. */
+  if(typeof whIsVesselSideUser==='function' && whIsVesselSideUser()){ toast('Tài khoản tàu chỉ xem được tàu của mình','bad'); return; }
   const canView = isAdmin() || (CURRENT_USER && (CURRENT_USER.isBOD || CURRENT_USER.canManageUsers || canApproveL1() || canApproveL2()));
   if(!canView){ toast('Không có quyền xem tổng quan đội tàu','bad'); return; }
   const d=_fleetDashboardData();
@@ -35569,14 +35600,12 @@ function _fleetDashboardData(){
 function renderVesselOpsSubmenu(){
   const box=document.getElementById('submenu-vesselops'); if(!box) return;
   let vessels=VesselService.vessels().slice();
-  // Lọc theo quyền tàu được gán (nếu là NV có giới hạn) — admin/không giới hạn thấy hết.
+  /* v3.15.64: lọc CHẶT qua một cửa dùng chung. Điều kiện cũ có "allowed.length &&" nên phạm vi
+     rỗng thì bỏ qua lọc — thuyền trưởng chưa gán tàu thấy TOÀN BỘ đội tàu. */
   try{
     if(typeof userAssignedVesselIds==='function'){
       const allowed=userAssignedVesselIds();
-      // userAssignedVesselIds trả full list cho admin/KTT; chỉ lọc khi thực sự bị giới hạn.
-      if(Array.isArray(allowed) && allowed.length && allowed.length<vessels.length){
-        const set=new Set(allowed); vessels=vessels.filter(v=>set.has(v.id));
-      }
+      if(Array.isArray(allowed)){ const set=new Set(allowed); vessels=vessels.filter(v=>set.has(v.id)); }
     }
   }catch(e){}
   // sắp xếp: tàu công ty trước, theo tên
@@ -35592,7 +35621,10 @@ function renderVesselOpsSubmenu(){
   try{
     if(typeof userAssignedOpVesselIds==='function'){
       const aOp=userAssignedOpVesselIds();
-      if(Array.isArray(aOp) && aOp.length && aOp.length<opVessels.length){ const s=new Set(aOp); opVessels=opVessels.filter(v=>s.has(v.id)); }
+      /* v3.15.63 (ảnh test tau-geomarine trên v3.15.62): điều kiện cũ có "aOp.length &&" nên khi
+         phạm vi RỖNG thì BỎ QUA lọc → tài khoản tàu vẫn thấy AFALINA/KATRAN trên thanh tab dù
+         v3.15.61 đã siết ở tầng dữ liệu. Rỗng = không tàu nào, không có ngoại lệ. */
+      if(Array.isArray(aOp)){ const s=new Set(aOp); opVessels=opVessels.filter(v=>s.has(v.id)); }
     }
   }catch(e){}
   opVessels.sort((a,b)=>String(a.name||'').localeCompare(String(b.name||'')));
@@ -35717,6 +35749,14 @@ function _vohBody(vid, inner){
 /* v3.08.57 (Module tàu — Màn QL tàu tập trung): 1 màn xem tổng quan 1 tàu —
    hồ sơ, thuyền viên, chứng chỉ, kho, email, lịch sử khai thác. Mỗi mục có nút mở chi tiết (hàm sẵn có). */
 function openVesselHub(vid){
+  /* v3.15.64: phía tàu chỉ mở được Trung tâm quản lý của CHÍNH tàu mình — chặn tại cửa vào,
+     không chỉ ẩn ở danh sách (ẩn nút không phải là phân quyền). */
+  if(typeof whIsVesselSideUser==='function' && whIsVesselSideUser()){
+    const mine=(typeof whMyVesselId==='function')?whMyVesselId():'';
+    if(!mine || vid!==mine){ toast('Tài khoản tàu chỉ xem được tàu của mình','bad'); return; }
+  } else if(typeof canSeeVessel==='function' && !canSeeVessel(vid) && !isAdmin()){
+    toast('Tàu này ngoài phạm vi được giao','bad'); return;
+  }
   const v=VesselService.vessels().find(x=>x.id===vid); if(!v){ toast('Không tìm thấy tàu','bad'); return; }
   const vName=v.name||'';
   // số liệu tóm tắt
@@ -35790,7 +35830,7 @@ function fillVesselPicker(){
   if(!sel)return;
   const cur=sel.value;
   // v1.42.0: active only — onhire is new entry form
-  sel.innerHTML=activeOnly(VesselService.vessels()).map(v=>`<option value="${v.id}">${esc(v.name)} (${v.type==='SERVICE'?'DV':'KT'})</option>`).join('');
+  sel.innerHTML=activeOnly(typeof vesselsInScope==='function'?vesselsInScope():VesselService.vessels()).map(v=>`<option value="${v.id}">${esc(v.name)} (${v.type==='SERVICE'?'DV':'KT'})</option>`).join('');   // v3.15.64: theo phạm vi
   sel.value=cur;
 }
 function renderVessels(){
