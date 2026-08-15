@@ -3779,7 +3779,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.15.58';
+const APP_VERSION='3.15.59';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -63922,19 +63922,28 @@ function canViewStockValue(){
    trong hàm này → rơi vào nhánh cuối 'return all' → thấy/thao tác được MỌI kho của MỌI tàu +
    kho công ty (rò rỉ dữ liệu chéo tàu). Vá: tài khoản tàu chỉ thao tác đúng kho tàu mình,
    giống thuyền trưởng. */
-function whIsVesselSideUser(){ return !!(isCaptain()||(typeof isVesselAccountUser==='function'&&isVesselAccountUser())); }
+function whIsVesselSideUser(){
+  /* v3.15.59 (Sếp 15/8, sau ảnh test): nhận diện phía tàu KHÔNG chỉ dựa 2 cờ — tài khoản
+     gắn tàu (linkVesselId) cũng là phía tàu, kể cả cờ isVesselAccount thiếu ở tài khoản cũ.
+     Nguyên tắc KHO TẠI TÀU: tối giản thao tác - tối giản tìm kiếm - chỉ hiện mục được phân quyền. */
+  return !!(isCaptain()
+    ||(typeof isVesselAccountUser==='function'&&isVesselAccountUser())
+    ||(CURRENT_USER&&CURRENT_USER.linkVesselId));
+}
 /* kho mà user được THAO TÁC (tạo/sửa/xác nhận/xuất/điều chuyển/kiểm kê):
    thuyền trưởng + tài khoản tàu → CHỈ kho tàu mình; thủ kho/admin → mọi kho. */
 function stockAllowedWarehouses(){
   const all=InventoryService.warehouses().filter(w=>w.isActive!==false);
   if(isAdmin()||canManageStock()) return all;
-  if(isCaptain()){
-    const vids=(typeof userAssignedVesselIds==='function')?userAssignedVesselIds():[];
+  if(whIsVesselSideUser()){
+    /* v3.15.59: gom một nhánh phía tàu; đọc THẲNG danh sách gán (không qua
+       hàm gán-tàu dùng chung vốn fallback TẤT CẢ tàu khi chưa gán — hố lộ kho chéo tàu).
+       Chưa gán tàu nào = không kho nào (an toàn) — báo IT gán tàu cho tài khoản. */
+    const vids=[];
+    const vid=whMyVesselId(); if(vid) vids.push(vid);
+    const a=CURRENT_USER&&CURRENT_USER.assignedVesselIds;
+    if(Array.isArray(a)) a.forEach(x=>{ if(x&&vids.indexOf(x)<0) vids.push(x); });
     return all.filter(w=>w.type==='VESSEL' && vids.indexOf(w.vesselId)>=0);
-  }
-  if(typeof isVesselAccountUser==='function' && isVesselAccountUser()){
-    const vid=(typeof vesselAccountVesselId==='function')?vesselAccountVesselId():'';
-    return all.filter(w=>w.type==='VESSEL' && w.vesselId===vid);
   }
   return all;
 }
@@ -65223,7 +65232,9 @@ function _whName(id){ const w=InventoryService.warehouseById(id); return w?w.nam
 /* ---- Màn danh sách chứng từ kho ---- */
 let _stockFilter={type:'',wh:''};
 function openStockDocs(){
-  const canEdit=canManageStock()||whIsVesselSideUser(); // v3.15.57: phía tàu (captain + tài khoản tàu) — chỉ còn quyền Nhận hàng/Kiểm kê, không còn nút tạo phiếu tự do
+  /* v3.15.59: nhánh office canEdit CHỈ thủ kho/admin (phía tàu có bộ nút riêng, NV thường
+     không có nút tạo phiếu). Nút ✓ Nhận hàng trên dòng pending của tàu gate riêng bên dưới. */
+  const canEdit=canManageStock()||isAdmin();
   const isVA=(typeof isVesselAccountUser==='function')&&isVesselAccountUser();  // v3.08.48 (Mảng 2)
   const allowed=stockAllowedWarehouses();
   let list=stockScopedDocs(stockDocList().filter(d=>stockCanAccessWarehouse(d.warehouseId)));
@@ -65247,7 +65258,7 @@ function openStockDocs(){
       <td style="padding:5px 8px;white-space:nowrap">
         <button class="btn-ghost" style="font-size:11px" onclick="stockDocPreview('${d.id}')">📄</button>
         ${d.status!=='confirmed'&&canEdit?`<button class="btn-ghost" style="font-size:11px" onclick="openStockForm('${d.type}','${d.id}')">✏️</button>`:''}
-        ${d.status==='pending'&&canEdit?(whIsVesselSideUser()?`<button class="btn-ghost" style="font-size:11px;color:#1e7d44" onclick="openVesselReceive('${d.id}')" title="Nhận hàng — tick SL, xác nhận là tồn cộng ngay">✓</button>`:`<button class="btn-ghost" style="font-size:11px;color:#1e7d44" onclick="openConfirmInbound('${d.id}')" title="Nhận hàng & xác nhận">✓</button>`):''}
+        ${d.status==='pending'&&(canEdit||whIsVesselSideUser())?(whIsVesselSideUser()?`<button class="btn-ghost" style="font-size:11px;color:#1e7d44" onclick="openVesselReceive('${d.id}')" title="Nhận hàng — tick SL, xác nhận là tồn cộng ngay">✓</button>`:`<button class="btn-ghost" style="font-size:11px;color:#1e7d44" onclick="openConfirmInbound('${d.id}')" title="Nhận hàng & xác nhận">✓</button>`):''}
         ${d.status==='draft'&&canEdit?`<button class="btn-ghost" style="font-size:11px;color:#1e7d44" onclick="stockConfirm('${d.id}')" title="Xác nhận → cập nhật tồn">✓</button>`:''}
         ${d.status==='confirmed'&&!d.reversedById&&!d.reversalOfId&&(canManageStock()||isAdmin())?`<button class="btn-ghost" style="font-size:11px;color:#9c4221" onclick="_stockReversePrompt('${d.id}')" title="Đảo phiếu — tạo phiếu đối ứng hoàn tác tồn, giữ nguyên phiếu gốc">↩</button>`:''}
         ${_stockVesselReceiveBtn(d)}
@@ -65267,11 +65278,12 @@ function openStockDocs(){
       <button class="btn-sec" style="font-size:13px" onclick="openStockForm('OUT')">+ Phiếu xuất</button>
       <button class="btn-sec" style="font-size:13px" onclick="openStockTransfer()">🔄 Điều chuyển</button>
       <button class="btn-sec" style="font-size:13px" onclick="openStockCount()">📋 Kiểm kê</button>`:'')}
-      ${whIsVesselSideUser()?'':`<button class="btn-sec" style="font-size:13px" onclick="openStockOnHand()">📊 Tồn theo kho</button>
-      <button class="btn-sec" style="font-size:13px" onclick="openStockOverview()" title="Xem tồn tất cả kho (tổng + lẻ) trong 1 màn">📊 Tồn tổng hợp</button>
+      ${whIsVesselSideUser()?'':`<button class="btn-sec" style="font-size:13px" onclick="openStockOverview()" title="Xem tồn tất cả kho — check trước khi mua, tránh mua trùng/lãng phí">📊 Tồn tổng hợp</button>
+      <button class="btn-sec" style="font-size:13px;border-color:#1c5a8c;color:#1c5a8c" onclick="openStockInTracking()" title="Theo dõi tiến độ giao hàng - nhập kho các đơn mua của bạn">📦 Theo dõi nhập kho</button>
+      ${(canManageStock()||isAdmin())?`<button class="btn-sec" style="font-size:13px" onclick="openStockOnHand()">📊 Tồn theo kho</button>
       <button class="btn-sec" style="font-size:13px" onclick="openPendingInbound()">⏳ Chờ nhập kho</button>
       <button class="btn-sec" style="font-size:13px" onclick="openWarehouseReport()">📈 Báo cáo kho</button>
-      ${(canManageStock()||isAdmin())?`<button class="btn-sec" style="font-size:13px" onclick="openTempCodeReview()" title="Kiểm tra & đổi các mã vật tư tạm do app gợi ý/tự cấp lúc tàu nhận hàng">🏷 Soát mã${stockTempCount()?` <span style="background:#b8730a;color:#fff;border-radius:8px;padding:0 6px;font-size:10px">${stockTempCount()}</span>`:''}</button>
+      <button class="btn-sec" style="font-size:13px" onclick="openTempCodeReview()" title="Kiểm tra & đổi các mã vật tư tạm do app gợi ý/tự cấp lúc tàu nhận hàng">🏷 Soát mã${stockTempCount()?` <span style="background:#b8730a;color:#fff;border-radius:8px;padding:0 6px;font-size:10px">${stockTempCount()}</span>`:''}</button>
       <button class="btn-sec" style="font-size:13px" onclick="openOpeningImport()" title="Nạp số tồn ban đầu các kho từ file Excel FAST (kèm tự thêm danh mục)">📦 Nhập tồn đầu kỳ</button>`:''}`}
     </div>
     <div class="tbl-scroll" style="max-height:440px"><table style="width:100%;border-collapse:collapse;font-size:13px;border:1px solid var(--rule)">
@@ -66163,7 +66175,8 @@ function _stockReversePrompt(id){
  * ============================================================================ */
 function whMyVesselId(){
   if(typeof isVesselAccountUser==='function'&&isVesselAccountUser()) return vesselAccountVesselId();
-  if(isCaptain()){ const v=(typeof userAssignedVesselIds==='function')?userAssignedVesselIds():[]; return v[0]||''; }
+  if(CURRENT_USER&&CURRENT_USER.linkVesselId) return CURRENT_USER.linkVesselId;   // v3.15.59: tài khoản gắn tàu (kể cả thiếu cờ)
+  if(isCaptain()){ const a=CURRENT_USER&&CURRENT_USER.assignedVesselIds; return (Array.isArray(a)&&a[0])||''; }
   return '';
 }
 function whMyVesselWarehouse(){
@@ -67208,6 +67221,9 @@ let _whRepFilter={wh:'',from:'',to:'',tab:'inout'};
 function openWarehouseReport(){
   if(!canViewStockReport()){ toast('Bạn không có quyền xem báo cáo kho','bad'); return; }
   const allowed=stockAllowedWarehouses();
+  /* v3.15.59: phía tàu — khóa cứng đích danh kho tàu, không dropdown, không 'Mọi kho' */
+  const whLocked=whIsVesselSideUser();
+  if(whLocked){ const mw=whMyVesselWarehouse(); if(mw) _whRepFilter.wh=mw.id; }
   const whOpts=['<option value="">— Mọi kho được phép —</option>'].concat(allowed.map(w=>`<option value="${w.id}" ${_whRepFilter.wh===w.id?'selected':''}>${esc(w.name)}</option>`)).join('');
   const inRange=d=>{ const dt=d.date||''; if(_whRepFilter.from&&dt<_whRepFilter.from)return false; if(_whRepFilter.to&&dt>_whRepFilter.to)return false; return true; };
   const accW=id=>stockCanAccessWarehouse(id);
@@ -67239,7 +67255,7 @@ function openWarehouseReport(){
   }
   const sel='padding:6px 8px;border:1px solid var(--rule);border-radius:6px;font-size:13px';
   const body=`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;align-items:center">
-      <select id="wr-wh" style="${sel}" onchange="_whRepSet()">${whOpts}</select>
+      ${whLocked?`<b style="font-size:13px;padding:6px 4px">⚓ ${esc(_whName(_whRepFilter.wh))}</b><input type="hidden" id="wr-wh" value="${esc(_whRepFilter.wh)}">`:`<select id="wr-wh" style="${sel}" onchange="_whRepSet()">${whOpts}</select>`}
       <label style="font-size:11px">Từ <input type="date" id="wr-from" value="${esc(_whRepFilter.from)}" style="${sel}" onchange="_whRepSet()"></label>
       <label style="font-size:11px">Đến <input type="date" id="wr-to" value="${esc(_whRepFilter.to)}" style="${sel}" onchange="_whRepSet()"></label>
       <button class="btn-sec" style="font-size:11px" onclick="_whRepExportExcel()">📊 Xuất Excel</button>
