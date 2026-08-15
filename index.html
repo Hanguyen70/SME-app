@@ -3780,7 +3780,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.15.70';
+const APP_VERSION='3.15.74';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -11021,6 +11021,60 @@ function vesselCrewMerged(vid, atDate){
  * Danh sách crew tự lấy từ Quyết định điều động (crewOnboard).
  * Tài khoản tàu: xem crew onboard → chấm công ngày + OT → gửi Phòng Nhân sự.
  * ============================================================ */
+/* ============================================================================
+ * v3.15.74 (Sếp 15/8 — TÁI DỰNG BẢNG CHẤM CÔNG TÀU, duyệt mẫu cùng ngày):
+ *   · Tham số BCC lấy từ HR — MỘT nguồn: HRM_BCC_PROFILES.BCC_DOITAU.workCols.
+ *     Bảng cũ tự chế 2 ô "công/OT" không khớp cột nào của BCC nên số tàu nhập KHÔNG ghép được
+ *     vào HR — đó là lý do dựng lại chứ không vá.
+ *   · Xếp thuyền viên 2 lớp: chức danh (thang TUYỆT ĐỐI) → mã NV.
+ *   · Tàu [Xác nhận] = lưu (còn sửa được) · [Gửi HR] = chốt, ghi thẳng thành BCC Đội tàu.
+ *     HR kiểm → khóa; sai → [Trả lại tàu] kèm lý do, tàu sửa tiếp.
+ * Các hàm dưới đây THUẦN (không DOM, không state) để test được.
+ * ========================================================================== */
+function vtsWorkCols(){
+  try{
+    const p=(typeof HRM_BCC_PROFILES!=='undefined')&&HRM_BCC_PROFILES.BCC_DOITAU;
+    const wc=(p&&p.workCols)||[];
+    return wc.map(c=>({key:c[0], label:c[2]||c[0]}));
+  }catch(e){ return []; }
+}
+/* Thang chức danh TUYỆT ĐỐI (Sếp duyệt 15/8) — quyết định thứ tự dòng, cố định giữa các tháng. */
+const VTS_RANK_LADDER=['master','cho','che','engineer','deck','survey','offshore','other'];
+function vtsRankOrder(rankKey){
+  const i=VTS_RANK_LADDER.indexOf(String(rankKey||'other'));
+  return i<0?VTS_RANK_LADDER.length:i;
+}
+/* Lớp 1 chức danh, lớp 2 mã NV. empInfo(empId) → {title, smartId} */
+function vtsSortRows(rows, empInfo){
+  return (rows||[]).slice().sort((a,b)=>{
+    const ea=empInfo(a.empId)||{}, eb=empInfo(b.empId)||{};
+    const ra=vtsRankOrder(crewRankOf(ea.title)), rb=vtsRankOrder(crewRankOf(eb.title));
+    if(ra!==rb) return ra-rb;
+    return String(ea.smartId||'').localeCompare(String(eb.smartId||''),'vi',{numeric:true});
+  });
+}
+function vtsRowTotal(row){
+  const c=(row&&row.cols)||{};
+  return Object.keys(c).reduce((t,k)=>t+(parseFloat(c[k])||0),0);
+}
+function vtsDaysInPeriod(period){
+  const m=/^(\d{4})-(\d{2})$/.exec(String(period||'')); if(!m) return 0;
+  return new Date(+m[1], +m[2], 0).getDate();
+}
+/* Tàu còn sửa được không: "xác nhận" chỉ là LƯU, chưa chốt; gửi HR mới khóa. */
+function vtsCanEdit(ts){
+  const st=(ts&&ts.status)||'draft';
+  return st==='draft' || st==='confirmed' || st==='returned';
+}
+/* Chuyển bảng của tàu → đúng khuôn dòng BCC Đội tàu (hrAttendance.rows) */
+function vtsToAttendanceRows(rows, empInfo, vesselName){
+  return (rows||[]).map(r=>{
+    const e=empInfo(r.empId)||{};
+    const cols={}; Object.keys(r.cols||{}).forEach(k=>{ const n=parseFloat(r.cols[k]); if(n) cols[k]=n; });
+    return { msnv:e.smartId||'', name:e.fullName||'', title:e.title||'', unit:vesselName||'',
+             cols, total:vtsRowTotal(r), note:r.note||'', _empId:r.empId };
+  });
+}
 let _vtsDraft=null;
 function _vtsPeriodNow(){ return todayISO().slice(0,7); }
 function _vtsVesselId(){
@@ -11038,69 +11092,151 @@ function openVesselTimesheet(){
 }
 function _vtsLoad(vid, period){
   let ts=HRService.timesheets().find(t=>t.vesselId===vid && t.period===period);
-  const onboard=crewOnboard(vid, period+'-15');  // giữa tháng làm mốc
+  /* Danh sách người: DANH SÁCH THUYỀN VIÊN trên tàu (căn cứ duy nhất — Sếp chốt 15/8),
+     không phụ thuộc QĐ điều động. */
+  const crew=(typeof vesselCrewMerged==='function')?vesselCrewMerged(vid).filter(c=>c.status!=='off')
+             :crewOnboard(vid, period+'-15').map(a=>({empId:a.empId}));
+  const mkRow=(empId)=>({empId, cols:{}, note:''});
   if(!ts){
-    ts={ id:uid(), vesselId:vid, period, status:'draft',
-      rows:onboard.map(a=>({empId:a.empId, workDays:'', otHours:'', note:''})),
+    ts={ id:uid(), vesselId:vid, period, status:'draft', rows:crew.map(c=>mkRow(c.empId)),
       createdBy:actorName(), createdAt:new Date().toISOString() };
   } else {
-    // đồng bộ crew mới lên tàu chưa có trong bảng
-    onboard.forEach(a=>{ if(!ts.rows.some(r=>r.empId===a.empId)) ts.rows.push({empId:a.empId, workDays:'', otHours:'', note:''}); });
+    ts.rows=(ts.rows||[]).map(r=>r.cols?r:({empId:r.empId, cols:{}, note:r.note||''}));  // nâng cấp dòng cũ
+    crew.forEach(c=>{ if(!ts.rows.some(r=>r.empId===c.empId)) ts.rows.push(mkRow(c.empId)); });
   }
   _vtsDraft=JSON.parse(JSON.stringify(ts));
+}
+function _vtsEmpInfo(empId){
+  const e=(typeof crewEmpInfo==='function')?crewEmpInfo(empId):null;
+  return e?{fullName:e.fullName, title:e.title, smartId:e.smartId}:{fullName:'(?)', title:'', smartId:''};
 }
 function _vtsRender(){
   const s=_vtsDraft; if(!s) return;
   const vName=(typeof anyVesselName==='function')?anyVesselName(s.vesselId):'';
-  const locked=(s.status==='submitted'||s.status==='approved'||s.status==='locked');
-  const rows=s.rows.map((r,i)=>{
-    const e=crewEmpInfo(r.empId);
+  const cols=vtsWorkCols();
+  const canEdit=vtsCanEdit(s);
+  const days=vtsDaysInPeriod(s.period);
+  s.rows=vtsSortRows(s.rows, _vtsEmpInfo);           // chức danh → mã NV, cố định mọi tháng
+  let nBad=0; const badNames=[];
+  const body=s.rows.map((r,i)=>{
+    const e=_vtsEmpInfo(r.empId);
+    const tot=vtsRowTotal(r);
+    const bad=tot!==days;
+    if(bad){ nBad++; if(badNames.length<3) badNames.push(e.fullName); }
+    const cells=cols.map(c=>{
+      const v=(r.cols&&r.cols[c.key])||'';
+      return `<td style="padding:3px 2px;text-align:center">${canEdit
+        ?`<input type="number" min="0" max="31" value="${v}" style="width:42px;padding:3px;font-size:13px;text-align:center;border:1px solid var(--rule);border-radius:4px" onchange="_vtsSet(${i},'${c.key}',this.value)">`
+        :`<span style="font-size:13px${v?'':';color:var(--muted)'}">${v||'·'}</span>`}</td>`;
+    }).join('');
     return `<tr style="border-top:1px solid var(--rule)">
-      <td style="padding:5px 8px;font-size:13px"><b>${hrmEsc(e?e.fullName:'(?)')}</b>${e&&e.title?`<div style="font-size:10px;color:var(--muted)">${hrmEsc(e.title)}</div>`:''}</td>
-      <td style="padding:5px 8px"><input type="number" min="0" max="31" value="${r.workDays}" ${locked?'disabled':''} placeholder="công" style="width:64px;padding:4px;font-size:13px;text-align:right" onchange="_vtsSet(${i},'workDays',this.value)"></td>
-      <td style="padding:5px 8px"><input type="number" min="0" value="${r.otHours}" ${locked?'disabled':''} placeholder="giờ" style="width:64px;padding:4px;font-size:13px;text-align:right" onchange="_vtsSet(${i},'otHours',this.value)"></td>
-      <td style="padding:5px 8px"><input type="text" value="${hrmEsc(r.note||'')}" ${locked?'disabled':''} placeholder="ghi chú" style="width:100%;padding:4px;font-size:13px" onchange="_vtsSet(${i},'note',this.value)"></td>
+      <td style="padding:5px 6px;font-size:13px"><b>${hrmEsc(e.fullName)}</b><div style="font-size:10px;color:var(--muted)">${hrmEsc(e.title||'—')}${e.smartId?' · '+hrmEsc(e.smartId):''}</div></td>
+      ${cells}
+      <td style="padding:5px 6px;text-align:center;font-weight:700;border-left:1px solid var(--rule)${bad?';color:var(--bad)':''}" title="${bad?('Lệch '+(tot-days>0?'+':'')+(tot-days)+' ngày so với tháng '+days+' ngày'):'Khớp số ngày trong tháng'}">${tot||'·'}</td>
     </tr>`;
   }).join('');
-  const statusChip = s.status==='draft' ? '<span class="ds-need" style="color:#7a7264">📝 Nháp</span>'
-    : s.status==='submitted' ? '<span class="ds-need" style="color:var(--warn)">📨 Đã gửi HR</span>'
-    : '<span class="ds-need" style="color:var(--good)">✓ '+hrmEsc(s.status)+'</span>';
-  const body=`<div style="font-size:13px;margin-bottom:8px">Tàu <b>${hrmEsc(vName)}</b> · Kỳ <b>${hrmEsc(s.period)}</b> ${statusChip}</div>
-    <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
-      <label style="font-size:11px;color:var(--muted)">Kỳ chấm công:</label>
-      <input type="month" value="${s.period}" onchange="_vtsChangePeriod(this.value)" style="padding:5px;font-size:13px">
-    </div>
-    <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Danh sách thuyền viên tự lấy từ <b>Quyết định điều động</b> (người đang trên tàu trong kỳ). Nhập số ngày công + giờ tăng ca.</div>
-    ${s.rows.length? `<table style="width:100%;border-collapse:collapse;border:1px solid var(--rule)">
-      <thead><tr style="background:var(--rule);font-size:11px;text-align:left"><th style="padding:5px 8px">Thuyền viên</th><th style="padding:5px 8px">Ngày công</th><th style="padding:5px 8px">Tăng ca (h)</th><th style="padding:5px 8px">Ghi chú</th></tr></thead>
-      <tbody>${rows}</tbody></table>`
-      : '<div style="padding:16px;text-align:center;color:var(--muted)">Chưa có thuyền viên nào trên tàu trong kỳ này (theo Quyết định điều động).</div>'}`;
-  const foot = locked
-    ? `<button class="btn-ghost" onclick="closeModal()">Đóng</button>`
-    : `<button class="btn-ghost" onclick="closeModal()">Hủy</button>
-       <button class="btn-sec" onclick="_vtsSave('draft')">💾 Lưu nháp</button>
-       <button class="btn-primary" onclick="_vtsSave('submit')">📨 Gửi Phòng Nhân sự</button>`;
-  openModal('🕐 Chấm công thuyền viên', body, foot);
+  const stChip = s.status==='draft' ? '<span class="ds-need" style="color:#7a7264">📝 Nháp</span>'
+    : s.status==='confirmed' ? '<span class="ds-need" style="color:var(--good)">✓ Đã xác nhận — chưa gửi</span>'
+    : s.status==='submitted' ? '<span class="ds-need" style="color:var(--warn)">📨 Đã gửi HR — chờ kiểm</span>'
+    : s.status==='returned' ? '<span class="ds-need" style="color:var(--bad)">↩ HR trả lại — cần sửa</span>'
+    : '<span class="ds-need" style="color:var(--good)">🔒 HR đã khóa</span>';
+  const head=cols.map(c=>`<th style="padding:5px 2px;font-size:10px;white-space:nowrap" title="${hrmEsc(c.label)}">${hrmEsc(c.key)}</th>`).join('');
+  const warn = nBad?`<div style="margin-top:8px;padding:6px 10px;background:rgba(192,57,43,.08);border-radius:6px;font-size:12px;color:var(--bad)">⚠ ${nBad} dòng lệch số ngày trong tháng (${days} ngày): ${hrmEsc(badNames.join(', '))}${nBad>3?'…':''}</div>`:'';
+  const retBox = (s.status==='returned'&&s.returnReason)?`<div style="margin-bottom:8px;padding:8px 10px;background:rgba(192,57,43,.08);border-radius:6px;font-size:12px"><b>HR trả lại:</b> ${hrmEsc(s.returnReason)}</div>`:'';
+  const foot = canEdit
+    ? `<button class="btn-ghost" onclick="closeModal()">Đóng</button>
+       <button class="btn-sec" onclick="_vtsSave('save')" title="Lưu lại, vẫn sửa tiếp được">✓ Xác nhận (lưu)</button>
+       <button class="btn-primary" onclick="_vtsSave('submit')" title="Chốt và chuyển vào BCC Đội tàu tại HR — sau bước này tàu không sửa được">📨 Gửi HR</button>`
+    : `<button class="btn-ghost" onclick="closeModal()">Đóng</button>`;
+  openModal('🕐 Chấm công — '+hrmEsc(vName),
+    `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+       <span style="font-size:13px">Kỳ <b>${hrmEsc(s.period)}</b> · ${days} ngày</span>
+       <input type="month" value="${hrmEsc(s.period)}" style="padding:4px 6px;font-size:13px;border:1px solid var(--rule);border-radius:6px" onchange="_vtsChangePeriod(this.value)">
+       ${stChip}
+       <span style="flex:1"></span>
+       <span style="font-size:11px;color:var(--muted)">Cột lấy từ BCC Đội tàu (HR)</span>
+     </div>
+     ${retBox}
+     <div class="tbl-scroll" style="max-height:420px;overflow:auto"><table style="width:100%;border-collapse:collapse;border:1px solid var(--rule)">
+       <thead><tr style="background:var(--rule)"><th style="padding:5px 6px;text-align:left;font-size:11px">Thuyền viên</th>${head}<th style="padding:5px 6px;font-size:11px;border-left:1px solid var(--rule)">Tổng</th></tr></thead>
+       <tbody>${body||`<tr><td colspan="${cols.length+2}" style="padding:16px;text-align:center;color:var(--muted)">Chưa có thuyền viên trên tàu.</td></tr>`}</tbody></table></div>
+     <div style="font-size:11px;color:var(--muted);margin-top:6px">${cols.map(c=>hrmEsc(c.key)+' = '+hrmEsc(c.label)).join(' · ')}</div>
+     ${warn}`,
+    foot);
 }
-function _vtsSet(i,k,v){ if(_vtsDraft&&_vtsDraft.rows[i]) _vtsDraft.rows[i][k]=v; }
+function _vtsSet(i,key,v){
+  if(!_vtsDraft||!_vtsDraft.rows[i]) return;
+  const r=_vtsDraft.rows[i]; r.cols=r.cols||{};
+  const n=parseFloat(v);
+  if(!n) delete r.cols[key]; else r.cols[key]=n;
+  _vtsRender();
+}
 function _vtsChangePeriod(p){ if(!p) return; const vid=_vtsDraft?_vtsDraft.vesselId:_vtsVesselId(); _vtsLoad(vid,p); _vtsRender(); }
 function _vtsSave(mode){
   const s=_vtsDraft; if(!s) return;
+  if(!vtsCanEdit(s)){ toast('Bảng đã gửi/khóa — không sửa được','bad'); return; }
+  if(mode==='submit'){
+    const days=vtsDaysInPeriod(s.period);
+    const bad=s.rows.filter(r=>vtsRowTotal(r)!==days);
+    if(bad.length && !confirm('Còn '+bad.length+' dòng lệch số ngày trong tháng ('+days+' ngày).\nVẫn gửi HR?')) return;
+    if(!confirm('Gửi bảng chấm công kỳ '+s.period+' về HR?\nSau bước này TÀU KHÔNG SỬA ĐƯỢC nữa (HR trả lại thì mới sửa tiếp).')) return;
+  }
   let ts=HRService.timesheets().find(t=>t.vesselId===s.vesselId && t.period===s.period);
   if(!ts){ ts={id:s.id}; HRService.addTimesheet(ts); }
   Object.assign(ts, s);
   if(mode==='submit'){
-    ts.status='submitted'; ts.submittedBy=actorName(); ts.submittedAt=new Date().toISOString();
+    ts.status='submitted'; ts.submittedBy=actorName(); ts.submittedAt=new Date().toISOString(); ts.returnReason='';
+    _vtsPushToBCC(ts);      // ghi thẳng vào BCC Đội tàu — không đẻ nguồn thứ hai
     try{ logAuditEvent('vessel_timesheet_submit',{vessel:(typeof anyVesselName==='function'?anyVesselName(s.vesselId):''), period:s.period, rows:(s.rows||[]).length}); }catch(e){}
   } else {
-    ts.status='draft';
-    try{ logAuditEvent('vessel_timesheet_save',{period:s.period}); }catch(e){}
+    ts.status='confirmed'; ts.confirmedBy=actorName(); ts.confirmedAt=new Date().toISOString();
+    try{ logAuditEvent('vessel_timesheet_confirm',{period:s.period}); }catch(e){}
   }
   ts.updatedAt=new Date().toISOString();
+  try{ touchRecord(ts); }catch(e){}
   saveState();
-  toast(mode==='submit'?'Đã gửi bảng chấm công về Phòng Nhân sự ✓':'Đã lưu nháp ✓','good');
-  closeModal();
-  if(mode==='submit'){ _vtsDraft=null; }
+  toast(mode==='submit'?'✓ Đã gửi HR — bảng vào BCC Đội tàu kỳ '+s.period:'✓ Đã lưu — vẫn sửa tiếp được','good');
+  if(mode==='submit'){ _vtsDraft=null; closeModal(); } else { _vtsRender(); }
+}
+/* Gửi HR = tạo/cập nhật bản ghi BCC Đội tàu trong hrAttendance (cùng cửa với file Excel HR import).
+   Kỳ lương vẫn đọc "BCC đã khóa" như cũ — không biết và không cần biết số đến từ tàu hay từ file. */
+function _vtsPushToBCC(ts){
+  try{
+    const vName=(typeof anyVesselName==='function')?anyVesselName(ts.vesselId):'';
+    S.hrAttendance=S.hrAttendance||[];
+    let att=S.hrAttendance.find(a=>a&&a.profile==='BCC_DOITAU'&&a.period===ts.period&&a.vesselId===ts.vesselId&&a.status!=='locked');
+    const rows=vtsToAttendanceRows(ts.rows, _vtsEmpInfo, vName);
+    if(!att){
+      att={ id:uid(), period:ts.period, profile:'BCC_DOITAU', vesselId:ts.vesselId, vessel:vName,
+        importedAt:new Date().toISOString(), importedBy:actorName(), status:'draft',
+        source:'vessel_timesheet', tsId:ts.id, rows };
+      S.hrAttendance.push(att);
+    } else {
+      att.rows=rows; att.importedAt=new Date().toISOString(); att.importedBy=actorName(); att.source='vessel_timesheet'; att.tsId=ts.id;
+    }
+    try{ touchRecord(att); }catch(e){}
+  }catch(e){ console.warn('[vts→bcc]',e); }
+}
+/* HR trả lại tàu — BẮT BUỘC ghi lý do để tàu biết sửa chỗ nào, khỏi phải gọi điện hỏi. */
+function hrTsReturnToVessel(tsId){
+  if(!hrTimesheetCanReview()){ toast('Chỉ HR/Admin xử lý bảng chấm công','bad'); return; }
+  const ts=HRService.timesheets().find(t=>t.id===tsId);
+  if(!ts){ toast('Không tìm thấy bảng chấm công','bad'); return; }
+  if(ts.status==='locked'){ toast('Bảng đã khóa — mở khóa trước khi trả lại','bad'); return; }
+  const why=prompt('Lý do trả lại tàu (tàu sẽ đọc được ngay trên bảng):','');
+  if(why===null) return;
+  if(!String(why).trim()){ toast('Phải ghi lý do — tàu cần biết sửa chỗ nào','bad'); return; }
+  ts.status='returned'; ts.returnReason=String(why).trim();
+  ts.returnedBy=actorName(); ts.returnedAt=new Date().toISOString();
+  try{ touchRecord(ts); }catch(e){}
+  /* gỡ bản BCC nháp tương ứng để HR không kiểm nhầm số cũ */
+  try{
+    const att=(S.hrAttendance||[]).find(a=>a&&a.tsId===ts.id&&a.status!=='locked');
+    if(att) att.rows=[];
+  }catch(e){}
+  try{ logAuditEvent('vessel_timesheet_return',{period:ts.period, reason:ts.returnReason}); }catch(e){}
+  saveState();
+  toast('↩ Đã trả lại tàu — tàu sửa được tiếp','good');
 }
 
 /* ============================================================
@@ -11285,31 +11421,60 @@ function openHrTimesheetReview(){
     `<button class="btn-ghost" onclick="closeModal()">Đóng</button>`);
 }
 function openHrTimesheetDetail(tsId){
-  if(!hrTimesheetCanReview()){ toast('Không có quyền','bad'); return; }
-  const t=HRService.timesheets().find(x=>x.id===tsId); if(!t){ toast('Không tìm thấy bảng','bad'); return; }
-  const vName=(typeof anyVesselName==='function')?anyVesselName(t.vesselId):t.vesselId;
-  const canAct=t.status==='submitted';
-  const rows=(t.rows||[]).map(r=>{
-    const e=crewEmpInfo(r.empId);
+  if(!hrTimesheetCanReview()){ toast('Chỉ HR/Admin xem bảng chấm công tàu','bad'); return; }
+  const t=HRService.timesheets().find(x=>x.id===tsId);
+  if(!t){ toast('Không tìm thấy bảng','bad'); return; }
+  /* v3.15.74: HR xem ĐÚNG bộ cột BCC Đội tàu mà tàu đã nhập — không còn 2 cột công/OT cũ. */
+  const vName=(typeof anyVesselName==='function')?anyVesselName(t.vesselId):'';
+  const cols=vtsWorkCols();
+  const days=vtsDaysInPeriod(t.period);
+  const sorted=vtsSortRows(t.rows||[], _vtsEmpInfo);
+  let nBad=0;
+  const rows=sorted.map(r=>{
+    const e=_vtsEmpInfo(r.empId); const tot=vtsRowTotal(r); const bad=tot!==days; if(bad) nBad++;
+    const cells=cols.map(c=>{ const v=(r.cols&&r.cols[c.key])||''; return `<td style="padding:5px 4px;text-align:center;font-size:13px${v?'':';color:var(--muted)'}">${v||'·'}</td>`; }).join('');
     return `<tr style="border-top:1px solid var(--rule)">
-      <td style="padding:5px 8px;font-size:13px"><b>${hrmEsc(e?e.fullName:'(?)')}</b>${e&&e.title?`<div style="font-size:10px;color:var(--muted)">${hrmEsc(e.title)}</div>`:''}</td>
-      <td style="padding:5px 8px;font-size:13px;text-align:right">${esc(String(r.workDays||''))}</td>
-      <td style="padding:5px 8px;font-size:13px;text-align:right">${esc(String(r.otHours||''))}</td>
+      <td style="padding:5px 8px;font-size:13px"><b>${hrmEsc(e.fullName)}</b><div style="font-size:10px;color:var(--muted)">${hrmEsc(e.title||'—')}${e.smartId?' · '+hrmEsc(e.smartId):''}</div></td>
+      ${cells}
+      <td style="padding:5px 8px;text-align:center;font-weight:700;border-left:1px solid var(--rule)${bad?';color:var(--bad)':''}">${tot||'·'}</td>
       <td style="padding:5px 8px;font-size:11px;color:var(--muted)">${hrmEsc(r.note||'')}</td>
     </tr>`;
   }).join('');
-  const body=`<div style="font-size:13px;margin-bottom:8px">Tàu <b>${hrmEsc(vName)}</b> · Kỳ <b>${esc(t.period||'')}</b> · Người gửi: ${esc(t.submittedBy||'')} ${t.submittedAt?`<span style="color:var(--muted)">(${new Date(t.submittedAt).toLocaleString('vi-VN')})</span>`:''}</div>
-    <table style="width:100%;border-collapse:collapse;border:1px solid var(--rule)">
-      <thead><tr style="background:var(--rule);font-size:11px;text-align:left"><th style="padding:5px 8px">Thuyền viên</th><th style="padding:5px 8px;text-align:right">Ngày công</th><th style="padding:5px 8px;text-align:right">Tăng ca</th><th style="padding:5px 8px">Ghi chú</th></tr></thead>
-      <tbody>${rows||'<tr><td colspan="4" style="padding:12px;text-align:center;color:var(--muted)">Không có dòng</td></tr>'}</tbody></table>
-    ${t.status==='approved'?`<div style="font-size:11px;color:#2e7d32;margin-top:8px">✓ Đã duyệt bởi ${esc(t.approvedBy||'')}. Đã đổ vào kỳ lương ${esc(t.period||'')}.</div>`:''}
-    ${t.rejectNote?`<div style="font-size:11px;color:#9c4221;margin-top:8px">↩ Lý do trả về trước đó: ${hrmEsc(t.rejectNote)}</div>`:''}`;
-  const foot = canAct
-    ? `<button class="btn-ghost" onclick="openHrTimesheetReview()">← Danh sách</button>
-       <button class="btn-sec" style="color:#9c4221" onclick="_hrTsReject('${t.id}')">↩ Trả về tàu</button>
-       <button class="btn-primary" onclick="_hrTsApprove('${t.id}')">✓ Duyệt</button>`
-    : `<button class="btn-ghost" onclick="openHrTimesheetReview()">← Danh sách</button>`;
-  openModal('🕐 Chi tiết bảng chấm công', body, foot);
+  const head=cols.map(c=>`<th style="padding:5px 4px;font-size:10px" title="${hrmEsc(c.label)}">${hrmEsc(c.key)}</th>`).join('');
+  const canAct=(t.status==='submitted');
+  const body=`<div style="font-size:13px;margin-bottom:8px">Tàu <b>${hrmEsc(vName)}</b> · Kỳ <b>${esc(t.period||'')}</b> · ${days} ngày · Người gửi: ${esc(t.submittedBy||'')} ${t.submittedAt?`<span style="color:var(--muted)">(${new Date(t.submittedAt).toLocaleString('vi-VN')})</span>`:''}</div>
+    <div class="tbl-scroll" style="max-height:420px;overflow:auto"><table style="width:100%;border-collapse:collapse;border:1px solid var(--rule)">
+      <thead><tr style="background:var(--rule);font-size:11px;text-align:left"><th style="padding:5px 8px">Thuyền viên</th>${head}<th style="padding:5px 8px;border-left:1px solid var(--rule)">Tổng</th><th style="padding:5px 8px">Ghi chú</th></tr></thead>
+      <tbody>${rows||`<tr><td colspan="${cols.length+3}" style="padding:12px;text-align:center;color:var(--muted)">Không có dòng</td></tr>`}</tbody></table></div>
+    <div style="font-size:11px;color:var(--muted);margin-top:6px">${cols.map(c=>hrmEsc(c.key)+' = '+hrmEsc(c.label)).join(' · ')}</div>
+    ${nBad?`<div style="margin-top:8px;padding:6px 10px;background:rgba(192,57,43,.08);border-radius:6px;font-size:12px;color:var(--bad)">⚠ ${nBad} dòng lệch số ngày trong tháng — kiểm trước khi khóa.</div>`:''}
+    ${t.status==='returned'&&t.returnReason?`<div style="margin-top:8px;font-size:12px;color:var(--bad)">↩ Đã trả lại tàu: ${hrmEsc(t.returnReason)}</div>`:''}
+    ${t.status==='locked'?`<div style="margin-top:8px;font-size:12px;color:var(--good)">🔒 Đã khóa bởi ${esc(t.lockedBy||'')} — số công là nguồn chính thức cho kỳ lương ${esc(t.period||'')}.</div>`:''}`;
+  openModal('🕐 Chấm công tàu — '+hrmEsc(vName)+' · '+esc(t.period||''), body,
+    `<button class="btn-ghost" onclick="openHrTimesheetReview()">← Danh sách</button>
+     ${canAct?`<button class="btn-sec" style="color:var(--bad);border-color:var(--bad)" onclick="hrTsReturnToVessel('${t.id}')">↩ Trả lại tàu</button>
+     <button class="btn-primary" onclick="hrTsLock('${t.id}')">🔒 Kiểm & khóa</button>`:''}`);
+}
+/* HR khóa: chốt bảng + khóa luôn bản ghi BCC Đội tàu tương ứng → kỳ lương kéo được như file Excel. */
+function hrTsLock(tsId){
+  if(!hrTimesheetCanReview()){ toast('Chỉ HR/Admin khóa bảng chấm công','bad'); return; }
+  const t=HRService.timesheets().find(x=>x.id===tsId);
+  if(!t){ toast('Không tìm thấy bảng','bad'); return; }
+  if(t.status!=='submitted'){ toast('Chỉ khóa bảng tàu đã gửi','bad'); return; }
+  const days=vtsDaysInPeriod(t.period);
+  const nBad=(t.rows||[]).filter(r=>vtsRowTotal(r)!==days).length;
+  if(nBad && !confirm('Còn '+nBad+' dòng lệch số ngày trong tháng. Vẫn khóa?')) return;
+  if(!confirm('Khóa bảng chấm công '+(t.period||'')+'?\nSau khi khóa, số công thành nguồn chính thức cho kỳ lương.')) return;
+  t.status='locked'; t.lockedBy=actorName(); t.lockedAt=new Date().toISOString();
+  try{ touchRecord(t); }catch(e){}
+  try{
+    const att=(S.hrAttendance||[]).find(a=>a&&a.tsId===t.id);
+    if(att){ att.status='locked'; att.lockedBy=actorName(); att.lockedAt=new Date().toISOString(); try{ touchRecord(att); }catch(e){} }
+  }catch(e){}
+  try{ logAuditEvent('vessel_timesheet_lock',{period:t.period, vessel:(typeof anyVesselName==='function'?anyVesselName(t.vesselId):'')}); }catch(e){}
+  saveState();
+  toast('🔒 Đã khóa — kỳ lương kéo được qua 📥 Kéo chấm công (BCC)','good');
+  openHrTimesheetReview();
 }
 function _hrTsApprove(tsId){
   if(!hrTimesheetCanReview()){ toast('Không có quyền','bad'); return; }
@@ -11417,7 +11582,7 @@ function renderVesselAcctOpsBar(){
       </div>
       <div style="text-align:right;font-size:12px;opacity:.92;line-height:1.7">
         <div>👥 ${crew.length} thuyền viên trên tàu</div>
-        <div>🕐 Chấm công ${period}: ${tsChip}</div>
+        <div style="cursor:pointer;text-decoration:underline dotted" onclick="openVesselTimesheet()" title="Mở bảng chấm công tàu">🕐 Chấm công ${period}: ${tsChip}</div>
         ${_cap.name?`<div>Thuyền trưởng: <b>${hrmEsc(_cap.name)}</b></div>`:''}
         ${_che.name?`<div>Máy trưởng: <b>${hrmEsc(_che.name)}</b></div>`:''}
       </div>
@@ -11427,7 +11592,7 @@ function renderVesselAcctOpsBar(){
     ${_vaDashCards(vid, true)}
   </div>`;
   _vaHideShoreBlocks();
-  _vaRelabelNav(vName);
+  _vaRelabelNav(vName);   // v3.15.73: thanh nav đã ẩn; giữ lại phòng khi bật lại nav cho tàu
 }
 /* Ẩn mọi khối "vận hành tàu hộ chủ tàu" khỏi trang khi người xem là phía tàu. */
 function _vaHideShoreBlocks(){
@@ -14015,6 +14180,18 @@ function _vaEnforceNav(){
       const items=Array.from(box.querySelectorAll('[data-page]'));
       if(items.length && !items.some(el=>el.style.display!=='none')) btn.style.display='none';
     });
+    /* v3.15.73 (Sếp 15/8: "Không cần Tàu của tôi"): tàu chỉ có ĐÚNG MỘT trang nên thanh tab là
+       thứ thừa — ẩn hẳn cả thanh nav, app mở thẳng vào dashboard tàu. Trước khi ẩn phải chắc
+       chắn trang tàu đang mở, không thì tàu nhìn vào màn trắng mà không có nút nào để đi tiếp. */
+    /* navigateToPage → renderAll → có thể quay lại đây; cờ một lần chặn vòng lặp. */
+    const _pg=document.getElementById('page-operations');
+    if(_pg && !_pg.classList.contains('active') && !window._vaNavigating){
+      window._vaNavigating=true;
+      try{ if(typeof navigateToPage==='function') navigateToPage('operations'); }catch(e){}
+      finally{ setTimeout(()=>{ window._vaNavigating=false; }, 0); }
+    }
+    const _nav=document.getElementById('nav');
+    if(_nav) _nav.style.display='none';
   }catch(e){ console.warn('[va-nav]',e); }
 }
 function applyRoleUI(){
@@ -35848,12 +36025,13 @@ function _vaDashCards(vid, forVessel){
   return [
     card('👥','Thuyền viên', crew.length+' người trên tàu (QĐ điều động + hồ sơ NS).','Xem danh sách', go(`openVesselCrewList('${vid}')`)),
     card('📋','Hồ sơ tàu','Định danh · kỹ thuật · đăng kiểm · '+nCert+' chứng chỉ'+(nCertDue?' · <b style="color:#b8730a">'+nCertDue+' cần chú ý</b>':''),'Mở hồ sơ tàu', go(`openVesselCerts('${vid}')`), nCertDue?'#b8730a':''),
-    card('📦','Kho vật tư', wh?(nStock+' mặt hàng tồn'+(forVessel?' — xuất dùng & đề xuất điều chuyển ngay tại đây':' tại kho tàu này')):'Chưa có kho gắn tàu này.','Mở kho',
-      forVessel?'openVesselStockOverview()':`closeModal();_vaOpenWhOfVessel('${vid}','stock')`),
-    card('📥','Nhận hàng', nPend?('<b style="color:#b8730a">'+nPend+' phiếu chờ nhận</b>'):'Không có phiếu nào đang chờ.','Nhận hàng',
-      forVessel?'openPendingInbound()':`closeModal();_vaOpenWhOfVessel('${vid}','inbound')`, nPend?'#b8730a':''),
-    card('📋','Kiểm kê kho','Đếm thực tế → app tạo phiếu điều chỉnh chênh lệch.','Kiểm kê',
-      forVessel?'openStockCount()':`closeModal();_vaOpenWhOfVessel('${vid}','count')`),
+    /* v3.15.71 (Sếp 15/8: "Chuyển Nhận hàng và Kiểm kê vào Kho vật tư"): ba việc kho gom về MỘT
+       cửa — vào Kho vật tư là thấy tồn, nhận hàng, kiểm kê. Tín hiệu "có hàng đang chờ" dồn lên
+       thẻ Kho để tàu không bỏ sót hàng về. */
+    card('📦','Kho vật tư',
+      (wh?(nStock+' mặt hàng tồn'):'Chưa có kho gắn tàu này.')+(nPend?(' · <b style="color:#b8730a">'+nPend+' phiếu chờ nhận</b>'):'')+(wh?'<div style="font-size:11px;margin-top:2px">Tồn · nhận hàng · xuất dùng · kiểm kê</div>':''),
+      nPend?'Mở kho — có hàng chờ nhận':'Mở kho',
+      forVessel?'openVesselStockOverview()':`closeModal();_vaOpenWhOfVessel('${vid}','stock')`, nPend?'#b8730a':''),
     card('🛳','Khai thác (On/Off-Hire)', events.length+' đoạn · '+nReports+' báo cáo ngày.','Xem khai thác', `openVesselOnHire('${vid}')`),
     card('📧','Email tàu', v.vesselEmail?hrmEsc(v.vesselEmail):'Chưa cấu hình email tàu.','Gửi chứng từ', go(`sendVesselDocEmail('${vid}')`)),
     card('📢','Thông báo', nUnread?('<b style="color:#c0392b">'+nUnread+' chưa đọc</b>'):'Kết quả xử lý đề nghị/phiếu của tàu.','Xem thông báo', go(`openVesselNotifs('${vid}')`))
@@ -65432,6 +65610,13 @@ function _whName(id){ const w=InventoryService.warehouseById(id); return w?w.nam
 /* ---- Màn danh sách chứng từ kho ---- */
 let _stockFilter={type:'',wh:''};
 function openStockDocs(){
+  /* v3.15.72 (Sếp 15/8, nhắc lại "chuyển Nhận hàng - Kiểm kê vào Kho vật tư"): màn Chứng từ kho
+     vẫn còn bộ 4 nút riêng cho tàu (Tồn tổng hợp · Nhận hàng · Kiểm kê · Báo cáo kho) — đúng chỗ
+     trùng còn sót. Phía tàu KHÔNG cần màn danh sách chứng từ: mọi việc kho đã nằm gọn trong màn
+     Kho vật tư. Chuyển hướng luôn, kể cả khi tới đây từ nút "← Chứng từ" của các màn con. */
+  if(typeof whIsVesselSideUser==='function' && whIsVesselSideUser()){
+    if(typeof openVesselStockOverview==='function'){ openVesselStockOverview(); return; }
+  }
   /* v3.15.59: nhánh office canEdit CHỈ thủ kho/admin (phía tàu có bộ nút riêng, NV thường
      không có nút tạo phiếu). Nút ✓ Nhận hàng trên dòng pending của tàu gate riêng bên dưới. */
   const canEdit=canManageStock()||isAdmin();
@@ -65470,14 +65655,11 @@ function openStockDocs(){
   const body=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center">
       <select id="sd-ftype" style="${sel}" onchange="_stockApply()"><option value="">— Nhập & Xuất —</option><option value="IN" ${_stockFilter.type==='IN'?'selected':''}>Chỉ Nhập</option><option value="OUT" ${_stockFilter.type==='OUT'?'selected':''}>Chỉ Xuất</option></select>
       <select id="sd-fwh" style="${sel}" onchange="_stockApply()">${whOpts}</select>
-      ${whIsVesselSideUser()?`<button class="btn-primary" style="font-size:13px" onclick="openVesselStockOverview()">📊 Tồn tổng hợp</button>
-      <button class="btn-sec" style="font-size:13px" onclick="openPendingInbound()">📥 Nhận hàng</button>
-      <button class="btn-sec" style="font-size:13px" onclick="openStockCount()">📋 Kiểm kê</button>
-      <button class="btn-sec" style="font-size:13px" onclick="openVesselWarehouseReport()" title="Sổ nhập-xuất chi tiết của chính tàu">📈 Báo cáo kho</button>`
-      :(canEdit?`<button class="btn-primary" style="font-size:13px" onclick="openStockForm('IN')">+ Phiếu nhập</button>
+      ${/* v3.15.72: nhánh tàu đã chuyển hướng ở đầu hàm — không còn bộ nút riêng ở đây nữa */''}
+      ${canEdit?`<button class="btn-primary" style="font-size:13px" onclick="openStockForm('IN')">+ Phiếu nhập</button>
       <button class="btn-sec" style="font-size:13px" onclick="openStockForm('OUT')">+ Phiếu xuất</button>
       <button class="btn-sec" style="font-size:13px" onclick="openStockTransfer()">🔄 Điều chuyển</button>
-      <button class="btn-sec" style="font-size:13px" onclick="openStockCount()">📋 Kiểm kê</button>`:'')}
+      <button class="btn-sec" style="font-size:13px" onclick="openStockCount()">📋 Kiểm kê</button>`:''}
       ${whIsVesselSideUser()?'':`<button class="btn-sec" style="font-size:13px" onclick="openStockOverview()" title="Xem tồn tất cả kho — check trước khi mua, tránh mua trùng/lãng phí">📊 Tồn tổng hợp</button>
       ${(canManageStock()||isAdmin())?`<button class="btn-sec" style="font-size:13px" onclick="whToggleMore()" title="Việc định kỳ: theo dõi nhập kho · chờ nhập kho · đề xuất điều chuyển · tồn theo kho · báo cáo · soát mã · tồn đầu kỳ">⋯ Khác${(stockTempCount()+whReqPendingCount())?` <span style="background:#b8730a;color:#fff;border-radius:8px;padding:0 6px;font-size:10px">${stockTempCount()+whReqPendingCount()}</span>`:''}</button>`
       :`<button class="btn-sec" style="font-size:13px;border-color:#1c5a8c;color:#1c5a8c" onclick="openStockInTracking()" title="Theo dõi tiến độ giao hàng - nhập kho các đơn mua của bạn">📦 Theo dõi nhập kho</button>`}`}
@@ -66611,6 +66793,11 @@ function whVesselMatrix(whs, byWh, myWhId, query){
   rows.sort((a,b)=>(b.mine>0?1:0)-(a.mine>0?1:0) || String(a.name||'').localeCompare(String(b.name||''),'vi'));
   return rows;
 }
+/* v3.15.71: số phiếu đang chờ TÀU nhận tại kho này (nhập mua + điều chuyển đang tới). */
+function _vsPendCount(whId){
+  if(!whId) return 0;
+  return InventoryService.stockDocs().filter(d=>(d.type==='IN'||d.type==='TRANSFER_IN')&&d.status==='pending'&&d.warehouseId===whId).length;
+}
 function openVesselStockOverview(){
   /* v3.15.68: màn này tra kho theo TÀI KHOẢN đang đăng nhập nên chỉ đúng với phía tàu.
      Người bờ lỡ gọi → báo đúng bệnh, không đổ oan 'chưa gắn tàu'. */
@@ -66625,6 +66812,7 @@ function openVesselStockOverview(){
     .sort((a,b)=>(a.id===wh.id?-1:0)-(b.id===wh.id?-1:0) || String(a.name||'').localeCompare(String(b.name||''),'vi'));
   const byWh={}; whs.forEach(w=>{ byWh[w.id]=stockByWarehouse(w.id); });
   const rows=whVesselMatrix(whs, byWh, wh.id, _vsOvSearch);
+  const _nPend=_vsPendCount(wh.id);
   const headWh=whs.map(w=>{
     const t=(typeof WH_TYPES!=='undefined')?(WH_TYPES[w.type]||WH_TYPES.OTHER):{icon:'📦'};
     const mine=w.id===wh.id;
@@ -66649,8 +66837,11 @@ function openVesselStockOverview(){
   }).join('')
    : `<tr><td colspan="${whs.length+3}" style="padding:18px;text-align:center;color:var(--muted)">${_vsOvSearch?'Không tìm thấy vật tư khớp.':'Chưa kho nào có tồn — nhận hàng đầu tiên để bắt đầu.'}</td></tr>`;
   openModal('📊 Tồn tổng hợp — ⚓ '+esc(wh.name),
-    `<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
-       <input id="vs-ov-q" value="${esc(_vsOvSearch)}" placeholder="Tìm mã hoặc tên vật tư…" style="flex:1;padding:6px 8px;border:1px solid var(--rule);border-radius:6px;font-size:13px" oninput="_vsOvSearch=this.value" onchange="openVesselStockOverview()">
+    `<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+       <button class="${_nPend?'btn-primary':'btn-sec'}" style="font-size:13px${_nPend?';background:#b8730a;border-color:#b8730a':''}" onclick="openPendingInbound()" title="Hàng về tàu — tick số lượng thực nhận, xác nhận là tồn cộng ngay">📥 Nhận hàng${_nPend?` <span style="background:#fff;color:#b8730a;border-radius:8px;padding:0 6px;font-size:10px">${_nPend}</span>`:''}</button>
+       <button class="btn-sec" style="font-size:13px" onclick="openStockCount()" title="Đếm thực tế → app tạo phiếu điều chỉnh chênh lệch">📋 Kiểm kê</button>
+       <button class="btn-sec" style="font-size:13px" onclick="openVesselWarehouseReport()" title="Sổ nhập-xuất chi tiết của chính kho tàu">📈 Báo cáo kho</button>
+       <input id="vs-ov-q" value="${esc(_vsOvSearch)}" placeholder="Tìm mã hoặc tên vật tư…" style="flex:1;min-width:160px;padding:6px 8px;border:1px solid var(--rule);border-radius:6px;font-size:13px" oninput="_vsOvSearch=this.value" onchange="openVesselStockOverview()">
        <span style="font-size:11px;color:var(--muted);white-space:nowrap">⚓ cột tô đậm = kho tàu mình</span>
      </div>
      <div class="tbl-scroll" style="max-height:430px;overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;border:1px solid var(--rule)">
