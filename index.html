@@ -2646,7 +2646,8 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
   </div>
 
   <!-- v3.07.49: Sổ CÔNG NỢ NCC (chi hộ chủ tàu) — theo dõi phải trả nhà cung cấp, thanh toán từng phần -->
-  <div class="section collapsible">
+  <!-- v3.15.61: id để ẩn hẳn khối với tài khoản tàu — công nợ NCC không phải việc của tàu -->
+  <div class="section collapsible" id="ncc-debt-section">
     <div class="section-head">
       <div class="section-title"><span class="tag">📁</span>Sổ công nợ NCC <span style="font-weight:400;color:var(--muted);font-size:11px;text-transform:none">(phải trả nhà cung cấp từ chi hộ — luồng hồ sơ + thanh toán từng phần)</span></div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
@@ -3779,7 +3780,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.15.59';
+const APP_VERSION='3.15.62';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -7021,7 +7022,7 @@ const TAB_TO_FIELDS={
   operations:     ['opVessels','opTransactions','advances'],
   op_input:       ['opVessels','opTransactions','advances','payables','vendors','expenseTypes','projects','vessels'],
   advances:       ['advances','payables','vendors','expenseTypes','projects','vessels','opVessels'],  // v3.02.95
-  inventory:      ['warehouses','invMovements','materials','materialGroups','stockDocs','stockCounts','invGroups','vessels'],
+  inventory:      ['warehouses','invMovements','materials','materialGroups','stockDocs','stockCounts','stockTransferReqs','invGroups','vessels'],
   fixed_assets:   ['fixedAssets','payables','vessels','projects','opVessels'],
   tools:          ['tools','vessels','payables','projects','opVessels'],
   catalog:        ['departments','vendors','expenseTypes','revenueTypes','vessels','projects','receivables','payables'],
@@ -7039,7 +7040,7 @@ const ALL_DATA_FIELDS=[
   'archiveLibrary',
   'plans','dockPlans','projects','vessels','onhires','events','dailyReports',
   'receivables','payables','bankAccounts','bankSnapshots','bankTransfers','loans','creditFacilities','loanAutoCollect','bankBalance','bankBalanceCcy',
-  'opVessels','opTransactions','opMgmtFees','ownerReportLocks','advances','invGroups','invMovements','warehouses','materials','materialGroups','stockDocs','stockCounts',
+  'opVessels','opTransactions','opMgmtFees','ownerReportLocks','advances','invGroups','invMovements','warehouses','materials','materialGroups','stockDocs','stockCounts','stockTransferReqs',
   'vesselExpenseCats','omProjectExpenseCats','hrExpenseCats','qnExpenseCats',
   'fixedAssets','tools',
   'transactions',
@@ -11423,9 +11424,13 @@ function renderVesselAcctOpsBar(){
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;margin-bottom:16px">
     ${tile('👥','Thuyền viên',"openVesselCrewList()",nCrew+' người')}
     <!-- v3.14.82: ẨN tile Chấm công tàu — chấm công vào lương DUY NHẤT qua BCC (FM01) -->
-    ${tile('📦','Kho vật tư',"openStockInTracking()",(nPendStock||nDone7Stock)?[nPendStock?nPendStock+' chờ nhập':'',nDone7Stock?nDone7Stock+' vừa nhập 7 ngày':''].filter(Boolean).join(' · '):'')}
-    ${tile('📥','Đề nghị mua',"openStockForm('IN')",'')}
-    ${tile('📤','Yêu cầu xuất',"openStockForm('OUT')",'')}
+    <!-- v3.15.62 (Sếp 15/8, ảnh test H4/H5): buồng lái nối lại cho đúng sau GĐ1 —
+         Kho vật tư = màn tồn kho tàu (có nút Xuất dùng / Đề xuất điều chuyển ngay trên dòng);
+         bỏ hẳn thẻ mua sắm (Sếp chốt 15/8: việc mua làm tay ngoài app);
+         "Yêu cầu xuất" trỏ vào chính màn kho — xuất phải chọn từ hàng đang có, không gõ tay. -->
+    ${tile('📦','Kho vật tư',"openVesselStockOverview()",(nPendStock||nDone7Stock)?[nPendStock?nPendStock+' chờ nhận':'',nDone7Stock?nDone7Stock+' vừa nhận 7 ngày':''].filter(Boolean).join(' · '):'')}
+    ${tile('📥','Nhận hàng',"openPendingInbound()",nPendStock?nPendStock+' phiếu':'')}
+    ${tile('📤','Xuất dùng',"openVesselStockOverview()",'')}
     ${tile('📋','Kiểm kê kho',"openStockCount()",'')}
     ${tile('📢','Thông báo',"openVesselNotifs()",(typeof vesselNotifUnread==='function'&&vesselNotifUnread(vid))?vesselNotifUnread(vid)+' mới':'')}
   </div>`;
@@ -12270,6 +12275,18 @@ function renderScopeBanner(bannerId, totalCount, visibleCount){
    Admin: all vessels. User without explicit assignment: all vessels (backward compat).
    User with assignedVesselIds set: only those. */
 function userAssignedVesselIds(){
+  /* v3.15.61 (Sếp 15/8 — ảnh test tài khoản tau-geomarine thấy công nợ NCC toàn công ty):
+     PHÍA TÀU KHÔNG BAO GIỜ FALLBACK "TẤT CẢ". Fallback dưới đây sinh ra cho NV bờ đời đầu
+     chưa được gán phạm vi (tránh khóa nhầm), nhưng với tài khoản tàu/thuyền trưởng thì nó
+     biến "chưa gán" thành "thấy hết" — đúng loại lỗ đã vá cho kho ở v3.15.59.
+     Chưa gán = không có gì; IT gán phạm vi là xong. */
+  if(typeof whIsVesselSideUser==='function' && whIsVesselSideUser()){
+    const a=(CURRENT_USER&&CURRENT_USER.assignedVesselIds)||[];
+    const out=Array.isArray(a)?a.slice():[];
+    const lk=CURRENT_USER&&CURRENT_USER.linkVesselId;
+    if(lk && out.indexOf(lk)<0) out.push(lk);
+    return out;
+  }
   if(CURRENT_ROLE==='admin') return VesselService.vessels().map(v=>v.id);
   const a=CURRENT_USER&&CURRENT_USER.assignedVesselIds;
   if(!Array.isArray(a) || a.length===0) return VesselService.vessels().map(v=>v.id);
@@ -12299,11 +12316,19 @@ function visibleCashFunds(){
   }
   // FLAG tắt → hành vi CŨ (backward compat): siết theo tàu như trước.
   const a=CURRENT_USER&&CURRENT_USER.assignedVesselIds;
-  if(!Array.isArray(a) || a.length===0) return all; // không gán tàu → không siết
+  /* v3.15.61: phía tàu chưa gán KHÔNG được rơi vào "không siết" — thuyền trưởng chưa gán tàu
+     trước đây thấy cả quỹ văn phòng và quỹ tàu khác. Chưa gán = không quỹ nào. */
+  if(typeof whIsVesselSideUser==='function' && whIsVesselSideUser() && (!Array.isArray(a)||a.length===0)) return [];
+  if(!Array.isArray(a) || a.length===0) return all; // NV bờ không gán tàu → không siết (giữ nguyên)
   const set=new Set(a);
   return all.filter(f=>f.fundType==='VESSEL' && f.vesselId && set.has(f.vesselId));
 }
 function userAssignedProjectIds(){
+  /* v3.15.61: phía tàu — chưa gán dự án = không dự án nào (xem ghi chú ở userAssignedVesselIds) */
+  if(typeof whIsVesselSideUser==='function' && whIsVesselSideUser()){
+    const a=(CURRENT_USER&&CURRENT_USER.assignedProjectIds)||[];
+    return (Array.isArray(a)?a:[]).filter(id=>{ const p=S.projects.find(x=>x.id===id); return p && p.isOM; });
+  }
   if(CURRENT_ROLE==='admin') return S.projects.filter(p=>p.isOM).map(p=>p.id);
   const a=CURRENT_USER&&CURRENT_USER.assignedProjectIds;
   if(!Array.isArray(a) || a.length===0) return S.projects.filter(p=>p.isOM).map(p=>p.id);
@@ -12315,6 +12340,14 @@ function userAssignedProjectIds(){
 /* Tàu QL hộ (S.opVessels) — phân quyền NV.
    Admin: all. NV không có gán → all (backward compat). NV có gán → chỉ tàu được gán. */
 function userAssignedOpVesselIds(){
+  /* v3.15.61 — GỐC của lỗ "tàu thấy Sổ công nợ NCC toàn công ty" (10,5 tỷ / 89 NCC).
+     Tài khoản tàu được tạo với assignedOpVesselIds:[] → rơi vào fallback trả TẤT CẢ tàu QL hộ
+     → _nccDebtRows() cho qua mọi giao dịch chi hộ. Nhánh phía tàu đặt TRÊN CÙNG, trước cả
+     admin/L1/L2, để không đường nào lách qua. */
+  if(typeof whIsVesselSideUser==='function' && whIsVesselSideUser()){
+    const a=(CURRENT_USER&&CURRENT_USER.assignedOpVesselIds)||[];
+    return Array.isArray(a)?a.slice():[];
+  }
   if(CURRENT_ROLE==='admin') return VesselService.opVessels().map(v=>v.id);
   // Người duyệt L1/L2 cũng thấy hết (để duyệt được)
   if(canApproveL1()||canApproveL2()) return VesselService.opVessels().map(v=>v.id);
@@ -26883,6 +26916,8 @@ function defaultState(){
     materials:[],     // v3.08.20/28 Material Master (mã FAST): [{code, name, unit, group, group2, status:'active'|'inactive', source:'FAST'|'manual', note, updatedAt, updatedBy}]
     materialGroups:[],// v3.11.36 Danh mục PHÂN NHÓM vật tư (từ FAST): [{type:1|2, code, name, updatedAt, updatedBy}] — map mã nhóm → tên; import từ file 'Danh mục phân nhóm hàng hóa'
     stockDocs:[],     // v3.08.21/27/29 Sổ chứng từ kho: [{id,docNo,type,date,warehouseId,apId,apLineRefs,costObject,lines:[{code,name,unit,qty,reqQty}],landedCosts:[{source:'ap'|'manual',apId,kind,amount,allocBy:'qty'|'value'|'equal',accountType,note}],deliveredBy,receivedBy,note,status:'pending'|'draft'|'confirmed',createdBy,createdAt,confirmedBy,confirmedAt}]
+    stockTransferReqs:[], // v3.15.62 Đề xuất điều chuyển từ TÀU: [{id,reqNo,date,fromWh,toWh,code,name,unit,qty,reason,status:'requested'|'approved'|'rejected',createdBy,createdAt,actedBy,actedAt,rejectReason,transferId}]
+                          // KHÔNG phải chứng từ kho — đề xuất chưa duyệt tuyệt đối không được đụng vào công thức tồn.
     stockCounts:[],   // v3.08.22 Phiếu kiểm kê: [{id,docNo,date,warehouseId,lines:[{code,name,unit,systemQty,countedQty,diff}],note,status,createdBy,createdAt,adjustDocId}]
     fixedAssets:[],   // TSCĐ
     tools:[],         // CCDC + MMTB
@@ -27893,7 +27928,7 @@ function openRecycleBinModal(){
    ============================================================================ */
 const STORAGE_GROUPS={
   'A. Master Data':['materials','materialGroups','vendors','hrEmployees','salaryProfiles','vessels','departments','expenseTypes','revenueTypes','positions','companies','warehouses','invGroups','vesselExpenseCats','omProjectExpenseCats','hrExpenseCats','qnExpenseCats','fixedAssets','tools','projects','plans','dockPlans','payrollPolicies','payrollPolicySets','payrollElementCatalogue','payrollCalendar'],
-  'B. Transaction':['opTransactions','cashTxns','receivables','payables','invMovements','stockDocs','stockCounts','dailyReports','loans','creditFacilities','loanAutoCollect','advances','payrollPeriods','payVerifySheets','payChangeRequests','crewTimesheets','crewAssignments','crewChangePlans','hrAttendance','transactions','opMgmtFees','onhires','events','bankAccounts','bankSnapshots','bankTransfers','cashFunds','salaryFund','taxes','hrHistory'],
+  'B. Transaction':['opTransactions','cashTxns','receivables','payables','invMovements','stockDocs','stockCounts','stockTransferReqs','dailyReports','loans','creditFacilities','loanAutoCollect','advances','payrollPeriods','payVerifySheets','payChangeRequests','crewTimesheets','crewAssignments','crewChangePlans','hrAttendance','transactions','opMgmtFees','onhires','events','bankAccounts','bankSnapshots','bankTransfers','cashFunds','salaryFund','taxes','hrHistory'],
   'C. Audit/Log':['auditLog','auditLogShared','emailLog','emailQueue','bodNotifs'],
   'D. Cache/Config':['fxRate','fxRateAt','displayCcy','companyInfo','cashflowConfig','payrollConfig','payrollEngine','historicalData','lockedHistYears','archiveLibrary','adminChecklist','healthDismissed','ownerReportLocks','crewManning','crewRotationConfig','deletedIds','purgedBatches','purgedContent','_recycleBin','meta','presence'],
   'E. Email/Tmpl':['emailSettings','emailTemplates','emailDrafts']
@@ -31230,7 +31265,11 @@ function renderCatalog(){
         // v3.08.46: tài khoản đăng nhập của tàu
         const _vAcc=((getAuthConfig()||{}).users||[]).find(u=>u.linkVesselId===v.id);
         const _vAccCan=isAdmin()||(typeof isITRole==='function'&&isITRole())||(CURRENT_USER&&CURRENT_USER.canManageUsers);
-        const acctChip=_vAcc?` <span class="ds-need" data-dot="info" style="font-size:10px" title="Tàu có tài khoản đăng nhập: ${esc(_vAcc.name)}">🔑 ${esc(_vAcc.name)}</span>`:'';
+        /* v3.15.60: badge bấm được → mở thẳng Quản trị tài khoản (IT) để khóa/reset mật khẩu,
+           thay vì bắt người dùng nhớ đường vào Admin Menu. Không đủ quyền thì badge chỉ để xem. */
+        const acctChip=_vAcc?(_vAccCan
+          ? ` <span class="ds-need" data-dot="info" style="font-size:10px;cursor:pointer;text-decoration:underline dotted" title="Tài khoản đăng nhập của tàu: ${esc(_vAcc.name)} — bấm để khóa / reset mật khẩu" onclick="event.stopPropagation();openITAccountAdmin()">🔑 ${esc(_vAcc.name)}</span>`
+          : ` <span class="ds-need" data-dot="info" style="font-size:10px" title="Tàu có tài khoản đăng nhập: ${esc(_vAcc.name)}">🔑 ${esc(_vAcc.name)}</span>`):'';
         const acctBtn=(!_vAcc && _vAccCan && !v.archived)
           ? `<button class="icon-btn" title="Tạo tài khoản đăng nhập cho tàu (quyền Thuyền trưởng)" onclick="createVesselAccount(VesselService.vessels().find(x=>x.id==='${v.id}'))" style="color:var(--teal)">🚢🔑</button>`
           : '';
@@ -60711,6 +60750,15 @@ function _nccDebtRows(){
 function renderNccDebt(){
   const block=document.getElementById('ncc-debt-block');
   if(!block) return;
+  /* v3.15.61: phía tàu KHÔNG xem sổ công nợ nhà cung cấp — ẩn cả khối, không để bảng rỗng
+     (bảng rỗng vẫn lộ cấu trúc và dễ hồi sinh khi ai đó nới bộ lọc sau này). */
+  const _sec=document.getElementById('ncc-debt-section');
+  if(typeof whIsVesselSideUser==='function' && whIsVesselSideUser()){
+    if(_sec) _sec.style.display='none';
+    block.innerHTML='';
+    return;
+  }
+  if(_sec) _sec.style.display='';
   const fStatus=(document.getElementById('ncc-filter-status')||{}).value||'';
   const fVendor=((document.getElementById('ncc-filter-vendor')||{}).value||'').trim().toLowerCase();
   let rows=_nccDebtRows();
@@ -63976,6 +64024,8 @@ const InventoryService = (function(){
   function stockDocById(id){ return stockDocs().find(d=>d.id===id) || null; }
   function invMovements(){ return S.invMovements || (S.invMovements=[]); }
   function stockCounts(){ return S.stockCounts || (S.stockCounts=[]); }
+  function transferReqs(){ return S.stockTransferReqs || (S.stockTransferReqs=[]); }
+  function transferReqById(id){ return transferReqs().find(r=>r.id===id) || null; }
 
   // ---- WRITE (có kiểm soát) ----
   function addStockDoc(doc){
@@ -64010,6 +64060,10 @@ const InventoryService = (function(){
     if(!c || !c.id) throw new Error('InventoryService.addStockCount: thiếu id');
     Store._apply('stockCounts', c); return c;
   }
+  function addTransferReq(r){
+    if(!r || !r.id) throw new Error('InventoryService.addTransferReq: thiếu id');
+    Store._apply('stockTransferReqs', r); return r;
+  }
   function addMaterial(mat){
     if(!mat || !mat.code) throw new Error('InventoryService.addMaterial: thiếu code');
     Store._apply('materials', mat); return mat;
@@ -64021,9 +64075,9 @@ const InventoryService = (function(){
 
   return {
     warehouses, warehouseById, materials, materialByCode,
-    stockDocs, stockDocById, invMovements, stockCounts,
+    stockDocs, stockDocById, invMovements, stockCounts, transferReqs, transferReqById,
     addStockDoc, removeStockDoc, addMaterial, addWarehouse,
-    removeInvMovement, removeWarehouse, addInvMovement, addStockCount,
+    removeInvMovement, removeWarehouse, addInvMovement, addStockCount, addTransferReq,
   };
 })();
 
@@ -65279,23 +65333,93 @@ function openStockDocs(){
       <button class="btn-sec" style="font-size:13px" onclick="openStockTransfer()">🔄 Điều chuyển</button>
       <button class="btn-sec" style="font-size:13px" onclick="openStockCount()">📋 Kiểm kê</button>`:'')}
       ${whIsVesselSideUser()?'':`<button class="btn-sec" style="font-size:13px" onclick="openStockOverview()" title="Xem tồn tất cả kho — check trước khi mua, tránh mua trùng/lãng phí">📊 Tồn tổng hợp</button>
-      <button class="btn-sec" style="font-size:13px;border-color:#1c5a8c;color:#1c5a8c" onclick="openStockInTracking()" title="Theo dõi tiến độ giao hàng - nhập kho các đơn mua của bạn">📦 Theo dõi nhập kho</button>
-      ${(canManageStock()||isAdmin())?`<button class="btn-sec" style="font-size:13px" onclick="openStockOnHand()">📊 Tồn theo kho</button>
-      <button class="btn-sec" style="font-size:13px" onclick="openPendingInbound()">⏳ Chờ nhập kho</button>
-      <button class="btn-sec" style="font-size:13px" onclick="openWarehouseReport()">📈 Báo cáo kho</button>
-      <button class="btn-sec" style="font-size:13px" onclick="openTempCodeReview()" title="Kiểm tra & đổi các mã vật tư tạm do app gợi ý/tự cấp lúc tàu nhận hàng">🏷 Soát mã${stockTempCount()?` <span style="background:#b8730a;color:#fff;border-radius:8px;padding:0 6px;font-size:10px">${stockTempCount()}</span>`:''}</button>
-      <button class="btn-sec" style="font-size:13px" onclick="openOpeningImport()" title="Nạp số tồn ban đầu các kho từ file Excel FAST (kèm tự thêm danh mục)">📦 Nhập tồn đầu kỳ</button>`:''}`}
+      ${(canManageStock()||isAdmin())?`<button class="btn-sec" style="font-size:13px" onclick="whToggleMore()" title="Việc định kỳ: theo dõi nhập kho · chờ nhập kho · đề xuất điều chuyển · tồn theo kho · báo cáo · soát mã · tồn đầu kỳ">⋯ Khác${(stockTempCount()+whReqPendingCount())?` <span style="background:#b8730a;color:#fff;border-radius:8px;padding:0 6px;font-size:10px">${stockTempCount()+whReqPendingCount()}</span>`:''}</button>`
+      :`<button class="btn-sec" style="font-size:13px;border-color:#1c5a8c;color:#1c5a8c" onclick="openStockInTracking()" title="Theo dõi tiến độ giao hàng - nhập kho các đơn mua của bạn">📦 Theo dõi nhập kho</button>`}`}
     </div>
+    ${(!whIsVesselSideUser()&&(canManageStock()||isAdmin()))?`<div id="wh-more" style="display:none;gap:8px;flex-wrap:wrap;margin:-4px 0 10px;padding:8px 10px;border:1px dashed var(--rule);border-radius:8px">
+      <button class="btn-sec" style="font-size:13px;border-color:#1c5a8c;color:#1c5a8c" onclick="openStockInTracking()" title="Theo dõi tiến độ giao hàng - nhập kho các đơn mua">📦 Theo dõi nhập kho</button>
+      <button class="btn-sec" style="font-size:13px" onclick="openPendingInbound()">⏳ Chờ nhập kho</button>
+      <button class="btn-sec" style="font-size:13px${whReqPendingCount()?';border-color:#1c5a8c;color:#1c5a8c':''}" onclick="openTransferReqQueue()" title="Tàu xin điều chuyển vật tư từ kho khác — duyệt là hàng lên đường">🔄 Đề xuất điều chuyển${whReqPendingCount()?` <span style="background:#1c5a8c;color:#fff;border-radius:8px;padding:0 6px;font-size:10px">${whReqPendingCount()}</span>`:''}</button>
+      <button class="btn-sec" style="font-size:13px" onclick="openStockOnHand()" title="Tồn từng kho, lọc theo nhóm hàng hải">📊 Tồn theo kho</button>
+      <button class="btn-sec" style="font-size:13px" onclick="openWarehouseReport()">📈 Báo cáo kho</button>
+      <button class="btn-sec" style="font-size:13px" onclick="openTempCodeReview()" title="Kiểm tra & đổi các mã vật tư tạm do app gợi ý/tự cấp">🏷 Soát mã${stockTempCount()?` <span style="background:#b8730a;color:#fff;border-radius:8px;padding:0 6px;font-size:10px">${stockTempCount()}</span>`:''}</button>
+      <button class="btn-sec" style="font-size:13px" onclick="openOpeningImport()" title="Nạp số tồn ban đầu các kho từ file Excel FAST (kèm tự thêm danh mục)">📦 Nhập tồn đầu kỳ</button>
+    </div>`:''}
     <div class="tbl-scroll" style="max-height:440px"><table style="width:100%;border-collapse:collapse;font-size:13px;border:1px solid var(--rule)">
       <thead><tr style="background:var(--rule);text-align:left"><th style="padding:6px 8px">Số CT</th><th style="padding:6px 8px;text-align:center">Loại</th><th style="padding:6px 8px">Ngày</th><th style="padding:6px 8px">Kho</th><th style="padding:6px 8px">Dòng</th><th style="padding:6px 8px">TT</th><th style="padding:6px 8px"></th></tr></thead>
       <tbody>${rows}</tbody></table></div>`;
   openModal(isVA?'📦 Kho vật tư của tàu':'📦 Chứng từ kho (Nhập / Xuất)', body, `<button class="btn-ghost" onclick="closeModal()">Đóng</button>`);
 }
 function _stockApply(){ _stockFilter={type:(document.getElementById('sd-ftype')||{}).value||'',wh:(document.getElementById('sd-fwh')||{}).value||''}; openStockDocs(); }
+/* v3.15.60 (Sếp 15/8 — ảnh test: 11 nút xếp 3 hàng, dropdown lọc kho che mất nút):
+   thao tác HẰNG NGÀY nằm ngoài (tạo phiếu, điều chuyển, kiểm kê, tra tồn), việc ĐỊNH KỲ
+   gom vào nhóm "⋯ Khác" mở ra khi cần. Badge số mã tạm chuyển lên nút nhóm để không bỏ sót. */
+/* v3.15.62: số đề xuất điều chuyển đang chờ thủ kho xử lý (badge nhắc việc) */
+function whReqPendingCount(){
+  try{ return InventoryService.transferReqs().filter(r=>r.status==='requested').length; }catch(e){ return 0; }
+}
+function whToggleMore(){
+  const d=document.getElementById('wh-more'); if(!d) return;
+  d.style.display=(!d.style.display||d.style.display==='none')?'flex':'none';
+}
+/* ============================================================================
+ * v3.15.62 (Sếp 15/8): ĐỀ XUẤT ĐIỀU CHUYỂN TỪ TÀU — quy tắc Sếp chốt:
+ *   "chỉ xuất tại kho đang tồn; thấy kho khác có thì Đề xuất điều chuyển → thủ kho duyệt →
+ *    hàng khi đó mới có tại kho để xuất."
+ * Đề xuất nằm ở STORE RIÊNG (stockTransferReqs), KHÔNG phải stockDocs: tồn được tính ra từ
+ * chứng từ kho, nên một đề xuất chưa duyệt mà lọt vào đó là mở đường cho tồn ảo.
+ * Duyệt → sinh đúng CẶP TRANSFER_OUT/TRANSFER_IN 2 bước đã chạy từ GĐ2A, không đẻ luật mới.
+ * Các hàm dưới đây thuần: không DOM, không toast, không ghi state.
+ * ========================================================================== */
+function whBuildTransferReq(s, id, by, nowISO){
+  const now=nowISO||new Date().toISOString();
+  return { id, reqNo:'', date:String(s.date||now.slice(0,10)),
+    fromWh:s.fromWh, toWh:s.toWh, code:String(s.code||''), name:String(s.name||''), unit:String(s.unit||''),
+    qty:+s.qty||0, reason:String(s.reason||''), status:'requested',
+    createdBy:by, createdAt:now, actedBy:'', actedAt:'', rejectReason:'', transferId:'' };
+}
+function whValidateTransferReq(s, srcOnHand){
+  if(!s) return {ok:false, reason:'Không có dữ liệu đề xuất'};
+  if(!s.fromWh||!s.toWh) return {ok:false, reason:'Thiếu kho nguồn hoặc kho nhận'};
+  if(s.fromWh===s.toWh) return {ok:false, reason:'Kho nguồn và kho nhận phải khác nhau'};
+  if(!String(s.code||'').trim()) return {ok:false, reason:'Thiếu mã vật tư'};
+  const q=+s.qty||0;
+  if(q<=0) return {ok:false, reason:'Số lượng phải > 0'};
+  const oh=+srcOnHand||0;
+  if(q>oh) return {ok:false, reason:`Kho nguồn chỉ còn ${oh} — không đề xuất ${q}`};
+  return {ok:true};
+}
+/* RBAC thuần: ai được duyệt/từ chối, và đề xuất còn ở trạng thái xử lý được không */
+function whCanActTransferReq(req, canManage){
+  if(!req) return {ok:false, reason:'Không tìm thấy đề xuất'};
+  if(req.status!=='requested') return {ok:false, reason:'Đề xuất đã được xử lý ('+req.status+')'};
+  if(!canManage) return {ok:false, reason:'Chỉ thủ kho/admin duyệt điều chuyển'};
+  return {ok:true};
+}
+/* Đề xuất đã duyệt → draft cho đúng cơ chế điều chuyển 2 bước sẵn có */
+function whReqToTransferDraft(req){
+  return { date:req.date, fromWh:req.fromWh, toWh:req.toWh,
+    lines:[{code:req.code, name:req.name, unit:req.unit, qty:+req.qty||0}],
+    deliveredBy:'', receivedBy:'',
+    note:'Theo đề xuất '+(req.reqNo||req.id)+(req.reason?(' — '+req.reason):'') };
+}
+/* Phiếu này thuộc KHO TÀU? (dùng để siết bản in có giá — SPEC kho §14) */
+function whIsVesselWhDoc(d, warehouses){
+  if(!d) return false;
+  const w=(warehouses||[]).find(x=>x.id===d.warehouseId);
+  return !!(w && w.type==='VESSEL');
+}
 
 /* ---- Form nhập/xuất ---- */
 let _stockDraft=null;
 function openStockForm(type, id, preset){
+  /* v3.15.62: BỊT CỬA SAU — tài khoản tàu mang cờ isCaptain nên trước đây lọt vào đây qua thẻ
+     buồng lái và tự lập phiếu nhập rồi tự xác nhận = tự cộng tồn không cần hóa đơn nào.
+     Phía tàu chỉ có 3 đường: Nhận hàng · Xuất dùng (từ tồn có thật) · Kiểm kê. */
+  if(typeof whIsVesselSideUser==='function' && whIsVesselSideUser()){
+    toast('Phía tàu không lập phiếu tự do — dùng Nhận hàng / Xuất dùng / Kiểm kê','warn');
+    return;
+  }
   if(!canManageStock()&&!isCaptain()){ toast('Bạn không có quyền lập chứng từ kho','bad'); return; }
   const allowed=stockAllowedWarehouses();
   if(!allowed.length){ toast('Chưa có kho khả dụng','bad'); return; }
@@ -65388,6 +65512,23 @@ function whParseQuoteRows(aoa){
     items.push({ name, code:String(row[col.code>=0?col.code:-1]||'').trim(), unit:String(row[col.unit>=0?col.unit:-1]||'').trim(), qty });
   }
   return {items, errors};
+}
+/* ============================================================================
+ * v3.15.60 (Sếp 15/8): "NV nhập AP chưa nhận hàng — tạo phiếu theo ĐÚNG đơn hàng/báo giá,
+ * KHÔNG quản SL đợt này". Người biết hàng về mấy đợt là người NHẬN, không phải NV nhập hóa đơn.
+ * → SL trên phiếu chờ nhập = SL đặt (đơn/báo giá) − SL đã nhập các đợt trước. Thủ kho/admin
+ * vẫn override được khi NCC báo trước lịch giao từng đợt (allowOverride=true).
+ * Hàm thuần, không DOM. ============================================================ */
+function whUsiLineQty(r, allowOverride){
+  const ordered=+((r&&r.orderedQty)||0), recv=+((r&&r.received)||0), ov=+((r&&r.qty)||0);
+  if(allowOverride && ov>0) return {qty:ov, src:'override'};
+  if(ordered>0){
+    const rest=ordered-recv;
+    if(rest<=0) return {qty:0, err:'đã nhận đủ theo đơn — không cần tạo thêm phiếu'};
+    return {qty:rest, src:'order'};
+  }
+  if(ov>0) return {qty:ov, src:'manual'};
+  return {qty:0, err:'thiếu SL theo đơn/báo giá'};
 }
 function whMergeQuoteRows(rows, parsed, anchorApId){
   const base=(rows||[]).filter(r=>!r.fromQuote);   // import lại → thay bộ chi tiết cũ
@@ -65487,8 +65628,9 @@ function _usiRender(){
     <td style="padding:5px 6px;font-size:12px" title="${esc(r.desc||'')}">${r.fromQuote?'<span style="color:#1c5a8c" title="Dòng chi tiết từ báo giá/hợp đồng">📄</span> ':''}${esc((r.desc||'').slice(0,46))}${(r.desc||'').length>46?'…':''}${r.unit?` <span style="font-size:10px;color:var(--muted)">(${esc(r.unit)})</span>`:''}${r.invoiceNo?`<div style="font-size:10px;color:var(--muted)">HĐ: ${esc(r.invoiceNo)}</div>`:''}</td>
     <td style="padding:5px 6px;text-align:right;font-size:11px;color:var(--muted)">${(r.amount||0).toLocaleString('vi-VN')}</td>
     <td style="padding:5px 6px;text-align:right;font-size:11px;${r.received?'color:#1e7d44;font-weight:600':'color:var(--muted)'}">${r.received||'—'}</td>
-    <td style="padding:5px 6px"><input type="number" value="${r.qty}" placeholder="SL đợt này" style="width:76px;font-size:11px;padding:4px;text-align:right" ${r.picked?'':'disabled'} onchange="_usiSet(${i},'qty',this.value)"></td>
-    <td style="padding:5px 6px"><input type="number" value="${r.orderedQty}" placeholder="tổng đặt" title="SL đặt TỔNG theo hóa đơn (tùy chọn — phục vụ theo dõi Đặt/Đã nhận qua các đợt)" style="width:70px;font-size:11px;padding:4px;text-align:right" ${r.picked?'':'disabled'} onchange="_usiSet(${i},'orderedQty',this.value)"></td>
+    <td style="padding:5px 6px"><input type="number" value="${r.orderedQty}" placeholder="SL đơn" title="Số lượng theo đúng đơn hàng / báo giá — app tự trừ phần đã nhận các đợt trước" style="width:76px;font-size:11px;padding:4px;text-align:right" ${r.picked?'':'disabled'} onchange="_usiSet(${i},'orderedQty',this.value)"></td>
+    <td style="padding:5px 6px;text-align:right;font-size:11px">${(()=>{const q=whUsiLineQty(r,_usiCanBatch());return q.err?`<span style="color:var(--warn)" title="${esc(q.err)}">—</span>`:`<b>${q.qty}</b>`;})()}</td>
+    ${_usiCanBatch()?`<td style="padding:5px 6px"><input type="number" value="${r.qty}" placeholder="đợt này" title="Chỉ dùng khi NCC báo trước lịch giao từng đợt — để trống là lấy trọn phần còn lại của đơn" style="width:70px;font-size:11px;padding:4px;text-align:right" ${r.picked?'':'disabled'} onchange="_usiSet(${i},'qty',this.value)"></td>`:''}
     <td style="padding:5px 6px"><input value="${esc(r.code)}" list="usi-codes" placeholder="Mã (tùy chọn)" title="Biết mã FAST thì chọn — không bắt buộc, thủ kho sẽ map khi xác nhận" style="width:96px;font-family:monospace;font-size:11px;padding:4px" ${r.picked?'':'disabled'} onchange="_usiSet(${i},'code',this.value)"></td>
   </tr>`).join('');
   openModal('📦 Tạo phiếu chờ nhập — '+esc(s.partner),
@@ -65507,9 +65649,9 @@ function _usiRender(){
        <input type="file" id="usi-quote-file" accept=".xlsx,.xls,.csv" style="display:none" onchange="_usiQuoteFile(this.files[0]);this.value=''">
      </div>
      <table style="width:100%;border-collapse:collapse;border:1px solid var(--rule)">
-       <thead><tr style="background:var(--rule);font-size:10px"><th style="padding:5px 6px;width:34px"><input type="checkbox" ${allPicked?'checked':''} onchange="_usiPickAll(this.checked)"></th><th style="padding:5px 6px;text-align:left">Dòng hàng</th><th style="padding:5px 6px;text-align:right">Tiền</th><th style="padding:5px 6px;text-align:right" title="Cộng dồn các đợt trước (kể cả đang chờ)">Đã nhập</th><th style="padding:5px 6px">SL đợt này</th><th style="padding:5px 6px">SL đặt</th><th style="padding:5px 6px">Mã FAST</th></tr></thead>
+       <thead><tr style="background:var(--rule);font-size:10px"><th style="padding:5px 6px;width:34px"><input type="checkbox" ${allPicked?'checked':''} onchange="_usiPickAll(this.checked)"></th><th style="padding:5px 6px;text-align:left">Dòng hàng</th><th style="padding:5px 6px;text-align:right">Tiền</th><th style="padding:5px 6px;text-align:right" title="Cộng dồn các đợt trước (kể cả đang chờ)">Đã nhập</th><th style="padding:5px 6px" title="Nhập theo đúng đơn hàng / báo giá">SL theo đơn</th><th style="padding:5px 6px;text-align:right" title="App tự tính: SL theo đơn − đã nhập">SL phiếu này</th>${_usiCanBatch()?'<th style="padding:5px 6px" title="Tùy chọn — chỉ khi biết trước lịch giao từng đợt">SL đợt này</th>':''}<th style="padding:5px 6px">Mã FAST</th></tr></thead>
        <tbody>${rows}</tbody></table>
-     <div style="font-size:11px;color:var(--muted);margin-top:6px">Đã chọn <b>${s.rows.filter(r=>r.picked).length}</b>/${s.rows.length} dòng · Mã FAST không bắt buộc — thủ kho map khi xác nhận. Đường kho độc lập luồng ký duyệt thanh toán.</div>`,
+     <div style="font-size:11px;color:var(--muted);margin-top:6px">Đã chọn <b>${s.rows.filter(r=>r.picked).length}</b>/${s.rows.length} dòng · Nhập <b>SL theo đúng đơn hàng/báo giá</b> — app tự trừ phần đã nhận, hàng về mấy đợt là việc của người nhận hàng. Mã FAST không bắt buộc. Đường kho độc lập luồng ký duyệt thanh toán.</div>`,
     `<button class="btn-ghost" onclick="closeModal()">Hủy</button><button class="btn-primary" onclick="_usiSave()">Gửi (tạo phiếu chờ nhập)</button>`);
 }
 function _usiQuoteFile(file){
@@ -65530,6 +65672,7 @@ function _usiQuoteFile(file){
   };
   reader.readAsArrayBuffer(file);
 }
+function _usiCanBatch(){ return (typeof canManageStock==='function'&&canManageStock())||(typeof isAdmin==='function'&&isAdmin()); }
 function _usiPick(i,on){ if(_usiState&&_usiState.rows[i]){ _usiState.rows[i].picked=!!on; _usiRender(); } }
 function _usiPickAll(on){ if(_usiState){ _usiState.rows.forEach(r=>r.picked=!!on); _usiRender(); } }
 function _usiSet(i,k,v){ if(_usiState&&_usiState.rows[i]){ _usiState.rows[i][k]=v; } }
@@ -65538,10 +65681,12 @@ function _usiSave(){
   const picked=s.rows.filter(r=>r.picked);
   if(!picked.length){ toast('Chưa tích dòng nào','warn'); return; }
   const lines=[];
+  const _ov=_usiCanBatch();
   for(const r of picked){
-    if(!(+r.qty>0)){ toast('Có dòng chưa nhập SL đợt này > 0','bad'); return; }
+    const q=whUsiLineQty(r,_ov);   // v3.15.60: SL phiếu = SL đơn − đã nhập (thủ kho override được)
+    if(q.err){ toast('Dòng "'+String(r.desc||'').slice(0,28)+'": '+q.err,'bad'); return; }
     lines.push({ code:String(r.code||'').trim(), name:(r.desc||'').slice(0,80), unit:String(r.unit||'').trim(),
-      reqQty:+r.qty, qty:+r.qty, srcDesc:r.desc||'', srcInvoiceNo:r.invoiceNo||'', srcApId:r.apId,
+      reqQty:q.qty, qty:q.qty, srcDesc:r.desc||'', srcInvoiceNo:r.invoiceNo||'', srcApId:r.apId,
       fromQuote:r.fromQuote||undefined,
       orderedQty:(+r.orderedQty>0)?+r.orderedQty:undefined });
   }
@@ -65687,7 +65832,7 @@ function openStockInTracking(){
   const orphans=view.filter(g=>g.key==='orphan');
   view=view.filter(g=>g.key!=='orphan');
   const chip=(k,l)=>`<span onclick="_sitFilter.state='${k}';openStockInTracking()" style="cursor:pointer;font-size:11px;padding:3px 10px;border-radius:12px;${_sitFilter.state===k?'background:#2C2C2A;color:#fff':'border:1px solid var(--rule);color:var(--muted)'}">${l}</span>`;
-  const stBadge=st=>st==='pending'?'<span class="ds-need" style="color:var(--warn);font-size:10px">Chờ nhập</span>':(st==='short'?'<span class="ds-need" style="color:#1c5a8c;font-size:10px">Còn thiếu</span>':'<span class="ds-need" style="color:#1e7d44;font-size:10px">Nhập đủ</span>');
+  const stBadge=st=>st==='pending'?'<span class="ds-need" style="color:var(--warn);font-size:10px">Chờ giao hàng</span>':(st==='short'?'<span class="ds-need" style="color:#1c5a8c;font-size:10px">Còn thiếu</span>':'<span class="ds-need" style="color:#1e7d44;font-size:10px">Nhập đủ</span>');
   const gH=view.length? view.map(g=>{
     const firstAp=(g.docs.find(d=>d.apId)||{}).apId||'';
     const prog=g.ordered>0?`<div style="display:flex;align-items:center;gap:8px;padding:2px 10px 6px">
@@ -65718,12 +65863,12 @@ function openStockInTracking(){
       <button class="btn-sec" style="font-size:10px;margin-left:auto" onclick="_sitAttachOpen('${d.id}')">🔗 Gắn AP</button></div>`).join('')}</div>`:'';
   openModal('📦 Theo dõi nhập kho',
     `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:8px">
-       <div style="background:var(--rule);border-radius:6px;padding:6px 10px"><div style="font-size:10px;color:var(--muted)">Chờ nhập</div><div style="font-size:18px;font-weight:600;color:var(--warn)">${nPend}</div></div>
+       <div style="background:var(--rule);border-radius:6px;padding:6px 10px"><div style="font-size:10px;color:var(--muted)" title="Hàng chưa về — đơn đã tạo phiếu, đang chờ NCC giao">Chờ giao hàng</div><div style="font-size:18px;font-weight:600;color:var(--warn)">${nPend}</div></div>
        <div style="background:var(--rule);border-radius:6px;padding:6px 10px"><div style="font-size:10px;color:var(--muted)">Còn thiếu (đợt)</div><div style="font-size:18px;font-weight:600;color:#1c5a8c">${nShort}</div></div>
        <div style="background:var(--rule);border-radius:6px;padding:6px 10px"><div style="font-size:10px;color:var(--muted)">Đã nhập ${_sitFilter.days} ngày</div><div style="font-size:18px;font-weight:600;color:#1e7d44">${nDone30}</div></div>
      </div>
      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
-       ${chip('','Tất cả')}${chip('pending','Chờ nhập')}${chip('short','Còn thiếu')}${chip('done','Đã nhập')}
+       ${chip('','Tất cả')}${chip('pending','Chờ giao hàng')}${chip('short','Còn thiếu')}${chip('done','Đã nhập')}
        <input value="${esc(_sitFilter.q)}" placeholder="Tìm NCC, số CT, số HĐ…" style="flex:1;min-width:120px;font-size:12px;padding:5px" onchange="_sitFilter.q=this.value;openStockInTracking()">
        <select style="font-size:12px;padding:5px" onchange="_sitFilter.days=+this.value;openStockInTracking()"><option value="30" ${_sitFilter.days===30?'selected':''}>30 ngày</option><option value="90" ${_sitFilter.days===90?'selected':''}>90 ngày</option><option value="3650" ${_sitFilter.days===3650?'selected':''}>Tất cả</option></select>
      </div>
@@ -66006,7 +66151,7 @@ function _stockRenderForm(){
     AccountingService.payables().filter(a=>a).slice(-80).reverse().map(a=>`<option value="${a.id}" ${s.apId===a.id?'selected':''}>${esc((a.partner||'')+' · '+(a.desc||'')+' · '+(a.issueDate||''))}</option>`)).join('') : '';
   const coTypeOpts = STOCK_COST_OBJECTS.map(([k,l])=>`<option value="${k}" ${s.costObject&&s.costObject.type===k?'selected':''}>${l}</option>`).join('');
   const lineRows = s.lines.length? s.lines.map((l,i)=>`<tr>
-    <td style="padding:3px"><input value="${esc(l.code||'')}" placeholder="Mã FAST" list="mat-codes" style="width:90px;padding:4px;font-family:monospace;font-size:11px" onchange="_stockLineCode(${i},this.value)"></td>
+    <td style="padding:3px"><input value="${esc(l.code||'')}" placeholder="Mã (tùy chọn)" title="Biết mã FAST thì gõ — không biết cứ để trống, app tự gợi ý theo tên hoặc cấp mã tạm SH-xxxx" list="mat-codes" style="width:90px;padding:4px;font-family:monospace;font-size:11px" onchange="_stockLineCode(${i},this.value)"></td>
     <td style="padding:3px"><input value="${esc(l.name||'')}" placeholder="Tên vật tư" style="width:100%;padding:4px;font-size:11px" onchange="_stockLineSet(${i},'name',this.value)"></td>
     <td style="padding:3px"><input value="${esc(l.unit||'')}" placeholder="ĐVT" style="width:50px;padding:4px;font-size:11px" onchange="_stockLineSet(${i},'unit',this.value)"></td>
     <td style="padding:3px"><input type="number" value="${l.qty||''}" style="width:64px;padding:4px;font-size:11px;text-align:right" onchange="_stockLineSet(${i},'qty',this.value)"></td>
@@ -66030,7 +66175,7 @@ function _stockRenderForm(){
       <thead><tr style="background:var(--rule);font-size:11px"><th style="padding:4px">Mã FAST</th><th style="padding:4px">Tên vật tư</th><th style="padding:4px">ĐVT</th><th style="padding:4px">SL</th>${!isIn?'<th style="padding:4px">Tồn</th>':''}<th></th></tr></thead>
       <tbody>${lineRows}</tbody></table>
     <button class="btn-sec" style="font-size:11px;margin-top:6px" onclick="_stockLineAdd()">+ Thêm dòng</button>
-    <div style="font-size:11px;color:var(--muted);margin-top:6px">📦 Chỉ quản lý số lượng — KHÔNG giá. ${isIn?'Giá trị do Kế toán quản qua hóa đơn AP đã liên kết.':'Không xuất vượt tồn khả dụng (sẽ bị chặn khi xác nhận).'}</div>`;
+    <div style="font-size:11px;color:var(--muted);margin-top:6px">📦 Chỉ quản lý số lượng — KHÔNG giá. ${isIn?'Giá trị do Kế toán quản qua hóa đơn AP đã liên kết.':'Không xuất vượt tồn khả dụng (sẽ bị chặn khi xác nhận).'} Mã FAST <b>không bắt buộc</b> — để trống thì app gợi ý theo tên, không khớp thì cấp mã tạm SH-xxxx và đẩy vào 🏷 Soát mã.</div>`;
   openModal((s.id?'✏️ Sửa ':'+ ')+(isIn?'Phiếu nhập kho':'Phiếu xuất kho'), body,
     `<button class="btn-ghost" onclick="openStockDocs()">← Danh sách</button>
      <button class="btn-sec" onclick="_stockSave(false)">💾 Lưu nháp</button>
@@ -66053,8 +66198,31 @@ function _stockSyncForm(){
   if(s.type==='OUT'){ if(g('sf-cotype')!==undefined) s.costObject.type=g('sf-cotype'); if(g('sf-coname')!==undefined) s.costObject.name=g('sf-coname')||''; }
 }
 // Logic thuần: lọc dòng hợp lệ (có mã + qty>0). Không UI.
+/* v3.15.60 (Sếp 15/8 — "mã tạm của app tạo đâu?"): dòng hợp lệ = có TÊN + SL > 0.
+   Trước đây lọc theo MÃ nên dòng chưa có mã FAST bị vứt trước cả khi validate, thủ kho
+   buộc phải tự bịa mã hoặc ra danh mục tạo vật tư rồi quay lại — trái nguyên tắc tối giản.
+   Mã do whAssignLineCodes cấp ngay trước khi lưu (gợi ý theo tên → không khớp thì SH-xxxx). */
 function whCleanStockLines(lines){
-  return (lines||[]).filter(l=>String(l.code||'').trim() && (+l.qty||0)>0);
+  return (lines||[]).filter(l=>(String(l.code||'').trim()||String(l.name||'').trim()) && (+l.qty||0)>0);
+}
+/* Cấp mã cho dòng chưa có mã — DÙNG CHUNG cho form thủ công và màn Nhận hàng của tàu.
+   Trả {lines, created} — created là các vật tư cần thêm vào danh mục (cờ tempCode). Hàm thuần. */
+function whAssignLineCodes(lines, materials){
+  const mats=(materials||[]).slice();
+  const created=[]; let tempSeq=null;
+  const out=(lines||[]).map(l=>{
+    const o=Object.assign({},l);
+    if(String(o.code||'').trim()) return o;              // đã có mã → giữ nguyên, không gắn cờ tạm
+    const sug=whSuggestMaterialCode(o.name, mats);
+    if(sug){ o.code=sug; o.codeTemp=true; return o; }    // gợi ý được mã FAST theo tên
+    if(tempSeq===null) tempSeq=whNextTempCode(mats);
+    else { const n=+tempSeq.slice(3); tempSeq='SH-'+String(n+1).padStart(4,'0'); }
+    o.code=tempSeq; o.codeTemp=true;
+    const m={code:tempSeq, name:o.name||tempSeq, unit:o.unit||'', group:'', group2:'', status:'active', source:'manual', tempCode:true};
+    created.push(m); mats.push(m);
+    return o;
+  });
+  return {lines:out, created};
 }
 // RBAC thuần: ai được lưu/sửa phiếu kho này
 function whCanSaveStock(s){
@@ -66067,7 +66235,7 @@ function whCanSaveStock(s){
 function whValidateStockSave(s, confirmNow, stockOf, selfQtyOf){
   if(!s) return {ok:false, reason:'Không có dữ liệu phiếu'};
   const lines=whCleanStockLines(s.lines);
-  if(!lines.length) return {ok:false, reason:'Phải có ít nhất 1 dòng vật tư có mã + số lượng > 0'};
+  if(!lines.length) return {ok:false, reason:'Phải có ít nhất 1 dòng có TÊN vật tư + số lượng > 0'};
   if(confirmNow && s.type==='OUT'){
     for(const l of lines){
       const onhand = stockOf(l.code) + (s.id ? selfQtyOf(s.id, l.code) : 0);
@@ -66294,7 +66462,10 @@ function openVesselStockOverview(){
       <td style="padding:6px 8px">${esc(it.name)} <span style="color:var(--muted);font-size:10px;font-family:monospace">${esc(it.code)}</span></td>
       <td style="padding:6px 8px;text-align:right;font-weight:600;${my<=0?'color:#b23b3b':''}">${my} ${esc(it.unit||'')}</td>
       <td style="padding:6px 8px;font-size:11px;color:var(--muted)">${oth||'—'}</td>
-      <td style="padding:6px 8px;text-align:right">${my>0?`<button class="btn-sec" style="font-size:11px" onclick="_vsIssueOpen('${esc(it.code)}')">📤 Xuất</button>`:'<span style="color:var(--muted);font-size:11px">—</span>'}</td>
+      <td style="padding:6px 8px;text-align:right">${my>0
+        ?`<button class="btn-sec" style="font-size:11px" onclick="_vsIssueOpen('${esc(it.code)}')">📤 Xuất dùng</button>`
+        :(oth?`<button class="btn-sec" style="font-size:11px;border-color:#1c5a8c;color:#1c5a8c" onclick="_vsReqOpen('${esc(it.code)}')" title="Kho khác đang có — gửi đề xuất điều chuyển về thủ kho">🔄 Đề xuất điều chuyển</button>`
+              :'<span style="color:var(--muted);font-size:11px" title="Không kho nào còn — báo văn phòng mua ngoài app">—</span>')}</td>
     </tr>`;
   }).join('') : `<tr><td colspan="4" style="padding:14px;text-align:center;color:var(--muted)">${q?'Không tìm thấy vật tư khớp.':'Kho chưa có tồn — nhận hàng đầu tiên để bắt đầu.'}</td></tr>`;
   openModal('📊 Tồn tổng hợp — '+esc(wh.name),
@@ -66305,10 +66476,12 @@ function openVesselStockOverview(){
      <div class="tbl-scroll" style="max-height:430px"><table style="width:100%;border-collapse:collapse;font-size:13px;border:1px solid var(--rule)">
        <thead><tr style="background:var(--rule);text-align:left"><th style="padding:6px 8px">Vật tư</th><th style="padding:6px 8px;text-align:right">Tại tàu này</th><th style="padding:6px 8px">Tại kho khác</th><th style="padding:6px 8px"></th></tr></thead>
        <tbody>${rows}</tbody></table></div>
-     <div style="font-size:11px;color:var(--muted);margin-top:6px">Thiếu vật tư nhưng kho khác đang có? Báo văn phòng để điều chuyển — tàu không tự lấy của kho khác.</div>`,
+     <div style="font-size:11px;color:var(--muted);margin-top:6px">Có tồn tại kho mình → xuất dùng ngay. Chỉ kho khác còn → bấm 🔄 gửi đề xuất, thủ kho duyệt thì hàng mới về kho tàu rồi mới xuất được. Không kho nào còn → báo văn phòng mua (ngoài app).</div>`,
     `<button class="btn-ghost" onclick="closeModal()">Đóng</button>`);
 }
 /* --- Xuất tại chỗ (kho mình, trừ tồn ngay) --- */
+/* v3.15.62: bộ phận dùng trên tàu — 1 cú bấm, mặc định Chung, để kế toán quy chi phí đúng chỗ */
+const VS_USE_FOR=[['engine','Máy'],['deck','Boong'],['general','Chung']];
 function _vsIssueOpen(code){
   const wh=whMyVesselWarehouse(); if(!wh) return;
   const it=stockByWarehouse(wh.id)[String(code)];
@@ -66319,6 +66492,8 @@ function _vsIssueOpen(code){
      <div style="display:grid;grid-template-columns:1fr 2fr;gap:8px;align-items:center">
        <label style="font-size:12px">Số lượng xuất</label>
        <input type="number" id="vs-i-qty" min="0" step="any" max="${it.qty}" style="padding:6px 8px;border:1px solid var(--rule);border-radius:6px" placeholder="≤ ${it.qty}">
+       <label style="font-size:12px">Dùng cho</label>
+       <select id="vs-i-use" style="padding:6px 8px;border:1px solid var(--rule);border-radius:6px">${VS_USE_FOR.map(u=>`<option value="${u[0]}" ${u[0]==='general'?'selected':''}>${u[1]}</option>`).join('')}</select>
        <label style="font-size:12px">Mục đích / vị trí dùng</label>
        <input id="vs-i-note" style="padding:6px 8px;border:1px solid var(--rule);border-radius:6px" placeholder="VD: bảo dưỡng máy chính, thay ca boong…">
      </div>`,
@@ -66327,6 +66502,7 @@ function _vsIssueOpen(code){
 }
 function _vsIssueSave(){
   const s=window._vsIssue; if(!s) return;
+  const useFor=((document.getElementById('vs-i-use')||{}).value)||'general';
   const qty=+(document.getElementById('vs-i-qty')||{}).value||0;
   const note=String((document.getElementById('vs-i-note')||{}).value||'').trim();
   if(qty<=0){ toast('Số lượng xuất phải > 0','bad'); return; }
@@ -66334,9 +66510,13 @@ function _vsIssueSave(){
   if(qty>cur){ toast('Vượt tồn hiện tại ('+cur+')','bad'); return; }
   const by=actorName(), now=new Date().toISOString();
   const doc={ id:uid(), docNo:stockGenDocNo('OUT'), type:'OUT', date:now.slice(0,10), warehouseId:s.whId,
-    apId:'', costObject:{kind:'vessel', id:whMyVesselId()},
+    /* v3.15.62: khóa 'type' cho đúng phần còn lại của app (bản in/báo cáo đọc costObject.type —
+       trước đây ghi 'kind' nên phiếu xuất của tàu ra giấy KHÔNG hiện đối tượng chi phí).
+       useFor = bộ phận dùng trên tàu, để kế toán quy chi phí về đúng chỗ, mặc định Chung. */
+    apId:'', costObject:{type:'vessel', id:whMyVesselId(), name:(typeof anyVesselName==='function'?anyVesselName(whMyVesselId()):'')},
+    useFor:useFor,
     lines:[{code:s.code, name:s.name, unit:s.unit, qty}],
-    deliveredBy:by, receivedBy:by, note:note?('Xuất dùng tại tàu — '+note):'Xuất dùng tại tàu',
+    deliveredBy:by, receivedBy:by, note:(VS_USE_FOR.find(x=>x[0]===useFor)||[,''])[1]+(note?(' — '+note):''),
     status:'confirmed', createdBy:by, createdAt:now, confirmedBy:by, confirmedAt:now,
     vesselReceived:true, vesselReceivedAt:now, vesselReceivedBy:by };
   InventoryService.addStockDoc(doc);
@@ -66344,6 +66524,97 @@ function _vsIssueSave(){
   window._vsIssue=null; saveState();
   toast('✓ Đã xuất '+qty+' '+(s.unit||'')+' '+s.name,'good');
   closeModal(); openVesselStockOverview();
+}
+/* --- v3.15.62: TÀU ĐỀ XUẤT ĐIỀU CHUYỂN (không tự lấy hàng kho khác) --- */
+function _vsReqOpen(code){
+  const wh=whMyVesselWarehouse(); if(!wh){ toast('Tài khoản chưa gắn kho tàu','bad'); return; }
+  const others=stockViewableWarehouses().filter(w=>w.id!==wh.id);
+  const avail=others.map(w=>({w, qty:stockOnHand(w.id, code)})).filter(x=>x.qty>0);
+  if(!avail.length){ toast('Không kho nào còn tồn vật tư này','bad'); return; }
+  const mat=InventoryService.materialByCode(code)||{};
+  window._vsReq={code, name:mat.name||code, unit:mat.unit||'', toWh:wh.id, fromWh:avail[0].w.id, avail:avail.map(x=>({id:x.w.id,name:x.w.name,qty:x.qty}))};
+  const opts=window._vsReq.avail.map(a=>`<option value="${a.id}">${esc(a.name)} — còn ${a.qty}</option>`).join('');
+  openModal('🔄 Đề xuất điều chuyển — '+esc(window._vsReq.name),
+    `<div style="font-size:12px;color:var(--muted);margin-bottom:10px">Kho tàu đang hết vật tư này. Chọn kho xin, thủ kho duyệt thì hàng mới lên đường — tàu không tự lấy hàng kho khác.</div>
+     <div style="display:grid;grid-template-columns:1fr 100px;gap:8px;margin-bottom:8px">
+       <label style="font-size:11px;color:var(--muted)">Xin từ kho<select id="vsq-from" style="width:100%;padding:6px;font-size:13px;margin-top:2px">${opts}</select></label>
+       <label style="font-size:11px;color:var(--muted)">Số lượng<input id="vsq-qty" type="number" min="1" style="width:100%;padding:6px;font-size:13px;margin-top:2px;text-align:right"></label>
+     </div>
+     <label style="font-size:11px;color:var(--muted)">Lý do / dùng vào việc gì<input id="vsq-reason" placeholder="VD: thay dầu máy chính đợt tới" style="width:100%;padding:6px;font-size:13px;margin-top:2px"></label>`,
+    `<button class="btn-ghost" onclick="closeModal()">Hủy</button><button class="btn-primary" onclick="_vsReqSave()">Gửi đề xuất</button>`);
+}
+function _vsReqSave(){
+  const s=window._vsReq; if(!s) return;
+  const fromWh=(document.getElementById('vsq-from')||{}).value||'';
+  const qty=+(document.getElementById('vsq-qty')||{}).value||0;
+  const reason=String((document.getElementById('vsq-reason')||{}).value||'').trim();
+  const draft={date:new Date().toISOString().slice(0,10), fromWh, toWh:s.toWh, code:s.code, name:s.name, unit:s.unit, qty, reason};
+  const val=whValidateTransferReq(draft, stockOnHand(fromWh, s.code));
+  if(!val.ok){ toast(val.reason,'bad'); return; }
+  const req=whBuildTransferReq(draft, uid(), actorName());
+  const y=new Date().getFullYear();
+  req.reqNo='DX'+y+'-'+String(InventoryService.transferReqs().filter(r=>(r.reqNo||'').indexOf('DX'+y)===0).length+1).padStart(4,'0');
+  InventoryService.addTransferReq(req);
+  try{ logAuditEvent('stock_transfer_req',{reqNo:req.reqNo, code:req.code, qty:req.qty, from:_whName(fromWh), to:_whName(s.toWh)}); }catch(e){}
+  window._vsReq=null; saveState();
+  toast('✓ Đã gửi đề xuất '+req.reqNo+' — chờ thủ kho duyệt','good');
+  closeModal(); openVesselStockOverview();
+}
+/* --- v3.15.62: HÀNG ĐỢI DUYỆT của thủ kho --- */
+function openTransferReqQueue(){
+  const canAct=canManageStock()||isAdmin();
+  const all=InventoryService.transferReqs().slice().sort((a,b)=>String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
+  const list=canAct?all:all.filter(r=>stockCanAccessWarehouse(r.toWh)||stockCanAccessWarehouse(r.fromWh));
+  const badge=st=>st==='requested'?'<span class="ds-need" style="color:var(--warn);font-size:10px">⏳ Chờ duyệt</span>'
+    :(st==='approved'?'<span class="ds-need" style="color:#1e7d44;font-size:10px">✓ Đã duyệt</span>':'<span class="ds-need" style="color:#b23b3b;font-size:10px">✕ Từ chối</span>');
+  const rows=list.length? list.map(r=>`<tr style="border-bottom:1px solid var(--rule)">
+      <td style="padding:6px 8px;font-family:monospace;font-size:11px">${esc(r.reqNo||'')}<div style="color:var(--muted)">${esc(r.date||'')}</div></td>
+      <td style="padding:6px 8px;font-size:12px">${esc(r.name)} <span style="color:var(--muted);font-family:monospace;font-size:10px">${esc(r.code)}</span>${r.reason?`<div style="font-size:10px;color:var(--muted)">${esc(r.reason)}</div>`:''}</td>
+      <td style="padding:6px 8px;font-size:11px">${esc(_whName(r.fromWh))} → <b>${esc(_whName(r.toWh))}</b></td>
+      <td style="padding:6px 8px;text-align:right;font-weight:600">${r.qty} ${esc(r.unit||'')}</td>
+      <td style="padding:6px 8px">${badge(r.status)}${r.rejectReason?`<div style="font-size:10px;color:var(--muted)">${esc(r.rejectReason)}</div>`:''}</td>
+      <td style="padding:6px 8px;text-align:right;white-space:nowrap">${(canAct&&r.status==='requested')?`<button class="btn-sec" style="font-size:11px;color:#1e7d44;border-color:#1e7d44" onclick="_trqApprove('${r.id}')">✓ Duyệt</button> <button class="btn-ghost" style="font-size:11px;color:#b23b3b" onclick="_trqReject('${r.id}')">✕</button>`:''}</td>
+    </tr>`).join('') : '<tr><td colspan="6" style="padding:14px;text-align:center;color:var(--muted)">Chưa có đề xuất điều chuyển nào.</td></tr>';
+  openModal('🔄 Đề xuất điều chuyển từ tàu',
+    `<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Duyệt là hàng rời kho nguồn ngay và treo chờ tàu xác nhận thực nhận — đúng cơ chế điều chuyển 2 bước.</div>
+     <div class="tbl-scroll" style="max-height:430px"><table style="width:100%;border-collapse:collapse;font-size:13px;border:1px solid var(--rule)">
+       <thead><tr style="background:var(--rule);text-align:left"><th style="padding:6px 8px">Số ĐX</th><th style="padding:6px 8px">Vật tư</th><th style="padding:6px 8px">Điều chuyển</th><th style="padding:6px 8px;text-align:right">SL</th><th style="padding:6px 8px">TT</th><th style="padding:6px 8px"></th></tr></thead>
+       <tbody>${rows}</tbody></table></div>`,
+    `<button class="btn-ghost" onclick="openStockDocs()">← Chứng từ</button><button class="btn-ghost" onclick="closeModal()">Đóng</button>`);
+}
+function _trqApprove(id){
+  const r=InventoryService.transferReqById(id);
+  const can=whCanActTransferReq(r, canManageStock()||isAdmin());
+  if(!can.ok){ toast(can.reason,'bad'); return; }
+  const oh=stockOnHand(r.fromWh, r.code);
+  if((+r.qty||0)>oh){ toast('Kho nguồn nay chỉ còn '+oh+' — không đủ để duyệt. Từ chối hoặc bảo tàu sửa số lượng.','bad'); return; }
+  if(!confirm('Duyệt đề xuất '+r.reqNo+'?\nHàng rời '+_whName(r.fromWh)+' ngay, treo chờ '+_whName(r.toWh)+' xác nhận thực nhận.')) return;
+  _xferDraft=whReqToTransferDraft(r);
+  _xferCommitFromReq(r);
+}
+function _xferCommitFromReq(r){
+  const before=InventoryService.stockDocs().length;
+  _xferCommit();                                  // dùng đúng đường điều chuyển 2 bước sẵn có
+  if(InventoryService.stockDocs().length<=before) return;   // _xferCommit đã chặn vì lý do nào đó
+  r.status='approved'; r.actedBy=actorName(); r.actedAt=new Date().toISOString();
+  try{ touchRecord(r); }catch(e){}
+  try{ logAuditEvent('stock_transfer_req_approve',{reqNo:r.reqNo, code:r.code, qty:r.qty}); }catch(e){}
+  saveState();
+  openTransferReqQueue();
+}
+function _trqReject(id){
+  const r=InventoryService.transferReqById(id);
+  const can=whCanActTransferReq(r, canManageStock()||isAdmin());
+  if(!can.ok){ toast(can.reason,'bad'); return; }
+  const why=prompt('Lý do từ chối đề xuất '+r.reqNo+' (tàu sẽ đọc được):','');
+  if(why===null) return;
+  if(!String(why).trim()){ toast('Phải ghi lý do để tàu còn xoay cách khác','bad'); return; }
+  r.status='rejected'; r.rejectReason=String(why).trim(); r.actedBy=actorName(); r.actedAt=new Date().toISOString();
+  try{ touchRecord(r); }catch(e){}
+  const toW=InventoryService.warehouseById(r.toWh);
+  if(toW&&toW.vesselId){ try{ pushVesselNotif(toW.vesselId,'stock','Đề xuất điều chuyển bị từ chối', r.reqNo+' — '+r.name+': '+r.rejectReason, r.id); }catch(e){} }
+  try{ logAuditEvent('stock_transfer_req_reject',{reqNo:r.reqNo, reason:r.rejectReason}); }catch(e){}
+  saveState(); openTransferReqQueue();
 }
 /* --- Báo cáo kho khóa theo tàu --- */
 function openVesselWarehouseReport(){
@@ -66616,9 +66887,16 @@ function _stockSave(confirmNow){
   _stockSyncForm();
   const s=_stockDraft; if(!s) return;
   const can=whCanSaveStock(s); if(!can.ok){ toast(can.reason,'bad'); return; }
+  /* v3.15.60: cấp mã tạm TRƯỚC khi validate tồn — dòng chưa có mã vẫn đi tiếp được,
+     app gợi ý mã FAST theo tên hoặc tự cấp SH-xxxx rồi đẩy vào hàng đợi Soát mã của thủ kho. */
+  const _clean=whCleanStockLines(s.lines);
+  const _asg=whAssignLineCodes(_clean, InventoryService.materials());
+  s.lines=_asg.lines;
   const val=whValidateStockSave(s, confirmNow, code=>stockOnHand(s.warehouseId, code), (id,code)=>_stockSelfQty(id,code));
   if(!val.ok){ toast(val.reason,'bad'); return; }
   s.lines=val.lines;
+  _asg.created.forEach(m=>{ try{ InventoryService.addMaterial(m); }catch(e){} });
+  if(_asg.created.length) toast('App đã cấp '+_asg.created.length+' mã tạm — thủ kho soát lại ở 🏷 Soát mã','warn');
   const by=actorName();
   if(s.id){
     const d=InventoryService.stockDocById(s.id);
@@ -66790,7 +67068,12 @@ function _stockSpec(d, opts){
     // C2a: watermark phân biệt — hồ sơ thanh toán chỉ dùng bản đã xác nhận
     watermark:(d.status!=='confirmed')?'CHỜ NHẬP — CHƯA XÁC NHẬN':(d.reversedById?'ĐÃ ĐẢO — KHÔNG SỬ DỤNG':(d.reversalOfId?'PHIẾU ĐẢO':'')),
     footerNote:(d.status==='confirmed'&&!d.reversedById)?('Đã xác nhận nhập kho ngày '+((d.confirmedAt||'').slice(0,10))+' bởi '+(d.confirmedBy||'')+(d.vesselReceived?(' · Tàu xác nhận thực nhận '+((d.vesselReceivedAt||'').slice(0,10))+' ('+(d.vesselReceivedBy||'')+')'):'')):'',
-    footerLines:(showVal&&Object.keys(landedByKind).length)?['Trong đó CP nhập kho: '+Object.keys(landedByKind).map(k=>((LANDED_KINDS.find(x=>x[0]===k)||[,k])[1])+' '+landedByKind[k].toLocaleString('vi-VN')).join(' · ')]:[],
+    footerLines:(function(){
+      const out=(showVal&&Object.keys(landedByKind).length)?['Trong đó CP nhập kho: '+Object.keys(landedByKind).map(k=>((LANDED_KINDS.find(x=>x[0]===k)||[,k])[1])+' '+landedByKind[k].toLocaleString('vi-VN')).join(' · ')]:[];
+      /* v3.15.60: bản CÓ GIÁ của phiếu kho tàu = tài liệu nội bộ của bờ (hồ sơ thanh toán / FAST) */
+      if(showVal && whIsVesselWhDoc(d, InventoryService.warehouses())) out.push('BẢN NỘI BỘ — KHÔNG PHÁT XUỐNG TÀU');
+      return out;
+    })(),
     showValue:showVal, fileNameBase:isIn?'PhieuNhap':'PhieuXuat'
   };
 }
@@ -66804,9 +67087,15 @@ function stockDocPreview(id){
     DocEngine.preview(_stockSpec(d,{showValue:false}));
     return;
   }
+  /* v3.15.60 (Sếp 15/8 — "tại kho tàu sao lại có bản in có giá? bản này ai quản?"):
+     phiếu thuộc KHO TÀU → bản KHÔNG giá là mặc định (nút chính), bản có giá xuống nút phụ
+     kèm nhãn đỏ "bản nội bộ". App không chặn được việc bờ tự gửi PDF xuống tàu, nên bản có
+     giá của phiếu kho tàu còn đóng thêm dòng chân "KHÔNG PHÁT XUỐNG TÀU" để có dấu vết. */
+  const _vesselDoc=whIsVesselWhDoc(d, InventoryService.warehouses());
+  const _btnNoVal=`<button class="${_vesselDoc?'btn-primary':'btn-sec'}" style="display:block;width:100%;margin-bottom:8px;text-align:left" onclick="closeModal();DocEngine.preview(_stockSpec(stockDocById('${id}'),{showValue:false}))">📋 Phiếu đề nghị (KHÔNG giá) — bản phát cho tàu/thủ kho</button>`;
+  const _btnVal=`<button class="${_vesselDoc?'btn-sec':'btn-primary'}" style="display:block;width:100%;text-align:left${_vesselDoc?';border-color:var(--bad);color:var(--bad)':''}" onclick="closeModal();DocEngine.preview(_stockSpec(stockDocById('${id}'),{showValue:true}))">🏛 Phiếu đầy đủ (CÓ giá + CP nhập kho) — đính hồ sơ thanh toán / nhập FAST${_vesselDoc?'<div style="font-size:10px;font-weight:400;margin-top:2px">⚠ Bản nội bộ — không phát xuống tàu</div>':''}</button>`;
   openModal('📄 In chứng từ '+esc(d.docNo), `<div style="font-size:13px;margin-bottom:10px">Chọn bản in:</div>
-    <button class="btn-sec" style="display:block;width:100%;margin-bottom:8px;text-align:left" onclick="closeModal();DocEngine.preview(_stockSpec(stockDocById('${id}'),{showValue:false}))">📋 Phiếu đề nghị (KHÔNG giá) — bản phát cho tàu/thủ kho</button>
-    <button class="btn-primary" style="display:block;width:100%;text-align:left" onclick="closeModal();DocEngine.preview(_stockSpec(stockDocById('${id}'),{showValue:true}))">🏛 Phiếu đầy đủ (CÓ giá + CP nhập kho) — đính hồ sơ thanh toán / nhập FAST</button>`,
+    ${_btnNoVal}${_btnVal}`,
     `<button class="btn-ghost" onclick="closeModal()">Hủy</button>`);
 }
 /* C2c: in BỘ phiếu theo cụm hóa đơn — các phiếu ĐÃ XÁC NHẬN + trang tổng hợp lũy kế (1 file in). */
