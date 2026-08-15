@@ -1,5 +1,5 @@
 {
-  "version": "3.15.67",
-  "swVersion": "v3.15.67",
-  "notes": "v3.15.67 (Sếp 15/8: kho tàu khác dùng mẫu tồn kho tổng của bản trước, có các cột tàu): Màn Tồn tổng hợp của tàu nay dựng theo đúng khuôn ma trận như bên bờ — mỗi dòng là một vật tư, mỗi kho là một cột, kho của tàu mình đứng cột đầu có dấu neo và tô đậm, cuối bảng là cột tổng. Trước đây tất cả kho khác bị gộp vào một ô chữ nên nhìn không ra hàng đang nằm ở tàu nào. Cột thao tác giữ nguyên luật đã chốt: có tồn ở kho mình thì Xuất dùng, chỉ kho khác còn thì Đề xuất điều chuyển, không kho nào còn thì để trống. Phần tính toán tách thành hàm riêng test được, gồm tồn từng kho, tổng, quyết định nút theo tồn thực tế, tìm kiếm không dấu và ưu tiên xếp hàng đang có tại tàu lên trước. Nền v3.15.66 giữ nguyên."
+  "version": "3.15.70",
+  "swVersion": "v3.15.70",
+  "notes": "v3.15.70 (Sếp 15/8: ẩn cả nút Tạm ứng): Tìm ra gốc thật sự của việc tài khoản tàu vẫn thấy nút Tạm ứng NV và Thu-Chi hộ dù đã bỏ khỏi bộ quyền từ mấy bản trước — không phải thanh điều hướng thiếu lọc, mà có hai luật ép hiện nằm sẵn trong phần áp quyền giao diện và chúng thắng cả bộ tab. Một là luật cũ cho Tạm ứng NV hiện với mọi nhân viên không cần cấp tab. Hai là luật cho Thu-Chi hộ chấp nhận cả tab quản lý vận hành tàu, mà tài khoản tàu lại đang mang chính tab đó dưới dạng dashboard. Nay cả hai luật có thêm đúng một ngoại lệ là phía tàu thì ẩn tuyệt đối, còn nhân viên bờ giữ nguyên hành vi cũ. Bước quét thanh điều hướng thêm ở bản trước vẫn giữ làm lớp phòng thủ thứ hai. Nền v3.15.69 giữ nguyên."
 }

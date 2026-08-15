@@ -3780,7 +3780,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.15.67';
+const APP_VERSION='3.15.70';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -13991,6 +13991,32 @@ function _helpSection_contact(){
   </div>`;
 }
 
+/* v3.15.69: quét nav lần cuối cho phía tàu — mọi phần tử mang data-page ngoài phạm vi đều ẩn,
+   không phân biệt nav-item hay nav-sub-item, rồi ẩn luôn nhóm không còn mục con nào hiện.
+   Lý do: nav có nhiều đường dựng (phẳng cho NV, nhóm cho quản lý) nên vá từng đường sẽ sót —
+   ảnh test cho thấy "Tạm ứng NV" vẫn hiện dù đã bỏ khỏi bộ tab của tàu từ v3.15.66. */
+function _vaEnforceNav(){
+  try{
+    if(!(typeof whIsVesselSideUser==='function' && whIsVesselSideUser())) return;
+    document.querySelectorAll('[data-page]').forEach(el=>{
+      const pg=el.dataset.page; if(!pg) return;
+      let ok=false; try{ ok=canAccessTab(pg); }catch(e){ ok=false; }
+      if(!ok) el.style.display='none';
+    });
+    document.querySelectorAll('.nav-group').forEach(g=>{
+      const items=Array.from(g.querySelectorAll('[data-page]'));
+      const anyVisible=items.some(el=>el.style.display!=='none');
+      if(!anyVisible){ const btn=g.querySelector('.nav-group-btn'); if(btn) btn.style.display='none'; g.style.display='none'; }
+    });
+    document.querySelectorAll('.nav-group-btn').forEach(btn=>{
+      const grp=btn.dataset.group; if(!grp) return;
+      const box=document.getElementById('submenu-'+grp);
+      if(!box) return;
+      const items=Array.from(box.querySelectorAll('[data-page]'));
+      if(items.length && !items.some(el=>el.style.display!=='none')) btn.style.display='none';
+    });
+  }catch(e){ console.warn('[va-nav]',e); }
+}
 function applyRoleUI(){
   const user=CURRENT_ROLE==='user';
   // v2.75.0/v2.83.0: nút "Tổng quan nhanh" cho Admin, Duyệt L2 (CFO), KT Kiểm (KTT), Duyệt L1 (trưởng BP)
@@ -14094,10 +14120,16 @@ function applyRoleUI(){
         || (CURRENT_USER && Array.isArray(CURRENT_USER.assignedOpVesselIds) && CURRENT_USER.assignedOpVesselIds.length>0);
       // Also respect main tabs allowance
       const allowedByTabs = !user || !allowedTabs || allowedTabs.includes('op_input') || allowedTabs.includes('operations');
-      b.style.display = (hasOpAccess && allowedByTabs) ? '' : 'none';
+      /* v3.15.70: tàu MANG tab 'operations' (nay là dashboard tàu) nên điều kiện allowedByTabs
+         vô tình cho tàu thấy Thu-Chi hộ. Phía tàu: ẩn tuyệt đối. */
+      const _vaSide=(typeof whIsVesselSideUser==='function' && whIsVesselSideUser());
+      b.style.display = (!_vaSide && hasOpAccess && allowedByTabs) ? '' : 'none';
     } else if(page==='advances'){
       // v3.02.96: Tạm ứng NV — hiện cho mọi NV (không cần cấp tab)
-      b.style.display = '';
+      /* v3.15.70 (Sếp 15/8: "Ẩn cả nút Tạm ứng"): luật "hiện cho MỌI NV" là luật ÉP HIỆN vô điều
+         kiện — nó thắng cả bộ tab, nên tài khoản tàu vẫn thấy nút Tạm ứng dù tàu không dùng.
+         Ngoại lệ duy nhất: phía tàu. NV bờ giữ nguyên hành vi cũ. */
+      b.style.display = (typeof whIsVesselSideUser==='function' && whIsVesselSideUser()) ? 'none' : '';
     } else if(page==='periodic' || page==='projects'){
       // v3.07.42 B1: chuyển từ tab lẻ → sub-item; giữ nguyên quyền KTT(canManageUsers)+BOD+admin
       const okMgr = isAdmin() || (CURRENT_USER && (CURRENT_USER.canManageUsers || CURRENT_USER.isBOD));
@@ -14289,6 +14321,7 @@ function applyRoleUI(){
       }, 900);
     }
   }catch(e){ console.warn('[greet gate guard]',e&&e.message); }
+  try{ _vaEnforceNav(); }catch(e){}   // v3.15.69: chốt nav cho phía tàu
 }
 
 async function logout(){
@@ -34954,7 +34987,11 @@ function fillProjectVesselPicker(){
 /* v3.15.66 (Sếp chốt 15/8: "Bỏ hết, tàu không dùng"): tài khoản tàu chỉ còn ĐÚNG 2 tab —
    'operations' (nay là DASHBOARD TÀU, không còn nội dung vận hành bờ) + 'inventory' (kho vật tư).
    Bỏ: advances (tạm ứng NV), vessel_expense (chi phí tàu/dự án), op_input (thu-chi hộ). */
-const VESSEL_ACCOUNT_TABS = ['operations','inventory'];
+/* v3.15.69 (ảnh test: tài khoản tàu mở tab "Kho vật tư" thấy trang kho của BỜ — 34,8 tỷ tổng giá
+   trị tồn, cả 5 kho, kèm nút + Phiếu nhập/Xuất): trang đó là trang toàn công ty, không thể vá bằng
+   cách lọc từng khối. Tàu CHỈ CÒN 1 TAB = dashboard tàu; mọi việc kho đi qua thẻ Kho vật tư trên
+   dashboard (màn ma trận riêng, không giá, chỉ thao tác được ở kho tàu mình). */
+const VESSEL_ACCOUNT_TABS = ['operations'];
 function _vesselLoginId(v){
   // ưu tiên IMO; nếu không có, slug từ tên tàu
   const base = (v.imo && String(v.imo).trim())
@@ -35773,6 +35810,24 @@ function _vohBody(vid, inner){
  * lẫn màn chính của tài khoản tàu. Trước đây hai màn có hai bộ thẻ riêng, trùng nhau Thuyền viên /
  * Kho / Thông báo và chắc chắn sẽ lệch nhau khi sửa một bên.
  * ========================================================================== */
+/* v3.15.68 (lỗi do chính v3.15.65 gây ra): Trung tâm quản lý tàu là màn DÙNG CHUNG, nhưng
+   ba thẻ kho lại gọi các màn CHỈ DÀNH CHO TÀU (chúng tự tra kho theo tài khoản đang đăng nhập).
+   Admin bấm "Mở kho" → whMyVesselWarehouse() rỗng → toast "Tài khoản chưa gắn tàu/kho tàu".
+   Phía bờ phải đi đường của bờ, và phải CHỈ ĐỊNH kho của đúng con tàu đang xem. */
+function _vaOpenWhOfVessel(vid, what){
+  const wh=InventoryService.warehouses().find(w=>w.type==='VESSEL' && w.vesselId===vid && w.isActive!==false);
+  if(!wh){ toast('Tàu này chưa có kho — lập kho cho tàu ở Danh mục kho trước','warn'); return; }
+  if(typeof stockCanAccessWarehouse==='function' && !stockCanAccessWarehouse(wh.id) && !canViewStockReport()){
+    toast('Bạn không có quyền với kho này','bad'); return;
+  }
+  if(what==='count'){
+    if(!canManageStock()&&!isAdmin()){ toast('Chỉ thủ kho/admin kiểm kê','bad'); return; }
+    if(typeof _startCount==='function'){ _startCount(wh.id); return; }
+  }
+  if(what==='inbound'){ _stockFilter={type:'IN',wh:wh.id}; openStockDocs(); return; }
+  window._onhandWh=wh.id;
+  openStockOnHand();
+}
 function _vaDashCards(vid, forVessel){
   const v=VesselService.vessels().find(x=>x.id===vid)||{};
   const crew=(typeof vesselCrewMerged==='function')?vesselCrewMerged(vid):[];
@@ -35793,9 +35848,12 @@ function _vaDashCards(vid, forVessel){
   return [
     card('👥','Thuyền viên', crew.length+' người trên tàu (QĐ điều động + hồ sơ NS).','Xem danh sách', go(`openVesselCrewList('${vid}')`)),
     card('📋','Hồ sơ tàu','Định danh · kỹ thuật · đăng kiểm · '+nCert+' chứng chỉ'+(nCertDue?' · <b style="color:#b8730a">'+nCertDue+' cần chú ý</b>':''),'Mở hồ sơ tàu', go(`openVesselCerts('${vid}')`), nCertDue?'#b8730a':''),
-    card('📦','Kho vật tư', wh?(nStock+' mặt hàng tồn — xuất dùng & đề xuất điều chuyển ngay tại đây'):'Chưa có kho gắn tàu này.','Mở kho', forVessel?'openVesselStockOverview()':`closeModal();openVesselStockOverview()`),
-    card('📥','Nhận hàng', nPend?('<b style="color:#b8730a">'+nPend+' phiếu chờ nhận</b>'):'Không có phiếu nào đang chờ.','Nhận hàng', forVessel?'openPendingInbound()':`closeModal();openPendingInbound()`, nPend?'#b8730a':''),
-    card('📋','Kiểm kê kho','Đếm thực tế → app tạo phiếu điều chỉnh chênh lệch.','Kiểm kê', forVessel?'openStockCount()':`closeModal();openStockCount()`),
+    card('📦','Kho vật tư', wh?(nStock+' mặt hàng tồn'+(forVessel?' — xuất dùng & đề xuất điều chuyển ngay tại đây':' tại kho tàu này')):'Chưa có kho gắn tàu này.','Mở kho',
+      forVessel?'openVesselStockOverview()':`closeModal();_vaOpenWhOfVessel('${vid}','stock')`),
+    card('📥','Nhận hàng', nPend?('<b style="color:#b8730a">'+nPend+' phiếu chờ nhận</b>'):'Không có phiếu nào đang chờ.','Nhận hàng',
+      forVessel?'openPendingInbound()':`closeModal();_vaOpenWhOfVessel('${vid}','inbound')`, nPend?'#b8730a':''),
+    card('📋','Kiểm kê kho','Đếm thực tế → app tạo phiếu điều chỉnh chênh lệch.','Kiểm kê',
+      forVessel?'openStockCount()':`closeModal();_vaOpenWhOfVessel('${vid}','count')`),
     card('🛳','Khai thác (On/Off-Hire)', events.length+' đoạn · '+nReports+' báo cáo ngày.','Xem khai thác', `openVesselOnHire('${vid}')`),
     card('📧','Email tàu', v.vesselEmail?hrmEsc(v.vesselEmail):'Chưa cấu hình email tàu.','Gửi chứng từ', go(`sendVesselDocEmail('${vid}')`)),
     card('📢','Thông báo', nUnread?('<b style="color:#c0392b">'+nUnread+' chưa đọc</b>'):'Kết quả xử lý đề nghị/phiếu của tàu.','Xem thông báo', go(`openVesselNotifs('${vid}')`))
@@ -66554,6 +66612,11 @@ function whVesselMatrix(whs, byWh, myWhId, query){
   return rows;
 }
 function openVesselStockOverview(){
+  /* v3.15.68: màn này tra kho theo TÀI KHOẢN đang đăng nhập nên chỉ đúng với phía tàu.
+     Người bờ lỡ gọi → báo đúng bệnh, không đổ oan 'chưa gắn tàu'. */
+  if(typeof whIsVesselSideUser==='function' && !whIsVesselSideUser()){
+    toast('Màn này dành cho tài khoản tàu — bờ xem kho tàu qua Trung tâm quản lý tàu','warn'); return;
+  }
   const wh=whMyVesselWarehouse();
   if(!wh){ toast('Tài khoản chưa gắn tàu/kho tàu','bad'); return; }
   /* v3.15.67: dùng đúng khuôn MA TRẬN của màn Tồn tổng hợp bên bờ — cột là TỪNG kho, thấy ngay
@@ -66738,6 +66801,11 @@ function _trqReject(id){
 }
 /* --- Báo cáo kho khóa theo tàu --- */
 function openVesselWarehouseReport(){
+  /* v3.15.68: màn này tra kho theo TÀI KHOẢN đang đăng nhập nên chỉ đúng với phía tàu.
+     Người bờ lỡ gọi → báo đúng bệnh, không đổ oan 'chưa gắn tàu'. */
+  if(typeof whIsVesselSideUser==='function' && !whIsVesselSideUser()){
+    toast('Màn này dành cho tài khoản tàu — bờ xem kho tàu qua Trung tâm quản lý tàu','warn'); return;
+  }
   const wh=whMyVesselWarehouse();
   if(!wh){ toast('Tài khoản chưa gắn tàu/kho tàu','bad'); return; }
   _whRepFilter.wh=wh.id;           // khóa đích danh kho tàu
@@ -67944,6 +68012,13 @@ function _invFillWarehouseFilter(){
 }
 
 function renderInventory(){
+  /* v3.15.69: chốt chặn cuối — trang Kho vật tư của BỜ (giá trị tồn toàn công ty, mọi kho,
+     nút tạo phiếu tự do) KHÔNG được dựng cho phía tàu, kể cả khi có ai đó cấp nhầm tab lại. */
+  if(typeof whIsVesselSideUser==='function' && whIsVesselSideUser()){
+    const p=document.getElementById('page-inventory');
+    if(p) p.innerHTML='<div style="padding:24px;text-align:center;color:var(--muted);font-size:13px">Kho của tàu nằm ở tab <b>⚓ Tàu của tôi</b> → thẻ <b>Kho vật tư</b>.</div>';
+    return;
+  }
   renderWarehousesTable();
   _invFillWarehouseFilter();
   // v3.08.60: badge số phiếu chờ nhập trên thanh thao tác
