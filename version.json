@@ -1,5 +1,5 @@
 {
-  "version": "3.15.64",
-  "swVersion": "v3.15.64",
-  "notes": "v3.15.64 (Sếp chốt 15/8: app Tàu chỉ hiển thị Trung tâm quản lý tàu của chính tàu, không được hiển thị tàu khác): Gom việc lọc tàu về một cửa duy nhất dùng chung cho thanh tab và các ô chọn tàu, với luật cứng phạm vi rỗng là không tàu nào — trước đây điều kiện lọc bỏ qua khi phạm vi rỗng nên thuyền trưởng chưa được gán tàu nhìn thấy toàn bộ đội tàu (cùng một cái bẫy đã tái diễn lần thứ tư ở chỗ khác nhau trong đợt này). Quan trọng hơn: nay chặn ngay tại cửa vào chứ không chỉ ẩn nút — tài khoản tàu gọi thẳng Trung tâm quản lý của tàu khác cũng bị từ chối, tương tự với tàu quản lý hộ ngoài phạm vi và màn Tổng quan đội tàu. Admin và nhân viên bờ giữ nguyên hành vi cũ. Nền v3.15.63 giữ nguyên."
+  "version": "3.15.66",
+  "swVersion": "v3.15.66",
+  "notes": "v3.15.66 (Sếp chốt 15/8: bỏ hết, tàu không dùng): Tài khoản tàu nay chỉ còn đúng hai tab là Dashboard tàu và Kho vật tư; ba tab Tạm ứng NV, Chi phí Tàu/Dự án và Thu-Chi hộ tàu QL đã bỏ khỏi bộ quyền của tàu. Việc siết được đặt ngay tại cửa kiểm quyền tab và áp cho mọi tài khoản phía tàu chứ không riêng tài khoản mang cờ tài khoản tàu, nên tài khoản đời cũ gắn tàu qua hồ sơ hay tài khoản thuyền trưởng cũng chỉ vào được hai tab đó dù dữ liệu quyền cũ còn ghi năm mục. Kèm theo, app tự dọn lại danh sách tab của các tài khoản tàu hiện có về đúng bộ mới khi khởi động, và vá một vòng lặp âm thầm: bản nâng cấp cũ tự cấp tab Thu-Chi hộ mỗi lần khởi động nên nếu không loại trừ tài khoản tàu thì cứ dọn xong nó lại cấp lại. Nền v3.15.65 giữ nguyên."
 }
