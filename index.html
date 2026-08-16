@@ -2825,6 +2825,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
         <button class="btn-sec" onclick="invMergeDuplicateWarehouses()" title="Gộp các kho trùng mã về 1 kho, dồn dữ liệu tồn">🧹 Dọn kho trùng</button>
         <button class="btn-sec" onclick="whPurgeLegacyMovements()" title="Xóa hẳn bảng nhập-xuất-tồn NHẬP TAY của cơ chế cũ — không còn dùng để tính tồn">🗑 Dọn dữ liệu nhập tay cũ</button>
         <button class="btn-sec" onclick="whOpenMakeUnit()" title="Đưa MỘT KHO BẤT KỲ thành đơn vị trong Quản lý hoạt động tàu — NV gắn đơn vị sẽ quản lý y như tàu">🔧 Kho thành đơn vị</button>
+        <button class="btn-sec" onclick="whFixUnitLogins()" title="Tài khoản đơn vị kho tạo trước đây mang tên tau-… — đổi sang kho-…, chuyển luôn dữ liệu lưu riêng">🪪 Sửa tên đăng nhập đơn vị</button>
       </div>
     </div>
     <div class="section-body">
@@ -3805,7 +3806,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.16.28';
+const APP_VERSION='3.16.30';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -11615,18 +11616,27 @@ function renderVesselAcctOpsBar(){
     : ts.status==='approved' ? '<span style="color:#9be7a8">NS đã duyệt</span>' : '<span style="opacity:.8">nháp</span>';
   const _cap=(typeof vesselCurrentCaptain==='function')?vesselCurrentCaptain(vid):{name:''};
   const _che=(typeof vesselCurrentChief==='function')?vesselCurrentChief(vid):{name:''};
+  /* v3.16.29 (Sếp: "vẫn hiển thị như tàu"): ĐƠN VỊ KHO mượn cơ chế tàu nhưng KHÔNG phải tàu —
+     banner bỏ hết mỏ neo, "Tàu dịch vụ", IMO, số thuyền viên, chấm công, thuyền trưởng/máy trưởng.
+     Chỉ còn tên đơn vị và số mặt hàng tồn. */
+  const _isUnit=!!(v && v.isShoreUnit);
+  const _unitWh=_isUnit?InventoryService.warehouses().find(w=>w && w.vesselId===vid && w.isActive!==false):null;
+  let _unitLines=0;
+  if(_unitWh && typeof stockByWarehouse==='function'){
+    try{ const st=stockByWarehouse(_unitWh.id); _unitLines=Object.keys(st).filter(k=>st[k].qty!==0).length; }catch(e){}
+  }
   host.innerHTML=`
-  <div style="background:linear-gradient(135deg,#1c3a5c,#1c5a8c);color:#fff;border-radius:12px;padding:16px 18px;margin-bottom:14px">
+  <div style="background:linear-gradient(135deg,${_isUnit?'#4a3a1c,#8a6a1c':'#1c3a5c,#1c5a8c'});color:#fff;border-radius:12px;padding:16px 18px;margin-bottom:14px">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px">
       <div>
-        <div style="font-size:20px;font-weight:700">⚓ ${hrmEsc(vName)}</div>
-        <div style="font-size:13px;opacity:.85;margin-top:2px">${v.type==='TECH'?'Tàu kỹ thuật':'Tàu dịch vụ'}${v.imo||v.imoNumber?' · IMO '+hrmEsc(v.imo||v.imoNumber):''}</div>
+        <div style="font-size:20px;font-weight:700">${_isUnit?'📦':'⚓'} ${hrmEsc(vName)}</div>
+        <div style="font-size:13px;opacity:.85;margin-top:2px">${_isUnit?('Đơn vị kho'+(_unitWh?(' · '+hrmEsc(_unitWh.code||_unitWh.name)):'')):((v.type==='TECH'?'Tàu kỹ thuật':'Tàu dịch vụ')+(v.imo||v.imoNumber?' · IMO '+hrmEsc(v.imo||v.imoNumber):''))}</div>
       </div>
       <div style="text-align:right;font-size:12px;opacity:.92;line-height:1.7">
-        <div>👥 ${crew.length} thuyền viên trên tàu</div>
+        ${_isUnit?`<div>📦 ${_unitLines} mặt hàng tồn</div>`:`<div>👥 ${crew.length} thuyền viên trên tàu</div>
         <div style="cursor:pointer;text-decoration:underline dotted" onclick="openVesselTimesheet()" title="Mở bảng chấm công tàu">🕐 Chấm công ${period}: ${tsChip}</div>
         ${_cap.name?`<div>Thuyền trưởng: <b>${hrmEsc(_cap.name)}</b></div>`:''}
-        ${_che.name?`<div>Máy trưởng: <b>${hrmEsc(_che.name)}</b></div>`:''}
+        ${_che.name?`<div>Máy trưởng: <b>${hrmEsc(_che.name)}</b></div>`:''}`}
       </div>
     </div>
   </div>
@@ -63956,6 +63966,56 @@ function invMergeDuplicateWarehouses(){
    bản trước viết cứng tên "KHO KỸ THUẬT" và cứng mã KHO-KYTHUAT nên chỉ dùng được đúng một lần.
    Nay mở: chọn BẤT KỲ kho nào chưa thuộc tàu, tự đặt tên đơn vị. Kho tàu thật không nằm trong
    danh sách (đã có tàu rồi), kho đã là đơn vị cũng không lặp lại. */
+/* v3.16.29 (Sếp: "thay đổi cả ID: bỏ chữ TAU"): tài khoản đơn vị kho tạo TRƯỚC v3.16.26 mang
+   tên tau-… Đổi tên đăng nhập là việc có rủi ro thật: dữ liệu cục bộ của mỗi NV lưu ở khóa
+   seahorse_v1__nv_<tên chuẩn hóa>, đổi tên mà không chuyển khóa thì NV đăng nhập vào thấy trắng.
+   Hàm này: chỉ đụng tài khoản gắn ĐƠN VỊ (isShoreUnit) và tên bắt đầu bằng 'tau-'; chặn trùng
+   với tài khoản khác; CHUYỂN khóa lưu riêng sang tên mới; ghi nhật ký. */
+function whFixUnitLogins(){
+  if(!isAdmin()){ toast('Chỉ admin đổi được tên đăng nhập','bad'); return; }
+  const units={};
+  VesselService.vessels().forEach(v=>{ if(v && v.isShoreUnit) units[v.id]=v; });
+  const users=(S.users||[]);
+  const taken={}; users.forEach(u=>{ if(u&&u.name) taken[String(u.name).toLowerCase()]=1; });
+  const plan=[];
+  users.forEach(u=>{
+    if(!u || !u.name || !u.linkVesselId) return;
+    const unit=units[u.linkVesselId]; if(!unit) return;
+    const cur=String(u.name);
+    if(!/^tau-/i.test(cur)) return;
+    /* v3.16.29: dùng CHUNG _vaSuggestLogin để tên mới giống hệt tên app tự gợi ý khi tạo tài
+       khoản đơn vị — nếu tự ghép 'kho-'+phần đuôi sẽ ra kho-kho-ky-thuat (lặp chữ kho). */
+    let want=(typeof _vaSuggestLogin==='function') ? _vaSuggestLogin(unit)
+             : cur.replace(/^tau-/i,'kho-');
+    if(taken[want.toLowerCase()] && want.toLowerCase()!==cur.toLowerCase()){
+      plan.push({user:u, from:cur, to:want, skip:'trùng tên đã có'}); return;
+    }
+    plan.push({user:u, from:cur, to:want});
+  });
+  const doable=plan.filter(p=>!p.skip);
+  if(!plan.length){ toast('Không có tài khoản đơn vị nào mang tên tau-','good'); return; }
+  const lines=plan.map(p=>'· '+p.from+' → '+p.to+(p.skip?('  [BỎ QUA: '+p.skip+']'):'')).join('\n');
+  if(!confirm('ĐỔI TÊN ĐĂNG NHẬP cho tài khoản ĐƠN VỊ KHO\n\n'+lines
+    +'\n\nApp sẽ chuyển luôn dữ liệu lưu riêng của tài khoản sang tên mới.\n'
+    +'Người dùng đăng nhập bằng TÊN MỚI, mật khẩu giữ nguyên.\n\nTiếp tục?')) return;
+  let n=0;
+  doable.forEach(p=>{
+    /* chuyển khóa lưu riêng theo tên — nếu bỏ bước này thì NV vào thấy dữ liệu trắng */
+    try{
+      const k=(x)=>'seahorse_v1__nv_'+String(x).toLowerCase().replace(/[^a-z0-9]+/g,'_');
+      const oldK=k(p.from), newK=k(p.to);
+      const val=localStorage.getItem(oldK);
+      if(val!==null && localStorage.getItem(newK)===null){ localStorage.setItem(newK, val); localStorage.removeItem(oldK); }
+    }catch(e){ console.warn('[rename-store]',e); }
+    p.user.name=p.to;
+    try{ touchRecord(p.user); }catch(e){}
+    n++;
+  });
+  try{ logAuditEvent('unit_login_rename',{changed:doable.map(p=>({from:p.from,to:p.to})), skipped:plan.filter(p=>p.skip).length}); }catch(e){}
+  saveState();
+  toast('✓ Đã đổi '+n+' tên đăng nhập'+(plan.length>n?(' · bỏ qua '+(plan.length-n)+' do trùng tên'):'')
+        +' — báo người dùng đăng nhập bằng tên mới','good');
+}
 function whUnitCandidates(warehouses, vessels){
   const units={}; (vessels||[]).forEach(v=>{ if(v && v.isShoreUnit) units[v.id]=1; });
   return (warehouses||[]).filter(w=>{
@@ -69178,6 +69238,110 @@ function whSheetToAoa(sheet, opts){
   o.range=full;
   return XLSX.utils.sheet_to_json(sheet, o);
 }
+/* ============================================================================
+ * v3.16.30 (Sếp chốt 16/8): IMPORT SỐ LIỆU — nạp Nhập-Xuất-Tồn THEO KỲ.
+ * LUẬT SẾP: "Tồn đầu kỳ trong file NXT phải BẰNG tồn cuối kỳ trong app.
+ *            Sai khác → app cảnh báo và KHÔNG CHO LƯU."
+ * Nghĩa là file kỳ sau phải nối liền mạch với số app đang có — không có chuyện nạp đè lên
+ * một nền tồn khác rồi để sổ tự lệch. App chặn cứng, nêu đích danh mã lệch kèm hai con số.
+ * ========================================================================== */
+function whParseNxtPeriod(aoa){
+  const norm=(x)=>whNormName(x);
+  const num=(x)=>{
+    if(typeof x==='number') return isNaN(x)?0:x;
+    const t=String(x==null?'':x).replace(/[^0-9,.\-]/g,'');
+    if(!t) return 0;
+    const v=parseFloat(t.replace(/\./g,'').replace(',','.'));
+    return isNaN(v)?0:v;
+  };
+  let hRow=-1, col=null;
+  for(let r=0;r<Math.min(aoa.length,25);r++){
+    const c=(aoa[r]||[]).map(norm);
+    const iCode=c.findIndex(x=>/^ma( vat tu| vt| hang)?$/.test(x)||x==='ma');
+    if(iCode<0) continue;
+    const iOpen=c.findIndex(x=>/^ton dau/.test(x));
+    const iIn=c.findIndex(x=>/^nhap$/.test(x));
+    const iOut=c.findIndex(x=>/^xuat$/.test(x));
+    const iClose=c.findIndex(x=>/^ton cuoi/.test(x));
+    if(iOpen<0||iIn<0||iOut<0||iClose<0) continue;
+    hRow=r;
+    col={code:iCode,
+      name:c.findIndex(x=>/^ten( vat tu| vt| hang)?$/.test(x)||x==='ten'),
+      unit:c.findIndex(x=>/don vi|dvt/.test(x)),
+      openQ:iOpen, openV:iOpen+1, inQ:iIn, inV:iIn+1, outQ:iOut, outV:iOut+1, closeQ:iClose, closeV:iClose+1};
+    break;
+  }
+  if(hRow<0) return {items:[], error:'File không phải mẫu Nhập-Xuất-Tồn (cần đủ 4 cột: Tồn đầu · Nhập · Xuất · Tồn cuối)'};
+  const items=[]; let whKey='', whCode='';
+  for(let r=hRow+2;r<aoa.length;r++){
+    const row=aoa[r]||[];
+    const code=String(row[col.code]==null?'':row[col.code]).trim();
+    if(!code) continue;
+    const stt=String(row[0]==null?'':row[0]).trim();
+    /* dòng NHÓM KHO: không có số thứ tự, mã kho ngắn — lấy làm tên kho, không phải vật tư */
+    if(!stt && code.indexOf('.')<0){ whCode=code; whKey=String(row[col.name>=0?col.name:2]||'').trim(); continue; }
+    const openQty=num(row[col.openQ]), inQty=num(row[col.inQ]), outQty=num(row[col.outQ]), closeQty=num(row[col.closeQ]);
+    if(!openQty && !inQty && !outQty && !closeQty) continue;
+    const inVal=num(row[col.inV]), openVal=num(row[col.openV]);
+    items.push({code, name:col.name>=0?String(row[col.name]||'').trim():'',
+      unit:col.unit>=0?String(row[col.unit]||'').trim():'',
+      openQty, openVal, inQty, inVal, outQty, outVal:num(row[col.outV]),
+      closeQty, closeVal:num(row[col.closeV]),
+      inPrice:(inVal>0&&inQty>0)?Math.round((inVal/inQty)*100)/100:0,
+      openPrice:(openVal>0&&openQty>0)?Math.round((openVal/openQty)*100)/100:0,
+      whKey, whCode});
+  }
+  return {items, error: items.length?'':'Không đọc được dòng vật tư nào'};
+}
+/* LUẬT CHẶN của Sếp: tồn đầu trong file phải khớp tồn app. Cả hai chiều:
+   mã file có mà app lệch → lệch; mã app còn tồn mà file không nhắc → cũng lệch. */
+function whCheckPeriodOpening(items, currentStock){
+  const diffs=[];
+  const seen={};
+  (items||[]).forEach(it=>{
+    const c=String(it.code||''); if(!c) return;
+    seen[c]=1;
+    const app=Math.round(((currentStock&&currentStock[c]&&currentStock[c].qty)||0)*1000)/1000;
+    const file=Math.round((+it.openQty||0)*1000)/1000;
+    if(app!==file) diffs.push({code:c, name:it.name||'', app, file, lech:Math.round((file-app)*1000)/1000});
+  });
+  Object.keys(currentStock||{}).forEach(c=>{
+    if(seen[c]) return;
+    const app=Math.round(((currentStock[c].qty)||0)*1000)/1000;
+    if(app!==0) diffs.push({code:c, name:(currentStock[c].name||''), app, file:0, lech:-app, missing:true});
+  });
+  return {ok:diffs.length===0, diffs};
+}
+/* Đối chiếu tồn cuối: app tự tính = đầu + nhập − xuất, so với cột Tồn cuối của file. */
+function whCheckPeriodClosing(items){
+  const diffs=[];
+  (items||[]).forEach(it=>{
+    const tinh=Math.round(((+it.openQty||0)+(+it.inQty||0)-(+it.outQty||0))*1000)/1000;
+    const file=Math.round((+it.closeQty||0)*1000)/1000;
+    if(tinh!==file) diffs.push({code:it.code, name:it.name||'', tinh, file, lech:Math.round((file-tinh)*1000)/1000});
+  });
+  return {ok:diffs.length===0, diffs};
+}
+/* Sinh phiếu cho kỳ: ghi NGÀY CUỐI KỲ để tồn app khớp file ngay tại mốc đó. */
+function whBuildPeriodDocs(whId, items, fromDate, toDate, by, genDocNo){
+  const now=new Date().toISOString();
+  const gen=genDocNo||stockGenDocNo;
+  const mk=(type, lines, note)=>({id:(typeof uid==='function'?uid():'d'+Math.random()),
+    docNo:gen(type), type, date:toDate, warehouseId:whId, apId:'', costObject:null, lines,
+    deliveredBy:'', receivedBy:by, note, status:'confirmed',
+    createdBy:by, createdAt:now, confirmedBy:by, confirmedAt:now, source:'nxt_period_import',
+    periodFrom:fromDate, periodTo:toDate});
+  const out=[];
+  const inLines=(items||[]).filter(i=>(+i.inQty||0)>0).map(i=>{
+    const l={code:i.code, name:i.name, unit:i.unit, qty:+i.inQty};
+    if(+i.inPrice>0) l.price=+i.inPrice;
+    return l;
+  });
+  const outLines=(items||[]).filter(i=>(+i.outQty||0)>0).map(i=>({code:i.code, name:i.name, unit:i.unit, qty:+i.outQty}));
+  if(inLines.length) out.push(mk('IN', inLines, 'Nhập trong kỳ '+fromDate+' → '+toDate+' (nạp từ file NXT)'));
+  if(outLines.length) out.push(mk('OUT', outLines, 'Xuất trong kỳ '+fromDate+' → '+toDate+' (nạp từ file NXT)'));
+  return out;
+}
 function whParseOpeningRows(aoa){
   const items=[], errors=[];
   const norm=s=>whNormName(s);
@@ -69340,16 +69504,42 @@ function whBuildOpeningDoc(whId, its, date, by, genDocNo){
     status:'confirmed', createdBy:by, createdAt:now, confirmedBy:by, confirmedAt:now,
     source:'opening_import' };
 }
+/* v3.16.30 (Sếp): màn này nay là IMPORT SỐ LIỆU — HAI chế độ.
+   · Tồn đầu kỳ: nạp một mốc tồn (như cũ).
+   · Nhập-Xuất-Tồn theo kỳ: nối tiếp số app đang có. LUẬT SẾP — tồn đầu trong file phải BẰNG
+     tồn hiện tại của app, lệch thì cảnh báo và KHÔNG CHO LƯU. */
+let _impMode='opening';
+function _opSwitchMode(){
+  const el=document.getElementById('imp-mode');
+  _impMode=el?el.value:'opening';
+  window._opCache=null;
+  const pv=document.getElementById('op-preview'); if(pv) pv.innerHTML='';
+  const per=document.getElementById('imp-period-row'); if(per) per.style.display=(_impMode==='period')?'':'none';
+  const hint=document.getElementById('imp-hint');
+  if(hint) hint.innerHTML=(_impMode==='period')
+    ? 'File <b>Nhập - Xuất - Tồn</b> của FAST (đủ 4 khối: Tồn đầu · Nhập · Xuất · Tồn cuối). App sinh <b>1 phiếu nhập + 1 phiếu xuất</b> ghi ngày cuối kỳ. <b>Tồn đầu trong file phải bằng tồn app đang có</b> — lệch thì app chặn, không cho lưu.'
+    : 'File cần các cột: <b>Mã</b> · Tên · ĐVT · Nhóm 1/2 · <b>Kho/Chi nhánh</b> · <b>Số lượng</b>. Một file chứa được NHIỀU kho — hệ thống tách theo cột Kho. Vật tư chưa có trong danh mục sẽ tự thêm kèm phân nhóm.';
+}
 function openOpeningImport(){
-  if(!(canManageStock()||isAdmin())){ toast('Chỉ thủ kho/admin nhập tồn đầu kỳ','bad'); return; }
-  openModal('📦 Nhập tồn đầu kỳ (Excel FAST)',
-    `<div style="font-size:12px;color:var(--muted);margin-bottom:10px">File cần các cột: <b>Mã</b> · Tên · ĐVT · Nhóm 1/2 · <b>Kho/Chi nhánh</b> · <b>Số lượng</b>. Một file chứa được NHIỀU kho (cả kho công ty lẫn từng kho tàu) — hệ thống tách theo cột Kho. Vật tư chưa có trong danh mục sẽ tự thêm kèm phân nhóm.</div>
+  if(!(canManageStock()||isAdmin())){ toast('Chỉ thủ kho/admin nạp số liệu kho','bad'); return; }
+  _impMode='opening';
+  const today=new Date().toISOString().slice(0,10);
+  openModal('📦 IMPORT SỐ LIỆU KHO (Excel FAST)',
+    `<div id="imp-hint" style="font-size:12px;color:var(--muted);margin-bottom:10px">File cần các cột: <b>Mã</b> · Tên · ĐVT · Nhóm 1/2 · <b>Kho/Chi nhánh</b> · <b>Số lượng</b>. Một file chứa được NHIỀU kho — hệ thống tách theo cột Kho. Vật tư chưa có trong danh mục sẽ tự thêm kèm phân nhóm.</div>
      <div style="display:grid;grid-template-columns:1fr 2fr;gap:8px;align-items:center;margin-bottom:8px">
-       <label style="font-size:12px">Ngày chốt tồn</label>
-       <input type="date" id="op-date" value="${new Date().toISOString().slice(0,10)}" style="padding:6px 8px;border:1px solid var(--rule);border-radius:6px">
-       ${/* v3.16.06 (Sếp: "nút chọn kho đâu?"): trước đây ô chọn kho CHỈ hiện sau khi đọc file và
-            CHỈ khi app không tự khớp được — app tự khớp thì người dùng không có chỗ đổi, cũng
-            không biết dữ liệu đi vào kho nào. Nay chọn kho ngay từ đầu. */''}
+       <label style="font-size:12px">Kiểu số liệu</label>
+       <select id="imp-mode" style="padding:6px 8px;border:1px solid var(--rule);border-radius:6px" onchange="_opSwitchMode()">
+         <option value="opening">Tồn đầu kỳ — nạp một mốc tồn</option>
+         <option value="period">Nhập - Xuất - Tồn theo kỳ — nối tiếp số đang có</option>
+       </select>
+     </div>
+     <div id="imp-period-row" style="display:none;grid-template-columns:1fr 2fr;gap:8px;align-items:center;margin-bottom:8px">
+       <label style="font-size:12px">Kỳ từ ngày</label>
+       <input type="date" id="imp-from" value="${today}" style="padding:6px 8px;border:1px solid var(--rule);border-radius:6px">
+     </div>
+     <div style="display:grid;grid-template-columns:1fr 2fr;gap:8px;align-items:center;margin-bottom:8px">
+       <label style="font-size:12px" id="imp-lb-date">Ngày chốt tồn</label>
+       <input type="date" id="op-date" value="${today}" style="padding:6px 8px;border:1px solid var(--rule);border-radius:6px">
        <label style="font-size:12px">Ghi vào kho</label>
        <select id="op-target-wh" style="padding:6px 8px;border:1px solid var(--rule);border-radius:6px" onchange="if(window._opCache&&window._opFileRef)_opImportFile(window._opFileRef)">
          <option value="">— Tự nhận theo file (khuyên dùng) —</option>
@@ -69386,6 +69576,8 @@ function _opImportFile(file){
     try{
       const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});
       const aoa=whSheetToAoa(wb.Sheets[wb.SheetNames[0]]);   // v3.15.79: quét vùng THẬT, không tin !ref
+      /* v3.16.30: chế độ KỲ đi đường riêng — đọc 4 khối NXT, kiểm tồn đầu, rồi mới cho ghi. */
+      if(_impMode==='period'){ _opPreviewPeriod(aoa); return; }
       const {items, errors}=whParseOpeningRows(aoa);
       /* v3.16.06 (Sếp: "nút chọn kho đâu?"): nếu người dùng đã chỉ đích danh kho ở ô "Ghi vào kho"
          thì ÉP toàn bộ file vào kho đó, không cần khớp tự động. Để trống = tự nhận theo file. */
@@ -69431,12 +69623,95 @@ function _opImportFile(file){
   };
   reader.readAsArrayBuffer(file);
 }
+/* v3.16.30: xem trước chế độ KỲ — nêu rõ tồn đầu có khớp app không. LUẬT SẾP: lệch thì KHÓA nút ghi. */
+function _opPreviewPeriod(aoa){
+  const host=document.getElementById('op-preview'); if(!host) return;
+  const r=whParseNxtPeriod(aoa);
+  if(!r.items.length){ host.innerHTML='<div style="color:var(--bad);font-size:12px">'+esc(r.error||'Không đọc được file')+'</div>'; window._opCache=null; return; }
+  const forced=String((document.getElementById('op-target-wh')||{}).value||'');
+  let whId=forced;
+  if(!whId){
+    const m=whMatchOpeningWarehouses(r.items.map(i=>({code:i.code, qty:i.openQty, whKey:i.whKey, whCode:i.whCode})), InventoryService.warehouses());
+    const ids=Object.keys(m.groups);
+    whId=ids.length===1?ids[0]:'';
+  }
+  if(!whId){
+    host.innerHTML='<div style="color:var(--bad);font-size:12px">Chưa xác định được kho — chọn kho ở ô “Ghi vào kho” phía trên.</div>';
+    window._opCache=null; return;
+  }
+  const cur=stockByWarehouse(whId);
+  const chk=whCheckPeriodOpening(r.items, cur);
+  const cls=whCheckPeriodClosing(r.items);
+  window._opCache={mode:'period', whId, items:r.items, openOk:chk.ok};
+  const nIn=r.items.filter(i=>i.inQty>0).length, nOut=r.items.filter(i=>i.outQty>0).length;
+  const dTbl=(list, cols)=>`<table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:4px">
+      <thead><tr style="background:var(--rule);text-align:left">${cols.map(c=>`<th style="padding:3px 5px">${c}</th>`).join('')}</tr></thead>
+      <tbody>${list.slice(0,15).map(d=>`<tr><td style="padding:3px 5px;font-family:monospace">${esc(d.code)}</td>
+        <td style="padding:3px 5px">${esc((d.name||'').slice(0,34))}</td>
+        <td style="padding:3px 5px;text-align:right">${whFmtQty(d.app!==undefined?d.app:d.tinh)}</td>
+        <td style="padding:3px 5px;text-align:right">${whFmtQty(d.file)}</td>
+        <td style="padding:3px 5px;text-align:right;color:var(--bad)">${whFmtQty(d.lech)}</td></tr>`).join('')}</tbody></table>
+      ${list.length>15?`<div style="font-size:11px;color:var(--muted)">… và ${list.length-15} mã nữa</div>`:''}`;
+  host.innerHTML=`
+    <div style="padding:6px 8px;border:1px solid var(--rule);border-radius:6px;font-size:12px;margin-bottom:6px">
+      📄 Đọc được <b>${r.items.length}</b> mã · nhập <b>${nIn}</b> mã · xuất <b>${nOut}</b> mã · ghi vào kho <b>${esc(_whName(whId))}</b>
+    </div>
+    ${chk.ok
+      ? '<div style="padding:6px 8px;border-radius:6px;background:rgba(31,122,77,.08);color:var(--good);font-size:12px">✅ Tồn đầu trong file KHỚP tồn app — nối liền mạch, ghi được.</div>'
+      : `<div style="padding:8px 10px;border-radius:6px;background:rgba(192,57,43,.08);color:var(--bad);font-size:12px">
+           🔒 <b>KHÔNG cho lưu</b> — tồn đầu trong file lệch tồn app ở <b>${chk.diffs.length}</b> mã.
+           <div style="font-size:11px;margin-top:2px">Theo luật đã chốt: tồn đầu kỳ của file phải BẰNG tồn cuối kỳ đang có trong app. Sửa file (hoặc sửa số trong app) cho khớp rồi nạp lại.</div>
+           ${dTbl(chk.diffs, ['Mã','Tên','App đang có','File ghi','Lệch'])}
+         </div>`}
+    ${cls.ok?'' : `<div style="padding:6px 8px;border-radius:6px;background:rgba(184,115,10,.10);color:#8a5200;font-size:12px;margin-top:6px">
+        ⚠ Trong file: <b>${cls.diffs.length}</b> mã có Tồn cuối ≠ Tồn đầu + Nhập − Xuất. Đây là lỗi của chính file, kiểm lại bên FAST.
+        ${dTbl(cls.diffs, ['Mã','Tên','App tính','File ghi','Lệch'])}</div>`}
+    <div style="margin-top:8px">
+      <button class="btn-primary" ${chk.ok?'':'disabled title="Tồn đầu chưa khớp — không cho lưu"'} style="${chk.ok?'':'opacity:.45;cursor:not-allowed'}" onclick="_opImportCommit()">✓ Ghi số liệu kỳ</button>
+    </div>`;
+}
 function _opImportCommit(){
   /* v3.15.98 (Sếp: "đã chọn đích thủ công" mà vẫn không lưu):
      Trước đây dòng này thoát IM LẶNG khi mất dữ liệu xem trước — bấm nút không có gì xảy ra,
      cũng không báo lỗi, nên không ai biết vì sao. Nay mọi lối thoát đều phải nói lý do. */
   const c=window._opCache;
   if(!c){ toast('Chưa có dữ liệu xem trước (có thể đã đóng/mở lại màn) — chọn lại file rồi ghi','bad'); return; }
+  /* v3.16.30: chế độ KỲ — kiểm LẠI tồn đầu ở khâu ghi, không tin mỗi giao diện (nút disabled
+     có thể bị bỏ qua). LUẬT SẾP: lệch thì KHÔNG cho lưu. */
+  if(c.mode==='period'){
+    const cur=stockByWarehouse(c.whId);
+    const chk=whCheckPeriodOpening(c.items, cur);
+    if(!chk.ok){
+      toast('🔒 Không cho lưu: tồn đầu trong file lệch tồn app ở '+chk.diffs.length+' mã — sửa cho khớp rồi nạp lại','bad');
+      return;
+    }
+    const date=String((document.getElementById('op-date')||{}).value||new Date().toISOString().slice(0,10));
+    const from=String((document.getElementById('imp-from')||{}).value||date);
+    const by=actorName();
+    try{
+      const known={}; InventoryService.materials().forEach(m=>{ known[String(m.code)]=1; });
+      let nNew=0;
+      c.items.forEach(it=>{
+        if(known[String(it.code)]) return;
+        try{ InventoryService.addMaterial({code:it.code, name:it.name||it.code, unit:it.unit||'', status:'active', source:'FAST'}); nNew++; }catch(e){}
+      });
+      const docs=whBuildPeriodDocs(c.whId, c.items, from, date, by);
+      docs.forEach(d=>InventoryService.addStockDoc(d));
+      whUpsertCostBasis(c.whId, c.items.map(i=>({code:i.code, price:i.inPrice||i.openPrice||0})), date, 'FAST kỳ');
+      const cls=whCheckPeriodClosing(c.items);
+      try{ logAuditEvent('stock_period_import',{warehouse:_whName(c.whId), from, to:date, docs:docs.map(d=>d.docNo), items:c.items.length}); }catch(e){}
+      window._opCache=null; saveState();
+      try{ renderWarehousesTable(); }catch(e){}
+      toast('✓ Đã ghi '+docs.length+' phiếu cho kỳ '+from+' → '+date
+        +(nNew?(' · thêm '+nNew+' vật tư mới'):'')
+        +(cls.ok?'':(' · ⚠ '+cls.diffs.length+' mã tồn cuối trong file không khớp phép tính')),'good');
+      closeModal(); openStockDocs();
+    }catch(err){
+      console.error('[period-import]',err);
+      toast('Lỗi khi ghi số liệu kỳ: '+(err&&err.message?err.message:err),'bad');
+    }
+    return;
+  }
   /* v3.16.06: kho do người dùng chỉ định luôn thắng khớp tự động — đọc lại lúc GHI phòng khi
      người dùng đổi ô sau khi xem trước. */
   const _forcedWh=String((document.getElementById('op-target-wh')||{}).value||'');
