@@ -3804,7 +3804,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.16.13';
+const APP_VERSION='3.16.15';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -66329,6 +66329,7 @@ function openStockDocs(){
         ${d.status==='pending'&&(canEdit||whIsVesselSideUser())?(whIsVesselSideUser()?`<button class="btn-ghost" style="font-size:11px;color:#1e7d44" onclick="openVesselReceive('${d.id}')" title="Nhận hàng — tick SL, xác nhận là tồn cộng ngay">✓</button>`:`<button class="btn-ghost" style="font-size:11px;color:#1e7d44" onclick="openConfirmInbound('${d.id}')" title="Nhận hàng & xác nhận">✓</button>`):''}
         ${d.status==='draft'&&canEdit?`<button class="btn-ghost" style="font-size:11px;color:#1e7d44" onclick="stockConfirm('${d.id}')" title="Xác nhận → cập nhật tồn">✓</button>`:''}
         ${d.status==='confirmed'&&!d.reversedById&&!d.reversalOfId&&(canManageStock()||isAdmin())?`<button class="btn-ghost" style="font-size:11px;color:#9c4221" onclick="_stockReversePrompt('${d.id}')" title="Đảo phiếu — tạo phiếu đối ứng hoàn tác tồn, giữ nguyên phiếu gốc">↩</button>`:''}
+        ${(canManageStock()||isAdmin())&&whCanDeleteDoc(d, stockDocList(), []).ok?`<button class="btn-ghost" style="font-size:11px;color:var(--bad)" onclick="whDeleteDocPrompt('${d.id}')" title="Xóa HẲN phiếu nạp sai (chỉ khi chưa ai tham chiếu và hàng chưa bị xuất)">🗑</button>`:''}
         ${_stockVesselReceiveBtn(d)}
         <button class="btn-ghost" style="font-size:11px" onclick="stockDocSendEmail('${d.id}')" title="Gửi email kèm PDF">📧</button>
       </td></tr>`;
@@ -66550,8 +66551,15 @@ function whStockPeriodRows(stockDocs, whId, from, to, withOthers){
   /* v3.16.03: nhiều dòng phiếu chỉ ghi MÃ, không ghi tên (phiếu xuất, phiếu điều chỉnh).
      Nếu gộp thẳng theo tên thì dòng không tên bị tách khỏi dòng cùng mã có tên → tồn sai.
      Nên lập bảng mã→tên trước, rồi mới gộp. */
-  /* v3.16.05 (Sếp): khóa gộp = LÕI MÃ. Tên chỉ để hiển thị, không dùng để khớp. */
-  const keyOf=(l)=>whCodeCore(l.code);
+  /* v3.16.14 — SỬA SAI CỦA v3.16.05/08. Quy tắc "cùng vật tư thì cùng mã, chỉ khác tiền tố"
+     KHÔNG đúng trên dữ liệu thật: đo GEOMARINE ↔ GEOSUPORTER có 442 lõi mã trùng nhưng CHỈ 4
+     cùng tên — 438 (99%) là vật tư KHÁC HẲN (GM.DECK.DS.034 = Găng tay linon, GS.DECK.DS.034 =
+     Vòi rồng cứu hoả). Số thứ tự trong mã đánh ĐỘC LẬP theo từng kho.
+     → Mỗi MÃ ĐẦY ĐỦ là một dòng, KHÔNG gộp chéo kho theo mã.
+     → Cột "Kho khác" cộng theo TÊN chuẩn hóa khớp chính xác — cùng tên gần như chắc chắn cùng
+       vật tư; sai sót ở đây chỉ làm THIẾU thông tin gợi ý, không làm SAI tồn của kho mình. */
+  const keyOf=(l)=>String(l.code||'').toUpperCase();
+  const nameKeyOf=(l,fallbackName)=>whNormName(l.name||fallbackName||'').replace(/[^a-z0-9]+/g,'');
   const row=(l)=>{
     const k=keyOf(l); if(!k) return null;
     if(!map[k]) map[k]={key:k, code:l.code, names:[], units:[], name:'', unit:'', opening:0, inQty:0, outQty:0, closing:0, otherTotal:0};
@@ -66567,19 +66575,56 @@ function whStockPeriodRows(stockDocs, whId, from, to, withOthers){
     if(!mine && !withOthers) return;
     const dt=String(d.date||'');
     (d.lines||[]).forEach(l=>{
+      if(!mine){ return; }                         // kho khác xử lý riêng ở vòng dưới
       const r=row(l); if(!r) return;
       const q=+l.qty||0;
-      if(!mine){ r.otherTotal+=sg*q; return; }     // kho khác: chỉ cộng tồn tổng
       if(r.code===undefined||!r.code) r.code=l.code;
       if(from && dt<from){ r.opening+=sg*q; return; }
       if(to && dt>to) return;
       if(sg>0) r.inQty+=q; else r.outQty+=q;
     });
   });
+  /* v3.16.14: tồn ở KHO KHÁC gom theo TÊN — chỉ để tàu biết "chỗ khác còn hàng", không đụng
+     vào tồn kho mình. Tên rỗng thì bỏ qua, không đoán. */
+  if(withOthers){
+    /* v3.16.14: chốt TÊN trước khi so khớp — trước đây khối này chạy khi r.name còn rỗng nên
+       khớp hụt hoàn toàn (lỗi bắt được ngay ở bước kiểm). */
+    Object.values(map).forEach(r=>{ if(!r.name) r.name=(r.names.find(x=>String(x||'').trim())||'').trim(); });
+    const byName={};
+    (stockDocs||[]).forEach(d=>{
+      if(!d || d.warehouseId===whId || d.status!=='confirmed' || d.reversedById) return;
+      const sg=sign(d.type); if(!sg) return;
+      (d.lines||[]).forEach(l=>{
+        const nk=whNormName(l.name||nameOf[String(l.code||'')]||'').replace(/[^a-z0-9]+/g,'');
+        if(!nk) return;
+        byName[nk]=(byName[nk]||0)+sg*(+l.qty||0);
+      });
+    });
+    Object.values(map).forEach(r=>{
+      const nk=whNormName(r.name||'').replace(/[^a-z0-9]+/g,'');
+      if(nk && byName[nk]>0) r.otherTotal=byName[nk];
+    });
+    /* món chỉ có ở kho khác: vẫn hiện để tàu xin — mỗi tên một dòng */
+    const mineNames={}; Object.values(map).forEach(r=>{ const nk=whNormName(r.name||'').replace(/[^a-z0-9]+/g,''); if(nk) mineNames[nk]=1; });
+    const seenOther={};
+    (stockDocs||[]).forEach(d=>{
+      if(!d || d.warehouseId===whId || d.status!=='confirmed' || d.reversedById) return;
+      if(sign(d.type)<=0) return;
+      (d.lines||[]).forEach(l=>{
+        const nk=whNormName(l.name||'').replace(/[^a-z0-9]+/g,'');
+        if(!nk || mineNames[nk] || seenOther[nk]) return;
+        if(!(byName[nk]>0)) return;
+        seenOther[nk]=1;
+        map['other:'+nk]={key:'other:'+nk, code:l.code, names:[l.name||''], units:l.unit?[l.unit]:[],
+          name:'', unit:l.unit||'', opening:0, inQty:0, outQty:0, closing:0, otherTotal:byName[nk]};
+      });
+    });
+  }
   const rd=(n)=>Math.round(n*1000)/1000;
   return Object.values(map).map(r=>{
-    r.name=whMergeNames(r.names)||r.code;       // v3.16.05: tên khác nhau → "abc / bcd"
-    if(r.units.length>1) r.unit=r.units.join(' / ');
+    /* v3.16.14: mỗi mã một dòng nên KHÔNG ghép tên nữa — lấy tên đầu tiên đọc được của chính mã */
+    r.name=(r.names.find(x=>String(x||'').trim())||'').trim()||r.code;
+    if(!r.unit && r.units.length) r.unit=r.units[0];
     r.opening=rd(r.opening); r.inQty=rd(r.inQty); r.outQty=rd(r.outQty);
     r.otherTotal=rd(Math.max(0,r.otherTotal));
     r.closing=rd(r.opening+r.inQty-r.outQty);
@@ -67796,6 +67841,69 @@ function stockReverseDoc(id, reason){
   toast('✓ Đã đảo '+made.map(m=>m.from).join(' + ')+(targets.length>1?' (cả cặp điều chuyển)':'')+(droppedPending?(' · đã hủy vế chờ '+droppedPending):''),'good');
   openStockDocs();
 }
+/* ============================================================================
+ * v3.16.15 (Sếp chốt 16/8): XÓA HẲN phiếu kho nạp sai — chỉ khi CHƯA BỊ THAM CHIẾU.
+ * Nguyên tắc sổ bất biến vẫn giữ cho nghiệp vụ thật (đảo phiếu). Nhưng phiếu NẠP SAI NGÀY chưa
+ * phát sinh gì mà bắt đảo thì sổ có 3 phiếu cho một lô hàng, và với FIFO còn đẻ lô rác.
+ * Điều kiện xóa (Sếp: "mọi phiếu chưa bị phiếu khác tham chiếu"):
+ *   · không bị đảo, không phải phiếu đảo của phiếu khác
+ *   · không gắn hóa đơn (apId), không sinh từ kiểm kê (countId)
+ *   · không phải một vế của cặp điều chuyển (phải xử cả cặp)
+ *   · XÓA XONG TỒN KHÔNG ÂM — tức hàng của phiếu này CHƯA bị xuất đi
+ * Xóa là xóa thật: ghi bia mộ (markDeleted) để không sống lại từ cloud, ghi nhật ký ai xóa.
+ * ========================================================================== */
+function whCanDeleteDoc(doc, allDocs, payables){
+  if(!doc) return {ok:false, reason:'Không tìm thấy phiếu'};
+  if(doc.reversedById) return {ok:false, reason:'Phiếu đã bị đảo — không xóa, xem phiếu đảo'};
+  if(doc.reversalOfId) return {ok:false, reason:'Đây là phiếu đảo của phiếu khác — không xóa'};
+  if(doc.apId) return {ok:false, reason:'Phiếu gắn hóa đơn — gỡ ở hóa đơn trước'};
+  if(doc.countId || doc.adjustInId || doc.adjustOutId) return {ok:false, reason:'Phiếu sinh từ kiểm kê — xử ở phiếu kiểm kê'};
+  if(doc.transferId) return {ok:false, reason:'Một vế của cặp điều chuyển — phải xử cả cặp bằng Đảo phiếu'};
+  if(doc.status!=='confirmed') return {ok:true};      // phiếu chờ chưa cộng tồn
+  /* Kiểm tồn sau khi xóa: nếu hàng của phiếu này đã bị xuất đi thì xóa sẽ làm tồn ÂM */
+  const whId=doc.warehouseId;
+  const after={};
+  (allDocs||[]).forEach(d=>{
+    if(!d || d.id===doc.id || d.warehouseId!==whId || d.status!=='confirmed' || d.reversedById) return;
+    const sg=_stockSign(d.type); if(!sg) return;
+    (d.lines||[]).forEach(l=>{ const c=String(l.code||''); if(!c) return; after[c]=(after[c]||0)+sg*(+l.qty||0); });
+  });
+  const bad=[];
+  (doc.lines||[]).forEach(l=>{
+    const c=String(l.code||''); if(!c) return;
+    if((after[c]||0) < -0.0001 && bad.indexOf(c)<0) bad.push(c);
+  });
+  if(bad.length) return {ok:false,
+    reason:'Hàng của phiếu này đã bị xuất đi — xóa sẽ làm tồn ÂM ở '+bad.length+' mã ('+bad.slice(0,3).join(', ')+(bad.length>3?'…':'')+'). Dùng Đảo phiếu.'};
+  return {ok:true};
+}
+function whDeleteDocHard(id, reason){
+  if(!(canManageStock()||isAdmin())){ toast('Chỉ thủ kho/admin xóa được phiếu kho','bad'); return false; }
+  const all=InventoryService.stockDocs();
+  const d=all.find(x=>x && x.id===id);
+  const chk=whCanDeleteDoc(d, all, (typeof AccountingService!=='undefined')?AccountingService.payables():[]);
+  if(!chk.ok){ toast('🔒 '+chk.reason,'bad'); return false; }
+  const info={docNo:d.docNo, type:d.type, warehouse:_whName(d.warehouseId), date:d.date, lines:(d.lines||[]).length};
+  S.stockDocs = all.filter(x=>x.id!==id);
+  try{ if(typeof markDeleted==='function') markDeleted(id,'stockDocs'); }catch(e){}
+  try{ logAuditEvent('stock_doc_hard_delete', Object.assign({reason:reason||''}, info)); }catch(e){}
+  saveState();
+  toast('✓ Đã xóa hẳn phiếu '+(info.docNo||'')+' ('+info.lines+' dòng)','good');
+  return true;
+}
+function whDeleteDocPrompt(id){
+  const d=InventoryService.stockDocById(id); if(!d){ toast('Không tìm thấy phiếu','bad'); return; }
+  const chk=whCanDeleteDoc(d, InventoryService.stockDocs(), (typeof AccountingService!=='undefined')?AccountingService.payables():[]);
+  if(!chk.ok){ alert('KHÔNG xóa được phiếu '+(d.docNo||'')+'\n\n'+chk.reason); return; }
+  const msg='XÓA HẲN phiếu '+(d.docNo||'')+'\n'
+    +'Kho: '+_whName(d.warehouseId)+' · Ngày: '+(d.date||'')+' · '+((d.lines||[]).length)+' dòng\n\n'
+    +'Phiếu bị xóa VĨNH VIỄN khỏi sổ (khác Đảo phiếu — đảo thì giữ lại vết).\n'
+    +'Chỉ dùng cho phiếu NẠP SAI chưa phát sinh nghiệp vụ.\n\nNhập lý do để xác nhận:';
+  const reason=prompt(msg);
+  if(reason===null) return;
+  if(!String(reason).trim()){ toast('Phải nêu lý do xóa','warn'); return; }
+  if(whDeleteDocHard(id, reason)){ openStockDocs(); }
+}
 function _stockReversePrompt(id){
   const d=InventoryService.stockDocById(id); if(!d) return;
   const isXfer=!!d.transferId;
@@ -68244,8 +68352,14 @@ function whStockMatrixAll(warehouses, byWh, myWhId, query){
      RIÊNG của từng kho (r.codes[whId]) để phiếu xuất/điều chuyển ghi đúng mã kho đó.
      Không gộp bừa: khác tên là khác dòng. */
   const norm=(x)=>(typeof whNormName==='function')?whNormName(x):String(x||'').toLowerCase();
-  /* v3.16.05 (Sếp): khóa gộp = LÕI MÃ (mã bỏ tiền tố kho). Tên chỉ để hiển thị. */
-  const keyOf=(it)=>whCodeCore(it.code);
+  /* v3.16.14 — SỬA SAI v3.16.05: lõi mã KHÔNG định danh được vật tư giữa các kho (đo thật:
+     442 lõi trùng nhưng 438 là vật tư khác hẳn). Ma trận gộp theo TÊN chuẩn hóa + ĐVT — cùng tên
+     gần như chắc chắn cùng vật tư; mã riêng của từng kho vẫn giữ trong r.codes để lập phiếu đúng. */
+  const keyOf=(it)=>{
+    const n=norm(it.name).replace(/[^a-z0-9]+/g,'');
+    const u=norm(it.unit||'').replace(/[^a-z0-9]+/g,'');
+    return n ? (n+'|'+u) : ('code:'+String(it.code||'').toUpperCase());
+  };
   const whs=(warehouses||[]).slice().sort((a,b)=>{
     if(a.id===myWhId) return -1;
     if(b.id===myWhId) return 1;
@@ -68269,7 +68383,7 @@ function whStockMatrixAll(warehouses, byWh, myWhId, query){
     });
   });
   let rows=Object.values(map);
-  rows.forEach(r=>{ r.name=whMergeNames(r.names)||r.code; });   // v3.16.05: "abc / bcd"
+  rows.forEach(r=>{ r.name=(r.names.find(x=>String(x||'').trim())||'').trim()||r.code; });
   const q=norm(query);
   if(q) rows=rows.filter(r=>norm(r.name).indexOf(q)>=0 || Object.values(r.codes).some(c=>norm(c).indexOf(q)>=0));
   rows.sort((a,b)=>{
