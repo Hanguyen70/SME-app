@@ -2825,6 +2825,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
         <button class="btn-sec" onclick="invAutoSeedWarehouses()" title="Tự sinh Kho tàu từ danh mục tàu + Kho VPCT">↻ Tự sinh kho mặc định</button>
         <button class="btn-sec" onclick="invMergeDuplicateWarehouses()" title="Gộp các kho trùng mã về 1 kho, dồn dữ liệu tồn">🧹 Dọn kho trùng</button>
         <button class="btn-sec" onclick="whPurgeLegacyMovements()" title="Xóa hẳn bảng nhập-xuất-tồn NHẬP TAY của cơ chế cũ — không còn dùng để tính tồn">🗑 Dọn dữ liệu nhập tay cũ</button>
+        <button class="btn-sec" onclick="whEnsureTechUnit()" title="Đưa kho vật tư kỹ thuật thành một ĐƠN VỊ trong Quản lý hoạt động tàu — NV kho quản lý y như tàu">🔧 Kho kỹ thuật thành đơn vị</button>
       </div>
     </div>
     <div class="section-body">
@@ -3805,7 +3806,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.16.22';
+const APP_VERSION='3.16.24';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -7627,16 +7628,6 @@ function userEditorModal(initial,idx){
   /* v3.15.87 (Sếp 16/8): KHO PHỤ TRÁCH — kho kỹ thuật/kho bờ do nhân viên phụ trách.
      Tick kho ở đây thì NV chỉ thấy và thao tác đúng kho đó (kể cả khi mang cờ Thủ kho),
      để lập được "thủ kho riêng của một kho". Không tick = giữ nguyên hành vi cũ. */
-  const _whAssignHtml=(()=>{
-    const list=InventoryService.warehouses().filter(w=>w.isActive!==false&&w.type!=='VESSEL');
-    if(!list.length) return '<span style="color:var(--muted)">Chưa có kho nào (kho tàu cấp qua tài khoản tàu)</span>';
-    const items=list.map(w=>{
-      const t=(typeof WH_TYPES!=='undefined')?(WH_TYPES[w.type]||WH_TYPES.OTHER):{icon:'📦'};
-      const c=(initial.assignedWarehouseIds||[]).includes(w.id)?'checked':'';
-      return `<label style="display:inline-flex;align-items:center;gap:6px;padding:4px 12px 4px 0;cursor:pointer"><input type="checkbox" data-warehouse="${w.id}" ${c}> <span>${t.icon} ${esc(w.name)}</span></label>`;
-    }).join('');
-    return `<div style="font-size:11px;color:var(--muted);font-style:normal;margin:4px 0 2px">Tick kho NV phụ trách. Có tick = NV CHỈ thấy và thao tác đúng kho đó (kho vật tư kỹ thuật dùng cách này). Để trống = như cũ.</div><div>${items}</div>`;
-  })();
   const _vesselAssignHtml=(()=>{
     const own=VesselService.vessels().map(v=>{
       const c=(initial.assignedVesselIds||[]).includes(v.id)?'checked':'';
@@ -7653,7 +7644,9 @@ function userEditorModal(initial,idx){
   const checks=TAB_GROUPS.map(g=>{
     let kidHtml=g.tabs.map(tid=>_renderTabCheckbox(tid)).filter(Boolean).join('');
     if(g.vesselPicker) kidHtml+=_vesselAssignHtml;   // v3.10.56: tàu tick trong nhóm QL hoạt động tàu
-    if(g.whPicker) kidHtml+=`<div style="border-top:1px dashed var(--rule);margin-top:6px;padding-top:6px"><span style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Kho phụ trách</span>${_whAssignHtml}</div>`;   // v3.15.87
+    /* v3.16.24 (Sếp: hủy các tính năng tạo riêng cho kho kỹ thuật): gỡ mục "Kho phụ trách".
+       Nay kho kỹ thuật là ĐƠN VỊ trong Quản lý hoạt động tàu — cấp quyền bằng cách gắn tài khoản
+       vào đơn vị đó (như tài khoản tàu), không tick kho ở đây nữa. */
     if(!kidHtml) return '';
     const single=g.tabs.length===1 && !g.vesselPicker && !g.whPicker;
     const numChip=`<span style="font-family:var(--font-mono);font-size:10px;color:#fff;background:var(--accent);border-radius:4px;padding:1px 6px;font-weight:700;min-width:22px;text-align:center;display:inline-block">${g.num}</span>`;
@@ -9330,7 +9323,7 @@ async function saveUser(idx){
   const funcGroups=Array.from(document.querySelectorAll('.user-funcgroup-chk:checked')).map(c=>c.value);
   const isDeptHead=!!document.getElementById('user-isdepthead')?.checked;
   const companyId=document.getElementById('user-company')?.value||'';
-  const assignedWarehouseIds=Array.from(document.querySelectorAll('input[data-warehouse]:checked')).map(c=>c.dataset.warehouse);
+  const assignedWarehouseIds=[];   // v3.16.24: mục "Kho phụ trách" đã gỡ — giữ biến rỗng cho các nơi còn đọc
   const assignedVesselIds=Array.from(document.querySelectorAll('input[data-vessel]:checked')).map(c=>c.dataset.vessel);
   const assignedProjectIds=Array.from(document.querySelectorAll('input[data-project]:checked')).map(c=>c.dataset.project);
   const assignedOpVesselIds=Array.from(document.querySelectorAll('input[data-opvessel]:checked')).map(c=>c.dataset.opvessel);
@@ -10966,7 +10959,9 @@ function vesselMaster(id){
 /* Danh sách đội tàu hợp nhất — đã LỌC theo quyền user (thuyền trưởng chỉ thấy tàu mình).
    Admin/điều hành/BOD: thấy tất cả. */
 function fleetVessels(){
-  const own=VesselService.vessels().map(v=>v.id);
+  /* v3.16.24: ĐƠN VỊ BỜ (kho kỹ thuật) nằm trong danh mục tàu để dùng chung cơ chế kho tàu,
+     nhưng KHÔNG phải tàu — loại khỏi đội tàu để không bẩn KPI, báo cáo, on/off-hire, thuyền viên. */
+  const own=VesselService.vessels().filter(v=>!(v&&v.isShoreUnit)).map(v=>v.id);
   const mgmt=VesselService.opVessels().map(v=>v.id);
   let ids=own.concat(mgmt);
   // lọc theo quyền: nếu user được gán tàu cụ thể → chỉ tàu đó (cả 2 loại)
@@ -14211,15 +14206,8 @@ function _helpSection_contact(){
    ảnh test cho thấy "Tạm ứng NV" vẫn hiện dù đã bỏ khỏi bộ tab của tàu từ v3.15.66. */
 function _vaEnforceNav(){
   try{
-    /* v3.16.22 (Sếp: "Koong vẫn thấy hết"): NV được gán kho cũng là phía kho — phải ẩn mục
-       "Kho vật tư" của BỜ khỏi nav, đừng để bấm vào rồi mới chặn ở trang. Chỉ ẩn ĐÚNG mục đó,
-       các tab khác của họ (chấm công, tạm ứng…) giữ nguyên — khác với tàu bị ẩn cả thanh nav. */
-    const _siteOnly=(typeof whIsSiteSideUser==='function' && whIsSiteSideUser())
-                 && !(typeof whIsVesselSideUser==='function' && whIsVesselSideUser());
-    if(_siteOnly){
-      document.querySelectorAll('[data-page="inventory"]').forEach(el=>{ el.style.display='none'; });
-      return;
-    }
+    /* v3.16.24: quay lại luật cũ — chỉ phía tàu (gồm ĐƠN VỊ kho kỹ thuật, vì tài khoản gắn
+       linkVesselId đã là phía tàu). Không còn vai thứ ba. */
     if(!(typeof whIsVesselSideUser==='function' && whIsVesselSideUser())) return;
     document.querySelectorAll('[data-page]').forEach(el=>{
       const pg=el.dataset.page; if(!pg) return;
@@ -63932,6 +63920,42 @@ function invMergeDuplicateWarehouses(){
 }
 
 /* Auto-seed: tạo Kho tàu cho các tàu chưa có kho + Kho VPCT nếu chưa có */
+/* ============================================================================
+ * v3.16.24 (Sếp chốt 16/8): "Đơn giản hơn: tạo 1 kho vật tư kỹ thuật trong tab Quản lý tàu —
+ * coi kho kỹ thuật như 1 TÀU. NV kho sẽ quản lý như TÀU. Hủy các tính năng tạo cho kho vật tư
+ * kỹ thuật hiện có."
+ * → Thay vì đẻ nhánh quyền riêng (v3.16.20/22), dùng lại TOÀN BỘ cơ chế tàu vốn đã chạy ổn:
+ *   tài khoản gắn linkVesselId là phía tàu → ẩn nav, mở thẳng màn kho, không thấy trang bờ.
+ * Đơn vị này mang cờ isShoreUnit nên KHÔNG bị tính vào đội tàu (KPI, báo cáo, on/off-hire).
+ * ========================================================================== */
+function whEnsureTechUnit(){
+  if(!(canEditCatalog&&canEditCatalog())){ toast('Chỉ Admin / Kế toán trưởng','bad'); return null; }
+  const NAME='KHO KỸ THUẬT';
+  let unit=VesselService.vessels().find(v=>v && (v.isShoreUnit || String(v.name||'').toUpperCase()===NAME));
+  if(!unit){
+    unit={id:uid(), name:NAME, isShoreUnit:true, status:'active',
+      note:'Đơn vị bờ — quản lý kho vật tư kỹ thuật như một tàu (v3.16.24)',
+      createdBy:actorName(), createdAt:new Date().toISOString()};
+    VesselService.addVessel(unit);
+  } else if(!unit.isShoreUnit){
+    unit.isShoreUnit=true; try{ touchRecord(unit); }catch(e){}
+  }
+  /* Gắn KHO ĐANG CÓ vào đơn vị — KHÔNG tạo kho mới chồng lên dữ liệu đã nạp */
+  const wh=InventoryService.warehouses().find(w=>w &&
+    (String(w.code||'').toUpperCase()==='KHO-KYTHUAT' || w.type==='TECH' || w.type==='VESSEL_TECH'));
+  if(wh){
+    let changed=false;
+    if(wh.vesselId!==unit.id){ wh.vesselId=unit.id; changed=true; }
+    if(wh.type!=='VESSEL'){ wh.type='VESSEL'; changed=true; }   // để mọi cơ chế kho tàu nhận
+    if(changed){ try{ touchRecord(wh); }catch(e){} }
+  }
+  try{ logAuditEvent('wh_tech_unit_ensure',{unit:unit.name, warehouse:wh?wh.code:''}); }catch(e){}
+  saveState();
+  toast('✓ Kho kỹ thuật nay là đơn vị "'+NAME+'" trong Quản lý hoạt động tàu'
+        +(wh?(' · đã gắn kho '+wh.code):' · CHƯA thấy kho kỹ thuật để gắn'),'good');
+  try{ renderWarehousesTable(); }catch(e){}
+  return unit;
+}
 function invAutoSeedWarehouses(){
   if(typeof canEditCatalog==='function' && !canEditCatalog()){toast('Chỉ Admin / Kế toán trưởng','bad');return;}
   let added=0;
@@ -63985,24 +64009,6 @@ function invAutoSeedWarehouses(){
 }
 
 /* v3.15.85: tài khoản đang gắn với kho này (nếu có) */
-/* v3.15.92 (Sếp: "gắn luôn vào Danh sách Kho" thay vì đẻ mục menu mới):
-   bấm dòng kho mình phụ trách → mở đúng bộ màn làm việc mà tàu đang dùng
-   (Nhận hàng · Tồn kho · Đề xuất điều chuyển · Báo cáo kho). */
-function whOpenSiteWorkspace(whId){
-  const w=InventoryService.warehouses().find(x=>x.id===whId);
-  if(!w){ toast('Không tìm thấy kho','bad'); return; }
-  const aw=(CURRENT_USER&&CURRENT_USER.assignedWarehouseIds)||[];
-  if(!isAdmin() && !(Array.isArray(aw)&&aw.indexOf(whId)>=0)){
-    toast('Bạn chưa được gán phụ trách kho này — nhờ IT cấp ở Quản lý người dùng','bad'); return;
-  }
-  if(!stockCanAccessWarehouse(whId)){ toast('Kho ngoài phạm vi của bạn','bad'); return; }
-  window._siteWhOverride=whId;      // admin/NV nhiều kho: chọn kho nào thì làm việc tại kho đó
-  openVesselStockOverview();
-}
-/* v3.15.87: đếm nhân viên đang được gán phụ trách kho này */
-function _whKeeperCount(whId){
-  try{ const cfg=getAuthConfig(); return (cfg.users||[]).filter(u=>u&&Array.isArray(u.assignedWarehouseIds)&&u.assignedWarehouseIds.indexOf(whId)>=0).length; }catch(e){ return 0; }
-}
 function _whStoreAcc(whId){
   try{ const cfg=getAuthConfig(); return (cfg.users||[]).find(u=>u&&u.linkWarehouseId===whId)||null; }catch(e){ return null; }
 }
@@ -64320,6 +64326,24 @@ function openWarehouseValueDetail(whId){
 /* v3.16.21: dọn hẳn bảng nhập-xuất-tồn NHẬP TAY của cơ chế cũ (invMovements). Từ khi mọi kho
    chạy sổ chứng từ, dữ liệu này không còn được dùng để tính tồn — để lại chỉ chiếm chỗ và gây
    hiểu nhầm. Chỉ admin. Có bia mộ + nhật ký, đếm rõ số bản ghi trước khi xóa. */
+/* v3.16.23 (Sếp: "không có dữ liệu nhập tay, tất cả đều từ import tồn đầu kỳ" — cần truy nguồn):
+   Nhập tồn đầu kỳ KHÔNG hề ghi vào invMovements. Toàn app chỉ có HAI đường ghi vào bảng cũ này:
+   saveInvMovement (màn nhập tay theo tháng) và excelConfirmImport (Import Excel hàng loạt, mẫu
+   "Sổ kho theo tháng"). Hàm dưới truy nguồn từng bản ghi để Sếp tự thấy nó từ đâu ra. */
+function whLegacyMovementSources(rows){
+  const list=rows||[];
+  const byMonth={}, byUser={}, bySource={};
+  let first='', last='';
+  list.forEach(m=>{
+    if(!m) return;
+    const mo=String(m.month||'(không rõ)'); byMonth[mo]=(byMonth[mo]||0)+1;
+    const u=String(m.createdBy||'(không rõ)'); byUser[u]=(byUser[u]||0)+1;
+    const sc=String(m.source||'(không ghi nguồn)'); bySource[sc]=(bySource[sc]||0)+1;
+    const at=String(m.createdAt||'');
+    if(at){ if(!first||at<first) first=at; if(!last||at>last) last=at; }
+  });
+  return {total:list.length, byMonth, byUser, bySource, first, last};
+}
 function whPurgeLegacyMovements(){
   if(!isAdmin()){ toast('Chỉ admin dọn được dữ liệu cũ','bad'); return; }
   const all=InventoryService.invMovements();
@@ -64327,8 +64351,19 @@ function whPurgeLegacyMovements(){
   const byWh={};
   all.forEach(m=>{ const n=_whName(m.warehouseId)||'(không rõ kho)'; byWh[n]=(byWh[n]||0)+1; });
   const lines=Object.keys(byWh).map(k=>'· '+k+': '+byWh[k]+' bản ghi').join('\n');
-  if(!confirm('DỌN HẲN bảng nhập-xuất-tồn NHẬP TAY (cơ chế cũ)\n\n'+all.length+' bản ghi:\n'+lines
-    +'\n\nDữ liệu này KHÔNG còn dùng để tính tồn — tồn nay tính từ sổ chứng từ.\n'
+  /* v3.16.23: nêu NGUỒN GỐC để biết nó từ đâu ra, không chỉ đếm số */
+  const src=whLegacyMovementSources(all);
+  const fmtG=(o,cap)=>Object.keys(o).sort((a,b)=>o[b]-o[a]).slice(0,cap||4).map(k=>k+' ('+o[k]+')').join(', ');
+  const info='NGUỒN GỐC:\n'
+    +'· Theo tháng: '+fmtG(src.byMonth,5)+'\n'
+    +'· Người tạo: '+fmtG(src.byUser,4)+'\n'
+    +'· Nguồn ghi: '+fmtG(src.bySource,4)+'\n'
+    +(src.first?('· Tạo từ '+src.first.slice(0,10)+' đến '+src.last.slice(0,10)+'\n'):'')
+    +'\nLƯU Ý: Nhập tồn đầu kỳ KHÔNG ghi vào bảng này. Dữ liệu ở đây chỉ đến từ màn nhập tay\n'
+    +'theo tháng, hoặc Import Excel hàng loạt với mẫu "Sổ kho theo tháng" (đã khai tử).\n';
+  if(!confirm('DỌN HẲN bảng nhập-xuất-tồn của cơ chế cũ\n\n'+all.length+' bản ghi:\n'+lines
+    +'\n\n'+info
+    +'\nDữ liệu này KHÔNG còn dùng để tính tồn — tồn nay tính từ sổ chứng từ.\n'
     +'Xóa vĩnh viễn, có ghi nhật ký. Tiếp tục?')) return;
   const ids=all.map(m=>m.id).filter(Boolean);
   S.invMovements=[];
@@ -64400,10 +64435,8 @@ function renderWarehousesTable(){
         ${_valNote?`<div style="margin-top:2px">${_valNote}</div>`:''}
       </td>
       ${_whCanEdit?`<td><div class="row-actions">
-        ${/* v3.15.87 (Sếp chốt lại): kho kỹ thuật do NHÂN VIÊN phụ trách — cấp quyền ở màn phân quyền NV
-             (mục "Kho phụ trách"), không tạo tài khoản dùng chung như tài khoản tàu. */''}
-        ${w.type==='TECH'?`<span class="ds-need" data-dot="info" style="font-size:10px" title="Cấp quyền cho nhân viên phụ trách kho này ở Cài đặt → Quản lý người dùng → mục Kho phụ trách">🔧 ${_whKeeperCount(w.id)} NV</span>
-        <button class="icon-btn" title="Làm việc tại kho này: Nhận hàng · Tồn kho · Đề xuất điều chuyển · Báo cáo kho" onclick="whOpenSiteWorkspace('${w.id}')">🛠</button>`:''}
+        ${/* v3.16.24 (Sếp): kho kỹ thuật nay là ĐƠN VỊ trong Quản lý hoạt động tàu — NV kho gắn
+             đơn vị đó và làm việc y như tàu. Gỡ nút 🛠 và nhãn "n NV" của cơ chế cũ. */''}
         <button class="icon-btn" title="Xem chi tiết: số lượng · đơn giá · thành tiền từng mã" onclick="openWarehouseValueDetail('${w.id}')">👁</button>
         <button class="icon-btn" title="Sửa" onclick="openWarehouseModal('${w.id}')">✎</button>
         <button class="icon-btn danger" title="Xóa" onclick="deleteWarehouse('${w.id}')">✕</button>
@@ -68136,28 +68169,15 @@ function whMyVesselId(){
    trường này chưa bao giờ nối nhau, nên người được gán kho vẫn vào TRANG KHO BỜ đầy đủ
    (KPI toàn công ty, danh sách 6 kho). Nay nối lại: được gán kho = phía kho, làm việc y như tàu.
    ADMIN loại trừ — admin vẫn cần trang quản lý toàn bộ. */
-function whIsStoreAccount(){
-  if(typeof isAdmin==='function' && isAdmin()) return false;
-  if(!CURRENT_USER) return false;
-  if(CURRENT_USER.isStoreAccount || CURRENT_USER.linkWarehouseId) return true;
-  const aw=CURRENT_USER.assignedWarehouseIds;
-  return !!(Array.isArray(aw) && aw.length);
-}
+/* v3.16.24 (Sếp: "hủy các tính năng tạo cho kho vật tư kỹ thuật hiện có"): bỏ nhánh
+   assignedWarehouseIds thêm ở v3.16.20 — nay kho kỹ thuật là ĐƠN VỊ trong danh mục tàu,
+   NV kho gắn linkVesselId nên đã là phía tàu, không cần cơ chế quyền thứ hai. */
+function whIsStoreAccount(){ return !!(CURRENT_USER && (CURRENT_USER.isStoreAccount || CURRENT_USER.linkWarehouseId)); }
 function whIsSiteSideUser(){ return !!(whIsVesselSideUser() || whIsStoreAccount()); }
 function whMySiteWarehouse(){
-  /* v3.15.92: NV phụ trách nhiều kho → kho đang chọn từ Danh mục kho được ưu tiên */
-  if(typeof window!=='undefined' && window._siteWhOverride){
-    const w=InventoryService.warehouses().find(x=>x.id===window._siteWhOverride && x.isActive!==false);
-    if(w && (isAdmin() || stockCanAccessWarehouse(w.id))) return w;
-  }
+  /* v3.16.24: rút gọn — kho của tài khoản kho dùng chung, hoặc kho của TÀU/ĐƠN VỊ đang gắn. */
   if(CURRENT_USER && CURRENT_USER.linkWarehouseId){
     const w=InventoryService.warehouses().find(x=>x.id===CURRENT_USER.linkWarehouseId && x.isActive!==false);
-    if(w) return w;
-  }
-  /* v3.16.20: NV được gán kho — chưa chọn kho nào thì vào kho đầu tiên được gán */
-  const aw=(CURRENT_USER&&CURRENT_USER.assignedWarehouseIds)||[];
-  if(Array.isArray(aw) && aw.length){
-    const w=InventoryService.warehouses().find(x=>aw.indexOf(x.id)>=0 && x.isActive!==false);
     if(w) return w;
   }
   return whMyVesselWarehouse();
@@ -68714,12 +68734,11 @@ function openVesselLedger(){
  * mới là việc của thủ kho. Vì vậy đề xuất điều chuyển KHÔNG bắt tàu chọn kho nguồn nữa.
  * ========================================================================== */
 function openVesselStockOverview(){
-  const _picked=(typeof window!=='undefined') && window._siteWhOverride;
-  if(!_picked && typeof whIsSiteSideUser==='function' && !whIsSiteSideUser()){
-    toast('Màn này dành cho tài khoản tàu hoặc NV được gán kho — bờ vào qua Danh mục kho, nút 🛠','warn'); return;
+  if(typeof whIsSiteSideUser==='function' && !whIsSiteSideUser()){
+    toast('Màn này dành cho tài khoản TÀU / ĐƠN VỊ kho — tài khoản bờ dùng trang Kho vật tư','warn'); return;
   }
   const wh=whMySiteWarehouse();
-  if(!wh){ toast('Tài khoản chưa gắn tàu hoặc kho phụ trách','bad'); return; }
+  if(!wh){ toast('Tài khoản chưa gắn tàu hoặc đơn vị kho','bad'); return; }
   const rg=_vspRange();
   const docs=InventoryService.stockDocs();
   let rows=whStockPeriodRows(docs, wh.id, rg.from, rg.to, _vsShowOther);
@@ -70406,15 +70425,10 @@ function renderInventory(){
      (whIsVesselSideUser) — NV được gán kho lọt qua và thấy trang Kho vật tư của BỜ: giá trị
      tồn toàn công ty, mọi kho, mọi nút tạo phiếu. Nay xét PHÍA KHO (tàu HOẶC NV được gán kho).
      Không để trang trắng: mở thẳng màn kho của chính họ. */
+  /* v3.16.24: quay lại luật một vai — phía tàu (gồm ĐƠN VỊ kho kỹ thuật) không dựng trang bờ */
   if(typeof whIsSiteSideUser==='function' && whIsSiteSideUser()){
-    const _isVessel=(typeof whIsVesselSideUser==='function') && whIsVesselSideUser();
     const p=document.getElementById('page-inventory');
-    if(p) p.innerHTML='<div style="padding:24px;text-align:center;color:var(--muted);font-size:13px">'
-      +(_isVessel
-        ? 'Kho của tàu nằm ở tab <b>⚓ Tàu của tôi</b> → thẻ <b>Kho vật tư</b>.'
-        : 'Bạn làm việc trực tiếp tại <b>kho phụ trách</b> — màn kho đang mở.')
-      +'</div>';
-    if(!_isVessel && typeof openVesselStockOverview==='function'){ try{ openVesselStockOverview(); }catch(e){} }
+    if(p) p.innerHTML='<div style="padding:24px;text-align:center;color:var(--muted);font-size:13px">Kho của bạn nằm ở tab <b>⚓ Tàu của tôi</b> → thẻ <b>Kho vật tư</b>.</div>';
     return;
   }
   renderWarehousesTable();
@@ -77459,8 +77473,14 @@ const EXCEL_TEMPLATES={
       {key:'note',     label:'Ghi chú',                                   required:false, type:'text'}
     ]
   },
+  /* v3.16.23 — KHAI TỬ (Sếp 16/8): mẫu này ghi THẲNG vào bảng nhập-xuất-tồn của cơ chế cũ,
+     KHÔNG đi qua sổ chứng từ, nên tồn nạp bằng nó không bao giờ xuất hiện trong tồn thật và
+     chính là nguồn của mấy con số "số liệu cũ" mà Sếp tưởng app không xóa được.
+     Đường đúng nay là: Kho vật tư → Nhập tồn đầu kỳ (Excel FAST). Giữ khai báo để file cũ còn
+     đọc được tên cột, nhưng CHẶN ở khâu ghi. */
   invMovements:{
-    name:'Sổ kho theo tháng (tồn đầu / nhập / xuất)',
+    name:'[NGHỈ HƯU] Sổ kho theo tháng — dùng Nhập tồn đầu kỳ thay thế',
+    deprecated:true,
     target:'invMovements',
     columns:[
       {key:'warehouseCode',label:'Mã kho (phải khớp file master) *',          required:true,  type:'warehouseLookup',
@@ -80545,6 +80565,7 @@ function excelRenderPreview(){
 
 function excelConfirmImport(){
   if(!EXCEL_PARSED_DATA) return;
+  let _legacyInvBlocked=false;   // v3.16.23: chỉ báo MỘT lần cho cả đợt, không spam từng dòng
   const {rows, tpl, type}=EXCEL_PARSED_DATA;
   // v2.70.0: lấy NV được gán; bắt buộc với AR/AP/Thu-chi hộ
   const assigneeEl=document.getElementById('xls-import-assignee');
@@ -80951,6 +80972,16 @@ function excelConfirmImport(){
         warnings.push(`Đã có bản ghi (kho × tháng × tên vật tư) — bỏ qua dòng "${itemName}" ${d.month}`);
         return;
       }
+      /* v3.16.23: chặn tại khâu ghi — xem ghi chú khai tử ở mẫu invMovements */
+      if(!_legacyInvBlocked){
+        _legacyInvBlocked=true;
+        alert('Mẫu "Sổ kho theo tháng" đã NGHỈ HƯU.\n\n'
+          +'Nó ghi thẳng vào bảng cũ, KHÔNG đi qua sổ chứng từ nên tồn nạp bằng mẫu này sẽ không\n'
+          +'hiện trong tồn thật và không có giá vốn.\n\n'
+          +'Đường đúng: Kho vật tư → Nhập tồn đầu kỳ (Excel FAST).');
+      }
+      return;
+      /* eslint-disable no-unreachable */
       InventoryService.addInvMovement({
         id:uid(),
         warehouseId:d._warehouseId,
