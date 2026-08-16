@@ -2825,7 +2825,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
         <button class="btn-sec" onclick="invAutoSeedWarehouses()" title="Tự sinh Kho tàu từ danh mục tàu + Kho VPCT">↻ Tự sinh kho mặc định</button>
         <button class="btn-sec" onclick="invMergeDuplicateWarehouses()" title="Gộp các kho trùng mã về 1 kho, dồn dữ liệu tồn">🧹 Dọn kho trùng</button>
         <button class="btn-sec" onclick="whPurgeLegacyMovements()" title="Xóa hẳn bảng nhập-xuất-tồn NHẬP TAY của cơ chế cũ — không còn dùng để tính tồn">🗑 Dọn dữ liệu nhập tay cũ</button>
-        <button class="btn-sec" onclick="whEnsureTechUnit()" title="Đưa kho vật tư kỹ thuật thành một ĐƠN VỊ trong Quản lý hoạt động tàu — NV kho quản lý y như tàu">🔧 Kho kỹ thuật thành đơn vị</button>
+        <button class="btn-sec" onclick="whOpenMakeUnit()" title="Đưa MỘT KHO BẤT KỲ thành đơn vị trong Quản lý hoạt động tàu — NV gắn đơn vị sẽ quản lý y như tàu">🔧 Kho thành đơn vị</button>
       </div>
     </div>
     <div class="section-body">
@@ -3806,7 +3806,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.16.24';
+const APP_VERSION='3.16.26';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -11652,8 +11652,11 @@ function _vaRelabelNav(vName){
   try{
     const btn=document.querySelector('.nav-item[data-page="operations"]');
     if(!btn) return;
-    const num=btn.querySelector('.num'); if(num) num.textContent='⚓';
-    btn.childNodes.forEach(n=>{ if(n.nodeType===3) n.textContent='Tàu của tôi'; });
+    /* v3.16.26 (Sếp): ĐƠN VỊ BỜ không phải tàu — nhãn phải là "Kho của tôi", biểu tượng thùng hàng */
+    let _unit=false;
+    try{ const v=VesselService.vessels().find(x=>x && x.id===(CURRENT_USER&&CURRENT_USER.linkVesselId)); _unit=!!(v&&v.isShoreUnit); }catch(e){}
+    const num=btn.querySelector('.num'); if(num) num.textContent=_unit?'📦':'⚓';
+    btn.childNodes.forEach(n=>{ if(n.nodeType===3) n.textContent=_unit?'Kho của tôi':'Tàu của tôi'; });
     btn.title=vName||'';
   }catch(e){}
 }
@@ -35235,13 +35238,21 @@ function fillProjectVesselPicker(){
    cách lọc từng khối. Tàu CHỈ CÒN 1 TAB = dashboard tàu; mọi việc kho đi qua thẻ Kho vật tư trên
    dashboard (màn ma trận riêng, không giá, chỉ thao tác được ở kho tàu mình). */
 const VESSEL_ACCOUNT_TABS = ['operations'];
-function _vesselLoginId(v){
-  // ưu tiên IMO; nếu không có, slug từ tên tàu
-  const base = (v.imo && String(v.imo).trim())
-    ? 'tau-'+String(v.imo).trim().toLowerCase().replace(/[^a-z0-9]+/g,'')
-    : 'tau-'+_stripAccentLower(v.name||'').replace(/đ/g,'d').replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,20);
-  return base||('tau-'+String(v.id).slice(0,6));
+/* v3.16.26 (Sếp: "tên đăng nhập: không có TAU-..."): ĐƠN VỊ BỜ (kho) tuy nằm trong danh mục tàu
+   để dùng chung cơ chế, nhưng KHÔNG phải tàu — tên đăng nhập mang tiền tố kho- cho đúng vai. */
+function _vaSuggestLogin(v){
+  const pre=(v && v.isShoreUnit) ? 'kho-' : 'tau-';
+  let slug=_stripAccentLower(v&&v.name||'').replace(/đ/g,'d')
+    .replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
+  /* v3.16.26: tên đơn vị thường đã bắt đầu bằng "KHO" → bỏ để không thành kho-kho-... */
+  if(v && v.isShoreUnit) slug=slug.replace(/^kho-?/,'');
+  slug=slug.slice(0,20).replace(/^-+|-+$/g,'');
+  if(!(v&&v.isShoreUnit) && v && v.imo && String(v.imo).trim()){
+    return 'tau-'+String(v.imo).trim().toLowerCase().replace(/[^a-z0-9]+/g,'');
+  }
+  return (pre+slug) || (pre+String((v&&v.id)||'').slice(0,6));
 }
+function _vesselLoginId(v){ return _vaSuggestLogin(v); }
 /* v3.15.85: tài khoản của KHO (kho vật tư kỹ thuật) — cùng khuôn với tài khoản tàu:
    dùng chung theo ca trực, không gắn cá nhân, ép đổi mật khẩu lần đầu, chỉ thấy kho của mình. */
 async function createStoreAccount(w, silent){
@@ -36125,6 +36136,20 @@ function _vaDashCards(vid, forVessel){
     <div style="font-size:13px;color:var(--muted);margin-bottom:10px;min-height:32px">${sub}</div>
     <button class="btn-sec" style="font-size:13px;width:100%;${accent?'border-color:'+accent+';color:'+accent:''}" onclick="${onclick}">${btnLabel}</button>
   </div>`;
+  /* v3.16.26 (Sếp: "màn hình khi nhân viên mở sẽ chỉ có 1 mục KHO — KHÔNG ĐƯỢC CÓ THÔNG TIN
+     TÀU/CHẤM CÔNG TÀU"): ĐƠN VỊ BỜ mượn cơ chế tàu nhưng không phải tàu — không thuyền viên,
+     không hồ sơ đăng kiểm, không nhật ký hành trình. Chỉ đúng MỘT thẻ: Kho vật tư. */
+  if(v && v.isShoreUnit){
+    return [
+      card('📦','Kho vật tư',
+        (wh?(nStock+' mặt hàng tồn'):'Chưa có kho gắn đơn vị này.')
+        +(nPend?(' · <b style="color:#b8730a">'+nPend+' phiếu chờ nhận</b>'):'')
+        +(wh?'<div style="font-size:11px;margin-top:2px">Tồn · nhận hàng · xuất dùng · kiểm kê</div>':''),
+        nPend?'Mở kho — có hàng chờ':'Mở kho vật tư',
+        forVessel?'openVesselStockOverview()':`closeModal();_vaOpenWhOfVessel('${vid}','stock')`,
+        nPend?'#b8730a':'')
+    ].join('');
+  }
   return [
     card('👥','Thuyền viên', crew.length+' người trên tàu (QĐ điều động + hồ sơ NS).','Xem danh sách', go(`openVesselCrewList('${vid}')`)),
     card('📋','Hồ sơ tàu','Định danh · kỹ thuật · đăng kiểm · '+nCert+' chứng chỉ'+(nCertDue?' · <b style="color:#b8730a">'+nCertDue+' cần chú ý</b>':''),'Mở hồ sơ tàu', go(`openVesselCerts('${vid}')`), nCertDue?'#b8730a':''),
@@ -63928,33 +63953,58 @@ function invMergeDuplicateWarehouses(){
  *   tài khoản gắn linkVesselId là phía tàu → ẩn nav, mở thẳng màn kho, không thấy trang bờ.
  * Đơn vị này mang cờ isShoreUnit nên KHÔNG bị tính vào đội tàu (KPI, báo cáo, on/off-hire).
  * ========================================================================== */
-function whEnsureTechUnit(){
+/* v3.16.25 (Sếp: "nút này chỉ sinh cho 1 kho? nên để mở cho trường hợp tạo thêm"):
+   bản trước viết cứng tên "KHO KỸ THUẬT" và cứng mã KHO-KYTHUAT nên chỉ dùng được đúng một lần.
+   Nay mở: chọn BẤT KỲ kho nào chưa thuộc tàu, tự đặt tên đơn vị. Kho tàu thật không nằm trong
+   danh sách (đã có tàu rồi), kho đã là đơn vị cũng không lặp lại. */
+function whUnitCandidates(warehouses, vessels){
+  const units={}; (vessels||[]).forEach(v=>{ if(v && v.isShoreUnit) units[v.id]=1; });
+  return (warehouses||[]).filter(w=>{
+    if(!w || w.isActive===false) return false;
+    if(w.vesselId) return false;            // đã gắn tàu thật hoặc đã là đơn vị
+    return true;
+  });
+}
+function whMakeWarehouseUnit(whId, unitName){
   if(!(canEditCatalog&&canEditCatalog())){ toast('Chỉ Admin / Kế toán trưởng','bad'); return null; }
-  const NAME='KHO KỸ THUẬT';
-  let unit=VesselService.vessels().find(v=>v && (v.isShoreUnit || String(v.name||'').toUpperCase()===NAME));
+  const wh=InventoryService.warehouses().find(w=>w && w.id===whId);
+  if(!wh){ toast('Không tìm thấy kho','bad'); return null; }
+  const name=String(unitName||wh.name||'').trim();
+  if(!name){ toast('Phải đặt tên đơn vị','warn'); return null; }
+  if(wh.vesselId){ toast('Kho này đã thuộc một tàu/đơn vị rồi','warn'); return null; }
+  const dup=VesselService.vessels().find(v=>v && String(v.name||'').trim().toUpperCase()===name.toUpperCase());
+  if(dup && !dup.isShoreUnit){ toast('Trùng tên với TÀU THẬT "'+dup.name+'" — đặt tên khác','bad'); return null; }
+  let unit=dup;
   if(!unit){
-    unit={id:uid(), name:NAME, isShoreUnit:true, status:'active',
-      note:'Đơn vị bờ — quản lý kho vật tư kỹ thuật như một tàu (v3.16.24)',
+    unit={id:uid(), name:name, isShoreUnit:true, status:'active',
+      note:'Đơn vị bờ — quản lý kho như một tàu (v3.16.25)',
       createdBy:actorName(), createdAt:new Date().toISOString()};
     VesselService.addVessel(unit);
-  } else if(!unit.isShoreUnit){
-    unit.isShoreUnit=true; try{ touchRecord(unit); }catch(e){}
   }
-  /* Gắn KHO ĐANG CÓ vào đơn vị — KHÔNG tạo kho mới chồng lên dữ liệu đã nạp */
-  const wh=InventoryService.warehouses().find(w=>w &&
-    (String(w.code||'').toUpperCase()==='KHO-KYTHUAT' || w.type==='TECH' || w.type==='VESSEL_TECH'));
-  if(wh){
-    let changed=false;
-    if(wh.vesselId!==unit.id){ wh.vesselId=unit.id; changed=true; }
-    if(wh.type!=='VESSEL'){ wh.type='VESSEL'; changed=true; }   // để mọi cơ chế kho tàu nhận
-    if(changed){ try{ touchRecord(wh); }catch(e){} }
-  }
-  try{ logAuditEvent('wh_tech_unit_ensure',{unit:unit.name, warehouse:wh?wh.code:''}); }catch(e){}
+  wh.vesselId=unit.id;
+  if(wh.type!=='VESSEL') wh.type='VESSEL';     // để mọi cơ chế kho tàu nhận
+  try{ touchRecord(wh); }catch(e){}
+  try{ logAuditEvent('wh_unit_create',{unit:unit.name, warehouse:wh.code}); }catch(e){}
   saveState();
-  toast('✓ Kho kỹ thuật nay là đơn vị "'+NAME+'" trong Quản lý hoạt động tàu'
-        +(wh?(' · đã gắn kho '+wh.code):' · CHƯA thấy kho kỹ thuật để gắn'),'good');
+  toast('✓ Kho "'+wh.name+'" nay thuộc đơn vị "'+unit.name+'" — gắn tài khoản NV vào đơn vị này để họ làm việc như tàu','good');
   try{ renderWarehousesTable(); }catch(e){}
   return unit;
+}
+function whOpenMakeUnit(){
+  const list=whUnitCandidates(InventoryService.warehouses(), VesselService.vessels());
+  if(!list.length){ toast('Không còn kho nào để chuyển — mọi kho đã thuộc tàu hoặc đơn vị','warn'); return; }
+  const opts=list.map(w=>`<option value="${w.id}" data-name="${esc(w.name)}">${esc(w.code||'')} · ${esc(w.name)}</option>`).join('');
+  openModal('🔧 Đưa kho thành ĐƠN VỊ (quản lý như tàu)',
+    `<div style="font-size:12px;color:var(--muted);margin-bottom:10px">Kho được chọn sẽ thành một <b>đơn vị</b> trong Quản lý hoạt động tàu. Nhân viên gắn đơn vị này sẽ làm việc y như tài khoản tàu: chỉ thấy màn kho của mình. Đơn vị KHÔNG được tính vào đội tàu (không vào KPI, báo cáo, on/off-hire).</div>
+     <div style="display:grid;grid-template-columns:1fr 2fr;gap:8px;align-items:center">
+       <label style="font-size:12px">Chọn kho</label>
+       <select id="unit-wh" style="padding:6px 8px;border:1px solid var(--rule);border-radius:6px" onchange="{const o=this.options[this.selectedIndex];const n=document.getElementById('unit-name');if(n&&o)n.value=o.dataset.name||'';}">${opts}</select>
+       <label style="font-size:12px">Tên đơn vị</label>
+       <input id="unit-name" value="${esc(list[0].name||'')}" placeholder="VD: KHO KỸ THUẬT" style="padding:6px 8px;border:1px solid var(--rule);border-radius:6px">
+     </div>
+     <div style="font-size:11px;color:var(--muted);margin-top:8px">Kho đang thuộc tàu thật không có trong danh sách. Dữ liệu tồn của kho giữ nguyên.</div>`,
+    `<button class="btn-ghost" onclick="closeModal()">Hủy</button>
+     <button class="btn-primary" onclick="{const w=document.getElementById('unit-wh').value;const n=document.getElementById('unit-name').value;if(whMakeWarehouseUnit(w,n))closeModal();}">Tạo đơn vị</button>`);
 }
 function invAutoSeedWarehouses(){
   if(typeof canEditCatalog==='function' && !canEditCatalog()){toast('Chỉ Admin / Kế toán trưởng','bad');return;}
@@ -68781,7 +68831,9 @@ function openVesselStockOverview(){
     </tr>`;
   }).join('')
    : `<tr><td colspan="8" style="padding:18px;text-align:center;color:var(--muted)">${(_vsOvSearch||_vsDept)?'Không có vật tư khớp bộ lọc.':'Kho chưa có phát sinh trong kỳ.'}</td></tr>`;
-  openModal('📊 Tồn kho — ⚓ '+esc(wh.name),
+  /* v3.16.26: đơn vị bờ dùng biểu tượng kho, không phải mỏ neo */
+  const _isUnitWh=(function(){ try{ const v=VesselService.vessels().find(x=>x&&x.id===wh.vesselId); return !!(v&&v.isShoreUnit); }catch(e){ return false; } })();
+  openModal('📊 Tồn kho — '+(_isUnitWh?'📦 ':'⚓ ')+esc(wh.name),
     `<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
        <button class="${_nPend?'btn-primary':'btn-sec'}" style="font-size:13px${_nPend?';background:#b8730a;border-color:#b8730a':''}" onclick="openPendingInbound()">📥 Nhận hàng${_nPend?` <span style="background:#fff;color:#b8730a;border-radius:8px;padding:0 6px;font-size:10px">${_nPend}</span>`:''}</button>
        <button class="btn-sec" style="font-size:13px" onclick="openVesselLedger()" title="Sổ Nhập / Xuất / Điều chỉnh của kho này">📒 Nhập/Xuất/ĐC</button>
@@ -70428,7 +70480,7 @@ function renderInventory(){
   /* v3.16.24: quay lại luật một vai — phía tàu (gồm ĐƠN VỊ kho kỹ thuật) không dựng trang bờ */
   if(typeof whIsSiteSideUser==='function' && whIsSiteSideUser()){
     const p=document.getElementById('page-inventory');
-    if(p) p.innerHTML='<div style="padding:24px;text-align:center;color:var(--muted);font-size:13px">Kho của bạn nằm ở tab <b>⚓ Tàu của tôi</b> → thẻ <b>Kho vật tư</b>.</div>';
+    if(p) p.innerHTML='<div style="padding:24px;text-align:center;color:var(--muted);font-size:13px">Kho của bạn nằm ở tab đầu tiên bên trái → thẻ <b>Kho vật tư</b>.</div>';
     return;
   }
   renderWarehousesTable();
