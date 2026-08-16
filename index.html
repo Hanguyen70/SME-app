@@ -3804,7 +3804,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.16.15';
+const APP_VERSION='3.16.17';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -51907,7 +51907,7 @@ function openPayableModal(id){
       const danger=g.confirmed.length>0;
       return `<div style="margin-bottom:8px;padding:6px 10px;border-radius:6px;font-size:12px;background:${danger?'rgba(192,57,43,.08)':'rgba(184,115,10,.10)'};color:${danger?'var(--bad)':'#b8730a'}">
         🔗 Hóa đơn này đang gắn <b>${g.all.length} phiếu kho</b> (${esc(bits.join(' · '))}).
-        ${danger?'Kho đã nhận hàng — muốn xóa hóa đơn phải đảo phiếu kho trước.':'Xóa hóa đơn sẽ hủy các phiếu chờ và báo về tàu.'}
+        ${danger?'Kho đã nhận hàng — muốn xóa hóa đơn phải xóa phiếu kho trước (Chứng từ kho, nút 🗑); nếu hàng đã xuất dùng thì chỉnh bằng Kiểm kê.':'Xóa hóa đơn sẽ hủy các phiếu chờ và báo về tàu.'}
         <button class="btn-ghost" style="font-size:11px;padding:2px 8px;margin-left:4px" onclick="closeModal();_stockFilter={type:'',wh:''};openStockDocs()">Xem phiếu kho</button>
       </div>`;
     }catch(e){ return ''; }
@@ -56094,14 +56094,20 @@ function deleteAr(kind,id){
     }
     return;
   }
-  /* v3.15.78: chốt kho — hóa đơn đã sinh phiếu kho ĐÃ XÁC NHẬN thì không cho xóa. */
+  /* v3.16.17 (Sếp chốt): xóa phiếu nhập/nhận PHẢI xuất phát từ AP — xóa hóa đơn là xóa luôn
+     mọi phiếu kho gắn với nó, ở MỌI trạng thái, tại mọi nơi có liên kết. Không chặn nữa;
+     chỉ nêu rõ hệ quả (kể cả tồn sẽ giảm) rồi để người dùng quyết. */
   if(kind==='ap' && typeof whApDeleteGuard==='function'){
-    let _whGuard={ok:true, cancelDocs:[]};
+    let _whGuard={ok:true, deleteDocs:[], confirmed:[], pending:[]};
     try{ _whGuard=whApDeleteGuard(r.id, InventoryService.stockDocs()); }catch(e){ console.warn('[ap-wh-guard]',e); }
-    if(!_whGuard.ok){ toast('🔒 '+_whGuard.reason,'bad'); return; }
-    if(_whGuard.cancelDocs && _whGuard.cancelDocs.length){
-      const _nos=_whGuard.cancelDocs.map(d=>d.docNo||d.id).join(', ');
-      if(!confirm('Hóa đơn này đang có '+_whGuard.cancelDocs.length+' phiếu CHỜ NHẬP KHO ('+_nos+').\nXóa hóa đơn sẽ HỦY luôn các phiếu đó và báo về tàu. Tiếp tục?')) return;
+    const _dd=_whGuard.deleteDocs||[];
+    if(_dd.length){
+      const _nos=_dd.map(d=>(d.docNo||d.id)+(d.status==='confirmed'?' (đã nhập)':' (chờ)')).join(', ');
+      const _nConf=(_whGuard.confirmed||[]).length;
+      if(!confirm('Hóa đơn này có '+_dd.length+' phiếu kho liên kết:\n'+_nos+'\n\n'
+        +'Xóa hóa đơn sẽ XÓA HẲN các phiếu đó và báo về tàu.'
+        +(_nConf?('\n⚠ Trong đó '+_nConf+' phiếu ĐÃ NHẬP KHO — tồn kho sẽ GIẢM tương ứng.'):'')
+        +'\n\nTiếp tục?')) return;
     }
   }
   const pd=arPaidTotal(r);
@@ -56114,8 +56120,8 @@ function deleteAr(kind,id){
         {recordId:rec.id, partner:rec.partner||'', amount:rec.amount||0, ccy:rec.ccy||'',
          desc:rec.desc||'', issueDate:rec.issueDate||'', actor:actorName()}); }catch(e){}
       if(kind==='ap'){ try{ _autoCleanupTaxFromAp(rec.id); }catch(e){console.warn('autoCleanup tax failed',e);} }
-      /* v3.15.78: hủy phiếu chờ nhập kho gắn hóa đơn này (phiếu đã xác nhận đã bị chặn ở trên) */
-      if(kind==='ap'){ try{ whCancelPendingDocsForAp(rec.id, rec.partner||rec.desc||''); }catch(e){ console.warn('[wh-cancel]',e); } }
+      /* v3.16.17 (Sếp): xóa hóa đơn → XÓA HẲN mọi phiếu kho gắn nó, mọi trạng thái */
+      if(kind==='ap'){ try{ whDeleteDocsOfAp(rec.id, rec.partner||rec.desc||''); }catch(e){ console.warn('[wh-del]',e); } }
       if(kind==='ap' && rec.fuelEventId && rec.fuelKind){ try{ _apClearFuelFromEvent(rec.fuelEventId, rec.fuelKind); }catch(e){} }
       if(kind==='ap'){
         try{ if(rec._dockApplied) reverseDockFromAsset(rec); }catch(e){console.warn('reverseDock on delete',e);}
@@ -65035,7 +65041,9 @@ const InventoryService = (function(){
     // dưới trước đây không hề guard — bịt cửa vi phạm nếu code sau này gọi nhầm.
     const d=stockDocById(id);
     if(d && d.status==='confirmed'){
-      throw new Error('Không thể xóa chứng từ kho đã xác nhận ('+(d.docNo||id)+'). Dùng Đảo phiếu nếu cần điều chỉnh.');
+      /* v3.16.16 (Sếp bỏ hẳn cơ chế đảo phiếu): sửa sai nay chỉ còn HAI đường — xóa hẳn phiếu
+         khi chưa ai tham chiếu (whDeleteDocHard), hoặc KIỂM KÊ để đưa tồn về đúng thực tế. */
+      throw new Error('Không thể xóa chứng từ kho đã xác nhận ('+(d.docNo||id)+') qua đường này. Dùng nút 🗑 ở Chứng từ kho nếu phiếu chưa bị tham chiếu, hoặc Kiểm kê để chỉnh tồn về đúng thực tế.');
     }
     S.stockDocs = stockDocs().filter(dd=>dd.id!==id);
     try{ if(typeof markDeleted==='function') markDeleted(id,'stockDocs'); }catch(e){}
@@ -66303,6 +66311,13 @@ function openStockDocs(){
   list.sort((a,b)=>String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
   /* v3.16.00 (Sếp phát hiện qua ảnh: mã SUR.* có số giống hệt ở hai kho): cảnh báo lô TỒN ĐẦU KỲ
      bị nạp trùng sang kho khác — thường do chọn nhầm kho đích rồi nạp lại lần nữa. */
+  /* v3.16.17: cặp phiếu đảo là tàn dư của cơ chế đã bỏ — nêu ngay để dọn cho sạch sổ */
+  const _revPairs=whCleanupReversalPairs(stockDocList());
+  const _revBanner=_revPairs.pairs?`<div style="margin-bottom:8px;padding:8px 10px;border-radius:6px;background:rgba(184,115,10,.10);color:#8a5200;font-size:12px">
+      ↩ <b>${_revPairs.pairs} cặp phiếu đảo cũ</b> (${_revPairs.removeIds.length} phiếu) — cơ chế đảo đã bỏ.
+      Hai vế triệt tiêu nhau nên dọn đi tồn KHÔNG đổi.
+      ${(canManageStock()||isAdmin())?`<button class="btn-sec" style="font-size:11px;padding:2px 8px;margin-left:6px" onclick="whCleanupReversalPairsRun()">🧹 Dọn cặp phiếu đảo</button>`:''}
+    </div>`:'';
   const _dupOp=whFindDuplicateOpenings(stockDocList());
   const _dupBanner=_dupOp.length?`<div style="margin-bottom:8px;padding:8px 10px;border-radius:6px;background:rgba(192,57,43,.08);color:var(--bad);font-size:12px">
       ⚠ <b>Phát hiện ${_dupOp.length} lô tồn đầu kỳ nạp TRÙNG sang hai kho khác nhau</b> — cùng mã, cùng số lượng:
@@ -66328,8 +66343,7 @@ function openStockDocs(){
         ${d.status!=='confirmed'&&canEdit?`<button class="btn-ghost" style="font-size:11px" onclick="openStockForm('${d.type}','${d.id}')">✏️</button>`:''}
         ${d.status==='pending'&&(canEdit||whIsVesselSideUser())?(whIsVesselSideUser()?`<button class="btn-ghost" style="font-size:11px;color:#1e7d44" onclick="openVesselReceive('${d.id}')" title="Nhận hàng — tick SL, xác nhận là tồn cộng ngay">✓</button>`:`<button class="btn-ghost" style="font-size:11px;color:#1e7d44" onclick="openConfirmInbound('${d.id}')" title="Nhận hàng & xác nhận">✓</button>`):''}
         ${d.status==='draft'&&canEdit?`<button class="btn-ghost" style="font-size:11px;color:#1e7d44" onclick="stockConfirm('${d.id}')" title="Xác nhận → cập nhật tồn">✓</button>`:''}
-        ${d.status==='confirmed'&&!d.reversedById&&!d.reversalOfId&&(canManageStock()||isAdmin())?`<button class="btn-ghost" style="font-size:11px;color:#9c4221" onclick="_stockReversePrompt('${d.id}')" title="Đảo phiếu — tạo phiếu đối ứng hoàn tác tồn, giữ nguyên phiếu gốc">↩</button>`:''}
-        ${(canManageStock()||isAdmin())&&whCanDeleteDoc(d, stockDocList(), []).ok?`<button class="btn-ghost" style="font-size:11px;color:var(--bad)" onclick="whDeleteDocPrompt('${d.id}')" title="Xóa HẲN phiếu nạp sai (chỉ khi chưa ai tham chiếu và hàng chưa bị xuất)">🗑</button>`:''}
+        ${(canManageStock()||isAdmin())?`<button class="btn-ghost" style="font-size:11px;color:var(--bad)" onclick="whDeleteDocPrompt('${d.id}')" title="Xóa HẲN phiếu này — hộp xác nhận sẽ nêu hệ quả trước khi xóa">🗑</button>`:''}
         ${_stockVesselReceiveBtn(d)}
         <button class="btn-ghost" style="font-size:11px" onclick="stockDocSendEmail('${d.id}')" title="Gửi email kèm PDF">📧</button>
       </td></tr>`;
@@ -66362,7 +66376,7 @@ function openStockDocs(){
     <div class="tbl-scroll" style="max-height:440px"><table style="width:100%;border-collapse:collapse;font-size:13px;border:1px solid var(--rule)">
       <thead><tr style="background:var(--rule);text-align:left"><th style="padding:6px 8px">Số CT</th><th style="padding:6px 8px;text-align:center">Loại</th><th style="padding:6px 8px">Ngày</th><th style="padding:6px 8px">Kho</th><th style="padding:6px 8px">Dòng</th><th style="padding:6px 8px">TT</th><th style="padding:6px 8px"></th></tr></thead>
       <tbody>${rows}</tbody></table></div>`;
-  openModal(isVA?'📦 Kho vật tư của tàu':'📦 Chứng từ kho (Nhập / Xuất)', _dupBanner+body, `<button class="btn-ghost" onclick="closeModal()">Đóng</button>`);
+  openModal(isVA?'📦 Kho vật tư của tàu':'📦 Chứng từ kho (Nhập / Xuất)', _revBanner+_dupBanner+body, `<button class="btn-ghost" onclick="closeModal()">Đóng</button>`);
 }
 function _stockApply(){ _stockFilter={type:(document.getElementById('sd-ftype')||{}).value||'',wh:(document.getElementById('sd-fwh')||{}).value||''}; openStockDocs(); }
 /* v3.15.60 (Sếp 15/8 — ảnh test: 11 nút xếp 3 hàng, dropdown lọc kho che mất nút):
@@ -66378,7 +66392,7 @@ function whReqPendingCount(){
  * thái chờ/đã nhập nhưng trỏ về một hóa đơn không còn tồn tại — màn Theo dõi nhập kho vẫn dựng
  * nhóm theo apId đó nên trông như "AP đã xóa vẫn hiện".
  * Nguyên tắc self-healing: thực tế dữ liệu là nguồn sự thật — phát hiện tại chỗ, nêu rõ, và cho
- * thủ kho dọn bằng một nút; KHÔNG tự hủy phiếu ĐÃ NHẬP vì tồn đã cộng (phải đảo phiếu).
+ * thủ kho dọn bằng một nút; KHÔNG tự hủy phiếu ĐÃ NHẬP vì tồn đã cộng (xóa thủ công hoặc Kiểm kê).
  * ========================================================================== */
 function whOrphanApDocs(stockDocs, payables){
   const alive={}; (payables||[]).forEach(a=>{ if(a&&a.id) alive[a.id]=1; });
@@ -66401,14 +66415,14 @@ function whOrphanApSummary(stockDocs, payables){
   const confirmed=orphans.filter(d=>d.status==='confirmed');
   return {total:orphans.length, pending, confirmed, all:orphans};
 }
-/* Dọn: hủy phiếu CHỜ mồ côi. Phiếu ĐÃ NHẬP không tự hủy — tồn đã cộng, phải đảo phiếu. */
+/* Dọn: hủy phiếu CHỜ mồ côi. Phiếu ĐÃ NHẬP không tự hủy — tồn đã cộng, phải xóa thủ công hoặc Kiểm kê. */
 function whCleanupOrphanApDocs(){
   if(!(canManageStock()||isAdmin())){ toast('Chỉ thủ kho/admin dọn phiếu mồ côi','bad'); return; }
   const s=whOrphanApSummary(InventoryService.stockDocs(), AccountingService.payables());
   if(!s.total){ toast('Không còn phiếu mồ côi','good'); return; }
   const msg='Phiếu kho trỏ về hóa đơn đã bị xóa:\n'
     +'· '+s.pending.length+' phiếu CHỜ NHẬP → sẽ hủy\n'
-    +'· '+s.confirmed.length+' phiếu ĐÃ NHẬP KHO → KHÔNG tự hủy (tồn đã cộng, phải đảo phiếu thủ công)\n\nTiếp tục hủy các phiếu chờ?';
+    +'· '+s.confirmed.length+' phiếu ĐÃ NHẬP KHO → KHÔNG tự hủy (tồn đã cộng — xóa thủ công ở Chứng từ kho, hoặc Kiểm kê)\n\nTiếp tục hủy các phiếu chờ?';
   if(!confirm(msg)) return;
   let n=0;
   s.pending.forEach(d=>{
@@ -66851,7 +66865,7 @@ function whReqToTransferDraft(req){
  * có thay đổi"): TOÀN VẸN AP ↔ KHO. Chuỗi chốt khi xóa AP vốn canh vay/thuế/nhiên liệu/dock/
  * tài sản nhưng KHÔNG có một dòng nào canh chứng từ kho — xóa AP xong phiếu chờ vẫn treo ở tàu,
  * tàu nhận hàng thì tồn cộng mà không còn gốc giá trị để kế toán đối chiếu.
- * Luật Sếp duyệt: phiếu ĐÃ XÁC NHẬN → chặn xóa (phải đảo phiếu kho trước);
+ * Luật Sếp duyệt: phiếu ĐÃ XÁC NHẬN → chặn xóa qua đường AP (xóa ở Chứng từ kho hoặc Kiểm kê);
  *                 chỉ có phiếu CHỜ → cho xóa nhưng hủy luôn phiếu chờ + báo tàu;
  *                 SL đặt < đã nhận → chặn; đổi NCC / số tiền → cảnh báo, không chặn.
  * Các hàm dưới đây THUẦN. ========================================================= */
@@ -66878,13 +66892,67 @@ function whReceivedQtyOfAp(apId, stockDocs){
   }
   return q;
 }
+/* v3.16.17 (Sếp chốt 16/8): "muốn xóa phiếu nhập/nhận phải xuất phát từ AP. Ngay khi phiếu AP
+   bị xóa có liên kết với nhập kho — phần nhập kho tự động xóa tại tất cả các nơi có liên kết."
+   → KHÔNG chặn xóa hóa đơn nữa. Guard chuyển vai: liệt kê ĐỦ phiếu kho sẽ bị xóa theo, MỌI
+   trạng thái (chờ lẫn đã nhập), để hộp xác nhận nói rõ hệ quả trước khi Sếp bấm. */
 function whApDeleteGuard(apId, stockDocs){
   const g=whDocsOfAp(apId, stockDocs);
-  if(g.confirmed.length){
-    const nos=g.confirmed.map(d=>d.docNo||d.id).join(', ');
-    return {ok:false, reason:'Hóa đơn này đã có '+g.confirmed.length+' phiếu kho ĐÃ XÁC NHẬN ('+nos+') — tồn đã cộng vào kho. Thủ kho phải ĐẢO phiếu kho trước, rồi mới xóa được hóa đơn.'};
+  const all=[].concat(g.confirmed||[], g.pending||[]);
+  return {ok:true, deleteDocs:all, confirmed:g.confirmed||[], pending:g.pending||[]};
+}
+/* Xóa HẲN mọi phiếu kho gắn hóa đơn này — mọi trạng thái. Ghi bia mộ + nhật ký, báo tàu. */
+function whDeleteDocsOfAp(apId, apLabel){
+  const all=InventoryService.stockDocs();
+  const hit=all.filter(d=>d && String(d.apId||'')===String(apId));
+  if(!hit.length) return 0;
+  const info=hit.map(d=>({docNo:d.docNo, status:d.status, warehouse:_whName(d.warehouseId), lines:(d.lines||[]).length}));
+  S.stockDocs = all.filter(d=>String(d.apId||'')!==String(apId));
+  hit.forEach(d=>{ try{ if(typeof markDeleted==='function') markDeleted(d.id,'stockDocs'); }catch(e){} });
+  try{ logAuditEvent('stock_docs_deleted_with_ap',{apId, ap:apLabel||'', docs:info}); }catch(e){}
+  try{ if(typeof whNotifyVesselDocsRemoved==='function') whNotifyVesselDocsRemoved(hit, apLabel); }catch(e){}
+  return hit.length;
+}
+/* v3.16.17: dọn hẳn CẶP PHIẾU ĐẢO còn sót từ cơ chế cũ. Hai vế triệt tiêu nhau nên xóa cả cặp
+   KHÔNG làm đổi tồn — hàm trả về qtyDelta để tự chứng minh điều đó trước khi ghi. */
+/* v3.16.17: nút dọn — xóa hẳn các cặp phiếu đảo còn sót. Chỉ chạy khi qtyDelta===0
+   (hai vế thật sự triệt tiêu nhau) — nếu lệch thì DỪNG, báo để soát tay, không xóa mù. */
+function whCleanupReversalPairsRun(){
+  if(!(canManageStock()||isAdmin())){ toast('Chỉ thủ kho/admin dọn được','bad'); return; }
+  const all=InventoryService.stockDocs();
+  const r=whCleanupReversalPairs(all);
+  if(!r.removeIds.length){ toast('Không còn cặp phiếu đảo nào','good'); return; }
+  if(r.qtyDelta!==0){
+    alert('DỪNG — '+r.pairs+' cặp phiếu đảo nhưng hai vế KHÔNG triệt tiêu nhau (lệch '+r.qtyDelta+').\n'
+      +'Xóa sẽ làm đổi tồn. Soát tay trước khi dọn.');
+    return;
   }
-  return {ok:true, cancelDocs:g.pending};
+  if(!confirm('Dọn '+r.pairs+' cặp phiếu đảo cũ ('+r.removeIds.length+' phiếu)?\n'
+    +'Hai vế triệt tiêu nhau nên TỒN KHÔNG ĐỔI — chỉ sổ gọn lại.\nXóa vĩnh viễn, có ghi nhật ký.')) return;
+  S.stockDocs = all.filter(d=>r.removeIds.indexOf(d.id)<0);
+  r.removeIds.forEach(id=>{ try{ if(typeof markDeleted==='function') markDeleted(id,'stockDocs'); }catch(e){} });
+  try{ logAuditEvent('stock_reversal_pairs_cleanup',{pairs:r.pairs, docs:r.removeIds.length}); }catch(e){}
+  saveState();
+  toast('✓ Đã dọn '+r.pairs+' cặp phiếu đảo — tồn không đổi','good');
+  openStockDocs();
+}
+function whCleanupReversalPairs(stockDocs){
+  const docs=stockDocs||[];
+  const removeIds=[]; let pairs=0, qtyDelta=0;
+  const sign=(t)=>(t==='IN'||t==='TRANSFER_IN'||t==='ADJUST_IN'||t==='OPENING')?1
+                 :((t==='OUT'||t==='TRANSFER_OUT'||t==='ADJUST_OUT')?-1:0);
+  docs.forEach(d=>{
+    if(!d) return;
+    if(d.reversedById || d.reversalOfId){
+      if(removeIds.indexOf(d.id)<0) removeIds.push(d.id);
+      if(d.reversedById) pairs++;
+      if(d.status==='confirmed'){
+        const sg=sign(d.type);
+        (d.lines||[]).forEach(l=>{ qtyDelta+=sg*(+l.qty||0); });
+      }
+    }
+  });
+  return {removeIds, pairs, qtyDelta:Math.round(qtyDelta*1000)/1000};
 }
 function whApEditGuard(before, after, stockDocs){
   const apId=(after&&after.id)||(before&&before.id);
@@ -67785,65 +67853,11 @@ function whCanTransition(doc, toStatus){
   if(allowed.indexOf(toStatus)<0) return {ok:false, reason:`Không thể chuyển từ '${from}' sang '${toStatus}'`};
   return {ok:true};
 }
-const STOCK_REVERSE_TYPE={ IN:'OUT', OUT:'IN', TRANSFER_IN:'TRANSFER_OUT', TRANSFER_OUT:'TRANSFER_IN', ADJUST_IN:'ADJUST_OUT', ADJUST_OUT:'ADJUST_IN', OPENING:'ADJUST_OUT' };
-// RBAC thuần: ai được đảo phiếu này.
-function whCanReverseDoc(doc, canManage){
-  if(!doc) return {ok:false, reason:'Không tìm thấy chứng từ'};
-  if(doc.status!=='confirmed') return {ok:false, reason:'Chỉ đảo được phiếu đã xác nhận'};
-  if(doc.reversedById) return {ok:false, reason:'Phiếu này đã được đảo trước đó'};
-  if(doc.reversalOfId) return {ok:false, reason:'Không đảo phiếu đảo — nếu đảo nhầm, tạo phiếu mới bình thường'};
-  if(!canManage) return {ok:false, reason:'Chỉ thủ kho/admin được đảo phiếu'};
-  return {ok:true};
-}
 // Logic thuần: dựng phiếu đối ứng từ phiếu gốc. KHÔNG đổi status/lines phiếu gốc.
-// KHÔNG copy landedCosts (tránh tính trùng chi phí phát sinh khi đảo).
-function whBuildReversalDoc(doc, reason, by, genDocNo){
-  const revType=STOCK_REVERSE_TYPE[doc.type];
-  if(!revType) throw new Error('Loại chứng từ không hỗ trợ đảo: '+doc.type);
-  const now=new Date().toISOString();
-  const lines=(doc.lines||[]).map(l=>({code:l.code, name:l.name, unit:l.unit, qty:l.qty}));
-  const rev={ id:uid(), docNo:(genDocNo||stockGenDocNo)(revType), type:revType, date:now.slice(0,10),
-    warehouseId:doc.warehouseId, apId:'', costObject:doc.costObject||null, lines,
-    deliveredBy:doc.receivedBy||'', receivedBy:doc.deliveredBy||'',
-    note:'Đảo phiếu '+(doc.docNo||doc.id)+(reason?(' — Lý do: '+reason):''),
-    status:'confirmed', createdBy:by, createdAt:now, confirmedBy:by, confirmedAt:now,
-    reversalOfId:doc.id, transferId:doc.transferId||'', pairWarehouseId:doc.pairWarehouseId||'' };
-  return rev;
-}
-function stockReverseDoc(id, reason){
-  const d=InventoryService.stockDocById(id);
-  const can=whCanReverseDoc(d, canManageStock()||isAdmin());
-  if(!can.ok){ toast(can.reason,'bad'); return; }
-  if(!reason||!reason.trim()){ toast('Phải nhập lý do đảo phiếu','bad'); return; }
-  const by=actorName(); const now=new Date().toISOString(); const rs=reason.trim();
-  // Điều chuyển = CẶP phiếu (transferId) → phải đảo CẢ HAI VẾ, nếu không tổng tồn hệ thống lệch.
-  const targets=[d]; let droppedPending='';
-  if(d.transferId){
-    const pair=InventoryService.stockDocs().find(x=>x.transferId===d.transferId && x.id!==d.id && !x.reversedById);
-    if(pair&&pair.status==='confirmed') targets.push(pair);
-    else if(pair&&pair.status==='pending'){
-      /* v3.15.58 N5: vế IN còn chờ tàu xác nhận → hủy thẳng vế pending (chưa cộng tồn),
-         chỉ đảo vế OUT — không để phiếu chờ mồ côi. */
-      droppedPending=pair.docNo||pair.id;
-      InventoryService.removeStockDoc(pair.id);
-    }
-  }
-  const made=[];
-  targets.forEach(t=>{
-    const rev=whBuildReversalDoc(t, rs, by);
-    InventoryService.addStockDoc(rev);
-    t.reversedById=rev.id; t.reversedAt=now; t.reversedBy=by; t.reverseReason=rs;
-    try{ touchRecord(t); }catch(e){}
-    made.push({from:t.docNo, to:rev.docNo});
-  });
-  try{ logAuditEvent('stock_reverse',{docs:made, reason:rs, pair:targets.length>1}); }catch(e){}
-  saveState();
-  toast('✓ Đã đảo '+made.map(m=>m.from).join(' + ')+(targets.length>1?' (cả cặp điều chuyển)':'')+(droppedPending?(' · đã hủy vế chờ '+droppedPending):''),'good');
-  openStockDocs();
-}
 /* ============================================================================
  * v3.16.15 (Sếp chốt 16/8): XÓA HẲN phiếu kho nạp sai — chỉ khi CHƯA BỊ THAM CHIẾU.
- * Nguyên tắc sổ bất biến vẫn giữ cho nghiệp vụ thật (đảo phiếu). Nhưng phiếu NẠP SAI NGÀY chưa
+ * v3.16.16: cơ chế ĐẢO PHIẾU đã bị BỎ HẲN theo lệnh Sếp. Sửa sai còn hai đường: xóa hẳn phiếu
+ * chưa bị tham chiếu, hoặc KIỂM KÊ để đưa tồn về thực tế. Phiếu NẠP SAI NGÀY chưa
  * phát sinh gì mà bắt đảo thì sổ có 3 phiếu cho một lô hàng, và với FIFO còn đẻ lô rác.
  * Điều kiện xóa (Sếp: "mọi phiếu chưa bị phiếu khác tham chiếu"):
  *   · không bị đảo, không phải phiếu đảo của phiếu khác
@@ -67852,38 +67866,35 @@ function stockReverseDoc(id, reason){
  *   · XÓA XONG TỒN KHÔNG ÂM — tức hàng của phiếu này CHƯA bị xuất đi
  * Xóa là xóa thật: ghi bia mộ (markDeleted) để không sống lại từ cloud, ghi nhật ký ai xóa.
  * ========================================================================== */
-function whCanDeleteDoc(doc, allDocs, payables){
-  if(!doc) return {ok:false, reason:'Không tìm thấy phiếu'};
-  if(doc.reversedById) return {ok:false, reason:'Phiếu đã bị đảo — không xóa, xem phiếu đảo'};
-  if(doc.reversalOfId) return {ok:false, reason:'Đây là phiếu đảo của phiếu khác — không xóa'};
-  if(doc.apId) return {ok:false, reason:'Phiếu gắn hóa đơn — gỡ ở hóa đơn trước'};
-  if(doc.countId || doc.adjustInId || doc.adjustOutId) return {ok:false, reason:'Phiếu sinh từ kiểm kê — xử ở phiếu kiểm kê'};
-  if(doc.transferId) return {ok:false, reason:'Một vế của cặp điều chuyển — phải xử cả cặp bằng Đảo phiếu'};
-  if(doc.status!=='confirmed') return {ok:true};      // phiếu chờ chưa cộng tồn
-  /* Kiểm tồn sau khi xóa: nếu hàng của phiếu này đã bị xuất đi thì xóa sẽ làm tồn ÂM */
-  const whId=doc.warehouseId;
-  const after={};
-  (allDocs||[]).forEach(d=>{
-    if(!d || d.id===doc.id || d.warehouseId!==whId || d.status!=='confirmed' || d.reversedById) return;
-    const sg=_stockSign(d.type); if(!sg) return;
-    (d.lines||[]).forEach(l=>{ const c=String(l.code||''); if(!c) return; after[c]=(after[c]||0)+sg*(+l.qty||0); });
-  });
-  const bad=[];
-  (doc.lines||[]).forEach(l=>{
-    const c=String(l.code||''); if(!c) return;
-    if((after[c]||0) < -0.0001 && bad.indexOf(c)<0) bad.push(c);
-  });
-  if(bad.length) return {ok:false,
-    reason:'Hàng của phiếu này đã bị xuất đi — xóa sẽ làm tồn ÂM ở '+bad.length+' mã ('+bad.slice(0,3).join(', ')+(bad.length>3?'…':'')+'). Dùng Đảo phiếu.'};
-  return {ok:true};
+function whDeleteWarnings(doc, allDocs){
+  /* v3.16.17 (Sếp: "tạo nút xóa rồi thì tôi sẽ xóa = tay từng lệnh"): KHÔNG chặn nữa.
+     Hàm chỉ nêu HỆ QUẢ để hộp xác nhận nói thật trước khi xóa — quyết định là của người dùng. */
+  const w=[];
+  if(!doc) return w;
+  if(doc.apId) w.push('Phiếu gắn hóa đơn — nên xóa từ hóa đơn để mọi liên kết được dọn cùng lúc');
+  if(doc.countId || doc.adjustInId || doc.adjustOutId) w.push('Phiếu sinh từ kiểm kê — phiếu kiểm kê sẽ mất phần đối ứng');
+  if(doc.transferId) w.push('Một vế của cặp điều chuyển — xóa lẻ sẽ làm LỆCH tổng tồn hệ thống, nên xóa cả hai vế');
+  if(doc.status==='confirmed'){
+    const whId=doc.warehouseId, after={};
+    (allDocs||[]).forEach(d=>{
+      if(!d || d.id===doc.id || d.warehouseId!==whId || d.status!=='confirmed') return;
+      const sg=_stockSign(d.type); if(!sg) return;
+      (d.lines||[]).forEach(l=>{ const c=String(l.code||''); if(!c) return; after[c]=(after[c]||0)+sg*(+l.qty||0); });
+    });
+    const bad=[];
+    (doc.lines||[]).forEach(l=>{ const c=String(l.code||''); if(c && (after[c]||0)<-0.0001 && bad.indexOf(c)<0) bad.push(c); });
+    if(bad.length) w.push('Hàng đã bị xuất đi — sau khi xóa, '+bad.length+' mã sẽ TỒN ÂM ('+bad.slice(0,3).join(', ')+(bad.length>3?'…':'')+')');
+  }
+  return w;
 }
 function whDeleteDocHard(id, reason){
   if(!(canManageStock()||isAdmin())){ toast('Chỉ thủ kho/admin xóa được phiếu kho','bad'); return false; }
   const all=InventoryService.stockDocs();
   const d=all.find(x=>x && x.id===id);
-  const chk=whCanDeleteDoc(d, all, (typeof AccountingService!=='undefined')?AccountingService.payables():[]);
-  if(!chk.ok){ toast('🔒 '+chk.reason,'bad'); return false; }
-  const info={docNo:d.docNo, type:d.type, warehouse:_whName(d.warehouseId), date:d.date, lines:(d.lines||[]).length};
+  if(!d){ toast('Không tìm thấy phiếu','bad'); return false; }
+  const warns=whDeleteWarnings(d, all);      // v3.16.17: cảnh báo, KHÔNG chặn
+  const info={docNo:d.docNo, type:d.type, warehouse:_whName(d.warehouseId), date:d.date,
+              lines:(d.lines||[]).length, warnings:warns};
   S.stockDocs = all.filter(x=>x.id!==id);
   try{ if(typeof markDeleted==='function') markDeleted(id,'stockDocs'); }catch(e){}
   try{ logAuditEvent('stock_doc_hard_delete', Object.assign({reason:reason||''}, info)); }catch(e){}
@@ -67893,23 +67904,16 @@ function whDeleteDocHard(id, reason){
 }
 function whDeleteDocPrompt(id){
   const d=InventoryService.stockDocById(id); if(!d){ toast('Không tìm thấy phiếu','bad'); return; }
-  const chk=whCanDeleteDoc(d, InventoryService.stockDocs(), (typeof AccountingService!=='undefined')?AccountingService.payables():[]);
-  if(!chk.ok){ alert('KHÔNG xóa được phiếu '+(d.docNo||'')+'\n\n'+chk.reason); return; }
+  const warns=whDeleteWarnings(d, InventoryService.stockDocs());
   const msg='XÓA HẲN phiếu '+(d.docNo||'')+'\n'
+    +(warns.length?('\n⚠ '+warns.join('\n⚠ ')+'\n'):'')
     +'Kho: '+_whName(d.warehouseId)+' · Ngày: '+(d.date||'')+' · '+((d.lines||[]).length)+' dòng\n\n'
-    +'Phiếu bị xóa VĨNH VIỄN khỏi sổ (khác Đảo phiếu — đảo thì giữ lại vết).\n'
+    +'Phiếu bị xóa VĨNH VIỄN khỏi sổ. Nhật ký ghi lại ai xóa và lý do.\n'
     +'Chỉ dùng cho phiếu NẠP SAI chưa phát sinh nghiệp vụ.\n\nNhập lý do để xác nhận:';
   const reason=prompt(msg);
   if(reason===null) return;
   if(!String(reason).trim()){ toast('Phải nêu lý do xóa','warn'); return; }
   if(whDeleteDocHard(id, reason)){ openStockDocs(); }
-}
-function _stockReversePrompt(id){
-  const d=InventoryService.stockDocById(id); if(!d) return;
-  const isXfer=!!d.transferId;
-  const reason=prompt('Lý do đảo phiếu '+(d.docNo||'')+(isXfer?' (điều chuyển — sẽ đảo CẢ 2 vế của cặp)':'')+':');
-  if(reason===null) return; // hủy
-  stockReverseDoc(id, reason);
 }
 
 /* ============================================================================
@@ -68736,7 +68740,7 @@ function openVesselWarehouseReport(){
  * tempCode). Thủ kho check & đổi mã KỂ CẢ trên phiếu đã confirmed — an toàn vì tồn
  * luôn derive từ chứng từ: đổi code trên dòng = tồn mã cũ giảm, mã mới tăng, tự khớp
  * ở MỌI nơi hiển thị (kể cả màn của tàu). Đường tắt này CHỈ dành cho dòng còn cờ mã
- * tạm; hết cờ → phiếu bất biến như thường, mọi sửa đổi khác phải qua Đảo phiếu.
+ * tạm; hết cờ → phiếu bất biến như thường, mọi sửa đổi khác phải qua xóa phiếu hoặc Kiểm kê.
  * ============================================================================ */
 function whCollectTempCodes(docs, materials){
   const byCode={};
