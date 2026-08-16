@@ -3784,7 +3784,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.15.76';
+const APP_VERSION='3.15.77';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -67121,15 +67121,33 @@ function whParseOpeningRows(aoa){
     }
   }
   if(hRow<0){ errors.push({row:0,msg:'Không tìm thấy dòng tiêu đề (cần cột "Mã" và "Số lượng/Tồn")'}); return {items,errors,col}; }
-  if(col.wh<0){ errors.push({row:hRow+1,msg:'Thiếu cột "Kho/Chi nhánh" — file tồn đầu phải ghi rõ tồn thuộc kho nào'}); return {items,errors,col}; }
+  /* v3.15.77 (file thật Sếp gửi 15/8 — "Báo cáo nhập xuất tồn theo kho" xuất từ FAST):
+     khuôn này KHÔNG có cột Kho; tên kho nằm ở DÒNG NHÓM phía trên khối vật tư của nó
+     (cột mã = mã kho 'GS', cột tên = 'Kho Tàu GEO SUPPORTER', không có Stt).
+     → Không còn bắt buộc cột Kho: thiếu cột thì chuyển sang chế độ đọc dòng nhóm.
+     Số lấy là cột "Tồn cuối" (số thực có tại thời điểm báo cáo), không phải "Tồn đầu". */
+  const groupMode = (col.wh<0);
+  const stt = groupMode ? (aoa[hRow]||[]).findIndex(c=>/^stt$/.test(norm(c))) : -1;
+  const FOOT=/^(ke toan truong|nguoi lap|giam doc|thu kho|\(ky, ho ten\)|ngay|tong cong|tong)/;
+  let curWh='';
   const seen={};
   for(let r=hRow+1;r<aoa.length;r++){
     const row=aoa[r]||[];
     const code=String(row[col.code]||'').trim();
+    if(groupMode){
+      /* dòng nhóm kho: không có Stt nhưng có mã + tên → đổi kho hiện hành, không phải vật tư */
+      const hasStt = stt>=0 && String(row[stt]||'').trim()!=='' && isFinite(+row[stt]);
+      const nm=String(row[col.name>=0?col.name:-1]||'').trim();
+      if(!hasStt){
+        if(code && nm && !FOOT.test(norm(nm)) && !FOOT.test(norm(code))){ curWh=nm||code; }
+        continue;   // dòng nhóm / trống / ký tên → không tính là vật tư
+      }
+    }
     if(!code) continue; // dòng trống/trang trí
+    if(FOOT.test(norm(code))) continue;
     const qty=+String(row[col.qty]||'').replace(/[, ]/g,'')||0;
-    const whKey=String(row[col.wh]||'').trim();
-    if(!whKey){ errors.push({row:r+1,msg:'Dòng "'+code+'" thiếu tên kho'}); continue; }
+    const whKey=groupMode?curWh:String(row[col.wh]||'').trim();
+    if(!whKey){ errors.push({row:r+1,msg:'Dòng "'+code+'" chưa xác định được kho'}); continue; }
     if(qty<0){ errors.push({row:r+1,msg:'Dòng "'+code+'" số lượng âm'}); continue; }
     if(qty===0) continue; // tồn 0 không cần ghi
     const k=code+'|'+norm(whKey);

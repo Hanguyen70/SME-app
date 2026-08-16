@@ -1,5 +1,5 @@
 {
-  "version": "3.15.76",
-  "swVersion": "v3.15.76",
-  "notes": "v3.15.76 (Sếp 15/8: không tìm thấy chỗ để import): Nút Nhập tồn đầu kỳ trước đây nằm trong Chứng từ kho rồi mới tới nhóm Khác, tức ba cú bấm cho một việc dựng nền cả sổ kho — nay đưa thẳng ra thanh Thao tác kho của trang Kho vật tư, lối cũ vẫn giữ. Quyền không đổi, chỉ thủ kho và admin nạp được. Trong màn import bổ sung nút Tải file mẫu: app tự sinh file Excel đúng bảy cột mà nó đọc được, kèm một sheet liệt kê tên kho lấy từ danh mục thật của máy để copy sang cột Kho — hết cảnh gõ tay tên kho rồi bị báo chưa khớp. Nền v3.15.75 giữ nguyên."
+  "version": "3.15.77",
+  "swVersion": "v3.15.77",
+  "notes": "v3.15.77 (file thật Sếp gửi 15/8 — Báo cáo nhập xuất tồn theo kho, xuất từ FAST): App nay đọc thẳng được khuôn báo cáo này, không cần chuyển đổi tay. Khác biệt của khuôn FAST là không có cột Kho, tên kho nằm ở dòng nhóm phía trên khối vật tư của nó, nên bản cũ từ chối cả file. Nay app tự bật chế độ đọc dòng nhóm khi thiếu cột Kho, và các dòng vật tư phía dưới được gán về đúng kho đó; một mã xuất hiện ở hai kho vẫn giữ số riêng. App cũng bỏ qua các dòng ký tên chân trang, lấy số ở cột Tồn cuối chứ không phải Tồn đầu, bỏ dòng tồn bằng không và báo lỗi dòng tồn âm để sửa lại ở FAST. Đã chạy thử trên chính file của Sếp: nhận 1.879 mã, tổng số lượng 11.515,8, đúng một lỗi là dòng tồn âm hai mét vuông. Tên kho trong file ghi Kho Tàu GEO SUPPORTER trong khi danh mục app là Kho tàu GEOSUPORTER, chỗ này màn xem trước đã có sẵn ô chọn kho đích để ánh xạ. Nền v3.15.76 giữ nguyên."
 }
