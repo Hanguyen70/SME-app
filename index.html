@@ -3804,7 +3804,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.15.96';
+const APP_VERSION='3.16.00';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -63982,6 +63982,55 @@ function _whKeeperCount(whId){
 function _whStoreAcc(whId){
   try{ const cfg=getAuthConfig(); return (cfg.users||[]).find(u=>u&&u.linkWarehouseId===whId)||null; }catch(e){ return null; }
 }
+/* ============================================================================
+ * v3.15.99 (Sếp 16/8): GIÁ TRỊ TỒN LIÊN KẾT THẲNG VỚI SỔ CHỨNG TỪ.
+ * Trước đây cột "Giá trị tồn hiện tại" ở Danh sách kho đọc từ invMovements — bảng nhập-xuất-tồn
+ * NHẬP TAY theo tháng của cơ chế cũ, tách rời sổ chứng từ. Hệ quả: xuất/nhập kho bao nhiêu con số
+ * cũng đứng yên. Nay tính thẳng từ sổ: giá vốn bình quân gia quyền của các phiếu NHẬP có giá,
+ * nhân với tồn hiện tại. Xuất kho là giá trị giảm ngay trong cùng lần dựng bảng.
+ * ========================================================================== */
+function whAvgCostByCode(stockDocs, whId){
+  const agg={};
+  (stockDocs||[]).forEach(d=>{
+    if(!d || d.warehouseId!==whId || d.status!=='confirmed' || d.reversedById) return;
+    const t=d.type;
+    if(t!=='IN' && t!=='TRANSFER_IN' && t!=='ADJUST_IN' && t!=='OPENING') return;   // giá vốn chỉ từ phiếu NHẬP
+    (d.lines||[]).forEach(l=>{
+      const p=+l.price||0, q=+l.qty||0;
+      if(p<=0 || q<=0) return;                 // dòng không có giá thì không kéo bình quân xuống
+      const k=String(l.code);
+      if(!agg[k]) agg[k]={v:0, q:0};
+      agg[k].v+=p*q; agg[k].q+=q;
+    });
+  });
+  const out={};
+  Object.keys(agg).forEach(k=>{ if(agg[k].q>0) out[k]=Math.round((agg[k].v/agg[k].q)*100)/100; });
+  return out;
+}
+/* Giá trị tồn của một kho + đếm mã chưa có giá vốn (để không lặng lẽ coi như 0đ) */
+function whWarehouseStockValue(stockDocs, whId){
+  /* tự cộng tồn từ CHÍNH danh sách chứng từ truyền vào — hàm thuần, không phụ thuộc trạng thái ngoài */
+  const st={};
+  (stockDocs||[]).forEach(d=>{
+    if(!d || d.warehouseId!==whId || d.status!=='confirmed' || d.reversedById) return;
+    const sg=_stockSign(d.type); if(!sg) return;
+    (d.lines||[]).forEach(l=>{
+      const k=String(l.code);
+      if(!st[k]) st[k]={code:l.code, qty:0};
+      st[k].qty += sg*(+l.qty||0);
+    });
+  });
+  const cost=whAvgCostByCode(stockDocs, whId);
+  let value=0, lines=0, priced=0, unpriced=0;
+  Object.keys(st).forEach(code=>{
+    const q=+st[code].qty||0;
+    if(q===0) return;
+    lines++;
+    const c=cost[code];
+    if(c>0){ value+=q*c; priced++; } else unpriced++;
+  });
+  return {value:Math.round(value), lines, priced, unpriced};
+}
 function renderWarehousesTable(){
   try{ _whMigrateVesselTech(); }catch(e){}   // v3.15.85: kho kỹ thuật gắn tàu (loại cũ) → kho vật tư kỹ thuật độc lập
   const tbl=document.getElementById('warehouses-table');
@@ -64014,8 +64063,17 @@ function renderWarehousesTable(){
     const t=WH_TYPES[w.type]||WH_TYPES.OTHER;
     const v=w.vesselId?VesselService.vessels().find(x=>x.id===w.vesselId):null;
     const locTxt=v?`⛵ ${esc(v.name)}`:(w.location||'—');
-    const movCount=InventoryService.invMovements().filter(m=>m.warehouseId===w.id).length;
-    const curVal=whCurrentValue(w.id);
+    /* v3.15.99 (Sếp: "số tiền phải biến động ngay khi xuất nhập kho"):
+       Kho đã chạy sổ chứng từ → lấy số TỪ SỔ. Kho chưa có chứng từ nào → giữ số cũ từ bảng
+       nhập tay và ĐÁNH DẤU rõ, để không ai tưởng số cũ là số sống. */
+    const _docs=InventoryService.stockDocs();
+    const _hasLedger=_docs.some(d=>d && d.warehouseId===w.id && d.status==='confirmed');
+    const _sv=_hasLedger?whWarehouseStockValue(_docs, w.id):null;
+    const movCount=_hasLedger?_sv.lines:InventoryService.invMovements().filter(m=>m.warehouseId===w.id).length;
+    const curVal=_hasLedger?_sv.value:whCurrentValue(w.id);
+    const _valNote=_hasLedger
+      ? (_sv.unpriced? ` <span class="ds-need" data-dot="warn" style="font-size:10px" title="${_sv.unpriced} mã còn tồn nhưng chưa có giá vốn (phiếu nhập chưa ghi đơn giá) — chưa được tính vào giá trị">${_sv.unpriced} mã chưa có giá</span>`:'')
+      : ' <span class="ds-need" style="font-size:10px" title="Kho chưa có chứng từ nào — số này lấy từ bảng nhập-xuất-tồn nhập tay theo tháng, KHÔNG tự đổi khi xuất nhập kho">số liệu cũ (nhập tay)</span>';
     html+=`<tr>
       <td class="ds-t-sub" style="font-family:var(--font-mono)"><b>${esc(w.code||'')}</b></td>
       <td>${esc(w.name)}${w._autoSeeded?' <span class="ds-need" style="font-size:10px;background:var(--paper-3)">tự sinh</span>':''}</td>
@@ -64023,7 +64081,7 @@ function renderWarehousesTable(){
       <td>${locTxt}</td>
       <td class="c">${w.isActive===false?'<span class="ds-need" data-dot="bad" style="font-size:10px">Đóng</span>':'<span class="ds-need" data-dot="good" style="font-size:10px">Hoạt động</span>'}</td>
       <td class="r mono">${movCount}</td>
-      <td class="r mono" style="font-weight:600;color:var(--accent)">${curVal>0?fmt(curVal):'—'}</td>
+      <td class="r mono" style="font-weight:600;color:var(--accent)">${curVal>0?fmt(curVal):'—'}${_valNote}</td>
       ${_whCanEdit?`<td><div class="row-actions">
         ${/* v3.15.87 (Sếp chốt lại): kho kỹ thuật do NHÂN VIÊN phụ trách — cấp quyền ở màn phân quyền NV
              (mục "Kho phụ trách"), không tạo tài khoản dùng chung như tài khoản tàu. */''}
@@ -65964,6 +66022,14 @@ function openStockDocs(){
   if(_stockFilter.type) list=list.filter(d=>d.type===_stockFilter.type);
   if(_stockFilter.wh) list=list.filter(d=>d.warehouseId===_stockFilter.wh);
   list.sort((a,b)=>String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
+  /* v3.16.00 (Sếp phát hiện qua ảnh: mã SUR.* có số giống hệt ở hai kho): cảnh báo lô TỒN ĐẦU KỲ
+     bị nạp trùng sang kho khác — thường do chọn nhầm kho đích rồi nạp lại lần nữa. */
+  const _dupOp=whFindDuplicateOpenings(stockDocList());
+  const _dupBanner=_dupOp.length?`<div style="margin-bottom:8px;padding:8px 10px;border-radius:6px;background:rgba(192,57,43,.08);color:var(--bad);font-size:12px">
+      ⚠ <b>Phát hiện ${_dupOp.length} lô tồn đầu kỳ nạp TRÙNG sang hai kho khác nhau</b> — cùng mã, cùng số lượng:
+      ${_dupOp.slice(0,3).map(x=>`<div style="margin-top:4px">• ${x.docs.map(d=>`<b>${esc(d.docNo||d.id)}</b> → ${esc(_whName(d.warehouseId))}`).join(' &nbsp;và&nbsp; ')} (${x.sameLines} dòng giống nhau)</div>`).join('')}
+      <div style="margin-top:4px;font-size:11px">Giữ phiếu ở kho ĐÚNG, ĐẢO phiếu ở kho sai bằng nút ↩ trên dòng phiếu — tồn sẽ trả về đúng.</div>
+    </div>`:'';
   const whOpts=['<option value="">— Mọi kho —</option>'].concat(allowed.map(w=>`<option value="${w.id}" ${_stockFilter.wh===w.id?'selected':''}>${esc(w.name)}</option>`)).join('');
   const rows=list.length? list.map(d=>{
     const nLines=(d.lines||[]).length, totQty=(d.lines||[]).reduce((s,l)=>s+(+l.qty||0),0);
@@ -66016,7 +66082,7 @@ function openStockDocs(){
     <div class="tbl-scroll" style="max-height:440px"><table style="width:100%;border-collapse:collapse;font-size:13px;border:1px solid var(--rule)">
       <thead><tr style="background:var(--rule);text-align:left"><th style="padding:6px 8px">Số CT</th><th style="padding:6px 8px;text-align:center">Loại</th><th style="padding:6px 8px">Ngày</th><th style="padding:6px 8px">Kho</th><th style="padding:6px 8px">Dòng</th><th style="padding:6px 8px">TT</th><th style="padding:6px 8px"></th></tr></thead>
       <tbody>${rows}</tbody></table></div>`;
-  openModal(isVA?'📦 Kho vật tư của tàu':'📦 Chứng từ kho (Nhập / Xuất)', body, `<button class="btn-ghost" onclick="closeModal()">Đóng</button>`);
+  openModal(isVA?'📦 Kho vật tư của tàu':'📦 Chứng từ kho (Nhập / Xuất)', _dupBanner+body, `<button class="btn-ghost" onclick="closeModal()">Đóng</button>`);
 }
 function _stockApply(){ _stockFilter={type:(document.getElementById('sd-ftype')||{}).value||'',wh:(document.getElementById('sd-fwh')||{}).value||''}; openStockDocs(); }
 /* v3.15.60 (Sếp 15/8 — ảnh test: 11 nút xếp 3 hàng, dropdown lọc kho che mất nút):
@@ -67444,7 +67510,7 @@ function whIsStoreAccount(){ return !!(CURRENT_USER && (CURRENT_USER.isStoreAcco
 function whIsSiteSideUser(){ return !!(whIsVesselSideUser() || whIsStoreAccount()); }
 function whMySiteWarehouse(){
   /* v3.15.92: NV phụ trách nhiều kho → kho đang chọn từ Danh mục kho được ưu tiên */
-  if(window._siteWhOverride){
+  if(typeof window!=='undefined' && window._siteWhOverride){
     const w=InventoryService.warehouses().find(x=>x.id===window._siteWhOverride && x.isActive!==false);
     if(w && (isAdmin() || stockCanAccessWarehouse(w.id))) return w;
   }
@@ -67860,6 +67926,39 @@ function whDeptOptionsOf(rows){
   });
   return Object.values(c).sort((a,b)=>b.count-a.count);
 }
+/* v3.16.00 (Sếp 16/8, ảnh màn GEOMARINE): nhãn cột trước đây cắt cứng 6 ký tự nên
+   KHO-GEOMARINE và KHO-GEOSUPORTER cùng ra "KHO-GE", hai kho SEAHORSE cùng ra "KHO-SE"
+   → nhìn bảng không biết kho nào ra kho nào. Nhãn mới bỏ tiền tố KHO-, lấy phần ĐẶC TRƯNG. */
+function whWhShortLabel(w){
+  if(!w) return '';
+  let t=String(w.code||w.name||'').toUpperCase().replace(/^KHO[\s\-_]*/,'').replace(/^TAU[\s\-_]*/,'');
+  t=t.replace(/^SEAHORSE[\s\-_]*/,'SH-');
+  if(t.length>12) t=t.slice(0,12);
+  return t||String(w.name||'').slice(0,12);
+}
+/* v3.16.00: soi lô TỒN ĐẦU KỲ bị nạp trùng sang kho khác — dấu hiệu là hai phiếu OPENING
+   còn hiệu lực ở HAI KHO khác nhau mà trùng nhiều dòng (cùng mã + cùng số lượng).
+   Đây đúng thứ Sếp nhìn thấy: mã SUR.* có số giống hệt ở cả kho kỹ thuật lẫn kho tàu. */
+function whFindDuplicateOpenings(stockDocs){
+  const ops=(stockDocs||[]).filter(d=>d && d.type==='OPENING' && d.status==='confirmed' && !d.reversedById);
+  const out=[];
+  for(let i=0;i<ops.length;i++){
+    for(let j=i+1;j<ops.length;j++){
+      const a=ops[i], b=ops[j];
+      if(a.warehouseId===b.warehouseId) continue;          // cùng kho thì không phải nạp nhầm kho
+      const mb={}; (b.lines||[]).forEach(l=>{ mb[String(l.code)]=+l.qty||0; });
+      let same=0;
+      (a.lines||[]).forEach(l=>{ if(mb[String(l.code)]===(+l.qty||0)) same++; });
+      const minLines=Math.min((a.lines||[]).length,(b.lines||[]).length);
+      /* ngưỡng: ≥80% số dòng và ít nhất 2 dòng — đủ chặt để không báo nhầm hai kho tình cờ
+         có vài mã giống nhau, đủ nhạy để bắt lô nạp nhầm dù người dùng đã sửa vài dòng */
+      if(minLines>0 && same>=Math.max(2, Math.floor(minLines*0.8))){
+        out.push({sameLines:same, docs:[a,b]});
+      }
+    }
+  }
+  return out;
+}
 function whStockMatrixAll(warehouses, byWh, myWhId, query){
   /* v3.15.95 (Sếp: "vật tư cùng chủng loại không lọc cùng — không biết đang nằm ở kho nào"):
      GỐC của vấn đề là mã vật tư MANG TIỀN TỐ KHO, nên cùng một món ở hai kho là hai mã khác
@@ -67943,8 +68042,12 @@ function _vsSelFrom(code, v){ if(_vsSel[code]) _vsSel[code].fromWh=v||''; }
  * Bỏ hai nút dẫn đi màn khác (Tồn kho · Đề xuất điều chuyển) theo đúng chỉ đạo.
  * ========================================================================== */
 function openVesselStockOverview(){
-  if(typeof whIsSiteSideUser==='function' && !whIsSiteSideUser()){
-    toast('Màn này dành cho tài khoản tàu hoặc NV được gán kho — bờ xem kho tàu qua Trung tâm quản lý tàu','warn'); return;
+  /* v3.15.97 (Sếp: bấm 🛠 ở Danh mục kho không mở được): admin/NV đã CHỌN kho ở Danh mục
+     (quyền đã kiểm tại whOpenSiteWorkspace) thì vào thẳng — trước đây bị cửa này chặn vì
+     admin không thuộc "phía tàu" cũng không được gán kho. */
+  const _picked=(typeof window!=='undefined') && window._siteWhOverride;
+  if(!_picked && typeof whIsSiteSideUser==='function' && !whIsSiteSideUser()){
+    toast('Màn này dành cho tài khoản tàu hoặc NV được gán kho — bờ vào qua Danh mục kho, nút 🛠','warn'); return;
   }
   const wh=whMySiteWarehouse();
   if(!wh){ toast('Tài khoản chưa gắn tàu hoặc kho phụ trách','bad'); return; }
@@ -67965,7 +68068,7 @@ function openVesselStockOverview(){
   const useOpts=(cur)=>VS_USE_FOR.map(u=>`<option value="${u[0]}" ${cur===u[0]?'selected':''}>${u[1]}</option>`).join('');
   const head=cols.map(w=>{
     const mine=w.id===wh.id;
-    return `<th style="padding:5px 4px;text-align:right;font-size:10px;white-space:nowrap${mine?';background:var(--rule);font-weight:700':''}" title="${esc(w.name)}">${mine?'⚓ ':''}${esc(String(w.code||w.name).slice(0,6))}</th>`;
+    return `<th style="padding:5px 4px;text-align:right;font-size:10px;white-space:nowrap${mine?';background:var(--rule);font-weight:700':''}" title="${esc(w.name)}">${mine?'⚓ ':''}${esc(whWhShortLabel(w))}</th>`;
   }).join('');
   const body=rows.length? rows.map(r=>{
     const sel=_vsSel[r.key];
@@ -67984,7 +68087,7 @@ function openVesselStockOverview(){
     const askCell = sel
       ? `<span style="white-space:nowrap"><input type="number" min="0" value="${sel.qty||''}" placeholder="SL" style="width:52px;padding:3px;text-align:right;border:1px solid #b8730a;border-radius:4px;font-size:11px" onchange="_vsSelQty('${esc(r.key)}',this.value)">
            <select style="font-size:10px;padding:2px;border:1px solid var(--rule);border-radius:4px" onchange="_vsSelFrom('${esc(r.key)}',this.value,${JSON.stringify(r.codes).replace(/"/g,'&quot;')})">
-             ${others.map(w=>`<option value="${w.id}" ${sel.fromWh===w.id?'selected':''}>${esc(String(w.code||w.name))} · ${esc(r.codes[w.id]||'')} (${whFmtQty(r.qty[w.id])})</option>`).join('')}
+             ${others.map(w=>`<option value="${w.id}" ${sel.fromWh===w.id?'selected':''}>${esc(whWhShortLabel(w))} · ${esc(r.codes[w.id]||'')} (${whFmtQty(r.qty[w.id])})</option>`).join('')}
            </select></span>`
       : (others.length? '<span style="font-size:11px;color:var(--muted)">tích để xin</span>' : '<span style="font-size:11px;color:var(--muted)">—</span>');
     return `<tr style="border-bottom:1px solid var(--rule)${sel?';background:rgba(184,115,10,.08)':''}">
@@ -68354,7 +68457,12 @@ function whParseOpeningRows(aoa){
     const iQty=cells.findIndex(c=>/so luong|ton kho|ton cuoi|^ton$|^sl$/.test(c));
     if(iCode>=0&&iQty>=0){
       hRow=r;
-      col={code:iCode, qty:iQty,
+      /* v3.15.99: báo cáo NXT của FAST có cặp cột "Số lượng | Giá trị" dưới mỗi khối
+         (Tồn đầu / Nhập / Xuất / Tồn cuối). Ô ngay bên phải cột số lượng là GIÁ TRỊ —
+         lấy để suy đơn giá, nhờ đó tồn có giá ngay từ lần nạp đầu. */
+      const _sub=(aoa[r+1]||[]).map(c=>norm(c));
+      const iVal=(/^gia tri$/.test(_sub[iQty+1]||'')||/^gia tri$/.test(cells[iQty+1]||'')) ? iQty+1 : -1;
+      col={code:iCode, qty:iQty, value:iVal,
         name:cells.findIndex(c=>/^ten( vat tu| vt| hang)?$/.test(c)||c==='ten'),
         unit:cells.findIndex(c=>/don vi|dvt/.test(c)),
         group:cells.findIndex(c=>/nhom 1|^nhom$|nhom vt/.test(c)),
@@ -68400,9 +68508,11 @@ function whParseOpeningRows(aoa){
       items[seen[k]].qty+=qty; continue;
     }
     seen[k]=items.length;
+    const _val=(col.value>=0)?(parseFloat(String(row[col.value]||'').toString().replace(/[^0-9.\-]/g,''))||0):0;
+    const _price=(_val>0 && qty>0)?Math.round((_val/qty)*100)/100:0;
     items.push({ code, name:String(row[col.name>=0?col.name:-1]||'').trim(), unit:String(row[col.unit>=0?col.unit:-1]||'').trim(),
       group:String(row[col.group>=0?col.group:-1]||'').trim(), group2:String(row[col.group2>=0?col.group2:-1]||'').trim(),
-      whKey, whCode:(groupMode?curWhCode:''), qty });
+      whKey, whCode:(groupMode?curWhCode:''), qty, value:_val, price:_price });
   }
   return {items, errors, col};
 }
@@ -68410,6 +68520,32 @@ function whParseOpeningRows(aoa){
    FAST ghi TÊN kho trên dòng nhóm ("Kho bộ phận khảo sát"), nếu app đặt tên khác thì trượt.
    Nay ghép theo THỨ TỰ TIN CẬY: (1) mã kho trên dòng nhóm · (2) tiền tố của mã vật tư ·
    (3) tên kho. Ba đường này độc lập nên chỉ cần MỘT cái trùng là khớp. */
+/* v3.15.97 (Sếp: nạp file kho kỹ thuật không lưu được):
+   Kho trong app đặt mã KHO-KYTHUAT / tên "KHO - VẬT TƯ KỸ THUẬT", còn FAST xuất mã kho SUR
+   / tên "Kho bộ phận khảo sát" — không đường nào khớp nên rơi vào nhóm chưa khớp.
+   Nay mỗi kho nhớ được các "tên gọi khác" (fastCodes): chọn kho đích một lần, lần sau tự khớp. */
+function whWarehouseAliases(w){
+  const out=[];
+  const push=(x)=>{ const n=whNormName(x||''); if(n && out.indexOf(n)<0) out.push(n); };
+  if(!w) return out;
+  push(w.code); push(w.name);
+  (w.fastCodes||[]).forEach(push);
+  return out;
+}
+function whRememberWhAlias(whId, alias){
+  try{
+    if(!whId || !alias) return;
+    const w=InventoryService.warehouses().find(x=>x.id===whId);
+    if(!w) return;
+    w.fastCodes=w.fastCodes||[];
+    const n=whNormName(alias);
+    if(!w.fastCodes.some(x=>whNormName(x)===n)){
+      w.fastCodes.push(String(alias));
+      try{ touchRecord(w); }catch(e){}
+      try{ logAuditEvent('warehouse_alias_add',{warehouse:w.name, alias}); }catch(e){}
+    }
+  }catch(e){ console.warn('[wh-alias]',e); }
+}
 function whMatchOpeningWarehouses(items, warehouses){
   const groups={}, unmatched={};
   const byCode={}, byName={};
@@ -68417,6 +68553,8 @@ function whMatchOpeningWarehouses(items, warehouses){
     if(w.isActive===false) return;
     const c=whNormName(w.code||''); if(c) byCode[c]=w.id;
     const n=whNormName(w.name||''); if(n) byName[n]=w.id;
+    /* v3.15.97: mọi tên gọi khác đã ghi nhớ đều dùng để khớp */
+    whWarehouseAliases(w).forEach(a=>{ if(!byCode[a]) byCode[a]=w.id; });
   });
   (items||[]).forEach(it=>{
     let id='';
@@ -68435,7 +68573,13 @@ function whBuildOpeningDoc(whId, its, date, by, genDocNo){
   const now=new Date().toISOString();
   return { id:uid(), docNo:(genDocNo||stockGenDocNo)('OPENING'), type:'OPENING', date:date||now.slice(0,10),
     warehouseId:whId, apId:'', costObject:null,
-    lines:its.map(it=>({code:it.code, name:it.name, unit:it.unit, qty:it.qty})),
+    /* v3.15.99: mang theo ĐƠN GIÁ suy từ cột Giá trị của file — nhờ đó giá trị tồn có ngay
+       từ lần nạp đầu, và biến động đúng khi xuất/nhập về sau. File không có giá thì bỏ trống. */
+    lines:its.map(it=>{
+      const l={code:it.code, name:it.name, unit:it.unit, qty:it.qty};
+      if(+it.price>0) l.price=+it.price;
+      return l;
+    }),
     deliveredBy:'', receivedBy:by, note:'Tồn đầu kỳ import từ Excel FAST',
     status:'confirmed', createdBy:by, createdAt:now, confirmedBy:by, confirmedAt:now,
     source:'opening_import' };
@@ -68497,7 +68641,7 @@ function _opImportFile(file){
       const uKeys=Object.keys(unmatched);
       const allWh=InventoryService.warehouses().filter(w=>w.isActive!==false);
       const uH=uKeys.map((k,i)=>`<div style="padding:6px 8px;border:1px dashed var(--warn);border-radius:6px;margin-bottom:4px;font-size:12px">
-          ❓ Kho trong file "<b>${esc(k)}</b>" (${unmatched[k].length} mã) chưa khớp — chọn kho đích:
+          ❓ Kho trong file: tên "<b>${esc(k)}</b>"${(unmatched[k][0]||{}).whCode?` · Mã kho <b>${esc(unmatched[k][0].whCode)}</b>`:''} (${unmatched[k].length} mã) — chưa khớp kho nào trong app. Chọn kho đích (app sẽ NHỚ cho lần sau):
           <select id="op-map-${i}" style="padding:4px;border:1px solid var(--rule);border-radius:6px;font-size:12px">
             <option value="">— Bỏ qua nhóm này —</option>
             ${allWh.map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}
@@ -68513,17 +68657,37 @@ function _opImportFile(file){
   reader.readAsArrayBuffer(file);
 }
 function _opImportCommit(){
-  const c=window._opCache; if(!c) return;
+  /* v3.15.98 (Sếp: "đã chọn đích thủ công" mà vẫn không lưu):
+     Trước đây dòng này thoát IM LẶNG khi mất dữ liệu xem trước — bấm nút không có gì xảy ra,
+     cũng không báo lỗi, nên không ai biết vì sao. Nay mọi lối thoát đều phải nói lý do. */
+  const c=window._opCache;
+  if(!c){ toast('Chưa có dữ liệu xem trước (có thể đã đóng/mở lại màn) — chọn lại file rồi ghi','bad'); return; }
   const by=actorName(), now=new Date().toISOString();
   const date=String((document.getElementById('op-date')||{}).value||now.slice(0,10));
   const groups={}; Object.keys(c.groups).forEach(id=>{ groups[id]=(groups[id]||[]).concat(c.groups[id]); });
+  const _missing=[];
   Object.keys(c.unmatched).forEach((k,i)=>{
     const sel=document.getElementById('op-map-'+i);
     const id=sel?String(sel.value||''):'';
-    if(id) groups[id]=(groups[id]||[]).concat(c.unmatched[k]);
+    if(!id) _missing.push(k);
+    if(id){
+      groups[id]=(groups[id]||[]).concat(c.unmatched[k]);
+      /* v3.15.97: chọn tay MỘT lần — nhớ luôn tên kho và mã kho trong file để lần sau tự khớp */
+      whRememberWhAlias(id, k);
+      const wc=(c.unmatched[k][0]||{}).whCode;
+      if(wc) whRememberWhAlias(id, wc);
+    }
   });
   const whIds=Object.keys(groups);
-  if(!whIds.length){ toast('Không có kho nào để ghi','bad'); return; }
+  if(!whIds.length){
+    toast(_missing.length
+      ? ('Chưa chọn kho đích cho: '+_missing.join(', ')+' — chọn kho ở ô bên cạnh nhóm đó rồi ghi lại')
+      : 'Không có kho nào để ghi','bad');
+    return;
+  }
+  if(_missing.length) toast('Bỏ qua nhóm chưa chọn kho đích: '+_missing.join(', '),'warn');
+  /* v3.15.98: bọc phần ghi — lỗi phải HIỆN RA kèm nội dung thật, không nuốt lặng lẽ. */
+  try{
   /* v3.15.82 (Sếp): bản sau CHỈ đổi dòng có điều chỉnh. Không đảo bản cũ, không ghi lại mã không đổi. */
   const known={}; InventoryService.materials().forEach(m=>{ known[String(m.code)]=1; });
   let nNewMat=0, nUp=0, nDown=0, nSame=0;
@@ -68566,6 +68730,10 @@ function _opImportCommit(){
   if(!made.length){ toast('✓ Không có mã nào chênh lệch — tồn giữ nguyên','good'); closeModal(); openStockDocs(); return; }
   toast('✓ Đã ghi '+made.length+' phiếu điều chỉnh · tăng '+nUp+' mã · giảm '+nDown+' mã · giữ nguyên '+nSame+' mã'+(nNewMat?(' · thêm '+nNewMat+' vật tư mới'):''),'good');
   closeModal(); openStockDocs();
+  }catch(err){
+    console.error('[opening-import]', err);
+    toast('Lỗi khi ghi tồn đầu kỳ: '+(err&&err.message?err.message:err),'bad');
+  }
 }
 // Logic thuần: cập nhật doc cũ tại chỗ. Không UI.
 function whApplyStockEdit(d, s, confirmNow, by){
