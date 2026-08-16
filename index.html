@@ -2824,6 +2824,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
       <div style="display:flex;gap:8px" id="wh-admin-actions">
         <button class="btn-sec" onclick="invAutoSeedWarehouses()" title="Tự sinh Kho tàu từ danh mục tàu + Kho VPCT">↻ Tự sinh kho mặc định</button>
         <button class="btn-sec" onclick="invMergeDuplicateWarehouses()" title="Gộp các kho trùng mã về 1 kho, dồn dữ liệu tồn">🧹 Dọn kho trùng</button>
+        <button class="btn-sec" onclick="whPurgeLegacyMovements()" title="Xóa hẳn bảng nhập-xuất-tồn NHẬP TAY của cơ chế cũ — không còn dùng để tính tồn">🗑 Dọn dữ liệu nhập tay cũ</button>
       </div>
     </div>
     <div class="section-body">
@@ -3804,7 +3805,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.16.20';
+const APP_VERSION='3.16.22';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -14210,6 +14211,15 @@ function _helpSection_contact(){
    ảnh test cho thấy "Tạm ứng NV" vẫn hiện dù đã bỏ khỏi bộ tab của tàu từ v3.15.66. */
 function _vaEnforceNav(){
   try{
+    /* v3.16.22 (Sếp: "Koong vẫn thấy hết"): NV được gán kho cũng là phía kho — phải ẩn mục
+       "Kho vật tư" của BỜ khỏi nav, đừng để bấm vào rồi mới chặn ở trang. Chỉ ẩn ĐÚNG mục đó,
+       các tab khác của họ (chấm công, tạm ứng…) giữ nguyên — khác với tàu bị ẩn cả thanh nav. */
+    const _siteOnly=(typeof whIsSiteSideUser==='function' && whIsSiteSideUser())
+                 && !(typeof whIsVesselSideUser==='function' && whIsVesselSideUser());
+    if(_siteOnly){
+      document.querySelectorAll('[data-page="inventory"]').forEach(el=>{ el.style.display='none'; });
+      return;
+    }
     if(!(typeof whIsVesselSideUser==='function' && whIsVesselSideUser())) return;
     document.querySelectorAll('[data-page]').forEach(el=>{
       const pg=el.dataset.page; if(!pg) return;
@@ -64307,6 +64317,27 @@ function openWarehouseValueDetail(whId){
      <div style="font-size:11px;color:var(--muted);margin-top:6px">${canEdit?'Sửa đơn giá ngay tại ô — ghi vào bảng giá vốn, KHÔNG sửa chứng từ đã ghi sổ. ':''}Tồn âm nghĩa là xuất nhiều hơn nhập: soát lại phiếu, đừng sửa số trực tiếp.${rows.length>500?' · Hiện 500 dòng đầu.':''}</div>`,
     `<button class="btn-ghost" onclick="closeModal()">Đóng</button>`);
 }
+/* v3.16.21: dọn hẳn bảng nhập-xuất-tồn NHẬP TAY của cơ chế cũ (invMovements). Từ khi mọi kho
+   chạy sổ chứng từ, dữ liệu này không còn được dùng để tính tồn — để lại chỉ chiếm chỗ và gây
+   hiểu nhầm. Chỉ admin. Có bia mộ + nhật ký, đếm rõ số bản ghi trước khi xóa. */
+function whPurgeLegacyMovements(){
+  if(!isAdmin()){ toast('Chỉ admin dọn được dữ liệu cũ','bad'); return; }
+  const all=InventoryService.invMovements();
+  if(!all.length){ toast('Không còn dữ liệu nhập tay cũ','good'); return; }
+  const byWh={};
+  all.forEach(m=>{ const n=_whName(m.warehouseId)||'(không rõ kho)'; byWh[n]=(byWh[n]||0)+1; });
+  const lines=Object.keys(byWh).map(k=>'· '+k+': '+byWh[k]+' bản ghi').join('\n');
+  if(!confirm('DỌN HẲN bảng nhập-xuất-tồn NHẬP TAY (cơ chế cũ)\n\n'+all.length+' bản ghi:\n'+lines
+    +'\n\nDữ liệu này KHÔNG còn dùng để tính tồn — tồn nay tính từ sổ chứng từ.\n'
+    +'Xóa vĩnh viễn, có ghi nhật ký. Tiếp tục?')) return;
+  const ids=all.map(m=>m.id).filter(Boolean);
+  S.invMovements=[];
+  ids.forEach(id=>{ try{ if(typeof markDeleted==='function') markDeleted(id,'invMovements'); }catch(e){} });
+  try{ logAuditEvent('inv_movements_purge',{count:all.length, byWarehouse:byWh}); }catch(e){}
+  saveState();
+  toast('✓ Đã dọn '+all.length+' bản ghi nhập tay cũ','good');
+  try{ renderWarehousesTable(); }catch(e){}
+}
 function renderWarehousesTable(){
   try{ _whMigrateVesselTech(); }catch(e){}   // v3.15.85: kho kỹ thuật gắn tàu (loại cũ) → kho vật tư kỹ thuật độc lập
   const tbl=document.getElementById('warehouses-table');
@@ -64342,14 +64373,18 @@ function renderWarehousesTable(){
     /* v3.15.99 (Sếp: "số tiền phải biến động ngay khi xuất nhập kho"):
        Kho đã chạy sổ chứng từ → lấy số TỪ SỔ. Kho chưa có chứng từ nào → giữ số cũ từ bảng
        nhập tay và ĐÁNH DẤU rõ, để không ai tưởng số cũ là số sống. */
+    /* v3.16.21 (Sếp: xóa hết phiếu mà kho vẫn hiện số cũ → tưởng "không xóa được"):
+       BỎ HẲN đường lùi về invMovements (bảng nhập-xuất-tồn nhập tay của cơ chế cũ). Kho không
+       còn chứng từ thì phải hiện RỖNG và nói rõ chưa có dữ liệu — hiện số cũ chỉ gây hiểu nhầm
+       là app không xóa được, hoặc tệ hơn là tưởng số đó còn đúng. */
     const _docs=InventoryService.stockDocs();
     const _hasLedger=_docs.some(d=>d && d.warehouseId===w.id && d.status==='confirmed');
-    const _sv=_hasLedger?whWarehouseStockValue(_docs, w.id, whCostBasisMap(InventoryService.costBasis(), w.id)):null;
-    const movCount=_hasLedger?_sv.lines:InventoryService.invMovements().filter(m=>m.warehouseId===w.id).length;
-    const curVal=_hasLedger?_sv.value:whCurrentValue(w.id);
+    const _sv=whWarehouseStockValue(_docs, w.id, whCostBasisMap(InventoryService.costBasis(), w.id));
+    const movCount=_sv.lines;
+    const curVal=_sv.value;
     const _valNote=_hasLedger
-      ? (_sv.unpriced? `<span class="ds-need" data-dot="warn" style="font-size:10px" title="${_sv.unpriced} mã còn tồn nhưng chưa có giá vốn (phiếu nhập chưa ghi đơn giá) — chưa được tính vào giá trị">${_sv.unpriced} mã chưa có giá</span>`:'')
-      : '<span class="ds-need" style="font-size:10px" title="Kho chưa có chứng từ nào — số này lấy từ bảng nhập-xuất-tồn nhập tay theo tháng, KHÔNG tự đổi khi xuất nhập kho">số liệu cũ (nhập tay)</span>';
+      ? (_sv.unpriced? `<span class="ds-need" data-dot="warn" style="font-size:10px" title="${_sv.unpriced} mã còn tồn nhưng chưa có giá vốn — chưa được tính vào giá trị">${_sv.unpriced} mã chưa có giá</span>`:'')
+      : '<span class="ds-need" style="font-size:10px" title="Kho chưa có chứng từ nào — nạp tồn đầu kỳ hoặc lập phiếu nhập để bắt đầu">chưa có chứng từ</span>';
     html+=`<tr>
       <td class="ds-t-sub" style="font-family:var(--font-mono)"><b>${esc(w.code||'')}</b></td>
       <td>${esc(w.name)}${w._autoSeeded?' <span class="ds-need" style="font-size:10px;background:var(--paper-3)">tự sinh</span>':''}</td>
@@ -70367,11 +70402,19 @@ function _invFillWarehouseFilter(){
 }
 
 function renderInventory(){
-  /* v3.15.69: chốt chặn cuối — trang Kho vật tư của BỜ (giá trị tồn toàn công ty, mọi kho,
-     nút tạo phiếu tự do) KHÔNG được dựng cho phía tàu, kể cả khi có ai đó cấp nhầm tab lại. */
-  if(typeof whIsVesselSideUser==='function' && whIsVesselSideUser()){
+  /* v3.16.22 (Sếp: "Koong vẫn thấy hết"): chốt chặn này có từ v3.15.69 nhưng chỉ xét TÀU
+     (whIsVesselSideUser) — NV được gán kho lọt qua và thấy trang Kho vật tư của BỜ: giá trị
+     tồn toàn công ty, mọi kho, mọi nút tạo phiếu. Nay xét PHÍA KHO (tàu HOẶC NV được gán kho).
+     Không để trang trắng: mở thẳng màn kho của chính họ. */
+  if(typeof whIsSiteSideUser==='function' && whIsSiteSideUser()){
+    const _isVessel=(typeof whIsVesselSideUser==='function') && whIsVesselSideUser();
     const p=document.getElementById('page-inventory');
-    if(p) p.innerHTML='<div style="padding:24px;text-align:center;color:var(--muted);font-size:13px">Kho của tàu nằm ở tab <b>⚓ Tàu của tôi</b> → thẻ <b>Kho vật tư</b>.</div>';
+    if(p) p.innerHTML='<div style="padding:24px;text-align:center;color:var(--muted);font-size:13px">'
+      +(_isVessel
+        ? 'Kho của tàu nằm ở tab <b>⚓ Tàu của tôi</b> → thẻ <b>Kho vật tư</b>.'
+        : 'Bạn làm việc trực tiếp tại <b>kho phụ trách</b> — màn kho đang mở.')
+      +'</div>';
+    if(!_isVessel && typeof openVesselStockOverview==='function'){ try{ openVesselStockOverview(); }catch(e){} }
     return;
   }
   renderWarehousesTable();
