@@ -3784,7 +3784,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.15.77';
+const APP_VERSION='3.15.79';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -51793,7 +51793,25 @@ function openPayableModal(id){
     return;
   }
   try{ window._curApId = isEdit ? id : ''; window._arCurrentKind='ap'; }catch(e){}
-  const body=_arEditorBody(r,true);
+  /* v3.15.78: phòng bệnh hơn chữa bệnh — người sửa/xóa nhìn thấy NGAY hóa đơn này đang gắn
+     bao nhiêu phiếu kho và ở trạng thái nào, thay vì phát hiện sau khi đã lỡ tay. */
+  const _apStockChip=(function(){
+    if(!isEdit) return '';
+    try{
+      const g=whDocsOfAp(id, InventoryService.stockDocs());
+      if(!g.all.length) return '';
+      const bits=[];
+      if(g.pending.length) bits.push(g.pending.length+' chờ nhập');
+      if(g.confirmed.length) bits.push(g.confirmed.length+' đã nhập kho');
+      const danger=g.confirmed.length>0;
+      return `<div style="margin-bottom:8px;padding:6px 10px;border-radius:6px;font-size:12px;background:${danger?'rgba(192,57,43,.08)':'rgba(184,115,10,.10)'};color:${danger?'var(--bad)':'#b8730a'}">
+        🔗 Hóa đơn này đang gắn <b>${g.all.length} phiếu kho</b> (${esc(bits.join(' · '))}).
+        ${danger?'Kho đã nhận hàng — muốn xóa hóa đơn phải đảo phiếu kho trước.':'Xóa hóa đơn sẽ hủy các phiếu chờ và báo về tàu.'}
+        <button class="btn-ghost" style="font-size:11px;padding:2px 8px;margin-left:4px" onclick="closeModal();_stockFilter={type:'',wh:''};openStockDocs()">Xem phiếu kho</button>
+      </div>`;
+    }catch(e){ return ''; }
+  })();
+  const body=_apStockChip+_arEditorBody(r,true);
   // v3.06.13: NV xem được ở mọi trạng thái. Đã trình ký/đã duyệt (!wfCanEdit) → CHẾ ĐỘ XEM.
   const _viewOnly = isEdit && !wfCanEdit(r);
   const _canDocs = isEdit && _viewOnly && wfCanUpdateDocs(r);  // v3.06.19: vẫn bổ sung hồ sơ
@@ -54307,6 +54325,24 @@ function _mrStockSend(){
 
 function saveAr(kind,id){
   const isEdit=!!id;  // v3.09.77: khai báo isEdit thiếu (pre-existing) — id có giá trị = đang sửa
+  /* v3.15.78: SỬA hóa đơn AP đã sinh phiếu kho → chặn nếu giảm SL đặt dưới SL đã nhận;
+     đổi NCC / số tiền thì cảnh báo cho người sửa biết mình đang đụng vào cái gì. */
+  if(kind==='ap' && isEdit && typeof whApEditGuard==='function'){
+    try{
+      const _before=AccountingService.payableById(id);
+      if(_before){
+        const _after={ id:id,
+          partner:(document.getElementById('ar-partner')||{}).value||_before.partner,
+          amount:+((document.getElementById('ar-amount')||{}).value)||_before.amount,
+          orderedQty:+((document.getElementById('ar-ordered-qty')||{}).value)||0 };
+        const _g=whApEditGuard(_before, _after, InventoryService.stockDocs());
+        if(!_g.ok){ toast('🔒 '+_g.reason,'bad'); return; }
+        if(_g.warnings && _g.warnings.length){
+          if(!confirm('⚠ '+_g.warnings.join('\n⚠ ')+'\n\nVẫn lưu thay đổi?')) return;
+        }
+      }
+    }catch(e){ console.warn('[ap-wh-edit-guard]',e); }
+  }
   // v3.12.22 (FIX RACE): _doSaveAr chạy ASYNC qua commitMutation. Cờ provisional (window.*) bị
   //   caller reset ở finally ĐỒNG BỘ → khi _doSaveAr async đọc thì cờ đã=false → "dự kiến" thành
   //   "đã HĐ". Sửa: CHỤP cờ vào biến local NGAY BÂY GIỜ (đồng bộ, cờ còn đúng); _doSaveAr đọc
@@ -55957,6 +55993,16 @@ function deleteAr(kind,id){
     }
     return;
   }
+  /* v3.15.78: chốt kho — hóa đơn đã sinh phiếu kho ĐÃ XÁC NHẬN thì không cho xóa. */
+  if(kind==='ap' && typeof whApDeleteGuard==='function'){
+    let _whGuard={ok:true, cancelDocs:[]};
+    try{ _whGuard=whApDeleteGuard(r.id, InventoryService.stockDocs()); }catch(e){ console.warn('[ap-wh-guard]',e); }
+    if(!_whGuard.ok){ toast('🔒 '+_whGuard.reason,'bad'); return; }
+    if(_whGuard.cancelDocs && _whGuard.cancelDocs.length){
+      const _nos=_whGuard.cancelDocs.map(d=>d.docNo||d.id).join(', ');
+      if(!confirm('Hóa đơn này đang có '+_whGuard.cancelDocs.length+' phiếu CHỜ NHẬP KHO ('+_nos+').\nXóa hóa đơn sẽ HỦY luôn các phiếu đó và báo về tàu. Tiếp tục?')) return;
+    }
+  }
   const pd=arPaidTotal(r);
   // v3.07.34: nếu phiếu nhiều dòng (cùng batchId) và có ≥2 dòng NV xóa được → cho XÓA CẢ PHIẾU.
   const _batch=r.batchId ? (S[list]||[]).filter(x=>x.batchId===r.batchId && wfCanDelete(x)) : [r];
@@ -55967,6 +56013,8 @@ function deleteAr(kind,id){
         {recordId:rec.id, partner:rec.partner||'', amount:rec.amount||0, ccy:rec.ccy||'',
          desc:rec.desc||'', issueDate:rec.issueDate||'', actor:actorName()}); }catch(e){}
       if(kind==='ap'){ try{ _autoCleanupTaxFromAp(rec.id); }catch(e){console.warn('autoCleanup tax failed',e);} }
+      /* v3.15.78: hủy phiếu chờ nhập kho gắn hóa đơn này (phiếu đã xác nhận đã bị chặn ở trên) */
+      if(kind==='ap'){ try{ whCancelPendingDocsForAp(rec.id, rec.partner||rec.desc||''); }catch(e){ console.warn('[wh-cancel]',e); } }
       if(kind==='ap' && rec.fuelEventId && rec.fuelKind){ try{ _apClearFuelFromEvent(rec.fuelEventId, rec.fuelKind); }catch(e){} }
       if(kind==='ap'){
         try{ if(rec._dockApplied) reverseDockFromAsset(rec); }catch(e){console.warn('reverseDock on delete',e);}
@@ -65690,6 +65738,28 @@ function _stockApply(){ _stockFilter={type:(document.getElementById('sd-ftype')|
 function whReqPendingCount(){
   try{ return InventoryService.transferReqs().filter(r=>r.status==='requested').length; }catch(e){ return 0; }
 }
+/* v3.15.78: xóa AP mà chỉ có phiếu CHỜ → hủy luôn phiếu đó, để lại vết và báo tàu. */
+function whCancelPendingDocsForAp(apId, apLabel){
+  let n=0;
+  try{
+    const docs=InventoryService.stockDocs();
+    const pending=whDocsOfAp(apId, docs).pending;
+    for(let i=0;i<pending.length;i++){
+      const d=pending[i];
+      d.status='cancelled';
+      d.cancelReason='Hóa đơn nguồn đã bị xóa'+(apLabel?(' ('+apLabel+')'):'');
+      d.cancelledBy=actorName(); d.cancelledAt=new Date().toISOString();
+      try{ touchRecord(d); }catch(e){}
+      try{
+        const wh=InventoryService.warehouseById(d.warehouseId);
+        if(wh&&wh.vesselId) pushVesselNotif(wh.vesselId,'stock','Phiếu chờ nhập đã hủy',(d.docNo||'')+' — hóa đơn nguồn đã bị xóa', d.id);
+      }catch(e){}
+      try{ logAuditEvent('stock_doc_cancel_by_ap',{docNo:d.docNo||d.id, apId:apId}); }catch(e){}
+      n++;
+    }
+  }catch(e){ console.warn('[wh-cancel-ap]',e); }
+  return n;
+}
 function whToggleMore(){
   const d=document.getElementById('wh-more'); if(!d) return;
   d.style.display=(!d.style.display||d.style.display==='none')?'flex':'none';
@@ -65734,6 +65804,68 @@ function whReqToTransferDraft(req){
     lines:[{code:req.code, name:req.name, unit:req.unit, qty:+req.qty||0}],
     deliveredBy:'', receivedBy:'',
     note:'Theo đề xuất '+(req.reqNo||req.id)+(req.reason?(' — '+req.reason):'') };
+}
+/* ============================================================================
+ * v3.15.78 (Sếp 15/8 — "xóa/sửa AP: phiếu chờ giao hàng tại các kho lẻ và chờ nhập tại kho tổng
+ * có thay đổi"): TOÀN VẸN AP ↔ KHO. Chuỗi chốt khi xóa AP vốn canh vay/thuế/nhiên liệu/dock/
+ * tài sản nhưng KHÔNG có một dòng nào canh chứng từ kho — xóa AP xong phiếu chờ vẫn treo ở tàu,
+ * tàu nhận hàng thì tồn cộng mà không còn gốc giá trị để kế toán đối chiếu.
+ * Luật Sếp duyệt: phiếu ĐÃ XÁC NHẬN → chặn xóa (phải đảo phiếu kho trước);
+ *                 chỉ có phiếu CHỜ → cho xóa nhưng hủy luôn phiếu chờ + báo tàu;
+ *                 SL đặt < đã nhận → chặn; đổi NCC / số tiền → cảnh báo, không chặn.
+ * Các hàm dưới đây THUẦN. ========================================================= */
+function whDocsOfAp(apId, stockDocs){
+  const all=[], confirmed=[], pending=[];
+  if(!apId) return {all, confirmed, pending};
+  const docs=stockDocs||[];
+  for(let i=0;i<docs.length;i++){
+    const d=docs[i];
+    if(!d || d.apId!==apId) continue;
+    if(d.status==='cancelled' || d.reversedById) continue;
+    all.push(d);
+    if(d.status==='confirmed') confirmed.push(d); else pending.push(d);
+  }
+  return {all, confirmed, pending};
+}
+/* Số lượng đã thực nhận về kho theo hóa đơn này (chỉ tính phiếu đã xác nhận) */
+function whReceivedQtyOfAp(apId, stockDocs){
+  const confirmed=whDocsOfAp(apId, stockDocs).confirmed;
+  let q=0;
+  for(let i=0;i<confirmed.length;i++){
+    const lines=confirmed[i].lines||[];
+    for(let j=0;j<lines.length;j++) q+=(+lines[j].qty||0);
+  }
+  return q;
+}
+function whApDeleteGuard(apId, stockDocs){
+  const g=whDocsOfAp(apId, stockDocs);
+  if(g.confirmed.length){
+    const nos=g.confirmed.map(d=>d.docNo||d.id).join(', ');
+    return {ok:false, reason:'Hóa đơn này đã có '+g.confirmed.length+' phiếu kho ĐÃ XÁC NHẬN ('+nos+') — tồn đã cộng vào kho. Thủ kho phải ĐẢO phiếu kho trước, rồi mới xóa được hóa đơn.'};
+  }
+  return {ok:true, cancelDocs:g.pending};
+}
+function whApEditGuard(before, after, stockDocs){
+  const apId=(after&&after.id)||(before&&before.id);
+  const g=whDocsOfAp(apId, stockDocs);
+  const warnings=[];
+  if(!g.all.length) return {ok:true, warnings};
+  const ordered=+((after&&after.orderedQty)||0);
+  if(ordered>0){
+    const received=whReceivedQtyOfAp(apId, stockDocs);
+    if(ordered<received){
+      return {ok:false, reason:'Không giảm được số lượng đặt xuống '+ordered+' vì kho đã nhận '+received+' theo hóa đơn này.', warnings};
+    }
+  }
+  const pBefore=String((before&&before.partner)||''), pAfter=String((after&&after.partner)||'');
+  if(pBefore && pAfter && pBefore!==pAfter){
+    warnings.push('Đổi nhà cung cấp trong khi đã có '+g.all.length+' phiếu kho — phiếu đã in mang tên NCC cũ.');
+  }
+  const aBefore=+((before&&before.amount)||0), aAfter=+((after&&after.amount)||0);
+  if(g.confirmed.length && aBefore!==aAfter){
+    warnings.push('Đổi số tiền trong khi kho đã nhận hàng — giá vốn nhập kho đã chốt theo số cũ, cần kiểm lại.');
+  }
+  return {ok:true, warnings};
 }
 /* Phiếu này thuộc KHO TÀU? (dùng để siết bản in có giá — SPEC kho §14) */
 function whIsVesselWhDoc(d, warehouses){
@@ -67100,6 +67232,33 @@ function stockAcceptTempCode(oldCode){
  * rồi ghi bản mới. Vật tư chưa có trong danh mục → tự thêm (source:'FAST') —
  * gộp danh mục + số tồn trong MỘT thao tác, không cần import danh mục riêng.
  * ============================================================================ */
+/* v3.15.79 (file FAST thật của Sếp 15/8 — "app chỉ ghi 8 mục"):
+   File xuất từ FAST khai báo vùng dữ liệu (!ref) là A1:J18 trong khi dữ liệu chạy tới dòng 1900.
+   XLSX.utils.sheet_to_json TIN vào khai báo đó nên chỉ đọc 18 dòng → trừ tiêu đề + dòng nhóm kho
+   còn đúng 8 dòng vật tư. Hàm này QUÉT KHÓA Ô THẬT của sheet, nới !ref cho đủ rồi mới đọc.
+   Dùng cho MỌI import Excel để không dính lại ở chỗ khác. */
+function whSheetToAoa(sheet, opts){
+  if(!sheet) return [];
+  let maxR=-1, maxC=-1;
+  const keys=Object.keys(sheet);
+  for(let i=0;i<keys.length;i++){
+    const k=keys[i];
+    if(k.charCodeAt(0)===33) continue;           // bỏ qua khóa đặc biệt '!ref', '!merges'…
+    let cell;
+    try{ cell=XLSX.utils.decode_cell(k); }catch(e){ continue; }
+    if(!cell || isNaN(cell.r) || isNaN(cell.c)) continue;
+    if(cell.r>maxR) maxR=cell.r;
+    if(cell.c>maxC) maxC=cell.c;
+  }
+  if(maxR<0 || maxC<0) return [];
+  let declared={s:{r:0,c:0}, e:{r:maxR, c:maxC}};
+  try{ if(sheet['!ref']) declared=XLSX.utils.decode_range(sheet['!ref']); }catch(e){}
+  const full={ s:{r:Math.min(declared.s.r,0), c:Math.min(declared.s.c,0)},
+               e:{r:Math.max(declared.e.r,maxR), c:Math.max(declared.e.c,maxC)} };
+  const o=Object.assign({header:1, defval:''}, opts||{});
+  o.range=full;
+  return XLSX.utils.sheet_to_json(sheet, o);
+}
 function whParseOpeningRows(aoa){
   const items=[], errors=[];
   const norm=s=>whNormName(s);
@@ -67218,7 +67377,7 @@ function _opImportFile(file){
   reader.onload=ev=>{
     try{
       const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});
-      const aoa=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:''});
+      const aoa=whSheetToAoa(wb.Sheets[wb.SheetNames[0]]);   // v3.15.79: quét vùng THẬT, không tin !ref
       const {items, errors}=whParseOpeningRows(aoa);
       const {groups, unmatched}=whMatchOpeningWarehouses(items, InventoryService.warehouses());
       window._opCache={groups, unmatched};
