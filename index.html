@@ -3804,7 +3804,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.16.09';
+const APP_VERSION='3.16.10';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -64200,8 +64200,8 @@ function renderWarehousesTable(){
     const movCount=_hasLedger?_sv.lines:InventoryService.invMovements().filter(m=>m.warehouseId===w.id).length;
     const curVal=_hasLedger?_sv.value:whCurrentValue(w.id);
     const _valNote=_hasLedger
-      ? (_sv.unpriced? ` <span class="ds-need" data-dot="warn" style="font-size:10px" title="${_sv.unpriced} mã còn tồn nhưng chưa có giá vốn (phiếu nhập chưa ghi đơn giá) — chưa được tính vào giá trị">${_sv.unpriced} mã chưa có giá</span>`:'')
-      : ' <span class="ds-need" style="font-size:10px" title="Kho chưa có chứng từ nào — số này lấy từ bảng nhập-xuất-tồn nhập tay theo tháng, KHÔNG tự đổi khi xuất nhập kho">số liệu cũ (nhập tay)</span>';
+      ? (_sv.unpriced? `<span class="ds-need" data-dot="warn" style="font-size:10px" title="${_sv.unpriced} mã còn tồn nhưng chưa có giá vốn (phiếu nhập chưa ghi đơn giá) — chưa được tính vào giá trị">${_sv.unpriced} mã chưa có giá</span>`:'')
+      : '<span class="ds-need" style="font-size:10px" title="Kho chưa có chứng từ nào — số này lấy từ bảng nhập-xuất-tồn nhập tay theo tháng, KHÔNG tự đổi khi xuất nhập kho">số liệu cũ (nhập tay)</span>';
     html+=`<tr>
       <td class="ds-t-sub" style="font-family:var(--font-mono)"><b>${esc(w.code||'')}</b></td>
       <td>${esc(w.name)}${w._autoSeeded?' <span class="ds-need" style="font-size:10px;background:var(--paper-3)">tự sinh</span>':''}</td>
@@ -64209,7 +64209,13 @@ function renderWarehousesTable(){
       <td>${locTxt}</td>
       <td class="c">${w.isActive===false?'<span class="ds-need" data-dot="bad" style="font-size:10px">Đóng</span>':'<span class="ds-need" data-dot="good" style="font-size:10px">Hoạt động</span>'}</td>
       <td class="r mono">${movCount}</td>
-      <td class="r mono" style="font-weight:600;color:var(--accent)">${curVal>0?fmt(curVal):'—'}${_valNote}</td>
+      ${/* v3.16.10 (Sếp: "xếp giá trị thẳng hàng, ghi chú xuống phía dưới"): trước đây ghi chú
+           "n mã chưa có giá" nằm NGAY SAU số nên mỗi dòng số bị đẩy một kiểu, cột không thẳng.
+           Nay số đứng riêng một dòng — căn phải, chữ số đều (tabular-nums) — ghi chú xuống dưới. */''}
+      <td class="r" style="text-align:right;vertical-align:top">
+        <div class="mono" style="font-weight:600;color:var(--accent);font-variant-numeric:tabular-nums;white-space:nowrap">${curVal>0?fmt(curVal):'—'}</div>
+        ${_valNote?`<div style="margin-top:2px">${_valNote}</div>`:''}
+      </td>
       ${_whCanEdit?`<td><div class="row-actions">
         ${/* v3.15.87 (Sếp chốt lại): kho kỹ thuật do NHÂN VIÊN phụ trách — cấp quyền ở màn phân quyền NV
              (mục "Kho phụ trách"), không tạo tài khoản dùng chung như tài khoản tàu. */''}

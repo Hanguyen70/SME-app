@@ -1,5 +1,5 @@
 {
-  "version": "3.16.09",
-  "swVersion": "v3.16.09",
-  "notes": "v3.16.09 (Sếp thấy hai màn báo khác nhau về giá trị tồn của kho VPCT): Tôi chạy lại trọn đường nạp với file thật và xác nhận phép tính không sai, một file 957 dòng cho ra hơn 4,52 tỷ đúng như file gốc. Chênh lệch giữa hai màn đến từ hai lỗi khác. Thứ nhất, Danh sách kho không được vẽ lại sau khi sửa đơn giá hay sau khi nạp file, nên bảng bên ngoài vẫn giữ con số cũ trong khi màn chi tiết đã cập nhật; nay cả hai thao tác đều vẽ lại bảng kho ngay. Thứ hai là một lỗi gõ của tôi từ bản 3.16.02: trong câu thông báo kết quả nạp tôi dùng dấu phẩy thay vì dấu cộng, khiến app truyền sai tham số nên phần thông báo về số mã được cập nhật giá vốn không bao giờ hiện ra và kiểu thông báo bị đẩy lệch; lỗi này không gây sai cú pháp nên không có gì báo. Tôi đã vá và bổ sung một bài kiểm gác cổng quét toàn bộ các lời gọi thông báo, đã thử ngược để chứng minh nó bắt đúng lỗi vừa rồi. Một ghi chú cho Sếp: kho GEOMARINE trong app đang có 985 mã trong khi file mới đọc ra 957, tức dữ liệu đến từ lần nạp trước bản 3.16.08 lúc app còn làm rơi đơn giá; chỉ cần nạp lại file là có giá. Nền v3.16.08 giữ nguyên."
+  "version": "3.16.10",
+  "swVersion": "v3.16.10",
+  "notes": "v3.16.10 (Sếp yêu cầu xếp giá trị thẳng hàng và đưa ghi chú xuống phía dưới): Trước đây dòng ghi chú về số mã chưa có giá nằm ngay sau con số nên mỗi dòng bị đẩy một kiểu, kho nào không có ghi chú thì số lại lệch ngược, nhìn cột giá trị không thẳng. Nay ô giá trị tách thành hai tầng: con số đứng riêng một dòng, căn phải và dùng kiểu chữ số rộng đều nên các hàng nghìn xếp thẳng cột với nhau, còn ghi chú xuống dòng dưới với cỡ chữ nhỏ hơn. Nền v3.16.09 giữ nguyên."
 }
