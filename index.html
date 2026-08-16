@@ -3784,7 +3784,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.15.84';
+const APP_VERSION='3.15.85';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -35198,7 +35198,44 @@ function _vesselLoginId(v){
     : 'tau-'+_stripAccentLower(v.name||'').replace(/đ/g,'d').replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,20);
   return base||('tau-'+String(v.id).slice(0,6));
 }
-async function createVesselAccount(v, silent){
+async /* v3.15.85: tài khoản của KHO (kho vật tư kỹ thuật) — cùng khuôn với tài khoản tàu:
+   dùng chung theo ca trực, không gắn cá nhân, ép đổi mật khẩu lần đầu, chỉ thấy kho của mình. */
+async function createStoreAccount(w, silent){
+  if(!w) return;
+  if(!(isAdmin() || (typeof isITRole==='function' && isITRole()) || (CURRENT_USER&&CURRENT_USER.canManageUsers))){
+    if(!silent) toast('Chỉ Admin/IT tạo tài khoản kho','bad'); return;
+  }
+  const cfg=getAuthConfig(); cfg.users=cfg.users||[];
+  if(cfg.users.some(u=>u.linkWarehouseId===w.id)){ if(!silent) toast('Kho này đã có tài khoản đăng nhập','warn'); return; }
+  let loginId='kho-'+String(w.name||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/đ/g,'d').replace(/[^a-z0-9]+/g,'-').replace(/^kho-/,'').replace(/-+$/,'');
+  let n=1, baseId=loginId; while(cfg.users.some(u=>String(u.name||'').toLowerCase()===loginId.toLowerCase())){ loginId=baseId+'-'+(++n); }
+  if(!CRYPTO_KEY){ if(!silent) toast('Chưa mở khóa dữ liệu — không tạo được tài khoản','bad'); return; }
+  try{
+    const pw=genUserPassword();
+    const salt=bytesToB64(rand(16));
+    const hash=await sha256Hex(pw+salt);
+    const wrap=await wrapMasterKey(CRYPTO_KEY, await deriveWrappingKey(pw,salt,PBKDF2_ITER_NEW));
+    const u={
+      name:loginId, fullName:w.name||'Kho', email:'',
+      salt, hash, wrap, iter:PBKDF2_ITER_NEW, mustChangePassword:true,
+      tabs:['inventory'],
+      funcGroups:[], isBOD:false, isCEO:false, canManageUsers:false, isViewer:false,
+      canConfirmPayment:false, canApproveL1:false, canApproveL2:false, canApproveFund:false,
+      canCheckAcc:false, canSignOwnerReport:false, canSignHr:false, isNVNS:false, isIT:false,
+      isWarehouse:false, isCentralWarehouse:false, isCaptain:false,
+      isStoreAccount:true,                 // tài khoản của KHO, không phải cá nhân
+      linkWarehouseId:w.id,                // chỉ thao tác trong đúng kho này
+      assignedVesselIds:[], assignedOpVesselIds:[], assignedProjectIds:[],
+      createdAt:new Date().toISOString(), createdBy:actorName()
+    };
+    cfg.users.push(u); setAuthConfig(cfg);
+    try{ logAuditEvent('create_store_account',{warehouse:w.name, loginId}); }catch(e){}
+    if(!silent) alert('Đã tạo tài khoản kho\n\nTên đăng nhập: '+loginId+'\nMật khẩu: '+pw+'\n\nGhi lại ngay — mật khẩu chỉ hiện MỘT LẦN. Nhớ đẩy cấu hình lên cloud để máy kho đăng nhập được.');
+    renderWarehousesTable();
+  }catch(e){ console.warn('[create-store-account]',e); if(!silent) toast('Không tạo được tài khoản kho','bad'); }
+}
+function createVesselAccount(v, silent){
   if(!v) return;
   if(!(isAdmin() || (typeof isITRole==='function' && isITRole()) || (CURRENT_USER&&CURRENT_USER.canManageUsers))){
     if(!silent) toast('Chỉ Admin/IT tạo tài khoản tàu','bad');
@@ -63632,7 +63669,10 @@ function navTo(page){
 const WH_TYPES = {
   CENTRAL:{label: 'Kho Tổng',    icon: '🏛', cls: 'chip-4'},
   VESSEL: {label: 'Kho tàu',     icon: '⛵', cls: 'chip-1'},
-  VESSEL_TECH:{label:'Kho kỹ thuật (tàu)', icon:'⚙️', cls:'chip-2'},  // v3.11.42: tàu kỹ thuật có 2 kho — vật tư TÀU + vật tư KỸ THUẬT
+  TECH:   {label: 'Kho vật tư kỹ thuật', icon:'🔧', cls:'chip-2'},   // v3.15.85 (Sếp 16/8): kho khoan/khảo sát
+                                                                     // ĐỘC LẬP — không gắn tàu; thiết bị luân chuyển theo dự án,
+                                                                     // ra khơi thì điều chuyển sang kho tàu, về bờ chuyển ngược.
+  VESSEL_TECH:{label:'Kho kỹ thuật (tàu) — cũ', icon:'⚙️', cls:'chip-2'},  // v3.15.85: giữ nhãn cho dữ liệu cũ, KHÔNG cho chọn mới
   OFFICE: {label: 'VP công ty',  icon: '🏢', cls: 'chip-2'},
   BRANCH: {label: 'Chi nhánh',   icon: '🏭', cls: 'chip-3'},
   OTHER:  {label: 'Kho khác',    icon: '📦', cls: ''}
@@ -63738,7 +63778,12 @@ function invAutoSeedWarehouses(){
   }
 }
 
+/* v3.15.85: tài khoản đang gắn với kho này (nếu có) */
+function _whStoreAcc(whId){
+  try{ const cfg=getAuthConfig(); return (cfg.users||[]).find(u=>u&&u.linkWarehouseId===whId)||null; }catch(e){ return null; }
+}
 function renderWarehousesTable(){
+  try{ _whMigrateVesselTech(); }catch(e){}   // v3.15.85: kho kỹ thuật gắn tàu (loại cũ) → kho vật tư kỹ thuật độc lập
   const tbl=document.getElementById('warehouses-table');
   if(!tbl) return;
   // v3.03.97: ẩn nút quản lý kho (Tự sinh/Dọn/Thêm) với người không có quyền master data
@@ -63780,6 +63825,10 @@ function renderWarehousesTable(){
       <td class="r mono">${movCount}</td>
       <td class="r mono" style="font-weight:600;color:var(--accent)">${curVal>0?fmt(curVal):'—'}</td>
       ${_whCanEdit?`<td><div class="row-actions">
+        ${/* v3.15.85: kho vật tư kỹ thuật có tài khoản riêng như tài khoản tàu */''}
+        ${w.type==='TECH'?(_whStoreAcc(w.id)
+            ? `<span class="ds-need" data-dot="info" style="font-size:10px;cursor:pointer;text-decoration:underline dotted" title="Tài khoản đăng nhập của kho: ${esc(_whStoreAcc(w.id).name)} — bấm để khóa / reset mật khẩu" onclick="event.stopPropagation();openITAccountAdmin()">🔑 ${esc(_whStoreAcc(w.id).name)}</span>`
+            : `<button class="icon-btn" title="Tạo tài khoản đăng nhập cho kho này" onclick="createStoreAccount(InventoryService.warehouses().find(x=>x.id==='${w.id}'))">🔑</button>`):''}
         <button class="icon-btn" title="Sửa" onclick="openWarehouseModal('${w.id}')">✎</button>
         <button class="icon-btn danger" title="Xóa" onclick="deleteWarehouse('${w.id}')">✕</button>
       </div></td>`:''}
@@ -63802,7 +63851,8 @@ function openWarehouseModal(id){
       <div class="field"><label>Loại kho *</label>
         <select id="wh-type" onchange="_whTypeChange()">
           <option value="VESSEL" ${w.type==='VESSEL'?'selected':''}>⛵ Kho tàu (vật tư tàu)</option>
-          <option value="VESSEL_TECH" ${w.type==='VESSEL_TECH'?'selected':''}>⚙️ Kho kỹ thuật trên tàu</option>
+          <option value="TECH" ${w.type==='TECH'?'selected':''}>🔧 Kho vật tư kỹ thuật (khoan/khảo sát — không gắn tàu)</option>
+          ${w.type==='VESSEL_TECH'?'<option value="VESSEL_TECH" selected>⚙️ Kho kỹ thuật trên tàu (loại cũ)</option>':''}
           <option value="OFFICE" ${w.type==='OFFICE'?'selected':''}>🏢 Văn phòng (VPCT)</option>
           <option value="BRANCH" ${w.type==='BRANCH'?'selected':''}>🏭 Chi nhánh</option>
           <option value="OTHER" ${w.type==='OTHER'?'selected':''}>📦 Khác</option>
@@ -63848,6 +63898,7 @@ function saveWarehouse(id){
   const note=document.getElementById('wh-note').value.trim();
   if(!code){err.textContent='Mã kho bắt buộc';return;}
   if(!name){err.textContent='Tên kho bắt buộc';return;}
+  /* v3.15.85: kho vật tư kỹ thuật KHÔNG gắn tàu — nó đứng riêng, thiết bị luân chuyển theo dự án */
   if((type==='VESSEL'||type==='VESSEL_TECH') && !vesselId){err.textContent='Kho trên tàu phải gắn tàu cụ thể';return;}
   // Check duplicate code
   const dup=InventoryService.warehouses().find(w=>w.id!==id && (w.code||'').trim().toLowerCase()===code.toLowerCase());
@@ -64386,6 +64437,11 @@ function stockAllowedWarehouses(){
     const a=CURRENT_USER&&CURRENT_USER.assignedVesselIds;
     if(Array.isArray(a)) a.forEach(x=>{ if(x&&vids.indexOf(x)<0) vids.push(x); });
     return all.filter(w=>w.type==='VESSEL' && vids.indexOf(w.vesselId)>=0);
+  }
+  /* v3.15.85: tài khoản KHO (kho vật tư kỹ thuật) — chỉ đúng kho được gán, y như tài khoản tàu.
+     Chưa gán = không kho nào (an toàn), IT gán kho là xong. */
+  if(CURRENT_USER && CURRENT_USER.linkWarehouseId){
+    return all.filter(w=>w.id===CURRENT_USER.linkWarehouseId);
   }
   return all;
 }
@@ -67023,6 +67079,33 @@ function whMyVesselId(){
   if(CURRENT_USER&&CURRENT_USER.linkVesselId) return CURRENT_USER.linkVesselId;   // v3.15.59: tài khoản gắn tàu (kể cả thiếu cờ)
   if(isCaptain()){ const a=CURRENT_USER&&CURRENT_USER.assignedVesselIds; return (Array.isArray(a)&&a[0])||''; }
   return '';
+}
+/* ============================================================================
+ * v3.15.85 (Sếp 16/8): KHO VẬT TƯ KỸ THUẬT ĐỘC LẬP + TÀI KHOẢN KHO RIÊNG.
+ * Sếp chốt: tài khoản riêng giống tài khoản tàu, quyền xem cũng giống kho tàu
+ * (admin + thủ kho bờ thấy tất cả; tài khoản kho chỉ thấy kho của mình).
+ * Gộp khái niệm: "phía hiện trường" (site) = tài khoản TÀU hoặc tài khoản KHO —
+ * cả hai đều chỉ thao tác trong đúng một kho, dùng chung bộ màn kho đã có.
+ * ========================================================================== */
+function whIsStoreAccount(){ return !!(CURRENT_USER && (CURRENT_USER.isStoreAccount || CURRENT_USER.linkWarehouseId)); }
+function whIsSiteSideUser(){ return !!(whIsVesselSideUser() || whIsStoreAccount()); }
+function whMySiteWarehouse(){
+  if(CURRENT_USER && CURRENT_USER.linkWarehouseId){
+    const w=InventoryService.warehouses().find(x=>x.id===CURRENT_USER.linkWarehouseId && x.isActive!==false);
+    if(w) return w;
+  }
+  return whMyVesselWarehouse();
+}
+/* Dữ liệu cũ: kho loại 'kho kỹ thuật trên tàu' chuyển sang kho vật tư kỹ thuật độc lập */
+function _whMigrateVesselTech(){
+  try{
+    const list=InventoryService.warehouses().filter(w=>w&&w.type==='VESSEL_TECH');
+    if(!list.length) return 0;
+    list.forEach(w=>{ w.type='TECH'; w.vesselId=null; try{ touchRecord(w); }catch(e){} });
+    try{ logAuditEvent('warehouse_migrate_vessel_tech',{count:list.length, ids:list.map(w=>w.id)}); }catch(e){}
+    saveState();
+    return list.length;
+  }catch(e){ console.warn('[wh-migrate-tech]',e); return 0; }
 }
 function whMyVesselWarehouse(){
   const vid=whMyVesselId(); if(!vid) return null;
