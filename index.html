@@ -3784,7 +3784,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.15.85';
+const APP_VERSION='3.15.87';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -6926,7 +6926,7 @@ const TAB_GROUPS=[
   {num:'💼', title:'Tài chính Kế toán', tabs:['receivables','payables','op_input','advances','cashfund','banking','cashflow','nsnn']},
   {num:'👥', title:'Nhân sự', tabs:['hrm','pay_config','pay_engine','pay_periods']},  /* v3.10.54: 3 mục Lương tick được; 'Duyệt thay đổi lương' giữ BOD cứng, không ô tick (như Phê duyệt) */
   {num:'🚢', title:'Quản lý hoạt động tàu', tabs:['operations'], vesselPicker:true},  /* v3.10.56 (Sếp): bỏ ô ON-OFFHIRE; tick TÀU trực tiếp trong nhóm (đúng dropdown nav) */
-  {num:'📦', title:'Kho & Tài sản', tabs:['inventory','fixed_assets','tools','catalog']},
+  {num:'📦', title:'Kho & Tài sản', tabs:['inventory','fixed_assets','tools','catalog'], whPicker:true},  /* v3.15.87 (Sếp): tick KHO PHỤ TRÁCH ngay trong nhóm — kho vật tư kỹ thuật do NV phụ trách */
   {num:'📈', title:'Báo cáo', tabs:['periodic','reports','inv_analytics','projects','library','plan','rates']}
 ];
 /* Tab IT (sub-admin tạo NV) được phép phân quyền — "nhóm cơ bản" nghiệp vụ nhập liệu.
@@ -7598,6 +7598,19 @@ function userEditorModal(initial,idx){
   };
   // v3.10.56: danh sách tàu tick trực tiếp trong nhóm "Quản lý hoạt động tàu" — đúng các mục trên dropdown nav.
   //   Dùng nguyên data-vessel / data-opvessel nên phần LƯU (assignedVesselIds/assignedOpVesselIds) không đổi.
+  /* v3.15.87 (Sếp 16/8): KHO PHỤ TRÁCH — kho kỹ thuật/kho bờ do nhân viên phụ trách.
+     Tick kho ở đây thì NV chỉ thấy và thao tác đúng kho đó (kể cả khi mang cờ Thủ kho),
+     để lập được "thủ kho riêng của một kho". Không tick = giữ nguyên hành vi cũ. */
+  const _whAssignHtml=(()=>{
+    const list=InventoryService.warehouses().filter(w=>w.isActive!==false&&w.type!=='VESSEL');
+    if(!list.length) return '<span style="color:var(--muted)">Chưa có kho nào (kho tàu cấp qua tài khoản tàu)</span>';
+    const items=list.map(w=>{
+      const t=(typeof WH_TYPES!=='undefined')?(WH_TYPES[w.type]||WH_TYPES.OTHER):{icon:'📦'};
+      const c=(initial.assignedWarehouseIds||[]).includes(w.id)?'checked':'';
+      return `<label style="display:inline-flex;align-items:center;gap:6px;padding:4px 12px 4px 0;cursor:pointer"><input type="checkbox" data-warehouse="${w.id}" ${c}> <span>${t.icon} ${esc(w.name)}</span></label>`;
+    }).join('');
+    return `<div style="font-size:11px;color:var(--muted);font-style:normal;margin:4px 0 2px">Tick kho NV phụ trách. Có tick = NV CHỈ thấy và thao tác đúng kho đó (kho vật tư kỹ thuật dùng cách này). Để trống = như cũ.</div><div>${items}</div>`;
+  })();
   const _vesselAssignHtml=(()=>{
     const own=VesselService.vessels().map(v=>{
       const c=(initial.assignedVesselIds||[]).includes(v.id)?'checked':'';
@@ -7614,8 +7627,9 @@ function userEditorModal(initial,idx){
   const checks=TAB_GROUPS.map(g=>{
     let kidHtml=g.tabs.map(tid=>_renderTabCheckbox(tid)).filter(Boolean).join('');
     if(g.vesselPicker) kidHtml+=_vesselAssignHtml;   // v3.10.56: tàu tick trong nhóm QL hoạt động tàu
+    if(g.whPicker) kidHtml+=`<div style="border-top:1px dashed var(--rule);margin-top:6px;padding-top:6px"><span style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Kho phụ trách</span>${_whAssignHtml}</div>`;   // v3.15.87
     if(!kidHtml) return '';
-    const single=g.tabs.length===1 && !g.vesselPicker;
+    const single=g.tabs.length===1 && !g.vesselPicker && !g.whPicker;
     const numChip=`<span style="font-family:var(--font-mono);font-size:10px;color:#fff;background:var(--accent);border-radius:4px;padding:1px 6px;font-weight:700;min-width:22px;text-align:center;display:inline-block">${g.num}</span>`;
     if(single){
       return `<div style="grid-column:1/-1;display:flex;align-items:center;gap:8px;padding:5px 0;border-top:1px solid var(--rule)">${numChip}${kidHtml}</div>`;
@@ -8115,6 +8129,7 @@ function editUser(idx){
     canCheckAcc:!!u.canCheckAcc,
     canApproveL2:!!u.canApproveL2,
     assignedVesselIds:u.assignedVesselIds||[],
+    assignedWarehouseIds:u.assignedWarehouseIds||[],
     assignedProjectIds:u.assignedProjectIds||[],
     assignedOpVesselIds:u.assignedOpVesselIds||[],
     assignedFundIds:u.assignedFundIds||[],
@@ -9289,6 +9304,7 @@ async function saveUser(idx){
   const funcGroups=Array.from(document.querySelectorAll('.user-funcgroup-chk:checked')).map(c=>c.value);
   const isDeptHead=!!document.getElementById('user-isdepthead')?.checked;
   const companyId=document.getElementById('user-company')?.value||'';
+  const assignedWarehouseIds=Array.from(document.querySelectorAll('input[data-warehouse]:checked')).map(c=>c.dataset.warehouse);
   const assignedVesselIds=Array.from(document.querySelectorAll('input[data-vessel]:checked')).map(c=>c.dataset.vessel);
   const assignedProjectIds=Array.from(document.querySelectorAll('input[data-project]:checked')).map(c=>c.dataset.project);
   const assignedOpVesselIds=Array.from(document.querySelectorAll('input[data-opvessel]:checked')).map(c=>c.dataset.opvessel);
@@ -9344,6 +9360,7 @@ async function saveUser(idx){
       u.isIT=(isViewer?false:isIT);  // v3.07.97: cờ IT — che dữ liệu nhạy cảm
       u.itBusiness=(u.isIT && itBusiness)||false;  // v3.08.40: IT kiêm nghiệp vụ — vào tab tài chính như NV (lương vẫn che)
       u.assignedVesselIds=isViewer?[]:assignedVesselIds;
+      u.assignedWarehouseIds=isViewer?[]:assignedWarehouseIds;   // v3.15.87: kho phụ trách
       u.assignedProjectIds=isViewer?[]:assignedProjectIds;
       u.assignedOpVesselIds=isViewer?[]:assignedOpVesselIds;
       u.assignedFundIds=isViewer?[]:assignedFundIds;   // v3.10.18
@@ -9419,6 +9436,7 @@ async function saveUser(idx){
         isHrStaff:(_emptyPerm||isViewer)?false:isHrStaff,   /* v3.14.84 */
         isIT:(isViewer?false:isIT),
         assignedVesselIds:(_emptyPerm||isViewer)?[]:assignedVesselIds,
+        assignedWarehouseIds:(_emptyPerm||isViewer)?[]:assignedWarehouseIds,   // v3.15.87
         assignedProjectIds:(_emptyPerm||isViewer)?[]:assignedProjectIds,
         assignedOpVesselIds:(_emptyPerm||isViewer)?[]:assignedOpVesselIds,
         assignedFundIds:(_emptyPerm||isViewer)?[]:assignedFundIds,
@@ -63779,6 +63797,10 @@ function invAutoSeedWarehouses(){
 }
 
 /* v3.15.85: tài khoản đang gắn với kho này (nếu có) */
+/* v3.15.87: đếm nhân viên đang được gán phụ trách kho này */
+function _whKeeperCount(whId){
+  try{ const cfg=getAuthConfig(); return (cfg.users||[]).filter(u=>u&&Array.isArray(u.assignedWarehouseIds)&&u.assignedWarehouseIds.indexOf(whId)>=0).length; }catch(e){ return 0; }
+}
 function _whStoreAcc(whId){
   try{ const cfg=getAuthConfig(); return (cfg.users||[]).find(u=>u&&u.linkWarehouseId===whId)||null; }catch(e){ return null; }
 }
@@ -63825,10 +63847,9 @@ function renderWarehousesTable(){
       <td class="r mono">${movCount}</td>
       <td class="r mono" style="font-weight:600;color:var(--accent)">${curVal>0?fmt(curVal):'—'}</td>
       ${_whCanEdit?`<td><div class="row-actions">
-        ${/* v3.15.85: kho vật tư kỹ thuật có tài khoản riêng như tài khoản tàu */''}
-        ${w.type==='TECH'?(_whStoreAcc(w.id)
-            ? `<span class="ds-need" data-dot="info" style="font-size:10px;cursor:pointer;text-decoration:underline dotted" title="Tài khoản đăng nhập của kho: ${esc(_whStoreAcc(w.id).name)} — bấm để khóa / reset mật khẩu" onclick="event.stopPropagation();openITAccountAdmin()">🔑 ${esc(_whStoreAcc(w.id).name)}</span>`
-            : `<button class="icon-btn" title="Tạo tài khoản đăng nhập cho kho này" onclick="createStoreAccount(InventoryService.warehouses().find(x=>x.id==='${w.id}'))">🔑</button>`):''}
+        ${/* v3.15.87 (Sếp chốt lại): kho kỹ thuật do NHÂN VIÊN phụ trách — cấp quyền ở màn phân quyền NV
+             (mục "Kho phụ trách"), không tạo tài khoản dùng chung như tài khoản tàu. */''}
+        ${w.type==='TECH'?`<span class="ds-need" data-dot="info" style="font-size:10px" title="Cấp quyền cho nhân viên phụ trách kho này ở Cài đặt → Quản lý người dùng → mục Kho phụ trách">🔧 ${_whKeeperCount(w.id)} NV phụ trách</span>`:''}
         <button class="icon-btn" title="Sửa" onclick="openWarehouseModal('${w.id}')">✎</button>
         <button class="icon-btn danger" title="Xóa" onclick="deleteWarehouse('${w.id}')">✕</button>
       </div></td>`:''}
@@ -64427,6 +64448,13 @@ function whIsVesselSideUser(){
    thuyền trưởng + tài khoản tàu → CHỈ kho tàu mình; thủ kho/admin → mọi kho. */
 function stockAllowedWarehouses(){
   const all=InventoryService.warehouses().filter(w=>w.isActive!==false);
+  /* v3.15.87 (Sếp 16/8: kho kỹ thuật do NV phụ trách, không phải tài khoản kho dùng chung):
+     NV được GÁN kho phụ trách thì chỉ thấy đúng kho đó — kể cả khi mang cờ Thủ kho, để lập được
+     "thủ kho riêng của một kho". Không gán = giữ nguyên hành vi cũ. Admin luôn thấy tất cả. */
+  if(!isAdmin()){
+    const aw=CURRENT_USER&&CURRENT_USER.assignedWarehouseIds;
+    if(Array.isArray(aw)&&aw.length) return all.filter(w=>aw.indexOf(w.id)>=0);
+  }
   if(isAdmin()||canManageStock()) return all;
   if(whIsVesselSideUser()){
     /* v3.15.59: gom một nhánh phía tàu; đọc THẲNG danh sách gán (không qua
@@ -66021,6 +66049,102 @@ function whDraftsDueForClose(drafts, today){
   const t=String(today||'');
   return (drafts||[]).filter(d=>d && String(d.date||'')<t && ((d.lines||[]).some(l=>(+l.qty||0)>0)));
 }
+/* ============================================================================
+ * v3.15.86 (Sếp 16/8): LỌC THÔNG MINH cho danh mục vật tư.
+ * Thực tế: một món có hai tên — người mua ghi tiếng Anh, thủ kho ghi tiếng Việt, người nhập
+ * ghi lẫn lộn ("Ủng BHLĐ Nitti size 42 (Nitti Safety Work Boots)"). Gõ "ung" hay "boots" đều
+ * phải ra cùng một dòng, nếu không thì kho 1.879 mã là không tra được.
+ * Luật khớp: bỏ dấu → tách từ → MỌI từ đều phải khớp (thứ tự bất kỳ) → mỗi từ khớp nếu:
+ *   (a) nằm trong tên/mã, hoặc (b) trùng nghĩa Anh–Việt theo bảng dưới, hoặc
+ *   (c) khớp mã sau khi bỏ dấu chấm và số 0 thừa (gõ 'ppe1' ra 'CW.PPE.00001').
+ * ========================================================================== */
+const WH_SYNONYMS=[
+  ['non','mu','helmet','hardhat'],
+  ['kinh','glasses','goggles'],
+  ['gangtay','glove','gloves'],
+  ['ung','boots','boot'],
+  ['giay','shoes','shoe'],
+  ['daunhon','oil','lubricant','lube'],
+  ['moboitron','grease'],
+  ['gioang','gasket'],
+  ['ron','gasket'],
+  ['van','valve'],
+  ['bom','pump'],
+  ['loc','filter'],
+  ['acquy','battery'],
+  ['son','paint'],
+  ['gielau','rag','rags'],
+  ['bulong','bolt'],
+  ['ongxa','exhaust'],
+  ['maychinh','mainengine'],
+  ['mayden','generator','genset'],
+  ['bhld','baoho','ppe','safety'],
+  ['nhatky','logbook'],
+  ['galanh','refrigerant','freon'],
+  ['bocach','insulation'],
+  ['dayth','rope'],
+  ['bongden','lamp','bulb']
+];
+/* Tách từ. keepAccent=true giữ dấu (chính xác hơn khi người dùng gõ có dấu),
+   false thì bỏ dấu (cho người gõ nhanh không dấu). */
+function whSmartTokens(str, keepAccent){
+  const raw=String(str||'').toLowerCase();
+  const t=keepAccent?raw:whNormName(raw);
+  return String(t||'').split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+}
+function _whSynFamily(tok){
+  const out=[tok];
+  for(let i=0;i<WH_SYNONYMS.length;i++){
+    if(WH_SYNONYMS[i].indexOf(tok)>=0){ WH_SYNONYMS[i].forEach(x=>{ if(out.indexOf(x)<0) out.push(x); }); }
+  }
+  return out;
+}
+function _whCodeKey(code){
+  const raw=String(code||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+  const noZero=raw.replace(/0+(\d)/g,'$1');
+  return {raw, noZero};
+}
+/* Một từ khóa khớp khi: có TỪ trong tên BẮT ĐẦU bằng nó (không phải nằm lọt giữa từ khác —
+   nếu không thì 'ron' dính 'tròng', 'loc' dính 'block'), hoặc cụm ghép liền khớp
+   ('gangtay' khớp tên 'GĂNG TAY ...'). */
+function _whTokHit(tok, nameToks, nameJoin, isSyn){
+  if(!tok) return false;
+  /* Từ NGƯỜI DÙNG GÕ: khớp đầu từ (gõ 'gioang' ra 'gioăng cao su').
+     Từ ĐỒNG NGHĨA ngắn (≤4): phải trùng NGUYÊN từ — nếu không 'loc' (filter) sẽ dính 'locker'. */
+  const exactOnly = isSyn && tok.length<=4;
+  for(let i=0;i<nameToks.length;i++){
+    if(exactOnly ? nameToks[i]===tok : nameToks[i].indexOf(tok)===0) return true;
+  }
+  if(!exactOnly && tok.length>=6 && nameJoin.indexOf(tok)>=0) return true;   // cụm ghép: gangtay, daunhon…
+  return false;
+}
+/* mode: '' = mã + tên · 'code' = chỉ mã · 'name' = chỉ tên */
+function whSmartMatch(query, item, mode){
+  const q=String(query||'').trim();
+  if(!q) return true;
+  const it=item||{};
+  const hasAccent=/[^\x00-\x7F]/.test(q) && whNormName(q)!==q.toLowerCase();
+  const nameToks=whSmartTokens(it.name||'', hasAccent);
+  const nameJoin=nameToks.join('');
+  const ck=_whCodeKey(it.code);
+  const qCode=_whCodeKey(q);
+  if(mode!=='name' && qCode.raw){
+    if(ck.raw.indexOf(qCode.raw)>=0 || ck.noZero.indexOf(qCode.noZero)>=0) return true;
+  }
+  const toks=whSmartTokens(q, hasAccent);
+  if(!toks.length) return false;
+  for(let i=0;i<toks.length;i++){
+    const fam=hasAccent?[toks[i]]:_whSynFamily(toks[i]);   // đồng nghĩa dùng bảng không dấu
+    let hit=false;
+    for(let j=0;j<fam.length && !hit;j++){
+      const t=fam[j];
+      if(mode!=='code' && _whTokHit(t, nameToks, nameJoin, t!==toks[i])) hit=true;
+      if(!hit && mode!=='name' && (ck.raw.indexOf(t)===0 || ck.noZero.indexOf(t)>=0)) hit=true;
+    }
+    if(!hit) return false;
+  }
+  return true;
+}
 function whToggleMore(){
   const d=document.getElementById('wh-more'); if(!d) return;
   d.style.display=(!d.style.display||d.style.display==='none')?'flex':'none';
@@ -67227,6 +67351,8 @@ function _vsPendCount(whId){
 
 /* ---- v3.15.83: MÀN TỒN KHO CỦA TÀU (Đầu kỳ · Nhập · Xuất · Tồn) ---- */
 let _vspPeriod=null;   // {from,to}
+let _vspQ='';          // v3.15.86: từ khóa lọc
+let _vspMode='';       // '' = mã + tên · 'code' · 'name'
 function _vspToday(){ return new Date().toISOString().slice(0,10); }
 function _vspRange(){
   if(_vspPeriod&&_vspPeriod.from&&_vspPeriod.to) return _vspPeriod;
@@ -67294,7 +67420,9 @@ function openVesselStockPeriod(){
   }
   const wh=whMyVesselWarehouse(); if(!wh){ toast('Tài khoản chưa gắn kho tàu','bad'); return; }
   const rg=_vspRange();
-  const rows=whStockPeriodRows(InventoryService.stockDocs(), wh.id, rg.from, rg.to);
+  let rows=whStockPeriodRows(InventoryService.stockDocs(), wh.id, rg.from, rg.to);
+  const _nAll=rows.length;
+  if(_vspQ) rows=rows.filter(r=>whSmartMatch(_vspQ, r, _vspMode));   // v3.15.86: lọc thông minh
   const today=_vspToday();
   const draft=whGetIssueDraft(wh.id, today);
   const dq={}; (draft.lines||[]).forEach(l=>{ dq[l.code]={qty:+l.qty||0, useFor:l.useFor||'general'}; });
@@ -67321,7 +67449,12 @@ function openVesselStockPeriod(){
        <input type="date" value="${esc(rg.from)}" style="padding:4px 6px;border:1px solid var(--rule);border-radius:6px;font-size:12px" onchange="_vspPeriod={from:this.value,to:'${esc(rg.to)}'};openVesselStockPeriod()">
        <span style="font-size:12px">→</span>
        <input type="date" value="${esc(rg.to)}" style="padding:4px 6px;border:1px solid var(--rule);border-radius:6px;font-size:12px" onchange="_vspPeriod={from:'${esc(rg.from)}',to:this.value};openVesselStockPeriod()">
-       <span style="flex:1"></span>
+       <input id="vsp-q" value="${esc(_vspQ)}" placeholder="Tìm: gõ tiếng Việt hay tiếng Anh đều được…" style="flex:1;min-width:180px;padding:5px 8px;border:1px solid var(--rule);border-radius:6px;font-size:12px" oninput="_vspQ=this.value" onchange="openVesselStockPeriod()">
+       <select id="vsp-mode" style="padding:5px;border:1px solid var(--rule);border-radius:6px;font-size:12px" onchange="_vspMode=this.value;openVesselStockPeriod()">
+         <option value="" ${_vspMode===''?'selected':''}>Mã + Tên</option>
+         <option value="code" ${_vspMode==='code'?'selected':''}>Chỉ mã</option>
+         <option value="name" ${_vspMode==='name'?'selected':''}>Chỉ tên</option>
+       </select>
        <button class="btn-sec" style="font-size:12px" onclick="_vspPrint()">🖨 In PDF</button>
        <button class="${nDraft?'btn-primary':'btn-sec'}" style="font-size:12px" onclick="whCloseDailyIssue('${draft.id}')" title="Gom các dòng đã điền hôm nay thành 1 phiếu xuất kho">✓ Chốt xuất hôm nay${nDraft?' ('+nDraft+')':''}</button>
      </div>
@@ -67331,7 +67464,7 @@ function openVesselStockPeriod(){
          <th style="padding:5px 6px;text-align:right">Đầu kỳ</th><th style="padding:5px 6px;text-align:right">Nhập</th>
          <th style="padding:5px 6px;text-align:center">Xuất</th><th style="padding:5px 6px;text-align:right">Tồn</th></tr></thead>
        <tbody>${body}</tbody></table></div>
-     <div style="font-size:11px;color:var(--muted);margin-top:6px">Điền số ở cột Xuất là tồn trừ ngay. Cuối ngày app tự gom thành một phiếu xuất kho và ghi một dòng vào sổ Nhập/Xuất/Điều chỉnh.</div>`,
+     <div style="font-size:11px;color:var(--muted);margin-top:6px">${_vspQ?('Lọc: '+esc(_vspQ)+' → '+rows.length+'/'+_nAll+' mã · '):''}Gõ tiếng Việt hay tiếng Anh đều ra (ủng = boots, dầu = oil, gioăng = gasket); gõ mã kiểu gì cũng nhận (ppe1 = CW.PPE.00001). Điền số ở cột Xuất là tồn trừ ngay. Cuối ngày app tự gom thành một phiếu xuất kho và ghi một dòng vào sổ Nhập/Xuất/Điều chỉnh.</div>`,
     `<button class="btn-ghost" onclick="openVesselStockOverview()">← Kho vật tư</button><button class="btn-ghost" onclick="closeModal()">Đóng</button>`);
 }
 function _vspPrint(){
