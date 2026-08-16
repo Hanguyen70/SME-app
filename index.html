@@ -3804,7 +3804,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.16.10';
+const APP_VERSION='3.16.13';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -7051,7 +7051,7 @@ const TAB_TO_FIELDS={
   operations:     ['opVessels','opTransactions','advances'],
   op_input:       ['opVessels','opTransactions','advances','payables','vendors','expenseTypes','projects','vessels'],
   advances:       ['advances','payables','vendors','expenseTypes','projects','vessels','opVessels'],  // v3.02.95
-  inventory:      ['warehouses','invMovements','materials','materialGroups','stockDocs','stockCounts','stockTransferReqs','vesselIssueDrafts','stockCostBasis','vesselIssueDrafts','invGroups','vessels'],
+  inventory:      ['warehouses','invMovements','materials','materialGroups','stockDocs','stockCounts','stockTransferReqs','vesselIssueDrafts','stockCostBasis','invGroups','vessels'],
   fixed_assets:   ['fixedAssets','payables','vessels','projects','opVessels'],
   tools:          ['tools','vessels','payables','projects','opVessels'],
   catalog:        ['departments','vendors','expenseTypes','revenueTypes','vessels','projects','receivables','payables'],
@@ -7070,6 +7070,11 @@ const ALL_DATA_FIELDS=[
   'plans','dockPlans','projects','vessels','onhires','events','dailyReports',
   'receivables','payables','bankAccounts','bankSnapshots','bankTransfers','loans','creditFacilities','loanAutoCollect','bankBalance','bankBalanceCcy',
   'opVessels','opTransactions','opMgmtFees','ownerReportLocks','advances','invGroups','invMovements','warehouses','materials','materialGroups','stockDocs','stockCounts','stockTransferReqs',
+  /* v3.16.13 (Sếp: "mất giá trị 1 số kho", lỗi có TRƯỚC khi lên FIFO): hai store kho thêm ở
+     v3.15.83 và v3.16.02 KHÔNG có trong ALL_DATA_FIELDS — mà đây là danh sách dùng để hợp nhất
+     dữ liệu khi kéo từ cloud về. Thiếu ở đây nghĩa là mỗi lần đồng bộ, BẢNG GIÁ VỐN và NHÁP XUẤT
+     bị xóa sạch → giá trị kho về 0. Đúng bài học v3.07.05 (HRM) và v3.12.97 (salaryGrades). */
+  'vesselIssueDrafts','stockCostBasis',
   'vesselExpenseCats','omProjectExpenseCats','hrExpenseCats','qnExpenseCats',
   'fixedAssets','tools',
   'transactions',
@@ -7078,7 +7083,7 @@ const ALL_DATA_FIELDS=[
   'salaryFund','taxes','salaryProfiles','salaryGrades','payExtras',
   'positionGradeMappings','hrGradeOverrides',  /* v3.13.40: Grade quản trị theo chức vụ + override ngoại lệ — PHẢI sync (bài học v3.12.97) */
   /* v3.13.06 PAYROLL P1 — 8 store METADATA-ONLY (chi tiết ở IDB partition + Drive, không vào state) */
-  'payrollPeriods','payVerifySheets',  /* v3.15.29: hồ sơ đối chiếu Excel HR — PHẢI sync (bài học v3.12.97/v3.07.05) */  /* v3.13.61: 8 store PAYROLL P1 (pf*) đã dọn theo khai tử PF — xem ghi chú tại vị trí cũ đã xóa */  /* v3.12.97 FIX: salaryGrades PHẢI sync — GĐ4-M1 tạo 54 Grade xong bị mergeStateByFields drop vì thiếu trong ALL_DATA_FIELDS (đúng bài học v3.07.05 ngay dưới) */'omImports','payrollBankBatches','siEvents','hrRequests','employeeTaxYearProfile','employeeTaxIncomeSources','employeeTaxYearSnapshots','taxYearFinalizations','taxRules','hrTaxAttrs','hrEmploymentAssignments','insuranceEnrollments',  /* v3.11.95 GĐ2 — sẽ chuyển sang domain data_payroll khi RC-R1 */
+  'payVerifySheets',  /* v3.16.13: bỏ 'payrollPeriods' trùng (đã có ở dòng hrEmployees bên dưới) */  /* v3.15.29: hồ sơ đối chiếu Excel HR — PHẢI sync (bài học v3.12.97/v3.07.05) */  /* v3.13.61: 8 store PAYROLL P1 (pf*) đã dọn theo khai tử PF — xem ghi chú tại vị trí cũ đã xóa */  /* v3.12.97 FIX: salaryGrades PHẢI sync — GĐ4-M1 tạo 54 Grade xong bị mergeStateByFields drop vì thiếu trong ALL_DATA_FIELDS (đúng bài học v3.07.05 ngay dưới) */'omImports','payrollBankBatches','siEvents','hrRequests','employeeTaxYearProfile','employeeTaxIncomeSources','employeeTaxYearSnapshots','taxYearFinalizations','taxRules','hrTaxAttrs','hrEmploymentAssignments','insuranceEnrollments',  /* v3.11.95 GĐ2 — sẽ chuyển sang domain data_payroll khi RC-R1 */
   'hrEmployees','hrHistory','hrAttendance','payrollConfig','payrollEngine','payrollPeriods',  // v3.07.05 FIX: HRM + tham số lương — TRƯỚC ĐÂY KHÔNG SYNC → import xong sync là mất sạch
   'positions',  // v3.08.05: Position Management (PAF) — định biên theo vị trí
   'payChangeRequests','bodNotifs',  // v3.07.95: yêu cầu thay đổi cấu hình lương (4 mắt) + thông báo BOD — PHẢI sync
@@ -64030,6 +64035,125 @@ function whUpsertCostBasis(whId, items, date, source){
   });
   return n;
 }
+/* ============================================================================
+ * v3.16.11 — GIÁ VỐN NHẬP TRƯỚC XUẤT TRƯỚC (FIFO), Sếp chốt 16/8.
+ * Trước đây app dùng BÌNH QUÂN GIA QUYỀN (whAvgCostByCode): mọi phiếu nhập của một mã gộp
+ * lại chia ra một đơn giá chung. Hệ quả xấu: nhập lô mới giá cao thì giá trị XUẤT của tháng
+ * CŨ cũng đổi theo — bảng theo tháng không bao giờ đứng yên.
+ * FIFO theo dõi TỪNG LÔ (số lượng · đơn giá · ngày), xuất trừ dần từ lô cũ nhất. Giá trị tồn
+ * = tổng các lô CÒN LẠI, không phải số lượng × một đơn giá.
+ * Mã không có giá trên phiếu thì lấy bảng giá vốn (stockCostBasis) làm giá lô.
+ * ========================================================================== */
+function whFifoRun(stockDocs, whId, costBasis, upToDate){
+  const docs=(stockDocs||[])
+    .filter(d=>d && d.warehouseId===whId && d.status==='confirmed' && !d.reversedById)
+    .filter(d=>!upToDate || String(d.date||'')<=upToDate)
+    .slice().sort((a,b)=>String(a.date||'').localeCompare(String(b.date||''))
+                       || String(a.createdAt||'').localeCompare(String(b.createdAt||'')));
+  const lots={};          // code → [{qty, price}]
+  const qtyByCode={}, valueByCode={}, shortCodes=[];
+  const flows=[];         // {date, kind:'in'|'out'|'adj', value}
+  let outValue=0, inValue=0, adjValue=0;
+  /* v3.16.12 (Sếp: "mất giá trị 1 số kho" sau khi lên FIFO):
+     Bình quân gia quyền gán MỘT đơn giá cho cả mã rồi áp lên toàn bộ tồn, nên kho nạp nhiều
+     lần vẫn ra tiền. FIFO thì phần tồn thuộc lô KHÔNG ghi giá sẽ bằng 0 → giá trị bốc hơi.
+     Ba nấc lấy giá cho một lô, theo thứ tự tin cậy giảm dần:
+       (1) đơn giá GHI TRÊN PHIẾU — giá mua thật của chính lô đó;
+       (2) BẢNG GIÁ VỐN — thủ kho nhập tay hoặc nạp từ file;
+       (3) giá bình quân của các lần nhập CÓ GIÁ khác của chính mã đó.
+     Không có nấc nào thì để 0 và báo "chưa có giá" — không bịa. */
+  const _known={};
+  (stockDocs||[]).forEach(d=>{
+    if(!d || d.warehouseId!==whId || d.status!=='confirmed' || d.reversedById) return;
+    if(_stockSign(d.type)<=0) return;
+    (d.lines||[]).forEach(l=>{
+      const p=+l.price||0, q=+l.qty||0, c=String(l.code||'');
+      if(!c || p<=0 || q<=0) return;
+      if(!_known[c]) _known[c]={v:0,q:0};
+      _known[c].v+=p*q; _known[c].q+=q;
+    });
+  });
+  const basisOf=(code)=>{
+    const c=String(code);
+    const b=+((costBasis||{})[c])||0;
+    if(b>0) return b;
+    const k=_known[c];
+    return (k && k.q>0) ? Math.round((k.v/k.q)*100)/100 : 0;
+  };
+  docs.forEach(d=>{
+    const sg=_stockSign(d.type); if(!sg) return;
+    const isAdj=(d.type==='ADJUST_IN'||d.type==='ADJUST_OUT');
+    let docVal=0;
+    (d.lines||[]).forEach(l=>{
+      const code=String(l.code||''); if(!code) return;
+      const q=+l.qty||0; if(q<=0) return;
+      lots[code]=lots[code]||[];
+      qtyByCode[code]=(qtyByCode[code]||0)+sg*q;
+      if(sg>0){
+        const price=(+l.price>0)? +l.price : basisOf(code);
+        lots[code].push({qty:q, price:price});
+        docVal+=q*price;
+      } else {
+        let need=q, val=0;
+        while(need>0 && lots[code].length){
+          const lot=lots[code][0];
+          const take=Math.min(need, lot.qty);
+          val+=take*lot.price; lot.qty-=take; need-=take;
+          if(lot.qty<=0.0000001) lots[code].shift();
+        }
+        if(need>0){                       // xuất vượt số lô đang có
+          const p=basisOf(code);
+          val+=need*p;
+          if(shortCodes.indexOf(code)<0) shortCodes.push(code);
+        }
+        docVal+=val;
+      }
+    });
+    docVal=Math.round(docVal*100)/100;
+    if(isAdj){ adjValue+=sg*docVal; flows.push({date:d.date, kind:'adj', value:sg*docVal}); }
+    else if(sg>0){ inValue+=docVal; flows.push({date:d.date, kind:'in', value:docVal}); }
+    else { outValue+=docVal; flows.push({date:d.date, kind:'out', value:docVal}); }
+  });
+  Object.keys(lots).forEach(code=>{
+    /* v3.16.11: làm tròn về ĐỒNG — chia lô ra số lẻ thì cộng lại lệch vài xu, kế toán không dùng */
+    const v=Math.round(lots[code].reduce((s,x)=>s+x.qty*x.price,0));
+    valueByCode[code]=(v===0?0:v);
+  });
+  Object.keys(qtyByCode).forEach(code=>{ if(valueByCode[code]===undefined) valueByCode[code]=0; });
+  return {lots, qtyByCode, valueByCode, inValue:Math.round(inValue), outValue:Math.round(outValue),
+          adjValue:Math.round(adjValue), shortCodes, flows};
+}
+/* Bảng giá trị theo THÁNG: tồn đầu · nhập · xuất · điều chỉnh · tồn cuối.
+   Tồn cuối tháng trước LUÔN bằng tồn đầu tháng sau — chạy FIFO tới cuối từng tháng. */
+function whMonthlyValueRows(stockDocs, whId, costBasis, fromMonth, toMonth){
+  const endOf=(ym)=>{ const y=+ym.slice(0,4), m=+ym.slice(5,7); const d=new Date(Date.UTC(y, m, 0)); return d.toISOString().slice(0,10); };
+  const months=[]; let cur=fromMonth;
+  while(cur<=toMonth && months.length<120){
+    months.push(cur);
+    let y=+cur.slice(0,4), m=+cur.slice(5,7)+1;
+    if(m>12){ m=1; y++; }
+    cur=y+'-'+String(m).padStart(2,'0');
+  }
+  const totalAt=(ym)=>{
+    const r=whFifoRun(stockDocs, whId, costBasis, endOf(ym));
+    return Math.round(Object.values(r.valueByCode).reduce((s,v)=>s+v,0));
+  };
+  let prevClose=null;
+  return months.map((ym,i)=>{
+    const all=whFifoRun(stockDocs, whId, costBasis, endOf(ym));
+    const inM=all.flows.filter(f=>String(f.date||'').slice(0,7)===ym);
+    const inValue=inM.filter(f=>f.kind==='in').reduce((s,f)=>s+f.value,0);
+    const outValue=inM.filter(f=>f.kind==='out').reduce((s,f)=>s+f.value,0);
+    const adjValue=inM.filter(f=>f.kind==='adj').reduce((s,f)=>s+f.value,0);
+    const close=Math.round(Object.values(all.valueByCode).reduce((s,v)=>s+v,0));
+    let open=(prevClose===null)? Math.round(close-inValue+outValue-adjValue) : prevClose;
+    if(Object.is(open,-0) || open===0) open=0;      // tháng đầu không hiện "-0"
+
+    prevClose=close;
+    return {month:ym, open, inValue:Math.round(inValue), outValue:Math.round(outValue),
+            adjValue:Math.round(adjValue), close};
+  });
+}
 function whAvgCostByCode(stockDocs, whId, costBasis){
   const agg={};
   (stockDocs||[]).forEach(d=>{
@@ -64053,27 +64177,11 @@ function whAvgCostByCode(stockDocs, whId, costBasis){
 }
 /* Giá trị tồn của một kho + đếm mã chưa có giá vốn (để không lặng lẽ coi như 0đ) */
 function whWarehouseStockValue(stockDocs, whId, costBasis){
-  /* tự cộng tồn từ CHÍNH danh sách chứng từ truyền vào — hàm thuần, không phụ thuộc trạng thái ngoài */
-  const st={};
-  (stockDocs||[]).forEach(d=>{
-    if(!d || d.warehouseId!==whId || d.status!=='confirmed' || d.reversedById) return;
-    const sg=_stockSign(d.type); if(!sg) return;
-    (d.lines||[]).forEach(l=>{
-      const k=String(l.code);
-      if(!st[k]) st[k]={code:l.code, qty:0};
-      st[k].qty += sg*(+l.qty||0);
-    });
-  });
-  const cost=whAvgCostByCode(stockDocs, whId, costBasis);
-  let value=0, lines=0, priced=0, unpriced=0;
-  Object.keys(st).forEach(code=>{
-    const q=+st[code].qty||0;
-    if(q===0) return;
-    lines++;
-    const c=cost[code];
-    if(c>0){ value+=q*c; priced++; } else unpriced++;
-  });
-  return {value:Math.round(value), lines, priced, unpriced};
+  /* v3.16.11: dùng chung engine FIFO với màn chi tiết — hai nơi không được lệch nhau. */
+  const rows=whWarehouseValueRows(stockDocs, whId, costBasis);
+  let value=0, priced=0, unpriced=0;
+  rows.forEach(r=>{ value+=r.value; if(r.value>0) priced++; else unpriced++; });
+  return {value:Math.round(value), lines:rows.length, priced, unpriced};
 }
 /* ============================================================================
  * v3.16.07 (Sếp 16/8): XEM CHI TIẾT GIÁ TRỊ TỒN ngay tại dòng kho ở Danh sách kho.
@@ -64082,32 +64190,30 @@ function whWarehouseStockValue(stockDocs, whId, costBasis){
  * ĐƯA LÊN ĐẦU để sửa trước. Thủ kho sửa đơn giá ghi vào BẢNG GIÁ VỐN — không đụng sổ chứng từ.
  * ========================================================================== */
 function whWarehouseValueRows(stockDocs, whId, costBasis){
-  const st={};
-  (stockDocs||[]).forEach(d=>{
-    if(!d || d.warehouseId!==whId || d.status!=='confirmed' || d.reversedById) return;
-    const sg=_stockSign(d.type); if(!sg) return;
-    (d.lines||[]).forEach(l=>{
-      const k=String(l.code||''); if(!k) return;
-      if(!st[k]) st[k]={code:l.code, name:l.name||'', unit:l.unit||'', qty:0};
-      if(l.name && !st[k].name) st[k].name=l.name;
-      if(l.unit && !st[k].unit) st[k].unit=l.unit;
-      st[k].qty += sg*(+l.qty||0);
-    });
-  });
-  const cost=whAvgCostByCode(stockDocs, whId, costBasis);
-  const rows=Object.values(st).filter(r=>Math.round(r.qty*1000)!==0).map(r=>{
-    r.qty=Math.round(r.qty*1000)/1000;
-    r.price=+cost[String(r.code)]||0;
-    r.value=Math.round(r.qty*r.price);
+  /* v3.16.11: giá trị theo FIFO — mỗi mã là tổng các LÔ CÒN LẠI, đơn giá hiển thị là
+     giá bình quân của phần còn (tổng lô / số lượng còn), KHÔNG phải bình quân toàn bộ lịch sử. */
+  const run=whFifoRun(stockDocs, whId, costBasis);
+  const meta={};
+  (stockDocs||[]).forEach(d=>{ if(!d||d.warehouseId!==whId) return; (d.lines||[]).forEach(l=>{
+    const c=String(l.code||''); if(!c) return;
+    if(!meta[c]) meta[c]={code:l.code, name:'', unit:''};
+    if(l.name && !meta[c].name) meta[c].name=l.name;
+    if(l.unit && !meta[c].unit) meta[c].unit=l.unit;
+  }); });
+  const rows=Object.keys(run.qtyByCode).map(code=>{
+    const qty=Math.round((run.qtyByCode[code]||0)*1000)/1000;
+    const value=Math.round(run.valueByCode[code]||0);
+    const m=meta[code]||{code};
+    const price=(qty>0 && value>0)? Math.round((value/qty)*100)/100 : 0;
     const w=[];
-    if(r.qty<0) w.push('Tồn ÂM');
-    if(r.price<=0) w.push('Chưa có giá');
-    r.warn=w.join(' · ');
-    return r;
-  });
+    if(qty<0) w.push('Tồn ÂM');
+    if(qty>0 && value<=0) w.push('Chưa có giá');
+    if(run.shortCodes.indexOf(code)>=0) w.push('Xuất vượt lô nhập');
+    return {code:m.code||code, name:m.name||'', unit:m.unit||'', qty, price, value, warn:w.join(' · ')};
+  }).filter(r=>r.qty!==0);
   rows.sort((a,b)=>{
-    if(!!a.warn!==!!b.warn) return a.warn?-1:1;            // cảnh báo lên đầu
-    if(a.warn&&b.warn && (a.qty<0)!==(b.qty<0)) return a.qty<0?-1:1;   // tồn âm nặng hơn
+    if(!!a.warn!==!!b.warn) return a.warn?-1:1;
+    if(a.warn&&b.warn && (a.qty<0)!==(b.qty<0)) return a.qty<0?-1:1;
     return String(a.name||a.code).localeCompare(String(b.name||b.code),'vi');
   });
   return rows;
@@ -64131,6 +64237,41 @@ function openWarehouseValueDetail(whId){
   const rows=whWarehouseValueRows(docs, whId, whCostBasisMap(InventoryService.costBasis(), whId));
   const nWarn=rows.filter(r=>r.warn).length;
   const total=rows.reduce((s,r)=>s+r.value,0);
+  /* v3.16.11 (Sếp): bảng giá trị Nhập · Xuất · Tồn theo THÁNG, 12 tháng gần nhất.
+     Tồn cuối tháng trước = tồn đầu tháng sau (chạy FIFO tới cuối từng tháng nên không hở).
+     Cột Điều chỉnh tách riêng để thấy phần nào là hàng thật, phần nào là sửa sổ. */
+  const _now=new Date();
+  const _toM=_now.toISOString().slice(0,7);
+  const _fd=new Date(Date.UTC(_now.getUTCFullYear(), _now.getUTCMonth()-11, 1));
+  const _fromM=_fd.toISOString().slice(0,7);
+  const mRows=whMonthlyValueRows(docs, whId, whCostBasisMap(InventoryService.costBasis(), whId), _fromM, _toM)
+    .filter(r=>r.inValue||r.outValue||r.adjValue||r.close);
+  const _sum=mRows.reduce((a,r)=>({i:a.i+r.inValue,o:a.o+r.outValue,j:a.j+r.adjValue}),{i:0,o:0,j:0});
+  const mTable=mRows.length?`<div style="margin-top:12px">
+      <div style="font-size:12px;font-weight:600;margin-bottom:4px">📅 Giá trị Nhập · Xuất · Tồn theo tháng <span style="font-weight:400;color:var(--muted);font-size:11px">(giá vốn nhập trước xuất trước)</span></div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px;border:1px solid var(--rule)">
+        <thead><tr style="background:var(--rule);text-align:right">
+          <th style="padding:4px 6px;text-align:left">Tháng</th><th style="padding:4px 6px">Tồn đầu</th>
+          <th style="padding:4px 6px">Nhập</th><th style="padding:4px 6px">Xuất</th>
+          <th style="padding:4px 6px">Điều chỉnh</th><th style="padding:4px 6px">Tồn cuối</th></tr></thead>
+        <tbody style="font-variant-numeric:tabular-nums">
+        ${mRows.map(r=>`<tr style="border-bottom:1px solid var(--rule)">
+          <td style="padding:4px 6px">${esc(r.month.slice(5)+'/'+r.month.slice(0,4))}</td>
+          <td style="padding:4px 6px;text-align:right;color:var(--muted)">${r.open?fmt(r.open):'·'}</td>
+          <td style="padding:4px 6px;text-align:right;color:var(--good)">${r.inValue?('+'+fmt(r.inValue)):'·'}</td>
+          <td style="padding:4px 6px;text-align:right;color:#9c4221">${r.outValue?('−'+fmt(r.outValue)):'·'}</td>
+          <td style="padding:4px 6px;text-align:right;color:${r.adjValue?'#b8730a':'var(--muted)'}">${r.adjValue?((r.adjValue>0?'+':'−')+fmt(Math.abs(r.adjValue))):'·'}</td>
+          <td style="padding:4px 6px;text-align:right;font-weight:600">${fmt(r.close)}</td></tr>`).join('')}
+        <tr style="background:var(--paper-3)">
+          <td style="padding:4px 6px;font-weight:700">Cộng ${mRows.length} tháng</td>
+          <td style="padding:4px 6px;text-align:right;color:var(--muted)">—</td>
+          <td style="padding:4px 6px;text-align:right;font-weight:700">+${fmt(_sum.i)}</td>
+          <td style="padding:4px 6px;text-align:right;font-weight:700">−${fmt(_sum.o)}</td>
+          <td style="padding:4px 6px;text-align:right;font-weight:700">${_sum.j?((_sum.j>0?'+':'−')+fmt(Math.abs(_sum.j))):'·'}</td>
+          <td style="padding:4px 6px;text-align:right;font-weight:700">${fmt(mRows[mRows.length-1].close)}</td></tr>
+        </tbody></table>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">Tồn cuối tháng trước = tồn đầu tháng sau. Dòng Cộng không cộng cột tồn (cộng tồn qua các tháng là vô nghĩa) — ô cuối lấy tồn của tháng gần nhất.</div>
+    </div>`:'';
   const body=rows.length? rows.slice(0,500).map(r=>`<tr style="border-bottom:1px solid var(--rule)${r.warn?';background:rgba(192,57,43,.06)':''}">
       <td style="padding:5px 6px;font-size:12px${r.warn?';color:var(--bad)':''}">${esc(r.name||r.code)}
         <div style="font-family:monospace;font-size:10px;color:var(--muted)">${esc(r.code)}</div>
@@ -64156,6 +64297,7 @@ function openWarehouseValueDetail(whId){
          <th style="padding:5px 6px;text-align:right">Đơn giá</th>
          <th style="padding:5px 6px;text-align:right">Thành tiền</th></tr></thead>
        <tbody>${body}</tbody></table></div>
+     ${mTable}
      <div style="font-size:11px;color:var(--muted);margin-top:6px">${canEdit?'Sửa đơn giá ngay tại ô — ghi vào bảng giá vốn, KHÔNG sửa chứng từ đã ghi sổ. ':''}Tồn âm nghĩa là xuất nhiều hơn nhập: soát lại phiếu, đừng sửa số trực tiếp.${rows.length>500?' · Hiện 500 dòng đầu.':''}</div>`,
     `<button class="btn-ghost" onclick="closeModal()">Đóng</button>`);
 }
@@ -69942,24 +70084,21 @@ function renderInventory(){
   // KPI
   const kEl=document.getElementById('inv-kpi');
   if(kEl){
-    const movs=InventoryService.invMovements();
-    // Latest per warehouse + itemName
-    const latest={};
-    movs.forEach(m=>{
-      const key=`${m.warehouseId}|${String(m.itemName||'').toLowerCase()}`;
-      if(!latest[key] || (m.month||'')>(latest[key].month||'')) latest[key]=m;
-    });
+    /* v3.16.11 (Sếp: "tổng sai?"): cụm KPI này vẫn đọc invMovements — bảng nhập-xuất-tồn NHẬP TAY
+       của cơ chế cũ — nên đếm "kho đang có tồn" ra 5 trong khi cả 6 kho đều đang có tồn thật,
+       và tổng giá trị cũng là số cũ. Đây là chỗ SÓT khi chuyển Danh sách kho sang sổ ở v3.15.99.
+       Nay đọc thẳng từ SỔ CHỨNG TỪ, dùng chung engine FIFO với hai màn kia. */
+    const _allDocs=InventoryService.stockDocs();
+    const _basisAll=InventoryService.costBasis();
     let totalValue=0, totalLines=0;
-    const byType={VESSEL:0, OFFICE:0, BRANCH:0, OTHER:0};
-    Object.values(latest).forEach(m=>{
-      const cv=(+m.openValue||0)+(+m.inValue||0)-(+m.outValue||0);
-      if(cv>0){
-        totalValue+=toDisplay(cv, m.ccy||'VND');
-        totalLines++;
-        const w=InventoryService.warehouses().find(x=>x.id===m.warehouseId);
-        const t=w?(w.type||'OTHER'):'OTHER';
-        byType[t]=(byType[t]||0)+toDisplay(cv, m.ccy||'VND');
-      }
+    const byType={VESSEL:0, TECH:0, CENTRAL:0, OFFICE:0, BRANCH:0, OTHER:0};
+    const _whWithStock=new Set();
+    InventoryService.warehouses().filter(w=>w.isActive!==false).forEach(w=>{
+      const sv=whWarehouseStockValue(_allDocs, w.id, whCostBasisMap(_basisAll, w.id));
+      if(sv.lines>0) _whWithStock.add(w.id);
+      totalValue+=sv.value; totalLines+=sv.lines;
+      const t=w.type||'OTHER';
+      byType[t]=(byType[t]||0)+sv.value;
     });
     const breakdownParts=[];
     Object.entries(byType).forEach(([k,v])=>{
@@ -69969,7 +70108,7 @@ function renderInventory(){
       <div class="kpi">
         <div class="kpi-label">Tổng giá trị tồn kho</div>
         <div class="kpi-value" style="color:var(--accent)">${fmt(totalValue)}</div>
-        <div class="kpi-sub">${totalLines} dòng tồn cuối cùng (gần nhất)</div>
+        <div class="kpi-sub">${totalLines} dòng tồn · tính từ sổ chứng từ (FIFO)</div>
       </div>
       <div class="kpi">
         <div class="kpi-label">Số kho</div>
@@ -69978,7 +70117,7 @@ function renderInventory(){
       </div>
       <div class="kpi">
         <div class="kpi-label">Kho đang có tồn</div>
-        <div class="kpi-value">${(function(){const s=new Set();Object.values(latest).forEach(m=>{const cv=(+m.openValue||0)+(+m.inValue||0)-(+m.outValue||0);if(cv>0)s.add(m.warehouseId);});return s.size;})()}</div>
+        <div class="kpi-value">${_whWithStock.size}</div>
         <div class="kpi-sub">trên tổng ${InventoryService.warehouses().length} kho</div>
       </div>
       <div class="kpi">
