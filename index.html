@@ -2806,7 +2806,6 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
         <div style="flex:1;min-width:200px">
           <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:6px">🗃 Danh mục</div>
           <div style="display:flex;gap:6px;flex-wrap:wrap">
-            <button class="btn-sec" style="font-size:13px" onclick="openMaterialMaster()">📦 Vật tư (FAST)</button>
             <button class="btn-sec" style="font-size:13px" onclick="openWarehouseModal(null)">+ Thêm kho</button>
             <!-- v3.15.76 (Sếp 15/8: "không tìm thấy chỗ để import"): nút này trước chỉ nằm trong
                  Chứng từ kho → ⋯ Khác, tức 3 cú bấm cho một việc dựng nền cả sổ kho. Đưa thẳng ra
@@ -3806,7 +3805,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.16.26';
+const APP_VERSION='3.16.28';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -66407,6 +66406,17 @@ function _whName(id){ const w=InventoryService.warehouseById(id); return w?w.nam
 
 /* ---- Màn danh sách chứng từ kho ---- */
 let _stockFilter={type:'',wh:''};
+/* v3.16.28 (Sếp: "cần cả Điều chuyển"): ô lọc chỉ có Nhập/Xuất nên phiếu điều chuyển, điều
+   chỉnh và tồn đầu kỳ KHÔNG lọc ra được — có phiếu mà tìm không thấy. Mỗi nhóm gồm HAI VẾ
+   (ĐC↑/ĐC↓, ĐC+/ĐC−) nên phải nhóm lại, đồng thời "Chỉ Nhập" KHÔNG được gộp nhầm vế nhập của
+   điều chuyển — nếu gộp thì số phiếu nhập mua hàng sẽ bị phồng. */
+function whDocTypeMatch(doc, key){
+  if(!key) return true;
+  const t=(doc&&doc.type)||'';
+  if(key==='XFER') return t==='TRANSFER_IN'||t==='TRANSFER_OUT';
+  if(key==='ADJ')  return t==='ADJUST_IN'||t==='ADJUST_OUT';
+  return t===key;
+}
 function openStockDocs(){
   /* v3.15.72 (Sếp 15/8, nhắc lại "chuyển Nhận hàng - Kiểm kê vào Kho vật tư"): màn Chứng từ kho
      vẫn còn bộ 4 nút riêng cho tàu (Tồn tổng hợp · Nhận hàng · Kiểm kê · Báo cáo kho) — đúng chỗ
@@ -66425,7 +66435,7 @@ function openStockDocs(){
   /* v3.15.82: ẩn cặp phiếu đã triệt tiêu nhau (phiếu bị đảo + phiếu đảo) — chúng cộng lại bằng 0
      nên chỉ làm rối mắt; vẫn nằm nguyên trong sổ, tick để xem lại khi cần truy vết. */
   list=whHideVoided(list, !!_stockFilter.showVoided);
-  if(_stockFilter.type) list=list.filter(d=>d.type===_stockFilter.type);
+  if(_stockFilter.type) list=list.filter(d=>whDocTypeMatch(d, _stockFilter.type));
   if(_stockFilter.wh) list=list.filter(d=>d.warehouseId===_stockFilter.wh);
   list.sort((a,b)=>String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
   /* v3.16.00 (Sếp phát hiện qua ảnh: mã SUR.* có số giống hệt ở hai kho): cảnh báo lô TỒN ĐẦU KỲ
@@ -66470,17 +66480,23 @@ function openStockDocs(){
     : `<tr><td colspan="7" style="padding:14px;text-align:center;color:var(--muted)">Chưa có chứng từ kho.</td></tr>`;
   const sel='padding:6px 8px;border:1px solid var(--rule);border-radius:6px;font-size:13px';
   const body=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center">
-      <select id="sd-ftype" style="${sel}" onchange="_stockApply()"><option value="">— Nhập & Xuất —</option><option value="IN" ${_stockFilter.type==='IN'?'selected':''}>Chỉ Nhập</option><option value="OUT" ${_stockFilter.type==='OUT'?'selected':''}>Chỉ Xuất</option></select>
+      <select id="sd-ftype" style="${sel}" onchange="_stockApply()">
+        ${[['','— Mọi loại phiếu —'],['IN','Chỉ Nhập'],['OUT','Chỉ Xuất'],['XFER','Điều chuyển (2 vế)'],['ADJ','Điều chỉnh (2 vế)'],['OPENING','Tồn đầu kỳ'],['COUNT','Kiểm kê']]
+          .map(o=>`<option value="${o[0]}" ${_stockFilter.type===o[0]?'selected':''}>${o[1]}</option>`).join('')}
+      </select>
       <select id="sd-fwh" style="${sel}" onchange="_stockApply()">${whOpts}</select>
       ${/* v3.15.72: nhánh tàu đã chuyển hướng ở đầu hàm — không còn bộ nút riêng ở đây nữa */''}
-      ${canEdit?`<button class="btn-primary" style="font-size:13px" onclick="openStockForm('IN')">+ Phiếu nhập</button>
-      <button class="btn-sec" style="font-size:13px" onclick="openStockForm('OUT')">+ Phiếu xuất</button>
-      <button class="btn-sec" style="font-size:13px" onclick="openStockTransfer()">🔄 Điều chuyển</button>
-      <button class="btn-sec" style="font-size:13px" onclick="openStockCount()">📋 Kiểm kê</button>`:''}
+      ${/* v3.16.27 (Sếp: "phần này trùng nhiều… chỉ dùng là bảng kê chứng từ"): bỏ bộ nút TẠO
+           phiếu ở đây — chúng đã có nguyên vẹn ở khu Thao tác kho ngay trang trước. Màn này
+           thuần là BẢNG KÊ: lọc, xem, in phiếu. */''}
       ${(canManageStock()||isAdmin())?`<label style="font-size:11px;color:var(--muted);display:inline-flex;align-items:center;gap:4px;margin-right:4px" title="Phiếu đã bị hủy hiệu lực bằng phiếu ngược dấu — bình thường không cần xem"><input type="checkbox" ${_stockFilter.showVoided?'checked':''} onchange="_stockFilter.showVoided=this.checked;openStockDocs()"> Hiện phiếu đã hủy hiệu lực</label>`:''}
-      ${whIsVesselSideUser()?'':`<button class="btn-sec" style="font-size:13px" onclick="openStockOverview()" title="Xem tồn tất cả kho — check trước khi mua, tránh mua trùng/lãng phí">📊 Tồn tổng hợp</button>
-      ${(canManageStock()||isAdmin())?`<button class="btn-sec" style="font-size:13px" onclick="whToggleMore()" title="Việc định kỳ: theo dõi nhập kho · chờ nhập kho · đề xuất điều chuyển · tồn theo kho · báo cáo · soát mã · tồn đầu kỳ">⋯ Khác${(stockTempCount()+whReqPendingCount())?` <span style="background:#b8730a;color:#fff;border-radius:8px;padding:0 6px;font-size:10px">${stockTempCount()+whReqPendingCount()}</span>`:''}</button>`
-      :`<button class="btn-sec" style="font-size:13px;border-color:#1c5a8c;color:#1c5a8c" onclick="openStockInTracking()" title="Theo dõi tiến độ giao hàng - nhập kho các đơn mua của bạn">📦 Theo dõi nhập kho</button>`}`}
+      ${/* v3.16.27: "Tồn tổng hợp" và menu "⋯ Khác" đã có ở khu Thao tác kho — bỏ khỏi đây.
+           NV thường (không phải thủ kho/admin) vẫn giữ lối theo dõi đơn mua của mình. */''}
+      ${/* NV thường chỉ vào được màn này (không có khu Thao tác kho) nên GIỮ hai lối vào của họ:
+           xem tồn tổng hợp trước khi mua, và theo dõi đơn mua của chính mình. Thủ kho/admin thì
+           bỏ vì đã có đủ ở Thao tác kho. */''}
+      ${(!whIsVesselSideUser() && !(canManageStock()||isAdmin()))?`<button class="btn-sec" style="font-size:13px" onclick="openStockOverview()" title="Xem tồn tất cả kho — check trước khi mua, tránh mua trùng">📊 Tồn tổng hợp</button>
+      <button class="btn-sec" style="font-size:13px;border-color:#1c5a8c;color:#1c5a8c" onclick="openStockInTracking()" title="Theo dõi tiến độ giao hàng - nhập kho các đơn mua của bạn">📦 Theo dõi nhập kho</button>`:''}
     </div>
     ${(!whIsVesselSideUser()&&(canManageStock()||isAdmin()))?`<div id="wh-more" style="display:none;gap:8px;flex-wrap:wrap;margin:-4px 0 10px;padding:8px 10px;border:1px dashed var(--rule);border-radius:8px">
       <button class="btn-sec" style="font-size:13px;border-color:#1c5a8c;color:#1c5a8c" onclick="openStockInTracking()" title="Theo dõi tiến độ giao hàng - nhập kho các đơn mua">📦 Theo dõi nhập kho</button>
@@ -68012,6 +68028,10 @@ function _stockRenderForm(){
     <td style="padding:3px"><input value="${esc(l.name||'')}" placeholder="Tên vật tư" style="width:100%;padding:4px;font-size:11px" onchange="_stockLineSet(${i},'name',this.value)"></td>
     <td style="padding:3px"><input value="${esc(l.unit||'')}" placeholder="ĐVT" style="width:50px;padding:4px;font-size:11px" onchange="_stockLineSet(${i},'unit',this.value)"></td>
     <td style="padding:3px"><input type="number" value="${l.qty||''}" style="width:64px;padding:4px;font-size:11px;text-align:right" onchange="_stockLineSet(${i},'qty',this.value)"></td>
+    ${/* v3.16.27 (Sếp duyệt): phiếu NHẬP có ô Đơn giá — hàng nhập của kỳ cũ không có hóa đơn AP
+         trong app nên đây là đường duy nhất đưa giá vào. Để trống thì FIFO lấy theo bảng giá vốn.
+         Phiếu XUẤT không có ô này: giá vốn xuất do FIFO tự tính từ lô. */''}
+    ${isIn?`<td style="padding:3px"><input type="number" min="0" value="${l.price||''}" placeholder="để trống = giá vốn" title="Đơn giá nhập. Để trống thì lấy theo bảng giá vốn của mã." style="width:104px;padding:4px;font-size:11px;text-align:right" onchange="_stockLineSet(${i},'price',this.value)"></td>`:''}
     ${!isIn?`<td style="padding:3px;font-size:10px;color:var(--muted);white-space:nowrap">tồn: ${l.code?stockOnHand(s.warehouseId,l.code):'—'}</td>`:''}
     <td style="padding:3px"><button class="btn-ghost" style="font-size:11px;color:#c0392b" onclick="_stockLineDel(${i})">×</button></td></tr>`).join('')
     : `<tr><td colspan="${isIn?5:6}" style="padding:8px;text-align:center;color:var(--muted);font-size:11px">Chưa có dòng. Bấm "+ Thêm dòng".</td></tr>`;
@@ -68032,10 +68052,13 @@ function _stockRenderForm(){
       <label style="grid-column:1/3">Ghi chú<input id="sf-note" value="${esc(s.note||'')}" style="${inp};width:100%" onchange="_stockDraft.note=this.value"></label>
     </div>
     <table style="width:100%;border-collapse:collapse;border:1px solid var(--rule)">
-      <thead><tr style="background:var(--rule);font-size:11px"><th style="padding:4px">Mã FAST</th><th style="padding:4px">Tên vật tư</th><th style="padding:4px">ĐVT</th><th style="padding:4px">SL</th>${!isIn?'<th style="padding:4px">Tồn</th>':''}<th></th></tr></thead>
+      <thead><tr style="background:var(--rule);font-size:11px"><th style="padding:4px">Mã FAST</th><th style="padding:4px">Tên vật tư</th><th style="padding:4px">ĐVT</th><th style="padding:4px">SL</th>${isIn?'<th style="padding:4px">Đơn giá</th>':''}${!isIn?'<th style="padding:4px">Tồn</th>':''}<th></th></tr></thead>
       <tbody>${lineRows}</tbody></table>
     <button class="btn-sec" style="font-size:11px;margin-top:6px" onclick="_stockLineAdd()">+ Thêm dòng</button>${_impBtn}
-    <div style="font-size:11px;color:var(--muted);margin-top:6px">📦 Chỉ quản lý số lượng — KHÔNG giá. ${isIn?'Giá trị do Kế toán quản qua hóa đơn AP đã liên kết.':'Không xuất vượt tồn khả dụng (sẽ bị chặn khi xác nhận).'} Mã FAST <b>không bắt buộc</b> — để trống thì app gợi ý theo tên, không khớp thì cấp mã tạm SH-xxxx và đẩy vào 🏷 Soát mã.</div>`;
+    ${/* v3.16.27: in ngay tại form, khỏi đóng form đi tìm dòng trong bảng kê. Dùng CHUNG hàm
+         stockDocPreview — không nhân bản mã, không tải gì thêm, in bằng cửa sổ trình duyệt. */''}
+    ${s.id?`<button class="btn-sec" style="font-size:11px;margin-top:6px;margin-left:6px" onclick="stockDocPreview('${s.id}')" title="In phiếu theo mẫu 01-VT/02-VT — lưu PDF bằng lệnh in của trình duyệt">🖨 In phiếu</button>`:''}
+    <div style="font-size:11px;color:var(--muted);margin-top:6px">📦 ${isIn?'Đơn giá để trống thì app lấy theo bảng giá vốn của mã; có hóa đơn AP liên kết thì giá theo hóa đơn.':'Không xuất vượt tồn khả dụng (sẽ bị chặn khi xác nhận).'} Mã FAST <b>không bắt buộc</b> — để trống thì app gợi ý theo tên, không khớp thì cấp mã tạm SH-xxxx và đẩy vào 🏷 Soát mã.</div>`;
   openModal((s.id?'✏️ Sửa ':'+ ')+(isIn?'Phiếu nhập kho':'Phiếu xuất kho'), body,
     `<button class="btn-ghost" onclick="openStockDocs()">← Danh sách</button>
      <button class="btn-sec" onclick="_stockSave(false)">💾 Lưu nháp</button>
@@ -68043,7 +68066,13 @@ function _stockRenderForm(){
 }
 function _stockLineAdd(){ _stockSyncForm(); _stockDraft.lines.push({code:'',name:'',unit:'',qty:''}); _stockRenderForm(); }
 function _stockLineDel(i){ _stockSyncForm(); _stockDraft.lines.splice(i,1); _stockRenderForm(); }
-function _stockLineSet(i,k,v){ if(_stockDraft.lines[i]) _stockDraft.lines[i][k]=(k==='qty'?(+v||0):v); }
+/* v3.16.27: 'price' phải lưu dạng SỐ — nếu để chuỗi thì FIFO so sánh +l.price>0 vẫn qua nhưng
+   phép nhân ra kết quả lạ khi người dùng gõ có dấu chấm. Ép số ngay tại chỗ nhập. */
+function _stockLineSet(i,k,v){
+  if(!_stockDraft.lines[i]) return;
+  if(k==='qty'||k==='price'){ _stockDraft.lines[i][k]=parseFloat(String(v).replace(/[^0-9.\-]/g,''))||0; }
+  else _stockDraft.lines[i][k]=v;
+}
 function _stockLineCode(i,code){ // tự điền tên+đvt từ Material Master
   const m=matByCode(code); if(_stockDraft.lines[i]){ _stockDraft.lines[i].code=code; if(m){ _stockDraft.lines[i].name=m.name; _stockDraft.lines[i].unit=m.unit; } } _stockRenderForm();
 }
@@ -69994,6 +70023,40 @@ function openStockTransfer(){
   _xferDraft={ date:new Date().toISOString().slice(0,10), fromWh:allowed[0].id, toWh:(allowed[1]||allowed[0]).id, lines:[], note:'', deliveredBy:'', receivedBy:'' };
   _xferRender();
 }
+/* v3.16.27: nạp dòng phiếu điều chuyển từ file — dùng CHUNG bộ đọc của phiếu nhập/xuất
+   (whParseDocLines cho Excel, whParseDocLinesFromText cho PDF), chỉ khác kho đích ghi vào. */
+async function _xferImportLines(file){
+  if(!file || !_xferDraft) return;
+  const isPdf=/\.pdf$/.test(String(file.name||'').toLowerCase());
+  try{
+    let r;
+    if(isPdf){
+      if(!window.pdfjsLib){
+        await _loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js','pdfjsLib');
+        if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      }
+      if(!window.pdfjsLib){ toast('Không tải được bộ đọc PDF','bad'); return; }
+      const pdf=await pdfjsLib.getDocument({data:new Uint8Array(await file.arrayBuffer())}).promise;
+      let txt='';
+      for(let pg=1; pg<=pdf.numPages; pg++){
+        const c=await (await pdf.getPage(pg)).getTextContent();
+        const byY={}; c.items.forEach(it=>{ const y=Math.round((it.transform&&it.transform[5])||0); (byY[y]=byY[y]||[]).push(it.str); });
+        Object.keys(byY).sort((a,b)=>b-a).forEach(y=>{ txt+=byY[y].join(' ')+'\n'; });
+      }
+      r=whParseDocLinesFromText(txt);
+    } else {
+      const wb=XLSX.read(new Uint8Array(await file.arrayBuffer()),{type:'array'});
+      r=whParseDocLines(whSheetToAoa(wb.Sheets[wb.SheetNames[0]]));
+    }
+    if(!r.lines.length){ toast('Không nạp được dòng nào — '+(r.error||'file không đúng khuôn'),'bad'); return; }
+    r.lines.forEach(l=>_xferDraft.lines.push({code:l.code||'', name:l.name||'', unit:l.unit||'', qty:l.qty, price:l.price||0}));
+    _xferRender();
+    toast('✓ Nạp '+r.lines.length+' dòng từ '+(isPdf?'PDF — dò theo mã, soát lại giúp':'Excel'),'good');
+  }catch(err){
+    console.error('[xfer-import]',err);
+    toast('Lỗi đọc file: '+(err&&err.message?err.message:err),'bad');
+  }
+}
 function _xferRender(){
   const s=_xferDraft; if(!s) return;
   const allowed=stockAllowedWarehouses();
@@ -70007,6 +70070,9 @@ function _xferRender(){
     <td style="padding:3px"><input value="${esc(l.name||'')}" style="width:100%;padding:4px;font-size:11px" onchange="_xferSet(${i},'name',this.value)"></td>
     <td style="padding:3px"><input value="${esc(l.unit||'')}" style="width:48px;padding:4px;font-size:11px" onchange="_xferSet(${i},'unit',this.value)"></td>
     <td style="padding:3px"><input type="number" value="${l.qty||''}" style="width:60px;padding:4px;font-size:11px;text-align:right" onchange="_xferSet(${i},'qty',this.value)"></td>
+    ${/* v3.16.27 (Sếp duyệt): điều chuyển cũng có Đơn giá — để trống thì lô nhận lấy giá vốn
+         của kho nguồn theo FIFO, ghi giá ở đây khi cần chốt giá riêng cho lô chuyển. */''}
+    <td style="padding:3px"><input type="number" min="0" value="${l.price||''}" placeholder="để trống = giá vốn" style="width:104px;padding:4px;font-size:11px;text-align:right" onchange="_xferSet(${i},'price',this.value)"></td>
     <td style="padding:3px;font-size:10px;color:var(--muted)">tồn nguồn: ${l.code?stockOnHand(s.fromWh,l.code):'—'}</td>
     <td style="padding:3px"><button class="btn-ghost" style="font-size:11px;color:#c0392b" onclick="_xferDel(${i})">×</button></td></tr>`).join('')
     : `<tr><td colspan="6" style="padding:8px;text-align:center;color:var(--muted);font-size:11px">Chưa có dòng.</td></tr>`;
@@ -70022,15 +70088,22 @@ function _xferRender(){
       <label style="grid-column:1/3">Ghi chú<input value="${esc(s.note||'')}" style="${inp};width:100%" onchange="_xferDraft.note=this.value"></label>
     </div>
     <table style="width:100%;border-collapse:collapse;border:1px solid var(--rule)">
-      <thead><tr style="background:var(--rule);font-size:11px"><th style="padding:4px">Mã FAST</th><th style="padding:4px">Tên</th><th style="padding:4px">ĐVT</th><th style="padding:4px">SL</th><th style="padding:4px">Tồn nguồn</th><th></th></tr></thead>
+      <thead><tr style="background:var(--rule);font-size:11px"><th style="padding:4px">Mã FAST</th><th style="padding:4px">Tên</th><th style="padding:4px">ĐVT</th><th style="padding:4px">SL</th><th style="padding:4px">Đơn giá</th><th style="padding:4px">Tồn nguồn</th><th></th></tr></thead>
       <tbody>${lineRows}</tbody></table>
     <button class="btn-sec" style="font-size:11px;margin-top:6px" onclick="_xferAdd()">+ Thêm dòng</button>
+    ${/* v3.16.27: nạp dòng từ file cho cả phiếu điều chuyển — dùng chung bộ đọc Excel/PDF */''}
+    <button class="btn-sec" style="font-size:11px;margin-top:6px;margin-left:6px" onclick="document.getElementById('xfer-imp').click()" title="Nạp dòng từ file Excel hoặc PDF phiếu điều chuyển">📎 Nạp từ file</button>
+    <input type="file" id="xfer-imp" accept=".xlsx,.xls,.csv,.pdf" style="display:none" onchange="_xferImportLines(this.files[0])">
     <div style="font-size:11px;color:var(--muted);margin-top:6px">🔄 Điều chuyển sẽ tạo <b>2 chứng từ</b>: phiếu xuất (kho nguồn) + phiếu nhập (kho đích). Chặn nếu vượt tồn kho nguồn.</div>`;
   openModal('🔄 Điều chuyển kho', body, `<button class="btn-ghost" onclick="openStockDocs()">← Chứng từ</button><button class="btn-primary" onclick="_xferCommit()">✓ Tạo điều chuyển</button>`);
 }
 function _xferAdd(){ _xferDraft.lines.push({code:'',name:'',unit:'',qty:''}); _xferRender(); }
 function _xferDel(i){ _xferDraft.lines.splice(i,1); _xferRender(); }
-function _xferSet(i,k,v){ if(_xferDraft.lines[i]) _xferDraft.lines[i][k]=(k==='qty'?(+v||0):v); }
+function _xferSet(i,k,v){
+  if(!_xferDraft.lines[i]) return;
+  if(k==='qty'||k==='price'){ _xferDraft.lines[i][k]=parseFloat(String(v).replace(/[^0-9.\-]/g,''))||0; }
+  else _xferDraft.lines[i][k]=v;
+}
 function _xferLineCode(i,code){ const m=matByCode(code); if(_xferDraft.lines[i]){ _xferDraft.lines[i].code=code; if(m){ _xferDraft.lines[i].name=m.name; _xferDraft.lines[i].unit=m.unit; } } _xferRender(); }
 function _xferCommit(){
   const s=_xferDraft; if(!s) return;
