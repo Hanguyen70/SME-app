@@ -3804,7 +3804,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.16.08';
+const APP_VERSION='3.16.09';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -64119,6 +64119,7 @@ function _whSetCost(whId, code, v){
   whUpsertCostBasis(whId, [{code, price:p}], new Date().toISOString().slice(0,10), 'thủ kho nhập tay');
   saveState();
   toast('✓ Đã cập nhật đơn giá','good');
+  try{ renderWarehousesTable(); }catch(e){}   // v3.16.09: bảng kho phía sau cập nhật theo
   openWarehouseValueDetail(whId);
 }
 function openWarehouseValueDetail(whId){
@@ -68947,8 +68948,15 @@ function _opImportCommit(){
   });
   try{ logAuditEvent('stock_opening_import',{docs:made, up:nUp, down:nDown, unchanged:nSame, newMaterials:nNewMat, date}); }catch(e){}
   window._opCache=null; saveState();
-  if(!made.length){ toast('✓ Không có mã nào chênh lệch — tồn giữ nguyên','good'); closeModal(); openStockDocs(); return; }
-  toast('✓ Đã ghi '+made.length+' phiếu điều chỉnh · tăng '+nUp+' mã · giảm '+nDown+' mã · giữ nguyên '+nSame+' mã'+(nNewMat?(' · thêm '+nNewMat+' vật tư mới'):''),+(nCost?(' · cập nhật giá vốn '+nCost+' mã'):''),'good');
+  /* v3.16.09 (Sếp thấy hai màn lệch nhau): số ở Danh sách kho phải cập nhật NGAY sau khi
+     nạp/sửa giá — nếu không, bảng ngoài giữ số cũ và người dùng tưởng app tính sai. */
+  try{ renderWarehousesTable(); }catch(e){}
+  if(!made.length){ toast('✓ Không có mã nào chênh lệch — tồn giữ nguyên'+(nCost?(' · cập nhật giá vốn '+nCost+' mã'):''),'good'); closeModal(); openStockDocs(); return; }
+  /* v3.16.09: vá lỗi gõ ở v3.16.02 — dấu PHẨY thay vì dấu CỘNG khiến toast nhận sai tham số,
+     phần "cập nhật giá vốn N mã" không bao giờ hiện và kiểu thông báo bị đẩy lệch. */
+  toast('✓ Đã ghi '+made.length+' phiếu điều chỉnh · tăng '+nUp+' mã · giảm '+nDown+' mã · giữ nguyên '+nSame+' mã'
+        +(nNewMat?(' · thêm '+nNewMat+' vật tư mới'):'')
+        +(nCost?(' · cập nhật giá vốn '+nCost+' mã'):''),'good');
   closeModal(); openStockDocs();
   }catch(err){
     console.error('[opening-import]', err);
