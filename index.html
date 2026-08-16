@@ -3784,7 +3784,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.15.83';
+const APP_VERSION='3.15.84';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -30043,7 +30043,9 @@ const DocEngine = (function(){
     // số cột: STT, Tên, Mã, ĐVT, SL(Yêu cầu), SL(Thực), [Giá], [Tiền]
     const nCols = showVal ? 8 : 6;
     let total=0;
-    const MINROWS=7;
+    /* v3.15.84 (mẫu chuẩn FAST Sếp gửi 16/8): phiếu điều chuyển in 10 dòng, nhập/xuất 7 dòng */
+    const isTransfer=(spec.docType==='TRANSFER_IN'||spec.docType==='TRANSFER_OUT');
+    const MINROWS=isTransfer?10:7;
     const dataRows=rows.slice();
     const bodyRows=[];
     for(let i=0;i<Math.max(MINROWS, dataRows.length); i++){
@@ -30075,11 +30077,19 @@ const DocEngine = (function(){
     <tr>
       <th style="border:1px solid #333;padding:4px;background:#eef2f7;font-size:10px;width:64px">${qtyLabel}</th>
       <th style="border:1px solid #333;padding:4px;background:#eef2f7;font-size:10px;width:64px">Thực ${isIn?'nhập':'xuất'}</th>
-    </tr>`;
-    const totalRow = showVal ? `<tr>
-      <td colspan="${isIn?6:6}" style="border:1px solid #333;padding:4px;text-align:right;font-weight:700;font-size:11px">Tổng cộng</td>
+    </tr>
+    ${/* v3.15.84: dòng chữ cái A B C D 1 2 3 4 đúng mẫu 01-VT của FAST */''}
+    <tr>${(showVal?['A','B','C','D','1','2','3','4']:['A','B','C','D','1','2'])
+      .map(x=>`<th style="border:1px solid #333;padding:2px;background:#eef2f7;font-size:10px;font-weight:400">${x}</th>`).join('')}</tr>`;
+    /* v3.15.84: mẫu FAST LUÔN có dòng Tổng cộng (phiếu điều chuyển hiện 0) */
+    const totalRow = showVal
+      ? `<tr>
+      <td colspan="6" style="border:1px solid #333;padding:4px;text-align:right;font-weight:700;font-size:11px">Tổng cộng</td>
       <td style="border:1px solid #333"></td>
-      <td style="border:1px solid #333;padding:4px;text-align:right;font-weight:700;font-size:11px">${_esc(total.toLocaleString('vi-VN'))}</td></tr>` : '';
+      <td style="border:1px solid #333;padding:4px;text-align:right;font-weight:700;font-size:11px">${_esc(total.toLocaleString('vi-VN'))}</td></tr>`
+      : `<tr>
+      <td colspan="5" style="border:1px solid #333;padding:4px;text-align:right;font-weight:700;font-size:11px">Tổng cộng</td>
+      <td style="border:1px solid #333;padding:4px;text-align:right;font-weight:700;font-size:11px">${_esc(rows.reduce((a,r)=>a+(+r.qty||0),0).toLocaleString('vi-VN'))}</td></tr>`;
     const logo = co.logoUrl ? `<img src="${_esc(co.logoUrl)}" style="max-height:54px;max-width:170px" crossorigin="anonymous">` : `<div style="font-size:16px;font-weight:700;color:#1c3a5c">${_esc(co.name||'')}</div>`;
     const parties=(spec.parties||[]).map(p=>`<div style="font-size:11px;margin:1px 0"><b>${_esc(p.label)}:</b> ${_esc(p.name||'')}</div>`).join('');
     const sigs=(spec.signatures||[]);
@@ -30099,9 +30109,14 @@ const DocEngine = (function(){
         <div style="font-size:11px;font-style:normal">${_esc(spec.docDate||'')}</div>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
-        <div style="flex:1">${parties}${spec.warehouse?`<div style="font-size:11px;margin:1px 0"><b>${isIn?'Nhập':'Xuất'} tại kho:</b> ${_esc(spec.warehouse)}</div>`:''}${spec.reason?`<div style="font-size:11px;margin:1px 0"><b>${isIn?'Theo':'Lý do'}:</b> ${_esc(spec.reason)}</div>`:''}</div>
+        <div style="flex:1">${parties}${spec.reason?`<div style="font-size:11px;margin:1px 0"><b>${isIn?'Theo':(isTransfer?'Diễn giải':'Lý do xuất kho')}:</b> ${_esc(spec.reason)}</div>`:''}${
+          /* v3.15.84 (mẫu FAST): phiếu điều chuyển ghi rõ KHO XUẤT → KHO NHẬP thay cho một dòng kho */
+          isTransfer
+            ? `${spec.fromWh?`<div style="font-size:11px;margin:1px 0"><b>Kho xuất:</b> ${_esc(spec.fromWh)}</div>`:''}${spec.toWh?`<div style="font-size:11px;margin:1px 0"><b>Kho nhập:</b> ${_esc(spec.toWh)}</div>`:''}`
+            : (spec.warehouse?`<div style="font-size:11px;margin:1px 0"><b>${isIn?'Nhập':'Xuất'} tại kho:</b> ${_esc(spec.warehouse)} &nbsp;&nbsp; Địa điểm:</div>`:'')
+        }</div>
         <div style="text-align:right;font-size:11px;min-width:140px">
-          <div>Số: <b>${_esc(spec.docNo||'')}</b></div>
+          <div>${isTransfer?'Số phiếu':'Số'}: <b>${_esc(spec.docNo||'')}</b></div>
           ${showVal?`<div>Nợ: ${_esc(spec.debitAcc||'1561')}</div><div>Có: ${_esc(spec.creditAcc||'1561')}</div>`:''}
         </div>
       </div>
@@ -67995,6 +68010,9 @@ function _stockSpec(d, opts){
     docTitle: ({IN:'PHIẾU NHẬP KHO',OUT:'PHIẾU XUẤT KHO',TRANSFER_IN:'PHIẾU NHẬP ĐIỀU CHUYỂN',TRANSFER_OUT:'PHIẾU XUẤT ĐIỀU CHUYỂN',ADJUST_IN:'PHIẾU ĐIỀU CHỈNH TĂNG',ADJUST_OUT:'PHIẾU ĐIỀU CHỈNH GIẢM'}[d.type])||'CHỨNG TỪ KHO',
     docNo:d.docNo, docDate:('Ngày '+(d.date||'').slice(8,10)+' tháng '+(d.date||'').slice(5,7)+' năm '+(d.date||'').slice(0,4)),
     warehouse:_whName(d.warehouseId), reason,
+    /* v3.15.84: mẫu FAST của phiếu điều chuyển in Kho xuất → Kho nhập */
+    fromWh:(d.type==='TRANSFER_OUT')?_whName(d.warehouseId):(d.pairFromWh?_whName(d.pairFromWh):''),
+    toWh:(d.type==='TRANSFER_OUT')?(d.pairToWh?_whName(d.pairToWh):''):((d.type==='TRANSFER_IN')?_whName(d.warehouseId):''),
     formCode: showVal?'Mẫu số 01-VT':'', formNote: showVal?'(Ban hành theo TT 200/2014/TT-BTC)':'',
     debitAcc:'1561', creditAcc:'1561',
     company:{name:co.name||'CÔNG TY CỔ PHẦN HÀNG HẢI VÀ NĂNG LƯỢNG HẢI MÃ', address:co.address||'', logoUrl:co.logoUrl||''},
