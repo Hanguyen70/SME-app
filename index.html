@@ -3804,7 +3804,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.16.18';
+const APP_VERSION='3.16.20';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -66294,7 +66294,8 @@ function openStockDocs(){
      vẫn còn bộ 4 nút riêng cho tàu (Tồn tổng hợp · Nhận hàng · Kiểm kê · Báo cáo kho) — đúng chỗ
      trùng còn sót. Phía tàu KHÔNG cần màn danh sách chứng từ: mọi việc kho đã nằm gọn trong màn
      Kho vật tư. Chuyển hướng luôn, kể cả khi tới đây từ nút "← Chứng từ" của các màn con. */
-  if(typeof whIsVesselSideUser==='function' && whIsVesselSideUser()){
+  /* v3.16.20: chuyển hướng theo "phía kho" (tàu HOẶC NV được gán kho) — không chỉ theo tàu */
+  if(typeof whIsSiteSideUser==='function' && whIsSiteSideUser()){
     if(typeof openVesselStockOverview==='function'){ openVesselStockOverview(); return; }
   }
   /* v3.15.59: nhánh office canEdit CHỈ thủ kho/admin (phía tàu có bộ nút riêng, NV thường
@@ -67735,34 +67736,49 @@ function _allocLanded(lines, landedCosts){
 function whParseDocLines(aoa){
   const norm=(x)=>whNormName(x);
   const num=(x)=>{
+    /* v3.16.19: ô Excel vốn LÀ SỐ — trả thẳng. Trước đây ép qua chuỗi rồi bỏ dấu chấm
+       (xử lý kiểu ngăn nghìn của FAST) nên 0.5 thành 5 — sai nặng ở dòng số lẻ. */
+    if(typeof x==='number') return isNaN(x)?0:x;
     const t=String(x==null?'':x).replace(/[^0-9,.\-]/g,'');
     if(!t) return 0;
-    /* FAST dùng dấu chấm ngăn nghìn và dấu phẩy thập phân */
+    /* Chuỗi từ FAST: dấu chấm ngăn nghìn, dấu phẩy thập phân */
     const v=parseFloat(t.replace(/\./g,'').replace(',','.'));
     return isNaN(v)?0:v;
   };
   const FOOT=/^(tong cong|cong|nguoi giao|nguoi nhan|thu kho|ke toan|phong kt|so tien|nguoi lap)/;
-  let hRow=-1, col={};
+  let hRow=-1, col={}, dataFrom=-1;
   for(let r=0;r<Math.min(aoa.length,25);r++){
     const c=(aoa[r]||[]).map(x=>norm(x));
     const iCode=c.findIndex(x=>/^ma( vat tu| vt| hang)?$/.test(x)||x==='ma');
     const iQty=c.findIndex(x=>/so luong|^sl$|thuc nhap|thuc xuat/.test(x));
     if(iCode>=0&&iQty>=0){
       hRow=r;
-      col={code:iCode, qty:iQty,
+      /* v3.16.19 (3 mẫu phiếu thật của FAST — Sếp gửi): tiêu đề có DÒNG PHỤ tách
+         "Số lượng theo" thành "Chứng từ | Thực nhập" (phiếu xuất: "Yêu cầu | Thực xuất").
+         Số THẬT nằm ở cột Thực nhập/Thực xuất — cột ngoài thường để trống. */
+      const sub=(aoa[r+1]||[]).map(x=>norm(x));
+      const iReal=sub.findIndex(x=>/^(thuc nhap|thuc xuat|thuc te)$/.test(x));
+      col={code:iCode, qty:(iReal>=0? iReal : iQty),
         name:c.findIndex(x=>/^ten( vat tu| vt| hang)?$/.test(x)||x==='ten'),
         unit:c.findIndex(x=>/don vi|dvt/.test(x)),
         price:c.findIndex(x=>/^(don gia|gia)$/.test(x))};
+      dataFrom=r+1;
       break;
     }
   }
   if(hRow<0) return {lines:[], error:'Không tìm thấy bảng dòng phiếu (cần cột "Mã" và "Số lượng")'};
   const lines=[];
-  for(let r=hRow+1;r<aoa.length;r++){
+  for(let r=(dataFrom>0?dataFrom:hRow+1);r<aoa.length;r++){
     const row=aoa[r]||[];
     const code=String(row[col.code]==null?'':row[col.code]).trim();
     const name=col.name>=0? String(row[col.name]==null?'':row[col.name]).trim() : '';
     if(FOOT.test(norm(name)) || FOOT.test(norm(code))) continue;
+    /* Mẫu 01-VT/02-VT có một dòng đánh số cột "A B C D 1 2 3 4" ngay trên dữ liệu — bỏ.
+       Nhận diện: mọi ô không rỗng của dòng đều là MỘT chữ cái A–D hoặc một số ≤ 2 chữ số. */
+    {
+      const cells=(row||[]).map(x=>String(x==null?'':x).trim()).filter(Boolean);
+      if(cells.length && cells.length<=10 && cells.every(x=>/^[A-Da-d]$|^\d{1,2}$/.test(x))) continue;
+    }
     const qty=num(row[col.qty]);
     if(!code && !name) continue;
     if(!(qty>0)) continue;
@@ -67787,13 +67803,29 @@ function whParseDocLinesFromText(text){
     if(!m) return;                       // không có mã → bỏ, không đoán
     const code=m[1];
     const after=t.slice(t.toUpperCase().indexOf(code)+code.length);
-    const nums=(after.match(/[0-9][0-9.,]*/g)||[]).map(num).filter(x=>x>0);
+    /* v3.16.19: số phải ĐỨNG RIÊNG — trước đây regex bắt cả số dính chữ, nên ĐVT "M2"
+       cho ra số lượng 2 thay vì 0,5. Yêu cầu có khoảng trắng (hoặc đầu chuỗi) hai bên. */
+    const nums=[...after.matchAll(/(?:^|\s)([0-9][0-9.,]*)(?=\s|$)/g)].map(m=>num(m[1])).filter(x=>x>0);
     if(!nums.length) return;
     const qty=nums[0];
     const price=nums.length>=2? nums[1] : 0;
     const before=t.slice(0, t.toUpperCase().indexOf(code)).replace(/^\s*\d+[\s.)-]*/,'').trim();
-    const unitM=/\b(kg|lit|lít|cai|cái|bo|bộ|doi|đôi|pcs|psc|pc|set|m2|met|mét|cuon|cuộn|hop|hộp|tin|bottle|bucket|nos|can|thung|thùng|binh|bình|quyen|quyển)\b/i.exec(after);
-    lines.push({code, name:before, unit:unitM?unitM[1]:'', qty, price});
+    const RE_UNIT=/\b(kg|lit|lít|cai|cái|bo|bộ|doi|đôi|pcs|psc|pc|set|m2|met|mét|cuon|cuộn|hop|hộp|tin|bottle|bucket|nos|can|thung|thùng|binh|bình|quyen|quyển)\b/i;
+    const unitM=RE_UNIT.exec(after);
+    /* v3.16.19 (3 mẫu thật của FAST): phiếu nhập/xuất đặt TÊN TRƯỚC mã, còn phiếu ĐIỀU CHUYỂN
+       đặt MÃ TRƯỚC tên. Nếu phần trước mã rỗng thì lấy tên ở phần SAU mã — cắt tới ĐVT hoặc
+       số đầu tiên, tùy cái nào đến trước. */
+    let name=before;
+    if(!name){
+      let tail=after;
+      const cut=[];
+      if(unitM) cut.push(tail.indexOf(unitM[0]));
+      const numM=/[0-9][0-9.,]*/.exec(tail);
+      if(numM) cut.push(tail.indexOf(numM[0]));
+      const at=cut.filter(x=>x>0).sort((a,b)=>a-b)[0];
+      name=(at>0? tail.slice(0,at) : tail).trim();
+    }
+    lines.push({code, name, unit:unitM?unitM[1]:'', qty, price});
   });
   return {lines, error: lines.length?'':'Không tìm thấy dòng nào có mã vật tư trong file PDF'};
 }
@@ -68063,7 +68095,19 @@ function whMyVesselId(){
  * Gộp khái niệm: "phía hiện trường" (site) = tài khoản TÀU hoặc tài khoản KHO —
  * cả hai đều chỉ thao tác trong đúng một kho, dùng chung bộ màn kho đã có.
  * ========================================================================== */
-function whIsStoreAccount(){ return !!(CURRENT_USER && (CURRENT_USER.isStoreAccount || CURRENT_USER.linkWarehouseId)); }
+/* v3.16.20 (Sếp 16/8: "phân quyền cho Koong quá phức tạp — yêu cầu giống TÀU"):
+   Trước đây app chỉ coi là "phía kho" khi có linkWarehouseId (tài khoản kho dùng chung).
+   Nhưng từ v3.15.87 Sếp chốt cấp quyền bằng assignedWarehouseIds trong phân quyền NV — hai
+   trường này chưa bao giờ nối nhau, nên người được gán kho vẫn vào TRANG KHO BỜ đầy đủ
+   (KPI toàn công ty, danh sách 6 kho). Nay nối lại: được gán kho = phía kho, làm việc y như tàu.
+   ADMIN loại trừ — admin vẫn cần trang quản lý toàn bộ. */
+function whIsStoreAccount(){
+  if(typeof isAdmin==='function' && isAdmin()) return false;
+  if(!CURRENT_USER) return false;
+  if(CURRENT_USER.isStoreAccount || CURRENT_USER.linkWarehouseId) return true;
+  const aw=CURRENT_USER.assignedWarehouseIds;
+  return !!(Array.isArray(aw) && aw.length);
+}
 function whIsSiteSideUser(){ return !!(whIsVesselSideUser() || whIsStoreAccount()); }
 function whMySiteWarehouse(){
   /* v3.15.92: NV phụ trách nhiều kho → kho đang chọn từ Danh mục kho được ưu tiên */
@@ -68073,6 +68117,12 @@ function whMySiteWarehouse(){
   }
   if(CURRENT_USER && CURRENT_USER.linkWarehouseId){
     const w=InventoryService.warehouses().find(x=>x.id===CURRENT_USER.linkWarehouseId && x.isActive!==false);
+    if(w) return w;
+  }
+  /* v3.16.20: NV được gán kho — chưa chọn kho nào thì vào kho đầu tiên được gán */
+  const aw=(CURRENT_USER&&CURRENT_USER.assignedWarehouseIds)||[];
+  if(Array.isArray(aw) && aw.length){
+    const w=InventoryService.warehouses().find(x=>aw.indexOf(x.id)>=0 && x.isActive!==false);
     if(w) return w;
   }
   return whMyVesselWarehouse();
@@ -68566,6 +68616,9 @@ function _vsSelFrom(code, v){ if(_vsSel[code]) _vsSel[code].fromWh=v||''; }
    sổ của RIÊNG kho đang làm việc, kèm PHIẾU TẠM hôm nay ở trên cùng. Mở chi tiết một phiếu
    thì các dòng xuất sắp theo THỜI GIAN xuất kho. */
 let _vlOpen='';    // id phiếu đang mở chi tiết
+/* v3.16.20 (Sếp: màn kho tàu phải dễ nhìn): MẶC ĐỊNH chỉ hàng KHO MÌNH. Hàng ở kho khác chỉ
+   hiện khi bật công tắc — vì kho mới/kho rỗng sẽ bị hàng của 5 kho kia lấp mất. */
+let _vsShowOther=false;
 function openVesselLedger(){
   const wh=whMySiteWarehouse(); if(!wh){ toast('Chưa gắn kho','bad'); return; }
   const today=_vspToday();
@@ -68634,10 +68687,12 @@ function openVesselStockOverview(){
   if(!wh){ toast('Tài khoản chưa gắn tàu hoặc kho phụ trách','bad'); return; }
   const rg=_vspRange();
   const docs=InventoryService.stockDocs();
-  let rows=whStockPeriodRows(docs, wh.id, rg.from, rg.to, true);
-  const _nAll=rows.length;
+  let rows=whStockPeriodRows(docs, wh.id, rg.from, rg.to, _vsShowOther);
+  const _nOther=_vsShowOther? rows.filter(r=>r.closing===0 && r.otherTotal>0).length : 0;
   if(_vsOvSearch) rows=rows.filter(r=>whSmartMatch(_vsOvSearch, r, ''));
-  const deptOpts=whDeptOptionsOf(rows);
+  /* v3.16.20: bộ lọc bộ phận đếm theo hàng KHO MÌNH — trước đây đếm cả hàng kho khác nên
+     tàu thấy "Thiết bị khoan (6)" trong khi mình không có món nào. */
+  const deptOpts=whDeptOptionsOf(rows.filter(r=>r.closing>0 || r.inQty>0 || r.outQty>0 || r.opening>0));
   if(_vsDept) rows=rows.filter(r=>{ const cl=whClassifyMaterial(r.code); return cl && cl.dept===_vsDept; });
   const today=_vspToday();
   const draft=whPeekIssueDraft(wh.id, today);
@@ -68661,7 +68716,9 @@ function openVesselStockOverview(){
            ${d.qty?`<select style="font-size:10px;padding:2px;border:1px solid var(--rule);border-radius:4px" onchange="_vspSetUseFor('${esc(r.code)}',this.value)">${useOpts(d.useFor)}</select>`:''}`
           :'<span style="color:var(--muted);font-size:11px">·</span>'}
       </td>
-      <td style="padding:5px 6px;text-align:right;font-weight:700;font-family:monospace${ton<=0?';color:var(--bad)':''}">${whFmtQty(ton)}</td>
+      ${/* v3.16.20: món kho mình KHÔNG có (chỉ kho khác có) → cột Tồn hiện dấu chấm,
+           không phải số 0 đỏ — đỏ chỉ dành cho tồn thật sự âm. */''}
+      <td style="padding:5px 6px;text-align:right;font-weight:700;font-family:monospace${ton<0?';color:var(--bad)':''}">${(r.closing>0||r.opening>0||r.inQty>0||r.outQty>0)?whFmtQty(ton):'<span style="font-weight:400;color:var(--muted)">·</span>'}</td>
       <td style="padding:5px 6px;text-align:right;font-family:monospace;color:${r.otherTotal>0?'var(--teal)':'var(--muted)'}" title="Tổng tồn ở các kho khác — lấy từ kho nào là việc thủ kho">${r.otherTotal>0?whFmtQty(r.otherTotal):'·'}</td>
       <td style="padding:5px 6px;text-align:center;white-space:nowrap">
         <input type="checkbox" ${sel?'checked':''} title="Tích để yêu cầu cấp thêm" onchange="_vsSelToggle('${esc(r.key)}','${esc((r.name||'').replace(/'/g,''))}','${esc(r.unit||'')}','','${esc(r.code||'')}')">
@@ -68686,6 +68743,7 @@ function openVesselStockOverview(){
        <input type="date" value="${esc(rg.from)}" style="padding:4px 6px;border:1px solid var(--rule);border-radius:6px;font-size:12px" onchange="_vspPeriod={from:this.value,to:'${esc(rg.to)}'};openVesselStockOverview()">
        <span style="font-size:12px">→</span>
        <input type="date" value="${esc(rg.to)}" style="padding:4px 6px;border:1px solid var(--rule);border-radius:6px;font-size:12px" onchange="_vspPeriod={from:'${esc(rg.from)}',to:this.value};openVesselStockOverview()">
+       <button class="${_vsShowOther?'btn-primary':'btn-sec'}" style="font-size:12px" onclick="_vsShowOther=!_vsShowOther;openVesselStockOverview()" title="Bật để xem hàng đang có ở các kho khác — dùng khi cần xin điều chuyển">${_vsShowOther?'✓ Đang xem cả kho khác':'🔎 Xem hàng kho khác'}</button>
        <input id="vs-ov-q" value="${esc(_vsOvSearch)}" placeholder="Tìm: gõ tiếng Việt hay tiếng Anh đều được…" style="flex:1;min-width:180px;padding:5px 8px;border:1px solid var(--rule);border-radius:6px;font-size:12px" oninput="_vsOvSearch=this.value" onchange="openVesselStockOverview()">
        ${deptOpts.length>1?`<select style="padding:5px;border:1px solid var(--rule);border-radius:6px;font-size:12px" onchange="_vsDept=this.value;openVesselStockOverview()">
          <option value="" ${_vsDept===''?'selected':''}>— Mọi bộ phận —</option>
@@ -68700,7 +68758,7 @@ function openVesselStockOverview(){
          <th style="padding:5px 6px;text-align:right" title="Tổng tồn ở các kho khác">Kho khác</th>
          <th style="padding:5px 6px;text-align:center">Yêu cầu</th></tr></thead>
        <tbody>${body}</tbody></table></div>
-     <div style="font-size:11px;color:var(--muted);margin-top:6px">Điền số ở cột Xuất là tồn trừ ngay và ghi vào phiếu tạm hôm nay (xem ở 📒 Nhập/Xuất/ĐC). Cột "Kho khác" chỉ cho biết nơi khác còn hàng — tích ô Yêu cầu để xin, chọn kho nguồn hay mua mới là việc thủ kho.</div>`,
+     <div style="font-size:11px;color:var(--muted);margin-top:6px">${_vsShowOther?('Đang hiện cả hàng ở kho khác'+(_nOther?(' — '+_nOther+' món chỉ kho khác có'):'')+'. '):'Đang chỉ hiện hàng của kho mình — bấm 🔎 để xem hàng kho khác khi cần xin. '}Điền số ở cột Xuất là tồn trừ ngay và ghi vào phiếu tạm hôm nay (xem ở 📒 Nhập/Xuất/ĐC). Cột "Kho khác" chỉ cho biết nơi khác còn hàng — tích ô Yêu cầu để xin, chọn kho nguồn hay mua mới là việc thủ kho.</div>`,
     `<button class="btn-ghost" onclick="closeModal()">Đóng</button>`);
 }
 /* v3.15.93: form xác nhận + ghi lô đề xuất, và bản in phiếu TỔNG HỢP gom theo kho nguồn */
