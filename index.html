@@ -3804,7 +3804,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.16.06';
+const APP_VERSION='3.16.08';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -64075,6 +64075,89 @@ function whWarehouseStockValue(stockDocs, whId, costBasis){
   });
   return {value:Math.round(value), lines, priced, unpriced};
 }
+/* ============================================================================
+ * v3.16.07 (Sếp 16/8): XEM CHI TIẾT GIÁ TRỊ TỒN ngay tại dòng kho ở Danh sách kho.
+ * Cột "n mã chưa có giá" nói có vấn đề nhưng không cho biết mã nào — phải mở được ra xem
+ * số lượng · đơn giá · thành tiền từng mã. Dòng có cảnh báo (chưa có giá / tồn âm) tô ĐỎ và
+ * ĐƯA LÊN ĐẦU để sửa trước. Thủ kho sửa đơn giá ghi vào BẢNG GIÁ VỐN — không đụng sổ chứng từ.
+ * ========================================================================== */
+function whWarehouseValueRows(stockDocs, whId, costBasis){
+  const st={};
+  (stockDocs||[]).forEach(d=>{
+    if(!d || d.warehouseId!==whId || d.status!=='confirmed' || d.reversedById) return;
+    const sg=_stockSign(d.type); if(!sg) return;
+    (d.lines||[]).forEach(l=>{
+      const k=String(l.code||''); if(!k) return;
+      if(!st[k]) st[k]={code:l.code, name:l.name||'', unit:l.unit||'', qty:0};
+      if(l.name && !st[k].name) st[k].name=l.name;
+      if(l.unit && !st[k].unit) st[k].unit=l.unit;
+      st[k].qty += sg*(+l.qty||0);
+    });
+  });
+  const cost=whAvgCostByCode(stockDocs, whId, costBasis);
+  const rows=Object.values(st).filter(r=>Math.round(r.qty*1000)!==0).map(r=>{
+    r.qty=Math.round(r.qty*1000)/1000;
+    r.price=+cost[String(r.code)]||0;
+    r.value=Math.round(r.qty*r.price);
+    const w=[];
+    if(r.qty<0) w.push('Tồn ÂM');
+    if(r.price<=0) w.push('Chưa có giá');
+    r.warn=w.join(' · ');
+    return r;
+  });
+  rows.sort((a,b)=>{
+    if(!!a.warn!==!!b.warn) return a.warn?-1:1;            // cảnh báo lên đầu
+    if(a.warn&&b.warn && (a.qty<0)!==(b.qty<0)) return a.qty<0?-1:1;   // tồn âm nặng hơn
+    return String(a.name||a.code).localeCompare(String(b.name||b.code),'vi');
+  });
+  return rows;
+}
+function _whSetCost(whId, code, v){
+  if(!(canManageStock()||isAdmin())){ toast('Chỉ thủ kho/admin sửa được đơn giá','bad'); return; }
+  const p=parseFloat(String(v||'').replace(/[^0-9.\-]/g,''))||0;
+  if(p<=0){ toast('Đơn giá phải lớn hơn 0','warn'); return; }
+  whUpsertCostBasis(whId, [{code, price:p}], new Date().toISOString().slice(0,10), 'thủ kho nhập tay');
+  saveState();
+  toast('✓ Đã cập nhật đơn giá','good');
+  openWarehouseValueDetail(whId);
+}
+function openWarehouseValueDetail(whId){
+  const w=InventoryService.warehouses().find(x=>x.id===whId);
+  if(!w){ toast('Không tìm thấy kho','bad'); return; }
+  if(!stockCanAccessWarehouse(whId)){ toast('Kho ngoài phạm vi của bạn','bad'); return; }
+  const canEdit=canManageStock()||isAdmin();
+  const docs=InventoryService.stockDocs();
+  const rows=whWarehouseValueRows(docs, whId, whCostBasisMap(InventoryService.costBasis(), whId));
+  const nWarn=rows.filter(r=>r.warn).length;
+  const total=rows.reduce((s,r)=>s+r.value,0);
+  const body=rows.length? rows.slice(0,500).map(r=>`<tr style="border-bottom:1px solid var(--rule)${r.warn?';background:rgba(192,57,43,.06)':''}">
+      <td style="padding:5px 6px;font-size:12px${r.warn?';color:var(--bad)':''}">${esc(r.name||r.code)}
+        <div style="font-family:monospace;font-size:10px;color:var(--muted)">${esc(r.code)}</div>
+        ${r.warn?`<div style="font-size:10px;color:var(--bad)">⚠ ${esc(r.warn)}</div>`:''}</td>
+      <td style="padding:5px 4px;text-align:center;font-size:11px;color:var(--muted)">${esc(r.unit||'')}</td>
+      <td style="padding:5px 6px;text-align:right;font-family:monospace${r.qty<0?';color:var(--bad);font-weight:700':''}">${whFmtQty(r.qty)}</td>
+      <td style="padding:5px 6px;text-align:right;font-family:monospace">
+        ${canEdit?`<input type="number" min="0" value="${r.price||''}" placeholder="nhập giá" style="width:104px;padding:3px;text-align:right;border:1px solid ${r.price?'var(--rule)':'var(--bad)'};border-radius:4px;font-size:12px" onchange="_whSetCost('${whId}','${esc(r.code)}',this.value)">`
+                :(r.price?fmt(r.price):'<span style="color:var(--bad)">—</span>')}</td>
+      <td style="padding:5px 6px;text-align:right;font-family:monospace;font-weight:600">${r.value?fmt(r.value):'—'}</td>
+    </tr>`).join('')
+   : '<tr><td colspan="5" style="padding:18px;text-align:center;color:var(--muted)">Kho chưa có tồn.</td></tr>';
+  openModal('💰 Giá trị tồn — '+esc(w.name),
+    `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px;font-size:12px">
+       <span><b>${rows.length}</b> mã còn tồn</span>
+       <span>Tổng giá trị: <b style="color:var(--accent)">${fmt(total)}</b></span>
+       ${nWarn?`<span class="ds-need" data-dot="bad" style="font-size:11px">${nWarn} mã cần xử lý — đang xếp trên đầu</span>`:'<span class="ds-need" data-dot="good" style="font-size:11px">Không có cảnh báo</span>'}
+     </div>
+     <div class="tbl-scroll" style="max-height:420px;overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;border:1px solid var(--rule)">
+       <thead><tr style="background:var(--rule);text-align:left">
+         <th style="padding:5px 6px">Vật tư</th><th style="padding:5px 4px">ĐVT</th>
+         <th style="padding:5px 6px;text-align:right">Số lượng</th>
+         <th style="padding:5px 6px;text-align:right">Đơn giá</th>
+         <th style="padding:5px 6px;text-align:right">Thành tiền</th></tr></thead>
+       <tbody>${body}</tbody></table></div>
+     <div style="font-size:11px;color:var(--muted);margin-top:6px">${canEdit?'Sửa đơn giá ngay tại ô — ghi vào bảng giá vốn, KHÔNG sửa chứng từ đã ghi sổ. ':''}Tồn âm nghĩa là xuất nhiều hơn nhập: soát lại phiếu, đừng sửa số trực tiếp.${rows.length>500?' · Hiện 500 dòng đầu.':''}</div>`,
+    `<button class="btn-ghost" onclick="closeModal()">Đóng</button>`);
+}
 function renderWarehousesTable(){
   try{ _whMigrateVesselTech(); }catch(e){}   // v3.15.85: kho kỹ thuật gắn tàu (loại cũ) → kho vật tư kỹ thuật độc lập
   const tbl=document.getElementById('warehouses-table');
@@ -64131,6 +64214,7 @@ function renderWarehousesTable(){
              (mục "Kho phụ trách"), không tạo tài khoản dùng chung như tài khoản tàu. */''}
         ${w.type==='TECH'?`<span class="ds-need" data-dot="info" style="font-size:10px" title="Cấp quyền cho nhân viên phụ trách kho này ở Cài đặt → Quản lý người dùng → mục Kho phụ trách">🔧 ${_whKeeperCount(w.id)} NV</span>
         <button class="icon-btn" title="Làm việc tại kho này: Nhận hàng · Tồn kho · Đề xuất điều chuyển · Báo cáo kho" onclick="whOpenSiteWorkspace('${w.id}')">🛠</button>`:''}
+        <button class="icon-btn" title="Xem chi tiết: số lượng · đơn giá · thành tiền từng mã" onclick="openWarehouseValueDetail('${w.id}')">👁</button>
         <button class="icon-btn" title="Sửa" onclick="openWarehouseModal('${w.id}')">✎</button>
         <button class="icon-btn danger" title="Xóa" onclick="deleteWarehouse('${w.id}')">✕</button>
       </div></td>`:''}
@@ -68513,7 +68597,10 @@ function whParseOpeningRows(aoa){
   const norm=s=>whNormName(s);
   // tìm dòng header: có cột 'mã' và cột số lượng
   let hRow=-1, col={};
-  for(let r=0;r<Math.min(aoa.length,10);r++){
+  /* v3.16.08 (file "Báo cáo tồn kho" của FAST — Sếp gửi 16/8): mẫu này có tiêu đề ở DÒNG 11
+     (trên nó là logo, tên công ty, tiêu đề báo cáo, dòng Kho, dòng Ngày). Quét 10 dòng là
+     trượt. Nới lên 25 dòng — vẫn đủ chặt để không bắt nhầm dòng dữ liệu. */
+  for(let r=0;r<Math.min(aoa.length,25);r++){
     const cells=(aoa[r]||[]).map(c=>norm(c));
     const iCode=cells.findIndex(c=>/^ma( vat tu| vt| hang)?$/.test(c)||c==='ma');
     const iQty=cells.findIndex(c=>/so luong|ton kho|ton cuoi|^ton$|^sl$/.test(c));
@@ -68523,7 +68610,10 @@ function whParseOpeningRows(aoa){
          (Tồn đầu / Nhập / Xuất / Tồn cuối). Ô ngay bên phải cột số lượng là GIÁ TRỊ —
          lấy để suy đơn giá, nhờ đó tồn có giá ngay từ lần nạp đầu. */
       const _sub=(aoa[r+1]||[]).map(c=>norm(c));
-      const iVal=(/^gia tri$/.test(_sub[iQty+1]||'')||/^gia tri$/.test(cells[iQty+1]||'')) ? iQty+1 : -1;
+      /* v3.16.08: mẫu NXT gọi cột giá trị là "Giá trị"; mẫu Báo cáo tồn kho gọi là "Tiền"
+         (cũng có nơi ghi "Thành tiền"). Nhận cả ba, ở dòng tiêu đề hoặc dòng phụ ngay dưới. */
+      const _isVal=(x)=>/^(gia tri|tien|thanh tien)$/.test(x||'');
+      const iVal=(_isVal(_sub[iQty+1])||_isVal(cells[iQty+1])) ? iQty+1 : -1;
       col={code:iCode, qty:iQty, value:iVal,
         name:cells.findIndex(c=>/^ten( vat tu| vt| hang)?$/.test(c)||c==='ten'),
         unit:cells.findIndex(c=>/don vi|dvt/.test(c)),
@@ -68543,6 +68633,24 @@ function whParseOpeningRows(aoa){
   const stt = groupMode ? (aoa[hRow]||[]).findIndex(c=>/^stt$/.test(norm(c))) : -1;
   const FOOT=/^(ke toan truong|nguoi lap|giam doc|thu kho|\(ky, ho ten\)|ngay|tong cong|tong)/;
   let curWh='', curWhCode='';
+  /* v3.16.08 (mẫu "Báo cáo tồn kho"): file chỉ có MỘT kho và không có cột Kho — tên kho nằm ở
+     dòng tiêu đề phía trên, dạng "Kho: GM - Kho Tàu GEO MARINER". Đọc lấy làm kho mặc định
+     cho mọi dòng; nếu file có cột Kho hoặc dòng nhóm thì những cái đó vẫn thắng. */
+  (function(){
+    for(let r=0;r<Math.min(aoa.length, hRow<0?25:hRow);r++){
+      const cells=(aoa[r]||[]);
+      for(let c=0;c<cells.length;c++){
+        const t=String(cells[c]==null?'':cells[c]).trim();
+        const m=/^kho\s*:\s*(.+)$/i.exec(t);
+        if(!m) continue;
+        const rest=m[1].trim();
+        const p=rest.split(/\s*[-–]\s*/);
+        if(p.length>1 && p[0].length<=8){ curWhCode=p[0].trim(); curWh=p.slice(1).join(' - ').trim(); }
+        else { curWh=rest; }
+        return;
+      }
+    }
+  })();
   const seen={};
   for(let r=hRow+1;r<aoa.length;r++){
     const row=aoa[r]||[];
@@ -68753,6 +68861,12 @@ function _opImportCommit(){
     const all=[]; Object.keys(c.groups).forEach(id=>all.push(...c.groups[id]));
     Object.keys(c.unmatched).forEach(k=>all.push(...c.unmatched[k]));
     groups[_forcedWh]=all;
+    /* v3.16.08: ép kho một lần thì NHỚ luôn tên/mã kho trong file — lần sau tự khớp,
+       khỏi phải chọn tay. Ví dụ file ghi "GM · Kho Tàu GEO MARINER" trong khi app đặt
+       "KHO-GEOMARINE · Kho tàu GEOMARINE" (lệch chữ R). */
+    const _f0=all[0]||{};
+    if(_f0.whCode) whRememberWhAlias(_forcedWh, _f0.whCode);
+    if(_f0.whKey) whRememberWhAlias(_forcedWh, _f0.whKey);
   } else {
     Object.keys(c.groups).forEach(id=>{ groups[id]=(groups[id]||[]).concat(c.groups[id]); });
   }
