@@ -3804,7 +3804,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.16.17';
+const APP_VERSION='3.16.18';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -67725,6 +67725,129 @@ function _allocLanded(lines, landedCosts){
   });
   return out;
 }
+/* ============================================================================
+ * v3.16.18 (Sếp 16/8): NẠP DÒNG PHIẾU TỪ FILE — bù dữ liệu kho những tháng app chưa chạy.
+ * Hai nguồn, độ tin cậy khác nhau — app nói rõ nguồn nào để người dùng biết mà soát:
+ *   · EXCEL: có cột rõ ràng → đọc chắc chắn.
+ *   · PDF: chỉ có text đã dàn trang → phải dò theo MÃ VẬT TƯ; dòng nào không tìm được mã thì
+ *     BỎ QUA, không đoán. Nạp xong người dùng vẫn phải soát rồi mới bấm Lưu.
+ * ========================================================================== */
+function whParseDocLines(aoa){
+  const norm=(x)=>whNormName(x);
+  const num=(x)=>{
+    const t=String(x==null?'':x).replace(/[^0-9,.\-]/g,'');
+    if(!t) return 0;
+    /* FAST dùng dấu chấm ngăn nghìn và dấu phẩy thập phân */
+    const v=parseFloat(t.replace(/\./g,'').replace(',','.'));
+    return isNaN(v)?0:v;
+  };
+  const FOOT=/^(tong cong|cong|nguoi giao|nguoi nhan|thu kho|ke toan|phong kt|so tien|nguoi lap)/;
+  let hRow=-1, col={};
+  for(let r=0;r<Math.min(aoa.length,25);r++){
+    const c=(aoa[r]||[]).map(x=>norm(x));
+    const iCode=c.findIndex(x=>/^ma( vat tu| vt| hang)?$/.test(x)||x==='ma');
+    const iQty=c.findIndex(x=>/so luong|^sl$|thuc nhap|thuc xuat/.test(x));
+    if(iCode>=0&&iQty>=0){
+      hRow=r;
+      col={code:iCode, qty:iQty,
+        name:c.findIndex(x=>/^ten( vat tu| vt| hang)?$/.test(x)||x==='ten'),
+        unit:c.findIndex(x=>/don vi|dvt/.test(x)),
+        price:c.findIndex(x=>/^(don gia|gia)$/.test(x))};
+      break;
+    }
+  }
+  if(hRow<0) return {lines:[], error:'Không tìm thấy bảng dòng phiếu (cần cột "Mã" và "Số lượng")'};
+  const lines=[];
+  for(let r=hRow+1;r<aoa.length;r++){
+    const row=aoa[r]||[];
+    const code=String(row[col.code]==null?'':row[col.code]).trim();
+    const name=col.name>=0? String(row[col.name]==null?'':row[col.name]).trim() : '';
+    if(FOOT.test(norm(name)) || FOOT.test(norm(code))) continue;
+    const qty=num(row[col.qty]);
+    if(!code && !name) continue;
+    if(!(qty>0)) continue;
+    lines.push({code, name, unit:col.unit>=0?String(row[col.unit]||'').trim():'',
+      qty, price:col.price>=0?num(row[col.price]):0});
+  }
+  return {lines, error: lines.length?'':'Không có dòng nào có số lượng > 0'};
+}
+/* PDF: dò theo MÃ VẬT TƯ trong từng dòng text. Mã FAST dạng XX.YY.ZZZ.nnn */
+function whParseDocLinesFromText(text){
+  const rows=String(text||'').split(/\r?\n/);
+  const RE_CODE=/\b([A-Z]{2,4}(?:\.[A-Z0-9]{1,6}){2,4})\b/;
+  const num=(t)=>{
+    const v=parseFloat(String(t).replace(/\./g,'').replace(',','.'));
+    return isNaN(v)?0:v;
+  };
+  const lines=[];
+  rows.forEach(raw=>{
+    const t=String(raw||'').trim();
+    if(!t || /^(tong cong|cong)\b/i.test(whNormName(t))) return;
+    const m=RE_CODE.exec(t.toUpperCase());
+    if(!m) return;                       // không có mã → bỏ, không đoán
+    const code=m[1];
+    const after=t.slice(t.toUpperCase().indexOf(code)+code.length);
+    const nums=(after.match(/[0-9][0-9.,]*/g)||[]).map(num).filter(x=>x>0);
+    if(!nums.length) return;
+    const qty=nums[0];
+    const price=nums.length>=2? nums[1] : 0;
+    const before=t.slice(0, t.toUpperCase().indexOf(code)).replace(/^\s*\d+[\s.)-]*/,'').trim();
+    const unitM=/\b(kg|lit|lít|cai|cái|bo|bộ|doi|đôi|pcs|psc|pc|set|m2|met|mét|cuon|cuộn|hop|hộp|tin|bottle|bucket|nos|can|thung|thùng|binh|bình|quyen|quyển)\b/i.exec(after);
+    lines.push({code, name:before, unit:unitM?unitM[1]:'', qty, price});
+  });
+  return {lines, error: lines.length?'':'Không tìm thấy dòng nào có mã vật tư trong file PDF'};
+}
+/* v3.16.18 (Sếp): nạp dòng phiếu từ file — bù dữ liệu kho những tháng app chưa chạy.
+   Excel đọc theo cột nên chắc; PDF chỉ có text đã dàn trang nên phải dò theo MÃ vật tư,
+   nạp xong app nhắc soát lại. Dòng nào không có mã thì bỏ, KHÔNG đoán. */
+async function _stockImportLines(file){
+  if(!file || !_stockDraft) return;
+  const name=String(file.name||'').toLowerCase();
+  const isPdf=/\.pdf$/.test(name);
+  try{
+    let r;
+    if(isPdf){
+      if(!window.pdfjsLib){
+        await _loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js','pdfjsLib');
+        if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      }
+      if(!window.pdfjsLib){ toast('Không tải được bộ đọc PDF — kiểm tra mạng','bad'); return; }
+      const buf=new Uint8Array(await file.arrayBuffer());
+      const pdf=await pdfjsLib.getDocument({data:buf}).promise;
+      let txt='';
+      for(let pg=1; pg<=pdf.numPages; pg++){
+        const page=await pdf.getPage(pg);
+        const c=await page.getTextContent();
+        /* text trong PDF là các mảnh rời — gom theo tọa độ Y để dựng lại từng DÒNG */
+        const byY={};
+        c.items.forEach(it=>{ const y=Math.round((it.transform&&it.transform[5])||0);
+          (byY[y]=byY[y]||[]).push(it.str); });
+        Object.keys(byY).sort((a,b)=>b-a).forEach(y=>{ txt+=byY[y].join(' ')+'\n'; });
+      }
+      r=whParseDocLinesFromText(txt);
+    } else {
+      const buf=new Uint8Array(await file.arrayBuffer());
+      const wb=XLSX.read(buf,{type:'array'});
+      const aoa=whSheetToAoa(wb.Sheets[wb.SheetNames[0]]);
+      r=whParseDocLines(aoa);
+    }
+    if(!r.lines.length){ toast('Không nạp được dòng nào — '+(r.error||'file không đúng khuôn'),'bad'); return; }
+    const known={}; InventoryService.materials().forEach(m=>{ known[String(m.code)]=m; });
+    let nNew=0;
+    r.lines.forEach(l=>{
+      const m=known[String(l.code)];
+      _stockDraft.lines.push({code:l.code||'', name:l.name||(m?m.name:''), unit:l.unit||(m?m.unit:''),
+        qty:l.qty, price:l.price||0});
+      if(l.code && !m) nNew++;
+    });
+    _stockRenderForm();
+    toast('✓ Nạp '+r.lines.length+' dòng từ '+(isPdf?'PDF — dò theo mã, soát lại giúp':'Excel')
+      +(nNew?(' · '+nNew+' mã chưa có trong danh mục'):''),'good');
+  }catch(err){
+    console.error('[stock-import-lines]',err);
+    toast('Lỗi đọc file: '+(err&&err.message?err.message:err),'bad');
+  }
+}
 function _stockRenderForm(){
   const s=_stockDraft; if(!s) return;
   const isIn=s.type==='IN';
@@ -67743,6 +67866,9 @@ function _stockRenderForm(){
     <td style="padding:3px"><button class="btn-ghost" style="font-size:11px;color:#c0392b" onclick="_stockLineDel(${i})">×</button></td></tr>`).join('')
     : `<tr><td colspan="${isIn?5:6}" style="padding:8px;text-align:center;color:var(--muted);font-size:11px">Chưa có dòng. Bấm "+ Thêm dòng".</td></tr>`;
   const matCodes=InventoryService.materials().map(m=>`<option value="${esc(m.code)}">${esc(m.name)}</option>`).join('');
+  /* v3.16.18 (Sếp): nạp dòng phiếu từ Excel/PDF để bù dữ liệu kho các tháng app chưa chạy */
+  const _impBtn=`<button class="btn-sec" style="font-size:11px;margin-top:6px;margin-left:6px" onclick="document.getElementById('sd-imp').click()" title="Nạp dòng từ file Excel hoặc PDF phiếu kho">📎 Nạp từ file</button>
+    <input type="file" id="sd-imp" accept=".xlsx,.xls,.csv,.pdf" style="display:none" onchange="_stockImportLines(this.files[0])">`;
   const inp='padding:6px 8px;border:1px solid var(--rule);border-radius:6px;font-size:13px';
   const body=`<datalist id="mat-codes">${matCodes}</datalist>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
@@ -67758,7 +67884,7 @@ function _stockRenderForm(){
     <table style="width:100%;border-collapse:collapse;border:1px solid var(--rule)">
       <thead><tr style="background:var(--rule);font-size:11px"><th style="padding:4px">Mã FAST</th><th style="padding:4px">Tên vật tư</th><th style="padding:4px">ĐVT</th><th style="padding:4px">SL</th>${!isIn?'<th style="padding:4px">Tồn</th>':''}<th></th></tr></thead>
       <tbody>${lineRows}</tbody></table>
-    <button class="btn-sec" style="font-size:11px;margin-top:6px" onclick="_stockLineAdd()">+ Thêm dòng</button>
+    <button class="btn-sec" style="font-size:11px;margin-top:6px" onclick="_stockLineAdd()">+ Thêm dòng</button>${_impBtn}
     <div style="font-size:11px;color:var(--muted);margin-top:6px">📦 Chỉ quản lý số lượng — KHÔNG giá. ${isIn?'Giá trị do Kế toán quản qua hóa đơn AP đã liên kết.':'Không xuất vượt tồn khả dụng (sẽ bị chặn khi xác nhận).'} Mã FAST <b>không bắt buộc</b> — để trống thì app gợi ý theo tên, không khớp thì cấp mã tạm SH-xxxx và đẩy vào 🏷 Soát mã.</div>`;
   openModal((s.id?'✏️ Sửa ':'+ ')+(isIn?'Phiếu nhập kho':'Phiếu xuất kho'), body,
     `<button class="btn-ghost" onclick="openStockDocs()">← Danh sách</button>
