@@ -3784,7 +3784,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.15.79';
+const APP_VERSION='3.15.83';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -7031,7 +7031,7 @@ const TAB_TO_FIELDS={
   operations:     ['opVessels','opTransactions','advances'],
   op_input:       ['opVessels','opTransactions','advances','payables','vendors','expenseTypes','projects','vessels'],
   advances:       ['advances','payables','vendors','expenseTypes','projects','vessels','opVessels'],  // v3.02.95
-  inventory:      ['warehouses','invMovements','materials','materialGroups','stockDocs','stockCounts','stockTransferReqs','invGroups','vessels'],
+  inventory:      ['warehouses','invMovements','materials','materialGroups','stockDocs','stockCounts','stockTransferReqs','vesselIssueDrafts','vesselIssueDrafts','invGroups','vessels'],
   fixed_assets:   ['fixedAssets','payables','vessels','projects','opVessels'],
   tools:          ['tools','vessels','payables','projects','opVessels'],
   catalog:        ['departments','vendors','expenseTypes','revenueTypes','vessels','projects','receivables','payables'],
@@ -11596,6 +11596,7 @@ function renderVesselAcctOpsBar(){
     ${_vaDashCards(vid, true)}
   </div>`;
   _vaHideShoreBlocks();
+  try{ whAutoCloseDueIssues(); }catch(e){}   // v3.15.83: qua 24:00 → chốt nháp xuất của ngày đã qua
   _vaRelabelNav(vName);   // v3.15.73: thanh nav đã ẩn; giữ lại phòng khi bật lại nav cho tàu
 }
 /* Ẩn mọi khối "vận hành tàu hộ chủ tàu" khỏi trang khi người xem là phía tàu. */
@@ -27163,6 +27164,8 @@ function defaultState(){
     materials:[],     // v3.08.20/28 Material Master (mã FAST): [{code, name, unit, group, group2, status:'active'|'inactive', source:'FAST'|'manual', note, updatedAt, updatedBy}]
     materialGroups:[],// v3.11.36 Danh mục PHÂN NHÓM vật tư (từ FAST): [{type:1|2, code, name, updatedAt, updatedBy}] — map mã nhóm → tên; import từ file 'Danh mục phân nhóm hàng hóa'
     stockDocs:[],     // v3.08.21/27/29 Sổ chứng từ kho: [{id,docNo,type,date,warehouseId,apId,apLineRefs,costObject,lines:[{code,name,unit,qty,reqQty}],landedCosts:[{source:'ap'|'manual',apId,kind,amount,allocBy:'qty'|'value'|'equal',accountType,note}],deliveredBy,receivedBy,note,status:'pending'|'draft'|'confirmed',createdBy,createdAt,confirmedBy,confirmedAt}]
+    vesselIssueDrafts:[], // v3.15.83 Nháp xuất trong ngày của tàu: [{id,warehouseId,date,lines:[{code,name,unit,qty,useFor}],updatedAt}]
+                          // Chốt 24:00 (Sếp chốt) → gom thành 1 phiếu OUT; tồn hiển thị đã trừ ngay khi điền.
     stockTransferReqs:[], // v3.15.62 Đề xuất điều chuyển từ TÀU: [{id,reqNo,date,fromWh,toWh,code,name,unit,qty,reason,status:'requested'|'approved'|'rejected',createdBy,createdAt,actedBy,actedAt,rejectReason,transferId}]
                           // KHÔNG phải chứng từ kho — đề xuất chưa duyệt tuyệt đối không được đụng vào công thức tồn.
     stockCounts:[],   // v3.08.22 Phiếu kiểm kê: [{id,docNo,date,warehouseId,lines:[{code,name,unit,systemQty,countedQty,diff}],note,status,createdBy,createdAt,adjustDocId}]
@@ -28175,7 +28178,7 @@ function openRecycleBinModal(){
    ============================================================================ */
 const STORAGE_GROUPS={
   'A. Master Data':['materials','materialGroups','vendors','hrEmployees','salaryProfiles','vessels','departments','expenseTypes','revenueTypes','positions','companies','warehouses','invGroups','vesselExpenseCats','omProjectExpenseCats','hrExpenseCats','qnExpenseCats','fixedAssets','tools','projects','plans','dockPlans','payrollPolicies','payrollPolicySets','payrollElementCatalogue','payrollCalendar'],
-  'B. Transaction':['opTransactions','cashTxns','receivables','payables','invMovements','stockDocs','stockCounts','stockTransferReqs','dailyReports','loans','creditFacilities','loanAutoCollect','advances','payrollPeriods','payVerifySheets','payChangeRequests','crewTimesheets','crewAssignments','crewChangePlans','hrAttendance','transactions','opMgmtFees','onhires','events','bankAccounts','bankSnapshots','bankTransfers','cashFunds','salaryFund','taxes','hrHistory'],
+  'B. Transaction':['opTransactions','cashTxns','receivables','payables','invMovements','stockDocs','stockCounts','stockTransferReqs','vesselIssueDrafts','dailyReports','loans','creditFacilities','loanAutoCollect','advances','payrollPeriods','payVerifySheets','payChangeRequests','crewTimesheets','crewAssignments','crewChangePlans','hrAttendance','transactions','opMgmtFees','onhires','events','bankAccounts','bankSnapshots','bankTransfers','cashFunds','salaryFund','taxes','hrHistory'],
   'C. Audit/Log':['auditLog','auditLogShared','emailLog','emailQueue','bodNotifs'],
   'D. Cache/Config':['fxRate','fxRateAt','displayCcy','companyInfo','cashflowConfig','payrollConfig','payrollEngine','historicalData','lockedHistYears','archiveLibrary','adminChecklist','healthDismissed','ownerReportLocks','crewManning','crewRotationConfig','deletedIds','purgedBatches','purgedContent','_recycleBin','meta','presence'],
   'E. Email/Tmpl':['emailSettings','emailTemplates','emailDrafts']
@@ -64401,6 +64404,8 @@ const InventoryService = (function(){
   function invMovements(){ return S.invMovements || (S.invMovements=[]); }
   function stockCounts(){ return S.stockCounts || (S.stockCounts=[]); }
   function transferReqs(){ return S.stockTransferReqs || (S.stockTransferReqs=[]); }
+  function issueDrafts(){ return S.vesselIssueDrafts || (S.vesselIssueDrafts=[]); }
+  function addIssueDraft(d){ if(!d||!d.id) throw new Error('InventoryService.addIssueDraft: thiếu id'); Store._apply('vesselIssueDrafts', d); return d; }
   function transferReqById(id){ return transferReqs().find(r=>r.id===id) || null; }
 
   // ---- WRITE (có kiểm soát) ----
@@ -64451,7 +64456,7 @@ const InventoryService = (function(){
 
   return {
     warehouses, warehouseById, materials, materialByCode,
-    stockDocs, stockDocById, invMovements, stockCounts, transferReqs, transferReqById,
+    stockDocs, stockDocById, invMovements, stockCounts, transferReqs, transferReqById, issueDrafts, addIssueDraft,
     addStockDoc, removeStockDoc, addMaterial, addWarehouse,
     removeInvMovement, removeWarehouse, addInvMovement, addStockCount, addTransferReq,
   };
@@ -65675,22 +65680,25 @@ function openStockDocs(){
   const isVA=(typeof isVesselAccountUser==='function')&&isVesselAccountUser();  // v3.08.48 (Mảng 2)
   const allowed=stockAllowedWarehouses();
   let list=stockScopedDocs(stockDocList().filter(d=>stockCanAccessWarehouse(d.warehouseId)));
+  /* v3.15.82: ẩn cặp phiếu đã triệt tiêu nhau (phiếu bị đảo + phiếu đảo) — chúng cộng lại bằng 0
+     nên chỉ làm rối mắt; vẫn nằm nguyên trong sổ, tick để xem lại khi cần truy vết. */
+  list=whHideVoided(list, !!_stockFilter.showVoided);
   if(_stockFilter.type) list=list.filter(d=>d.type===_stockFilter.type);
   if(_stockFilter.wh) list=list.filter(d=>d.warehouseId===_stockFilter.wh);
   list.sort((a,b)=>String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
   const whOpts=['<option value="">— Mọi kho —</option>'].concat(allowed.map(w=>`<option value="${w.id}" ${_stockFilter.wh===w.id?'selected':''}>${esc(w.name)}</option>`)).join('');
   const rows=list.length? list.map(d=>{
     const nLines=(d.lines||[]).length, totQty=(d.lines||[]).reduce((s,l)=>s+(+l.qty||0),0);
-    const st=(d.status==='confirmed'
-        ? (d.reversedById?'<span class="ds-need" style="color:#9c4221" title="Phiếu đã bị đảo — tồn đã hoàn tác">↩ Đã đảo</span>':'<span class="ds-need" style="color:#1e7d44">Đã nhập</span>')
-        : (d.status==='pending'?'<span class="ds-need" style="color:var(--warn)">⏳ Chờ nhập</span>':'<span class="ds-need" style="color:var(--warn)">Nháp</span>'))
-      + (d.reversalOfId?' <span class="ds-need" style="color:#6a1b9a" title="Phiếu đảo của một phiếu trước đó">Phiếu đảo</span>':'');
+    /* v3.15.82 (Sếp: bỏ ghi tình trạng đảo — phức tạp/khó hiểu): chỉ còn nhãn theo loại phiếu.
+       Cặp phiếu đã triệt tiêu nhau được ẩn khỏi danh sách bên dưới, nên không cần chú thích. */
+    const _lb=whDocStatusLabel(d);
+    const st=`<span class="ds-need" style="color:${_lb.color}">${_lb.text}</span>`;
     return `<tr style="border-bottom:1px solid var(--rule)">
       <td style="padding:5px 8px;font-family:monospace;font-size:11px"><b>${esc(d.docNo)}</b></td>
       <td style="padding:5px 8px;text-align:center">${({IN:'<span class="ds-need" style="color:var(--teal)">Nhập</span>',OUT:'<span class="ds-need" style="color:#9c4221">Xuất</span>',TRANSFER_IN:'<span class="ds-need" style="color:var(--good)">ĐC↓</span>',TRANSFER_OUT:'<span class="ds-need" style="color:#e65100">ĐC↑</span>',ADJUST_IN:'<span class="ds-need" style="color:#6a1b9a">Điều chỉnh+</span>',ADJUST_OUT:'<span class="ds-need" style="color:#6a1b9a">Điều chỉnh−</span>',OPENING:'<span class="ds-need" style="color:#1c5a8c">Tồn đầu</span>'}[d.type])||d.type}</td>
       <td style="padding:5px 8px;font-size:11px">${esc(d.date||'')}</td>
       <td style="padding:5px 8px;font-size:11px">${esc(_whName(d.warehouseId))}</td>
-      <td style="padding:5px 8px;font-size:11px;color:var(--muted)">${nLines} VT · ${totQty}</td>
+      <td style="padding:5px 8px;font-size:11px;color:var(--muted)" title="Số mã vật tư · tổng số lượng trên phiếu">${whFmtQty(nLines)} mã · SL ${whFmtQty(totQty)}</td>
       <td style="padding:5px 8px">${st}</td>
       <td style="padding:5px 8px;white-space:nowrap">
         <button class="btn-ghost" style="font-size:11px" onclick="stockDocPreview('${d.id}')">📄</button>
@@ -65712,6 +65720,7 @@ function openStockDocs(){
       <button class="btn-sec" style="font-size:13px" onclick="openStockForm('OUT')">+ Phiếu xuất</button>
       <button class="btn-sec" style="font-size:13px" onclick="openStockTransfer()">🔄 Điều chuyển</button>
       <button class="btn-sec" style="font-size:13px" onclick="openStockCount()">📋 Kiểm kê</button>`:''}
+      ${(canManageStock()||isAdmin())?`<label style="font-size:11px;color:var(--muted);display:inline-flex;align-items:center;gap:4px;margin-right:4px" title="Phiếu đã bị hủy hiệu lực bằng phiếu ngược dấu — bình thường không cần xem"><input type="checkbox" ${_stockFilter.showVoided?'checked':''} onchange="_stockFilter.showVoided=this.checked;openStockDocs()"> Hiện phiếu đã hủy hiệu lực</label>`:''}
       ${whIsVesselSideUser()?'':`<button class="btn-sec" style="font-size:13px" onclick="openStockOverview()" title="Xem tồn tất cả kho — check trước khi mua, tránh mua trùng/lãng phí">📊 Tồn tổng hợp</button>
       ${(canManageStock()||isAdmin())?`<button class="btn-sec" style="font-size:13px" onclick="whToggleMore()" title="Việc định kỳ: theo dõi nhập kho · chờ nhập kho · đề xuất điều chuyển · tồn theo kho · báo cáo · soát mã · tồn đầu kỳ">⋯ Khác${(stockTempCount()+whReqPendingCount())?` <span style="background:#b8730a;color:#fff;border-radius:8px;padding:0 6px;font-size:10px">${stockTempCount()+whReqPendingCount()}</span>`:''}</button>`
       :`<button class="btn-sec" style="font-size:13px;border-color:#1c5a8c;color:#1c5a8c" onclick="openStockInTracking()" title="Theo dõi tiến độ giao hàng - nhập kho các đơn mua của bạn">📦 Theo dõi nhập kho</button>`}`}
@@ -65738,6 +65747,61 @@ function _stockApply(){ _stockFilter={type:(document.getElementById('sd-ftype')|
 function whReqPendingCount(){
   try{ return InventoryService.transferReqs().filter(r=>r.status==='requested').length; }catch(e){ return 0; }
 }
+/* ============================================================================
+ * v3.15.80 (Sếp 15/8: "vẫn hiển thị AP đã xóa"): PHIẾU KHO MỒ CÔI.
+ * v3.15.78 chỉ chặn từ nay về sau. Hóa đơn bị xóa TRƯỚC bản đó để lại phiếu kho vẫn ở trạng
+ * thái chờ/đã nhập nhưng trỏ về một hóa đơn không còn tồn tại — màn Theo dõi nhập kho vẫn dựng
+ * nhóm theo apId đó nên trông như "AP đã xóa vẫn hiện".
+ * Nguyên tắc self-healing: thực tế dữ liệu là nguồn sự thật — phát hiện tại chỗ, nêu rõ, và cho
+ * thủ kho dọn bằng một nút; KHÔNG tự hủy phiếu ĐÃ NHẬP vì tồn đã cộng (phải đảo phiếu).
+ * ========================================================================== */
+function whOrphanApDocs(stockDocs, payables){
+  const alive={}; (payables||[]).forEach(a=>{ if(a&&a.id) alive[a.id]=1; });
+  const out=[];
+  const docs=stockDocs||[];
+  for(let i=0;i<docs.length;i++){
+    const d=docs[i];
+    if(!d || d.type!=='IN') continue;
+    if(d.status!=='pending' && d.status!=='confirmed') continue;
+    if(d.reversedById) continue;
+    if(!d.apId) continue;              // phiếu không gắn hóa đơn là chuyện bình thường
+    if(alive[d.apId]) continue;
+    out.push(d);
+  }
+  return out;
+}
+function whOrphanApSummary(stockDocs, payables){
+  const orphans=whOrphanApDocs(stockDocs, payables);
+  const pending=orphans.filter(d=>d.status==='pending');
+  const confirmed=orphans.filter(d=>d.status==='confirmed');
+  return {total:orphans.length, pending, confirmed, all:orphans};
+}
+/* Dọn: hủy phiếu CHỜ mồ côi. Phiếu ĐÃ NHẬP không tự hủy — tồn đã cộng, phải đảo phiếu. */
+function whCleanupOrphanApDocs(){
+  if(!(canManageStock()||isAdmin())){ toast('Chỉ thủ kho/admin dọn phiếu mồ côi','bad'); return; }
+  const s=whOrphanApSummary(InventoryService.stockDocs(), AccountingService.payables());
+  if(!s.total){ toast('Không còn phiếu mồ côi','good'); return; }
+  const msg='Phiếu kho trỏ về hóa đơn đã bị xóa:\n'
+    +'· '+s.pending.length+' phiếu CHỜ NHẬP → sẽ hủy\n'
+    +'· '+s.confirmed.length+' phiếu ĐÃ NHẬP KHO → KHÔNG tự hủy (tồn đã cộng, phải đảo phiếu thủ công)\n\nTiếp tục hủy các phiếu chờ?';
+  if(!confirm(msg)) return;
+  let n=0;
+  s.pending.forEach(d=>{
+    d.status='cancelled';
+    d.cancelReason='Hóa đơn nguồn không còn tồn tại (dọn phiếu mồ côi)';
+    d.cancelledBy=actorName(); d.cancelledAt=new Date().toISOString();
+    try{ touchRecord(d); }catch(e){}
+    try{
+      const wh=InventoryService.warehouseById(d.warehouseId);
+      if(wh&&wh.vesselId) pushVesselNotif(wh.vesselId,'stock','Phiếu chờ nhập đã hủy',(d.docNo||'')+' — hóa đơn nguồn không còn tồn tại', d.id);
+    }catch(e){}
+    n++;
+  });
+  try{ logAuditEvent('stock_orphan_cleanup',{cancelled:n, confirmedLeft:s.confirmed.length}); }catch(e){}
+  saveState();
+  toast('✓ Đã hủy '+n+' phiếu chờ mồ côi'+(s.confirmed.length?(' · còn '+s.confirmed.length+' phiếu đã nhập cần đảo tay'):''),'good');
+  openStockInTracking();
+}
 /* v3.15.78: xóa AP mà chỉ có phiếu CHỜ → hủy luôn phiếu đó, để lại vết và báo tàu. */
 function whCancelPendingDocsForAp(apId, apLabel){
   let n=0;
@@ -65759,6 +65823,132 @@ function whCancelPendingDocsForAp(apId, apLabel){
     }
   }catch(e){ console.warn('[wh-cancel-ap]',e); }
   return n;
+}
+/* ============================================================================
+ * v3.15.81 (Sếp 15/8: "các diễn giải Phiếu Đảo... nội dung thực tế là gì"):
+ * Bảng chứng từ kho đang gọi MỌI phiếu đã xác nhận là "Đã nhập" — kể cả phiếu Điều chỉnh−
+ * vốn TRỪ kho, và phiếu Điều chuyển đi. Một dòng tự mâu thuẫn thì người đọc mất tin vào cả sổ.
+ * Ngoài ra cặp đảo không nêu đích danh phiếu kia, và số lượng lộ rác số thực (8439.400000000001).
+ * ========================================================================== */
+function whDocStatusLabel(d){
+  const t=String((d&&d.type)||''), st=String((d&&d.status)||'');
+  const isIn = (t==='IN'||t==='TRANSFER_IN'||t==='ADJUST_IN'||t==='OPENING');
+  if(st==='confirmed'){
+    if(t==='IN'||t==='TRANSFER_IN'||t==='OPENING') return {text:'Đã nhập kho', color:'#1e7d44'};
+    if(t==='OUT'||t==='TRANSFER_OUT') return {text:'Đã xuất kho', color:'#9c4221'};
+    return {text:'Đã ghi sổ', color:'#6a1b9a'};      // ADJUST_IN / ADJUST_OUT và loại khác
+  }
+  if(st==='pending') return isIn?{text:'⏳ Chờ nhập', color:'var(--warn)'}:{text:'⏳ Chờ xuất', color:'var(--warn)'};
+  if(st==='cancelled') return {text:'✕ Đã hủy', color:'var(--muted)'};
+  return {text:'Nháp', color:'var(--warn)'};
+}
+/* Nêu ĐÍCH DANH phiếu đối ứng để người đọc ghép cặp được ngay, khỏi phải dò ngày/số lượng */
+function whDocReversalNote(d, allDocs){
+  if(!d) return '';
+  const docs=allDocs||[];
+  const find=(id)=>{ for(let i=0;i<docs.length;i++){ if(docs[i]&&docs[i].id===id) return docs[i]; } return null; };
+  if(d.reversedById){ const r=find(d.reversedById); return 'Đã đảo bằng '+((r&&r.docNo)||'phiếu đảo'); }
+  if(d.reversalOfId){ const o=find(d.reversalOfId); return 'Đảo của '+((o&&o.docNo)||'phiếu gốc'); }
+  return '';
+}
+/* Số lượng: cắt rác số thực (làm tròn 3 chữ số) rồi định dạng kiểu Việt */
+function whFmtQty(n){
+  const v=Math.round((+n||0)*1000)/1000;
+  return v.toLocaleString('vi-VN',{maximumFractionDigits:3});
+}
+/* ============================================================================
+ * v3.15.82 (Sếp 15/8): NẠP TỒN THEO CHÊNH LỆCH.
+ *   "Bản sau chỉ thay đổi những dòng có điều chỉnh, còn lại giữ nguyên."
+ * Trước đây nạp lại là ĐẢO trọn bản cũ rồi ghi bản mới → sổ đầy cặp phiếu triệt tiêu, khó đọc,
+ * và mã nào không đổi cũng bị ghi lại. Nay so với tồn ĐANG CÓ, chỉ sinh dòng cho mã lệch:
+ *   lệch dương → dòng tăng, lệch âm → dòng trừ, bằng nhau → không đụng.
+ * Mã KHÔNG có trong file thì KHÔNG tự trừ về 0 — file sau là bản điều chỉnh, không phải bản
+ * thay thế toàn bộ; app chỉ báo cho người dùng biết có bao nhiêu mã nằm ngoài file.
+ * ========================================================================== */
+function whDiffOpening(items, currentStock){
+  const cur=currentStock||{};
+  const up=[], down=[], unchanged=[], seen={};
+  const isFirstLoad=Object.keys(cur).filter(k=>(+((cur[k]||{}).qty)||0)!==0).length===0;
+  (items||[]).forEach(it=>{
+    const code=String(it.code||''); if(!code) return;
+    seen[code]=1;
+    const target=+it.qty||0;
+    const now=+((cur[code]||{}).qty)||0;
+    const delta=Math.round((target-now)*1000)/1000;
+    if(delta===0){ unchanged.push(Object.assign({}, it, {qty:target})); return; }
+    const row=Object.assign({}, it, {qty:Math.abs(delta), targetQty:target, wasQty:now});
+    if(delta>0) up.push(row); else down.push(row);
+  });
+  const untouched=Object.keys(cur)
+    .filter(k=>!seen[k] && (+((cur[k]||{}).qty)||0)!==0)
+    .map(k=>({code:k, name:(cur[k]||{}).name||'', qty:+((cur[k]||{}).qty)||0}));
+  return {up, down, unchanged, untouched, isFirstLoad};
+}
+/* v3.15.82 (Sếp: "bỏ ghi tình trạng Phiếu đảo/đã đảo — phức tạp, khó hiểu"):
+   cặp phiếu đã triệt tiêu nhau ẨN khỏi danh sách (vẫn nằm nguyên trong sổ để truy vết);
+   thủ kho/admin muốn xem thì tick "Hiện cả phiếu đã hủy hiệu lực". */
+function whHideVoided(docs, showAll){
+  if(showAll) return (docs||[]).slice();
+  return (docs||[]).filter(d=>d && !d.reversedById && !d.reversalOfId);
+}
+/* ============================================================================
+ * v3.15.83 (Sếp 15/8 — thiết kế màn Tồn kho của tàu):
+ *   Cột Đầu kỳ · Nhập · Xuất · Tồn. Ô Xuất nhập số trực tiếp như "Đếm thực tế" của Kiểm kê.
+ *   Số điền trong ngày giữ ở dạng NHÁP; mốc 24:00 (Sếp chốt) app gom nháp của ngày ĐÃ QUA
+ *   thành MỘT phiếu xuất kho + một dòng trên sổ. "Dùng cho" chọn theo TỪNG DÒNG.
+ * App chạy trên trình duyệt, không có tiến trình nền → chốt vào lần mở app đầu tiên sau mốc.
+ * ========================================================================== */
+function whStockPeriodRows(stockDocs, whId, from, to){
+  const map={};
+  const sign=(t)=>(t==='IN'||t==='TRANSFER_IN'||t==='ADJUST_IN'||t==='OPENING')?1
+                 :((t==='OUT'||t==='TRANSFER_OUT'||t==='ADJUST_OUT')?-1:0);
+  const row=(l)=>{
+    const c=String(l.code||''); if(!c) return null;
+    if(!map[c]) map[c]={code:c, name:l.name||'', unit:l.unit||'', opening:0, inQty:0, outQty:0, closing:0};
+    if(l.name&&!map[c].name) map[c].name=l.name;
+    if(l.unit&&!map[c].unit) map[c].unit=l.unit;
+    return map[c];
+  };
+  (stockDocs||[]).forEach(d=>{
+    if(!d || d.warehouseId!==whId) return;
+    if(d.status!=='confirmed' || d.reversedById) return;
+    const sg=sign(d.type); if(!sg) return;
+    const dt=String(d.date||'');
+    (d.lines||[]).forEach(l=>{
+      const r=row(l); if(!r) return;
+      const q=+l.qty||0;
+      if(from && dt<from){ r.opening+=sg*q; return; }
+      if(to && dt>to) return;                     // ngoài kỳ về sau: không tính
+      if(sg>0) r.inQty+=q; else r.outQty+=q;
+    });
+  });
+  return Object.values(map).map(r=>{
+    r.opening=Math.round(r.opening*1000)/1000;
+    r.inQty=Math.round(r.inQty*1000)/1000;
+    r.outQty=Math.round(r.outQty*1000)/1000;
+    r.closing=Math.round((r.opening+r.inQty-r.outQty)*1000)/1000;
+    return r;
+  }).filter(r=>r.opening!==0||r.inQty!==0||r.outQty!==0)
+    .sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'vi'));
+}
+/* Gom nháp xuất của MỘT ngày thành một phiếu xuất kho đã xác nhận */
+function whBuildDailyIssueDoc(draft, vesselId, vesselName, by, docNo){
+  const now=new Date().toISOString();
+  const lines=((draft&&draft.lines)||[]).filter(l=>(+l.qty||0)>0)
+    .map(l=>({code:l.code, name:l.name||'', unit:l.unit||'', qty:+l.qty||0, useFor:l.useFor||'general', note:l.note||''}));
+  return { id:(typeof uid==='function'?uid():'d'+Math.random()), docNo:docNo||'', type:'OUT',
+    date:String((draft&&draft.date)||now.slice(0,10)),
+    warehouseId:(draft&&draft.warehouseId)||'', apId:'',
+    costObject:{type:'vessel', id:vesselId||'', name:vesselName||''},
+    lines, deliveredBy:by, receivedBy:by,
+    note:'Xuất dùng tại tàu — tổng hợp trong ngày',
+    status:'confirmed', createdBy:by, createdAt:now, confirmedBy:by, confirmedAt:now,
+    source:'vessel_daily_issue' };
+}
+/* Nháp tới hạn chốt: mọi ngày ĐÃ QUA (mốc 24:00) và có ít nhất một dòng */
+function whDraftsDueForClose(drafts, today){
+  const t=String(today||'');
+  return (drafts||[]).filter(d=>d && String(d.date||'')<t && ((d.lines||[]).some(l=>(+l.qty||0)>0)));
 }
 function whToggleMore(){
   const d=document.getElementById('wh-more'); if(!d) return;
@@ -66281,7 +66471,14 @@ function whAttachApToStockDoc(doc, apRec){
 let _sitFilter={state:'', q:'', days:30};
 function openStockInTracking(){
   const all=stockScopedDocs(stockDocList().filter(d=>stockCanAccessWarehouse(d.warehouseId)));
-  const groups=whGroupTrackingDocs(all, (typeof AccountingService!=='undefined')?AccountingService.payables():[]);
+  const _aps=(typeof AccountingService!=='undefined')?AccountingService.payables():[];
+  const groups=whGroupTrackingDocs(all, _aps);
+  /* v3.15.80: phiếu trỏ về hóa đơn đã bị xóa — nêu rõ tại chỗ thay vì để người dùng ngơ ngác */
+  const _orph=whOrphanApSummary(all, _aps);
+  const _whOrphanBanner=_orph.total?`<div style="margin-bottom:8px;padding:8px 10px;border-radius:6px;background:rgba(192,57,43,.08);color:var(--bad);font-size:12px">
+      ⚠ <b>${_orph.total} phiếu kho trỏ về hóa đơn đã bị xóa</b>${_orph.pending.length?(' · '+_orph.pending.length+' chờ nhập'):''}${_orph.confirmed.length?(' · '+_orph.confirmed.length+' đã nhập kho'):''}.
+      ${(canManageStock()||isAdmin())?`<button class="btn-sec" style="font-size:11px;padding:2px 8px;margin-left:6px" onclick="whCleanupOrphanApDocs()">🧹 Dọn phiếu mồ côi</button>`:'Báo thủ kho dọn giúp.'}
+    </div>`:'';
   const cutoff=new Date(Date.now()-(_sitFilter.days||30)*864e5).toISOString().slice(0,10);
   const nPend=groups.reduce((n,g)=>n+g.docs.filter(d=>d.status==='pending').length,0);
   const nShort=groups.filter(g=>g.state==='short').length;
@@ -66307,7 +66504,7 @@ function openStockInTracking(){
       const totQ=(d.lines||[]).reduce((x,l)=>x+(+l.qty||0),0);
       return `<div style="display:flex;gap:8px;align-items:center;padding:3px 10px;border-top:1px solid var(--rule);font-size:11px">
         <span style="font-family:monospace"><b>${esc(d.docNo)}</b></span><span style="color:var(--muted)">${esc(d.date||'')}</span>
-        <span style="color:var(--muted)">${esc(_whName(d.warehouseId))}</span><span>${(d.lines||[]).length} VT · ${totQ}</span>
+        <span style="color:var(--muted)">${esc(_whName(d.warehouseId))}</span><span>${whFmtQty((d.lines||[]).length)} mã · SL ${whFmtQty(totQ)}</span>
         ${(d.landedCosts&&d.landedCosts.length)?`<span class="ds-need" style="color:#6a1b9a;font-size:10px" title="Phiếu có chi phí nhập kho kèm theo (thuế/vận chuyển…) — giá vốn gồm cả CP">+CP</span>`:''}
         <span style="margin-left:auto">${st}</span>
         <button class="btn-ghost" style="font-size:11px" onclick="stockDocPreview('${d.id}')" title="In phiếu (đính hồ sơ thanh toán)">🖨</button></div>`;
@@ -66326,6 +66523,7 @@ function openStockInTracking(){
       <span style="font-family:monospace">${esc(d.docNo)}</span><span style="color:var(--muted)">${esc(d.date||'')} · ${(d.lines||[]).length} VT</span>
       <button class="btn-sec" style="font-size:10px;margin-left:auto" onclick="_sitAttachOpen('${d.id}')">🔗 Gắn AP</button></div>`).join('')}</div>`:'';
   openModal('📦 Theo dõi nhập kho',
+    _whOrphanBanner+
     `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:8px">
        <div style="background:var(--rule);border-radius:6px;padding:6px 10px"><div style="font-size:10px;color:var(--muted)" title="Hàng chưa về — đơn đã tạo phiếu, đang chờ NCC giao">Chờ giao hàng</div><div style="font-size:18px;font-weight:600;color:var(--warn)">${nPend}</div></div>
        <div style="background:var(--rule);border-radius:6px;padding:6px 10px"><div style="font-size:10px;color:var(--muted)">Còn thiếu (đợt)</div><div style="font-size:18px;font-weight:600;color:#1c5a8c">${nShort}</div></div>
@@ -66928,6 +67126,158 @@ function _vsPendCount(whId){
   if(!whId) return 0;
   return InventoryService.stockDocs().filter(d=>(d.type==='IN'||d.type==='TRANSFER_IN')&&d.status==='pending'&&d.warehouseId===whId).length;
 }
+
+/* ---- v3.15.83: MÀN TỒN KHO CỦA TÀU (Đầu kỳ · Nhập · Xuất · Tồn) ---- */
+let _vspPeriod=null;   // {from,to}
+function _vspToday(){ return new Date().toISOString().slice(0,10); }
+function _vspRange(){
+  if(_vspPeriod&&_vspPeriod.from&&_vspPeriod.to) return _vspPeriod;
+  const t=_vspToday();
+  return {from:t.slice(0,8)+'01', to:t};       // mặc định: từ đầu tháng tới hôm nay
+}
+function whGetIssueDraft(whId, date){
+  const list=InventoryService.issueDrafts();
+  let d=list.find(x=>x&&x.warehouseId===whId&&x.date===date);
+  if(!d){ d={id:uid(), warehouseId:whId, date:date, lines:[], updatedAt:new Date().toISOString()};
+    InventoryService.addIssueDraft(d); }
+  return d;
+}
+function _vspSetIssue(code, name, unit, v){
+  const wh=whMyVesselWarehouse(); if(!wh) return;
+  const d=whGetIssueDraft(wh.id, _vspToday());
+  const q=parseFloat(v)||0;
+  let l=(d.lines||[]).find(x=>x.code===code);
+  if(!l){ if(!q) return; l={code, name, unit, qty:0, useFor:'general'}; d.lines.push(l); }
+  l.qty=q; l.name=l.name||name; l.unit=l.unit||unit;
+  d.lines=d.lines.filter(x=>(+x.qty||0)>0);
+  d.updatedAt=new Date().toISOString();
+  try{ touchRecord(d); }catch(e){}
+  saveState(); openVesselStockPeriod();
+}
+function _vspSetUseFor(code, v){
+  const wh=whMyVesselWarehouse(); if(!wh) return;
+  const d=whGetIssueDraft(wh.id, _vspToday());
+  const l=(d.lines||[]).find(x=>x.code===code); if(!l) return;
+  l.useFor=v||'general'; d.updatedAt=new Date().toISOString();
+  try{ touchRecord(d); }catch(e){}
+  saveState();
+}
+/* Chốt: gom nháp thành 1 phiếu xuất kho + 1 dòng sổ. Dùng cho cả nút bấm tay lẫn tự động 24:00. */
+function whCloseDailyIssue(draftId, silent){
+  const drafts=InventoryService.issueDrafts();
+  const list=draftId?drafts.filter(d=>d.id===draftId):whDraftsDueForClose(drafts, _vspToday());
+  if(!list.length){ if(!silent) toast('Không có dòng xuất nào để chốt','warn'); return 0; }
+  let n=0;
+  list.forEach(d=>{
+    if(!((d.lines||[]).some(l=>(+l.qty||0)>0))) return;
+    const wh=InventoryService.warehouseById(d.warehouseId)||{};
+    const vName=(typeof anyVesselName==='function')?anyVesselName(wh.vesselId):'';
+    const doc=whBuildDailyIssueDoc(d, wh.vesselId, vName, actorName(), stockGenDocNo('OUT'));
+    InventoryService.addStockDoc(doc);
+    d.lines=[]; d.closedDocId=doc.id; d.closedAt=new Date().toISOString();
+    try{ touchRecord(d); }catch(e){}
+    try{ logAuditEvent('vessel_daily_issue_close',{docNo:doc.docNo, date:d.date, lines:doc.lines.length}); }catch(e){}
+    n++;
+  });
+  if(n){ saveState(); if(!silent) toast('✓ Đã chốt '+n+' phiếu xuất kho','good'); }
+  return n;
+}
+/* Chạy khi mở app: chốt nháp của những ngày đã qua (mốc 24:00) */
+function whAutoCloseDueIssues(){
+  try{
+    if(!(typeof whIsVesselSideUser==='function'&&whIsVesselSideUser())) return;
+    const n=whCloseDailyIssue(null, true);
+    if(n) toast('✓ Đã tự chốt '+n+' phiếu xuất của ngày trước','good');
+  }catch(e){ console.warn('[auto-close-issue]',e); }
+}
+function openVesselStockPeriod(){
+  if(typeof whIsVesselSideUser==='function' && !whIsVesselSideUser()){
+    toast('Màn này dành cho tài khoản tàu','warn'); return;
+  }
+  const wh=whMyVesselWarehouse(); if(!wh){ toast('Tài khoản chưa gắn kho tàu','bad'); return; }
+  const rg=_vspRange();
+  const rows=whStockPeriodRows(InventoryService.stockDocs(), wh.id, rg.from, rg.to);
+  const today=_vspToday();
+  const draft=whGetIssueDraft(wh.id, today);
+  const dq={}; (draft.lines||[]).forEach(l=>{ dq[l.code]={qty:+l.qty||0, useFor:l.useFor||'general'}; });
+  const nDraft=(draft.lines||[]).filter(l=>(+l.qty||0)>0).length;
+  const useOpts=(cur)=>VS_USE_FOR.map(u=>`<option value="${u[0]}" ${cur===u[0]?'selected':''}>${u[1]}</option>`).join('');
+  const body=rows.length?rows.map(r=>{
+    const d=dq[r.code]||{qty:0,useFor:'general'};
+    const closing=Math.round((r.closing-(d.qty||0))*1000)/1000;
+    return `<tr style="border-bottom:1px solid var(--rule)">
+      <td style="padding:5px 6px;font-size:12px">${esc(r.name||r.code)}<div style="font-family:monospace;font-size:10px;color:var(--muted)">${esc(r.code)}</div></td>
+      <td style="padding:5px 6px;text-align:center;font-size:11px;color:var(--muted)">${esc(r.unit||'')}</td>
+      <td style="padding:5px 6px;text-align:right;font-family:monospace">${whFmtQty(r.opening)}</td>
+      <td style="padding:5px 6px;text-align:right;font-family:monospace">${r.inQty?whFmtQty(r.inQty):'·'}</td>
+      <td style="padding:5px 6px;text-align:center;white-space:nowrap">
+        <input type="number" min="0" value="${d.qty||''}" placeholder="0" style="width:64px;padding:4px;text-align:right;border:1px solid ${d.qty?'#b8730a':'var(--rule)'};border-radius:4px;font-size:12px" onchange="_vspSetIssue('${esc(r.code)}','${esc((r.name||'').replace(/'/g,''))}','${esc(r.unit||'')}',this.value)">
+        ${d.qty?`<select style="font-size:10px;padding:2px;margin-left:2px;border:1px solid var(--rule);border-radius:4px" onchange="_vspSetUseFor('${esc(r.code)}',this.value)">${useOpts(d.useFor)}</select>`:''}
+      </td>
+      <td style="padding:5px 6px;text-align:right;font-weight:700;font-family:monospace${closing<0?';color:var(--bad)':''}">${whFmtQty(closing)}</td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="6" style="padding:18px;text-align:center;color:var(--muted)">Kho chưa có phát sinh trong kỳ.</td></tr>`;
+  openModal('📊 Tồn kho — ⚓ '+esc(wh.name),
+    `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+       <span style="font-size:12px">Kỳ</span>
+       <input type="date" value="${esc(rg.from)}" style="padding:4px 6px;border:1px solid var(--rule);border-radius:6px;font-size:12px" onchange="_vspPeriod={from:this.value,to:'${esc(rg.to)}'};openVesselStockPeriod()">
+       <span style="font-size:12px">→</span>
+       <input type="date" value="${esc(rg.to)}" style="padding:4px 6px;border:1px solid var(--rule);border-radius:6px;font-size:12px" onchange="_vspPeriod={from:'${esc(rg.from)}',to:this.value};openVesselStockPeriod()">
+       <span style="flex:1"></span>
+       <button class="btn-sec" style="font-size:12px" onclick="_vspPrint()">🖨 In PDF</button>
+       <button class="${nDraft?'btn-primary':'btn-sec'}" style="font-size:12px" onclick="whCloseDailyIssue('${draft.id}')" title="Gom các dòng đã điền hôm nay thành 1 phiếu xuất kho">✓ Chốt xuất hôm nay${nDraft?' ('+nDraft+')':''}</button>
+     </div>
+     <div class="tbl-scroll" style="max-height:400px;overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;border:1px solid var(--rule)">
+       <thead><tr style="background:var(--rule);text-align:left">
+         <th style="padding:5px 6px">Vật tư</th><th style="padding:5px 6px;text-align:center">ĐVT</th>
+         <th style="padding:5px 6px;text-align:right">Đầu kỳ</th><th style="padding:5px 6px;text-align:right">Nhập</th>
+         <th style="padding:5px 6px;text-align:center">Xuất</th><th style="padding:5px 6px;text-align:right">Tồn</th></tr></thead>
+       <tbody>${body}</tbody></table></div>
+     <div style="font-size:11px;color:var(--muted);margin-top:6px">Điền số ở cột Xuất là tồn trừ ngay. Cuối ngày app tự gom thành một phiếu xuất kho và ghi một dòng vào sổ Nhập/Xuất/Điều chỉnh.</div>`,
+    `<button class="btn-ghost" onclick="openVesselStockOverview()">← Kho vật tư</button><button class="btn-ghost" onclick="closeModal()">Đóng</button>`);
+}
+function _vspPrint(){
+  const wh=whMyVesselWarehouse(); if(!wh){ toast('Chưa gắn kho tàu','bad'); return; }
+  const rg=_vspRange();
+  const rows=whStockPeriodRows(InventoryService.stockDocs(), wh.id, rg.from, rg.to);
+  const vName=(typeof anyVesselName==='function')?anyVesselName(wh.vesselId):'';
+  const co=S.companyInfo||{};
+  /* v3.15.83: DocEngine là bộ in CHỨNG TỪ (cột cố định mã/tên/ĐVT/SL/giá) — báo cáo NXT có bộ cột
+     khác hẳn nên in bằng cửa sổ riêng, không ép vào khuôn chứng từ. */
+  const w=window.open('','_blank','width=900,height=900');
+  if(!w){ toast('Trình duyệt chặn popup — cho phép popup để in','warn'); return; }
+  const tr=rows.map((r,i)=>`<tr>
+      <td class="c">${i+1}</td><td class="m">${esc(r.code)}</td><td>${esc(r.name||'')}</td>
+      <td class="c">${esc(r.unit||'')}</td>
+      <td class="r">${whFmtQty(r.opening)}</td><td class="r">${whFmtQty(r.inQty)}</td>
+      <td class="r">${whFmtQty(r.outQty)}</td><td class="r b">${whFmtQty(r.closing)}</td></tr>`).join('');
+  const sum=rows.reduce((a,r)=>({o:a.o+r.opening,i:a.i+r.inQty,x:a.x+r.outQty,c:a.c+r.closing}),{o:0,i:0,x:0,c:0});
+  w.document.write(`<html><head><meta charset="utf-8"><title>NXT ${esc(wh.name)}</title>
+    <style>body{font-family:Arial,sans-serif;font-size:12px;margin:24px}
+      h1{font-size:16px;text-align:center;margin:4px 0}
+      .sub{text-align:center;font-size:12px;margin-bottom:14px}
+      .co{font-size:12px;font-weight:700}
+      table{width:100%;border-collapse:collapse}
+      th,td{border:1px solid #333;padding:4px 6px}
+      th{background:#eee;font-size:11px}
+      .r{text-align:right}.c{text-align:center}.b{font-weight:700}.m{font-family:monospace;font-size:11px}
+      .sg{display:flex;justify-content:space-around;margin-top:36px;text-align:center;font-size:12px}
+      @media print{@page{size:A4 landscape;margin:12mm}}
+    </style></head><body>
+    <div class="co">${esc(co.name||'CÔNG TY CỔ PHẦN HÀNG HẢI VÀ NĂNG LƯỢNG HẢI MÃ')}</div>
+    <div style="font-size:11px">${esc(co.address||'')}</div>
+    <h1>BÁO CÁO NHẬP - XUẤT - TỒN</h1>
+    <div class="sub">${esc(wh.name)}${vName?(' · '+esc(vName)):''} · Từ ${esc(rg.from)} đến ${esc(rg.to)}</div>
+    <table><thead><tr><th>STT</th><th>Mã FAST</th><th>Tên vật tư</th><th>ĐVT</th>
+      <th>Tồn đầu</th><th>Nhập</th><th>Xuất</th><th>Tồn cuối</th></tr></thead>
+      <tbody>${tr||'<tr><td colspan="8" class="c">Không có phát sinh trong kỳ</td></tr>'}</tbody>
+      <tfoot><tr><th colspan="4">CỘNG</th><th class="r">${whFmtQty(sum.o)}</th><th class="r">${whFmtQty(sum.i)}</th>
+        <th class="r">${whFmtQty(sum.x)}</th><th class="r">${whFmtQty(sum.c)}</th></tr></tfoot></table>
+    <div class="sg"><div>Thuyền trưởng<br><br><br>(Ký, họ tên)</div><div>Phụ trách kho tàu<br><br><br>(Ký, họ tên)</div></div>
+    </body></html>`);
+  w.document.close();
+  setTimeout(()=>{ try{ w.print(); }catch(e){} }, 300);
+}
 function openVesselStockOverview(){
   /* v3.15.68: màn tra kho theo TÀI KHOẢN đăng nhập → chỉ đúng với phía tàu */
   if(typeof whIsVesselSideUser==='function' && !whIsVesselSideUser()){
@@ -66947,7 +67297,7 @@ function openVesselStockOverview(){
   openModal('📦 Kho vật tư — ⚓ '+esc(wh.name),
     `<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
        <button class="${_nPend?'btn-primary':'btn-sec'}" style="font-size:13px${_nPend?';background:#b8730a;border-color:#b8730a':''}" onclick="openPendingInbound()" title="Hàng về tàu — tick số lượng thực nhận">📥 Nhận hàng${_nPend?` <span style="background:#fff;color:#b8730a;border-radius:8px;padding:0 6px;font-size:10px">${_nPend}</span>`:''}</button>
-       <button class="btn-sec" style="font-size:13px" onclick="openStockCount()" title="Đếm thực tế → app tạo phiếu điều chỉnh chênh lệch">📋 Kiểm kê</button>
+       <button class="btn-sec" style="font-size:13px" onclick="openVesselStockPeriod()" title="Đầu kỳ · Nhập · Xuất · Tồn — điền số ở cột Xuất là xong">📊 Tồn kho</button>
        <button class="btn-sec" style="font-size:13px;border-color:#1c5a8c;color:#1c5a8c" onclick="_vsReqPick()" title="Thiếu vật tư? Tìm ở kho khác và gửi đề xuất điều chuyển">🔄 Đề xuất điều chuyển</button>
        <button class="btn-sec" style="font-size:13px" onclick="openVesselWarehouseReport()" title="Sổ nhập-xuất-tồn chi tiết của kho tàu">📈 Báo cáo kho</button>
      </div>
@@ -67384,10 +67734,15 @@ function _opImportFile(file){
       const whName=id=>_whName(id);
       const eH=errors.map(e=>`<div style="color:#b3261e;font-size:11px">Dòng ${e.row}: ${esc(e.msg)}</div>`).join('');
       const gH=Object.keys(groups).map(id=>{
-        const old=InventoryService.stockDocs().find(d=>d.type==='OPENING'&&d.warehouseId===id&&d.status==='confirmed'&&!d.reversedById);
+        /* v3.15.82: nêu trước ĐÚNG những gì sẽ đổi — tăng/giảm/giữ nguyên, không đảo bản cũ */
+        const dif=whDiffOpening(groups[id], stockByWarehouse(id));
+        const bits=[];
+        if(dif.up.length) bits.push('<b style="color:#1e7d44">tăng '+dif.up.length+' mã</b>');
+        if(dif.down.length) bits.push('<b style="color:#9c4221">giảm '+dif.down.length+' mã</b>');
+        if(dif.unchanged.length) bits.push('giữ nguyên '+dif.unchanged.length+' mã');
         return `<div style="padding:6px 8px;border:1px solid var(--rule);border-radius:6px;margin-bottom:4px;font-size:12px">
-          ✅ <b>${esc(whName(id))}</b>: ${groups[id].length} mã · tổng SL ${groups[id].reduce((s,x)=>s+x.qty,0)}
-          ${old?`<div style="color:#b8730a;font-size:11px">⚠ Kho này ĐÃ có tồn đầu kỳ (${esc(old.docNo)}, ngày ${esc(old.date)}) — xác nhận sẽ ĐẢO bản cũ rồi ghi bản mới.</div>`:''}</div>`;
+          ✅ <b>${esc(whName(id))}</b>: ${groups[id].length} mã trong file → ${bits.join(' · ')||'không có gì thay đổi'}
+          ${dif.untouched.length?`<div style="color:var(--muted);font-size:11px">${dif.untouched.length} mã đang tồn nhưng KHÔNG có trong file — giữ nguyên, không bị trừ.</div>`:''}</div>`;
       }).join('');
       const uKeys=Object.keys(unmatched);
       const allWh=InventoryService.warehouses().filter(w=>w.isActive!==false);
@@ -67411,7 +67766,6 @@ function _opImportCommit(){
   const c=window._opCache; if(!c) return;
   const by=actorName(), now=new Date().toISOString();
   const date=String((document.getElementById('op-date')||{}).value||now.slice(0,10));
-  // gộp nhóm chưa khớp đã được chọn kho đích
   const groups={}; Object.keys(c.groups).forEach(id=>{ groups[id]=(groups[id]||[]).concat(c.groups[id]); });
   Object.keys(c.unmatched).forEach((k,i)=>{
     const sel=document.getElementById('op-map-'+i);
@@ -67420,32 +67774,41 @@ function _opImportCommit(){
   });
   const whIds=Object.keys(groups);
   if(!whIds.length){ toast('Không có kho nào để ghi','bad'); return; }
-  // 1 kho 1 lần chốt: đảo bản cũ nếu có
-  const replaced=[];
+  /* v3.15.82 (Sếp): bản sau CHỈ đổi dòng có điều chỉnh. Không đảo bản cũ, không ghi lại mã không đổi. */
+  const known={}; InventoryService.materials().forEach(m=>{ known[String(m.code)]=1; });
+  let nNewMat=0, nUp=0, nDown=0, nSame=0;
+  const made=[];
   whIds.forEach(id=>{
-    const old=InventoryService.stockDocs().find(d=>d.type==='OPENING'&&d.warehouseId===id&&d.status==='confirmed'&&!d.reversedById);
-    if(old){
-      const rev=whBuildReversalDoc(old,'Thay thế bằng đợt import tồn đầu mới '+date, by);
-      InventoryService.addStockDoc(rev);
-      old.reversedById=rev.id; old.reversedAt=now; old.reversedBy=by; old.reverseReason='Thay tồn đầu kỳ';
-      try{ touchRecord(old); }catch(e){}
-      replaced.push(old.docNo);
+    const items=groups[id];
+    items.forEach(it=>{
+      if(!known[String(it.code)]){
+        try{ InventoryService.addMaterial({code:it.code, name:it.name||it.code, unit:it.unit||'', group:it.group||'', group2:it.group2||'', status:'active', source:'FAST'}); known[String(it.code)]=1; nNewMat++; }catch(e){}
+      }
+    });
+    const dif=whDiffOpening(items, stockByWarehouse(id));
+    nSame+=dif.unchanged.length; nUp+=dif.up.length; nDown+=dif.down.length;
+    if(dif.isFirstLoad && dif.up.length && !dif.down.length){
+      const doc=whBuildOpeningDoc(id, dif.up.map(x=>({code:x.code,name:x.name,unit:x.unit,qty:x.qty})), date, by);
+      InventoryService.addStockDoc(doc); made.push(doc.docNo);
+      return;
+    }
+    if(dif.up.length){
+      const doc=whBuildOpeningDoc(id, dif.up.map(x=>({code:x.code,name:x.name,unit:x.unit,qty:x.qty})), date, by);
+      doc.type='ADJUST_IN'; doc.docNo=stockGenDocNo('ADJUST_IN');
+      doc.note='Điều chỉnh tăng theo file tồn '+date+' (chỉ mã có chênh lệch)';
+      InventoryService.addStockDoc(doc); made.push(doc.docNo);
+    }
+    if(dif.down.length){
+      const doc=whBuildOpeningDoc(id, dif.down.map(x=>({code:x.code,name:x.name,unit:x.unit,qty:x.qty})), date, by);
+      doc.type='ADJUST_OUT'; doc.docNo=stockGenDocNo('ADJUST_OUT');
+      doc.note='Điều chỉnh giảm theo file tồn '+date+' (chỉ mã có chênh lệch)';
+      InventoryService.addStockDoc(doc); made.push(doc.docNo);
     }
   });
-  // vật tư chưa có → tự thêm (source FAST, kèm phân nhóm từ file)
-  const known={}; InventoryService.materials().forEach(m=>{ known[String(m.code)]=1; });
-  let nNewMat=0;
-  whIds.forEach(id=>groups[id].forEach(it=>{
-    if(!known[String(it.code)]){
-      try{ InventoryService.addMaterial({code:it.code, name:it.name||it.code, unit:it.unit||'', group:it.group||'', group2:it.group2||'', status:'active', source:'FAST'}); known[String(it.code)]=1; nNewMat++; }catch(e){}
-    }
-  }));
-  // ghi chứng từ OPENING mỗi kho
-  const made=[];
-  whIds.forEach(id=>{ const doc=whBuildOpeningDoc(id, groups[id], date, by); InventoryService.addStockDoc(doc); made.push(doc.docNo); });
-  try{ logAuditEvent('stock_opening_import',{docs:made, replaced, newMaterials:nNewMat, date}); }catch(e){}
+  try{ logAuditEvent('stock_opening_import',{docs:made, up:nUp, down:nDown, unchanged:nSame, newMaterials:nNewMat, date}); }catch(e){}
   window._opCache=null; saveState();
-  toast('✓ Đã ghi tồn đầu kỳ: '+made.length+' kho'+(nNewMat?(' · thêm '+nNewMat+' vật tư mới'):'')+(replaced.length?(' · thay '+replaced.length+' bản cũ'):''),'good');
+  if(!made.length){ toast('✓ Không có mã nào chênh lệch — tồn giữ nguyên','good'); closeModal(); openStockDocs(); return; }
+  toast('✓ Đã ghi '+made.length+' phiếu điều chỉnh · tăng '+nUp+' mã · giảm '+nDown+' mã · giữ nguyên '+nSame+' mã'+(nNewMat?(' · thêm '+nNewMat+' vật tư mới'):''),'good');
   closeModal(); openStockDocs();
 }
 // Logic thuần: cập nhật doc cũ tại chỗ. Không UI.
@@ -68107,7 +68470,8 @@ function openWarehouseReport(){
   } else if(tab==='count'){
     const counts=InventoryService.stockCounts().filter(c=>accW(c.warehouseId)&&(!_whRepFilter.wh||c.warehouseId===_whRepFilter.wh)&&inRange(c)).sort((a,b)=>String(b.date).localeCompare(a.date));
     const rows=[]; counts.forEach(c=>{ (c.lines||[]).filter(l=>((+l.countedQty||0)-(+l.systemQty||0))!==0).forEach(l=>{ rows.push([c.docNo,c.date,_whName(c.warehouseId),l.code,l.systemQty,l.countedQty,(+l.countedQty||0)-(+l.systemQty||0)]); }); });
-    content=_whRepTable(['Phiếu KK','Ngày','Kho','Mã FAST','Tồn HT','Đếm','Lệch'], rows);
+    content=`<div style="margin-bottom:8px"><button class="btn-sec" style="font-size:12px" onclick="closeModal();openStockCount()" title="Đếm thực tế → app tạo phiếu điều chỉnh chênh lệch">📋 Kiểm kê kho</button></div>`
+      +_whRepTable(['Phiếu KK','Ngày','Kho','Mã FAST','Tồn HT','Đếm','Lệch'], rows);
   } else if(tab==='idle'){
     // vật tư không phát sinh trong kỳ: có trong Material Master nhưng không xuất hiện ở chứng từ trong kỳ
     const usedCodes=new Set(); docs.forEach(d=>(d.lines||[]).forEach(l=>usedCodes.add(String(l.code))));
