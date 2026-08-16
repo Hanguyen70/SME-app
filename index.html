@@ -3784,7 +3784,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.15.87';
+const APP_VERSION='3.15.89';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -35216,7 +35216,7 @@ function _vesselLoginId(v){
     : 'tau-'+_stripAccentLower(v.name||'').replace(/đ/g,'d').replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,20);
   return base||('tau-'+String(v.id).slice(0,6));
 }
-async /* v3.15.85: tài khoản của KHO (kho vật tư kỹ thuật) — cùng khuôn với tài khoản tàu:
+/* v3.15.85: tài khoản của KHO (kho vật tư kỹ thuật) — cùng khuôn với tài khoản tàu:
    dùng chung theo ca trực, không gắn cá nhân, ép đổi mật khẩu lần đầu, chỉ thấy kho của mình. */
 async function createStoreAccount(w, silent){
   if(!w) return;
@@ -35253,7 +35253,7 @@ async function createStoreAccount(w, silent){
     renderWarehousesTable();
   }catch(e){ console.warn('[create-store-account]',e); if(!silent) toast('Không tạo được tài khoản kho','bad'); }
 }
-function createVesselAccount(v, silent){
+async function createVesselAccount(v, silent){
   if(!v) return;
   if(!(isAdmin() || (typeof isITRole==='function' && isITRole()) || (CURRENT_USER&&CURRENT_USER.canManageUsers))){
     if(!silent) toast('Chỉ Admin/IT tạo tài khoản tàu','bad');
@@ -63684,6 +63684,126 @@ function navTo(page){
    - Closing = open + in − out (qty and value)
    ============================================================ */
 
+/* ============================================================================
+ * v3.15.88 (Sếp gửi danh mục chuẩn FAST 16/8): DANH MỤC PHÂN NHÓM VẬT TƯ 2 CẤP.
+ * Mã vật tư FAST có cấu trúc <Kho/Tàu>.<Bộ phận>.<Nhóm>.<Số> — GS.E.GE.265 = kho GS ·
+ * bộ phận máy · nhóm máy phát · số 265. Nhờ vậy app TỰ SUY được bộ phận và nhóm từ chính
+ * mã, không cần gán tay cho hàng nghìn mã.
+ * Đối chiếu 1.879 mã thật: 1.811 khớp cả 2 cấp (96,4%), lệch đúng 3 nhóm — đã quy đổi bên dưới.
+ * Quyết định của Sếp 16/8: D → DECK (một ký hiệu duy nhất cho boong) · PPE thành bộ phận riêng ·
+ * CNEC giữ ở CẢ HAI bộ phận (boong và máy đều dùng).
+ * ========================================================================== */
+const WH_DEPTS = {
+  BOONG:{name:"Bộ phận boong", groups:{
+    "DS":"Deck store vật tư tiêu dùng  khác trên bong",
+    "BRI":"Thiết bị trên bộ phận buồng lái",
+    "MOO":"Dây buộc tàu",
+    "NC":"Navigation Charts ( hải đồ)",
+    "NP":"Navigation Publication ( Ấn phẩm hàng hải)",
+    "LSA":"Thiết bị cứu sinh (Life Saving appliances)",
+    "VPP":"Văn phòng phẩm (Stationery)",
+    "PAI":"Vật tư sơn -Paint",
+    "CON":"Vật tư tiêu dùng thường xuyên",
+    "LASH":"Thiết bị chằng buộc (lashing equipment)",
+    "LAU":"LAUNDRY ROOM vật tư  phòng giặt ủi",
+    "LIF":"Dụng cụ nâng hạ- Lifting Gears",
+    "LINEN":"Vật tư phòng ở (Steward)",
+    "SOP":"Sopep",
+    "STE":"Vât Tư Phục Vụ",
+    "NUF":"CỜ SỐ - NUMBER FLAG",
+    "IMO":"Ký hiệu Imo symbol",
+    "GAL":"GALLEY vật tư bếp",
+    "AHTS":"Thiết bị làm neo",
+    "ALF":"CỜ CHỮ CÁI - ALPHABET FLAG",
+    "NAF":"CỜ QUỐC GIA - NATIONAL FLAG",
+    "MECH":"Vật tư Máy móc ở BOONG",
+    "MED":"VẬT TƯ Y TẾ , THUỐC",
+    "REC":"RECREACTION ROOM  vật tư  phòng giải trí",
+    "MES":"MESSROOM  vật tư phòng ăn",
+    "FFE":"Thiết bị báo cháy/ cứu hỏa (Fire Fighting Equipments)",
+    "HOSE":"Bơm dầu hàng (Cargo Fuel Oil Pump)",
+    "CNEC":"Bơm dầu hàng (Cargo Fuel Oil Pump)"
+  }},
+  MAY:{name:"Bộ phận máy", groups:{
+    "ME":"Máy chính (Main Engine)",
+    "GE":"Các máy phát điện (Generator Engine)",
+    "ELE":"THIẾT BỊ ĐIỆN",
+    "AM":"Máy móc phụ (Auxiliary Machinaries)",
+    "CON":"Vật tư tiêu dùng thường xuyên",
+    "AIR":"MAIN AIR COMPRESSURE",
+    "HB":"HABOUR  HT  MÁY PHÁT ĐIỆN PHỤ",
+    "PUM":"PUM",
+    "PUR":"D.O & L.O Purifier  nhóm lọc dầu",
+    "AZI":"Azimuth",
+    "BOW":"CHÂN VỊT MỦI HÔNG BOW THRUSTER",
+    "BB":"Ball Bearing SKF ( bạc đạn)",
+    "CPP":"HỘP SỐ VÀ HỆ TRỤC CHÂN VỊT",
+    "CNEC":"Bơm dầu hàng (Cargo Fuel Oil Pump)",
+    "ORI":"O Rings",
+    "COMP":"AIR COMPRESSOR",
+    "STR":"SIDE THRUSTER",
+    "VAL":"VẬT TƯ VAN",
+    "FIL":"Filter",
+    "RUD":"HỆ THỐNG BÁNH LÁI",
+    "TOEQ":"TOOL/EQUIPMENT vật tư tool và thiết bị",
+    "KH":"VẬT TƯ KHÁC"
+  }},
+  DRI:{name:"Thiết bị khoan (DRI)", groups:{
+    "CON":"Vật tư tiêu dùng thường xuyên",
+    "EQM":"Thiết bị",
+    "OTH":"VẬT TƯ KHÁC",
+    "TOOL":"Dụng cụ và bộ cầm tay-Tools & HandSet"
+  }},
+  CPT:{name:"Thiết bị CPT xuyên tĩnh", groups:{
+    "CON":"Vật tư tiêu dùng thường xuyên",
+    "EQM":"Thiết bị",
+    "TOOL":"Dụng cụ và bộ cầm tay-Tools & HandSet"
+  }},
+  LAB:{name:"Thiết bị phòng thí nghiệm", groups:{
+    "COM":"Máy tính-Computer",
+    "CON":"Vật tư tiêu dùng thường xuyên",
+    "DRY":"Dry Cabinet",
+    "EBM":"Cân điện tử-Electronic balance",
+    "EQM":"Thiết bị",
+    "ETM":"Máy đẩy mẫu-Extruder machine",
+    "LVM":"Máy cắt cánh trong phòng-Lab Vane Machine",
+    "OVM":"Tủ sấy-Oven",
+    "PPM":"Thiết bị đo lực xuyên bỏ túi-Pocket Penetrometer",
+    "TBB":"Cân ba đòn-Triple beam balance",
+    "TTM":"Thiết bị nén ba trục-Triaxial test machine"
+  }},
+  PPE:{name:"Bảo hộ lao động", groups:{
+    "PPE":"Trang bị bảo hộ lao động (PPE)"
+  }},
+};
+/* Quy đổi ký hiệu lệch chuẩn trong dữ liệu cũ */
+const WH_DEPT_ALIAS = { 'E':'MAY', 'DECK':'BOONG', 'D':'BOONG', 'PPE':'PPE',
+  'DRI':'DRI', 'CPT':'CPT', 'LAB':'LAB', 'MAY':'MAY', 'BOONG':'BOONG' };
+const WH_GROUP_ALIAS = { 'VALVE':'VAL', 'LINE':'MOO' };
+/* Tách mã vật tư → {store, dept, group, seq}. Không đoán bừa khi mã không đủ đoạn. */
+function whParseMaterialCode(code){
+  const p=String(code||'').trim().split('.').filter(x=>x!=='');
+  if(p.length<3) return {store:'', dept:'', group:'', seq:''};
+  const store=p[0].toUpperCase();
+  const dRaw=p[1].toUpperCase();
+  const gRaw=p[2].toUpperCase();
+  const dept=WH_DEPT_ALIAS[dRaw]||'';
+  let group=WH_GROUP_ALIAS[gRaw]||gRaw;
+  /* v3.15.88: mã bảo hộ chỉ có 3 đoạn — CW.PPE.00001 = kho CW · bộ phận PPE · số 00001.
+     Bộ phận PPE chỉ có một nhóm nên đoạn số KHÔNG phải mã nhóm. */
+  if(dept==='PPE' && /^[0-9]+$/.test(group)) return {store, dept, group:'PPE', seq:group};
+  return {store, dept, group, seq:p.slice(3).join('.')};
+}
+/* Phân loại vật tư theo danh mục chuẩn — ok=false nghĩa là cần soát lại mã. */
+function whClassifyMaterial(code){
+  const p=whParseMaterialCode(code);
+  const d=p.dept?WH_DEPTS[p.dept]:null;
+  if(!d) return {ok:false, dept:p.dept, deptName:'', group:p.group, groupName:'', reason:p.dept?'Bộ phận lạ':'Mã không đúng cấu trúc'};
+  const gName=d.groups[p.group];
+  if(!gName) return {ok:false, dept:p.dept, deptName:d.name, group:p.group, groupName:'', reason:'Nhóm không có trong danh mục'};
+  return {ok:true, dept:p.dept, deptName:d.name, group:p.group, groupName:gName, reason:''};
+}
+
 const WH_TYPES = {
   CENTRAL:{label: 'Kho Tổng',    icon: '🏛', cls: 'chip-4'},
   VESSEL: {label: 'Kho tàu',     icon: '⛵', cls: 'chip-1'},
@@ -65830,6 +65950,7 @@ function openStockDocs(){
       <button class="btn-sec" style="font-size:13px${whReqPendingCount()?';border-color:#1c5a8c;color:#1c5a8c':''}" onclick="openTransferReqQueue()" title="Tàu xin điều chuyển vật tư từ kho khác — duyệt là hàng lên đường">🔄 Đề xuất điều chuyển${whReqPendingCount()?` <span style="background:#1c5a8c;color:#fff;border-radius:8px;padding:0 6px;font-size:10px">${whReqPendingCount()}</span>`:''}</button>
       <button class="btn-sec" style="font-size:13px" onclick="openStockOnHand()" title="Tồn từng kho, lọc theo nhóm hàng hải">📊 Tồn theo kho</button>
       <button class="btn-sec" style="font-size:13px" onclick="openWarehouseReport()">📈 Báo cáo kho</button>
+      <button class="btn-sec" style="font-size:13px" onclick="whCodeStandardReport()" title="Đối chiếu mã vật tư với danh mục phân nhóm chuẩn của FAST">🏷 Soát mã theo danh mục</button>
       <button class="btn-sec" style="font-size:13px" onclick="openTempCodeReview()" title="Kiểm tra & đổi các mã vật tư tạm do app gợi ý/tự cấp">🏷 Soát mã${stockTempCount()?` <span style="background:#b8730a;color:#fff;border-radius:8px;padding:0 6px;font-size:10px">${stockTempCount()}</span>`:''}</button>
       <button class="btn-sec" style="font-size:13px" onclick="openOpeningImport()" title="Nạp số tồn ban đầu các kho từ file Excel FAST (kèm tự thêm danh mục)">📦 Nhập tồn đầu kỳ</button>
     </div>`:''}
@@ -66144,6 +66265,33 @@ function whSmartMatch(query, item, mode){
     if(!hit) return false;
   }
   return true;
+}
+/* v3.15.88: soát mã lệch danh mục chuẩn — để chuẩn hóa dần thay vì sửa cả nghìn mã một lúc */
+function whCodeStandardReport(){
+  const mats=InventoryService.materials().filter(m=>m&&(m.status||'active')!=='inactive');
+  const bad=[];
+  const byDept={};
+  mats.forEach(m=>{
+    const cl=whClassifyMaterial(m.code);
+    if(cl.ok){ byDept[cl.deptName]=(byDept[cl.deptName]||0)+1; return; }
+    bad.push({code:m.code, name:m.name||'', dept:cl.dept||'', deptName:cl.deptName||'', group:cl.group||'', reason:cl.reason});
+  });
+  const rows=bad.length? bad.slice(0,300).map(b=>`<tr style="border-bottom:1px solid var(--rule)">
+      <td style="padding:4px 8px;font-family:monospace;font-size:11px">${esc(b.code)}</td>
+      <td style="padding:4px 8px;font-size:12px">${esc(b.name.slice(0,60))}</td>
+      <td style="padding:4px 8px;font-size:11px">${esc(b.deptName||b.dept||'—')}</td>
+      <td style="padding:4px 8px;font-size:11px;font-family:monospace">${esc(b.group||'—')}</td>
+      <td style="padding:4px 8px;font-size:11px;color:var(--bad)">${esc(b.reason)}</td></tr>`).join('')
+    : '<tr><td colspan="5" style="padding:16px;text-align:center;color:var(--good)">✓ Toàn bộ mã khớp danh mục chuẩn.</td></tr>';
+  const sum=Object.keys(byDept).sort().map(k=>`${esc(k)}: <b>${byDept[k]}</b>`).join(' · ');
+  openModal('🏷 Soát mã theo danh mục chuẩn FAST',
+    `<div style="font-size:12px;margin-bottom:8px">Khớp danh mục: <b style="color:var(--good)">${mats.length-bad.length}</b>/${mats.length} mã · Lệch: <b style="color:var(--bad)">${bad.length}</b>${bad.length>300?' (hiện 300 dòng đầu)':''}</div>
+     <div style="font-size:11px;color:var(--muted);margin-bottom:8px">${sum||'—'}</div>
+     <div class="tbl-scroll" style="max-height:420px;overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;border:1px solid var(--rule)">
+       <thead><tr style="background:var(--rule);text-align:left"><th style="padding:5px 8px">Mã</th><th style="padding:5px 8px">Tên</th><th style="padding:5px 8px">Bộ phận</th><th style="padding:5px 8px">Nhóm</th><th style="padding:5px 8px">Vấn đề</th></tr></thead>
+       <tbody>${rows}</tbody></table></div>
+     <div style="font-size:11px;color:var(--muted);margin-top:6px">Mã đúng chuẩn có dạng <b>Kho.Bộ phận.Nhóm.Số</b> — ví dụ GS.E.GE.265. Sửa mã ở Danh mục vật tư (FAST).</div>`,
+    `<button class="btn-ghost" onclick="closeModal()">Đóng</button>`);
 }
 function whToggleMore(){
   const d=document.getElementById('wh-more'); if(!d) return;
@@ -68013,7 +68161,13 @@ function _opImportCommit(){
     const items=groups[id];
     items.forEach(it=>{
       if(!known[String(it.code)]){
-        try{ InventoryService.addMaterial({code:it.code, name:it.name||it.code, unit:it.unit||'', group:it.group||'', group2:it.group2||'', status:'active', source:'FAST'}); known[String(it.code)]=1; nNewMat++; }catch(e){}
+        /* v3.15.88: tự gán bộ phận/nhóm theo DANH MỤC CHUẨN suy từ chính mã vật tư
+           (GS.E.GE.265 → Bộ phận máy / Các máy phát điện). File có sẵn nhóm thì ưu tiên file. */
+        let g1=it.group||'', g2=it.group2||'';
+        try{ const cl=whClassifyMaterial(it.code);
+          if(cl.ok){ if(!g1) g1=cl.deptName; if(!g2) g2=cl.groupName; }
+        }catch(e){}
+        try{ InventoryService.addMaterial({code:it.code, name:it.name||it.code, unit:it.unit||'', group:g1, group2:g2, status:'active', source:'FAST'}); known[String(it.code)]=1; nNewMat++; }catch(e){}
       }
     });
     const dif=whDiffOpening(items, stockByWarehouse(id));

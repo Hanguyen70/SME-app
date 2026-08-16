@@ -1,5 +1,5 @@
 {
-  "version": "3.15.87",
-  "swVersion": "v3.15.87",
-  "notes": "v3.15.87 (Sếp chốt lại 16/8: kho kỹ thuật khác kho tàu vì do nhân viên phụ trách, nên tạo kho rồi cấp quyền trong phân quyền nhân viên): Màn phân quyền nhân viên, nhóm Kho và Tài sản, nay có thêm mục Kho phụ trách để tick những kho mà nhân viên đó quản; danh sách gồm mọi kho trừ kho tàu vì kho tàu đã cấp qua tài khoản tàu. Nhân viên được tick kho thì chỉ thấy và thao tác đúng kho đó, kể cả khi mang cờ Thủ kho, nhờ vậy lập được thủ kho riêng của một kho; nhân viên không được tick thì giữ nguyên như trước, còn admin vẫn thấy tất cả. Ở Danh mục kho, dòng kho kỹ thuật không còn nút tạo tài khoản riêng nữa mà hiện số nhân viên đang phụ trách kho đó kèm chỉ dẫn sang màn phân quyền. Nền v3.15.86 giữ nguyên."
+  "version": "3.15.89",
+  "swVersion": "v3.15.89",
+  "notes": "v3.15.89 (hotfix khẩn: app đứng ở màn Đang khởi động): Đây là lỗi do tôi gây ra ở bản 3.15.85. Khi chèn hàm tạo tài khoản kho vào file, đoạn code mới rơi đúng vào giữa hai chữ async và function của hàm tạo tài khoản tàu, khiến hàm đó mất từ khóa async trong khi bên trong vẫn dùng await. Trình duyệt báo lỗi cú pháp và bỏ luôn toàn bộ khối mã, nghĩa là không một hàm nào chạy được và app treo ở màn khởi động. Các bản từ 3.15.85 đến 3.15.88 đều dính lỗi này. Bản này trả lại từ khóa async cho đúng chỗ. Quan trọng hơn, tôi đã bổ sung một bài kiểm tra gác cổng chạy cú pháp trên toàn bộ khối mã thay vì từng hàm riêng lẻ như trước, vì cách kiểm cũ không thể phát hiện loại lỗi này: tách riêng ra thì hàm nào cũng hợp lệ, chỉ khi nạp cả khối mới lộ. Bài kiểm tra đã được thử ngược lại để chứng minh nó bắt đúng lỗi vừa xảy ra, và từ nay sẽ chạy trước mỗi lần đóng gói. Nền v3.15.88 giữ nguyên."
 }
