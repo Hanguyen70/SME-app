@@ -3784,7 +3784,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.15.94';
+const APP_VERSION='3.15.95';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -67851,31 +67851,44 @@ function whDeptOptionsOf(rows){
   return Object.values(c).sort((a,b)=>b.count-a.count);
 }
 function whStockMatrixAll(warehouses, byWh, myWhId, query){
+  /* v3.15.95 (Sếp: "vật tư cùng chủng loại không lọc cùng — không biết đang nằm ở kho nào"):
+     GỐC của vấn đề là mã vật tư MANG TIỀN TỐ KHO, nên cùng một món ở hai kho là hai mã khác
+     nhau (GM.E.OIL.004 vs GS.E.OIL.012) → trước đây thành hai dòng rời, mất hẳn ý nghĩa của
+     bảng đa kho. Nay GỘP THEO TÊN đã chuẩn hóa: một dòng = một chủng loại, nhưng vẫn giữ MÃ
+     RIÊNG của từng kho (r.codes[whId]) để phiếu xuất/điều chuyển ghi đúng mã kho đó.
+     Không gộp bừa: khác tên là khác dòng. */
   const norm=(x)=>(typeof whNormName==='function')?whNormName(x):String(x||'').toLowerCase();
+  const keyOf=(it)=>{
+    const n=norm(it.name).replace(/[^a-z0-9]+/g,'');
+    return n || ('code:'+String(it.code||'').toUpperCase());
+  };
   const whs=(warehouses||[]).slice().sort((a,b)=>{
-    if(a.id===myWhId) return -1;                 // kho mình luôn đứng cột đầu
+    if(a.id===myWhId) return -1;
     if(b.id===myWhId) return 1;
     return String(a.name||'').localeCompare(String(b.name||''),'vi');
   });
   const map={};
   whs.forEach(w=>{
     const st=(byWh&&byWh[w.id])||{};
-    Object.keys(st).forEach(code=>{
-      const it=st[code]; const q=+it.qty||0;
+    Object.keys(st).forEach(c=>{
+      const it=st[c]; const q=+it.qty||0;
       if(q===0) return;
-      if(!map[code]) map[code]={code, name:it.name||'', unit:it.unit||'', qty:{}, total:0, mine:0};
-      if(it.name&&!map[code].name) map[code].name=it.name;
-      if(it.unit&&!map[code].unit) map[code].unit=it.unit;
-      map[code].qty[w.id]=q;
-      map[code].total+=q;
-      if(w.id===myWhId) map[code].mine=q;
+      const k=keyOf(it);
+      if(!map[k]) map[k]={key:k, code:it.code, name:it.name||'', unit:it.unit||'', qty:{}, codes:{}, total:0, mine:0};
+      const r=map[k];
+      if(it.name&&!r.name) r.name=it.name;
+      if(it.unit&&!r.unit) r.unit=it.unit;
+      r.qty[w.id]=(r.qty[w.id]||0)+q;
+      r.codes[w.id]=it.code;                 // mã riêng của kho này
+      r.total+=q;
+      if(w.id===myWhId){ r.mine=(r.mine||0)+q; r.code=it.code; }   // ưu tiên hiện mã của kho mình
     });
   });
   let rows=Object.values(map);
   const q=norm(query);
-  if(q) rows=rows.filter(r=>norm(r.name).indexOf(q)>=0 || norm(r.code).indexOf(q)>=0);
+  if(q) rows=rows.filter(r=>norm(r.name).indexOf(q)>=0 || Object.values(r.codes).some(c=>norm(c).indexOf(q)>=0));
   rows.sort((a,b)=>{
-    if((a.mine>0)!==(b.mine>0)) return a.mine>0?-1:1;   // hàng kho mình đang có lên trước
+    if((a.mine>0)!==(b.mine>0)) return a.mine>0?-1:1;
     return String(a.name||'').localeCompare(String(b.name||''),'vi');
   });
   return {cols:whs, rows};
@@ -67945,8 +67958,9 @@ function openVesselStockOverview(){
     return `<th style="padding:5px 4px;text-align:right;font-size:10px;white-space:nowrap${mine?';background:var(--rule);font-weight:700':''}" title="${esc(w.name)}">${mine?'⚓ ':''}${esc(String(w.code||w.name).slice(0,6))}</th>`;
   }).join('');
   const body=rows.length? rows.map(r=>{
-    const sel=_vsSel[r.code];
-    const d=dq[r.code]||{qty:0,useFor:'general'};
+    const sel=_vsSel[r.key];
+    const myCode=r.codes[wh.id]||r.code;   // v3.15.95: thao tác ghi ĐÚNG mã của kho liên quan
+    const d=dq[myCode]||{qty:0,useFor:'general'};
     const cells=cols.map(w=>{
       let q=r.qty[w.id]||0; const mine=w.id===wh.id;
       if(mine) q=Math.round((q-(d.qty||0))*1000)/1000;      // trừ ngay phần đã điền xuất hôm nay
@@ -67954,18 +67968,18 @@ function openVesselStockOverview(){
     }).join('');
     const others=cols.filter(w=>w.id!==wh.id && (r.qty[w.id]||0)>0);
     const issueCell = r.mine>0
-      ? `<input type="number" min="0" max="${r.mine}" value="${d.qty||''}" placeholder="0" style="width:58px;padding:3px;text-align:right;border:1px solid ${d.qty?'#b8730a':'var(--rule)'};border-radius:4px;font-size:12px" onchange="_vspSetIssue('${esc(r.code)}','${esc((r.name||'').replace(/'/g,''))}','${esc(r.unit||'')}',this.value)">
-         ${d.qty?`<select style="font-size:10px;padding:2px;border:1px solid var(--rule);border-radius:4px" onchange="_vspSetUseFor('${esc(r.code)}',this.value)">${useOpts(d.useFor)}</select>`:''}`
+      ? `<input type="number" min="0" max="${r.mine}" value="${d.qty||''}" placeholder="0" style="width:58px;padding:3px;text-align:right;border:1px solid ${d.qty?'#b8730a':'var(--rule)'};border-radius:4px;font-size:12px" onchange="_vspSetIssue('${esc(myCode)}','${esc((r.name||'').replace(/'/g,''))}','${esc(r.unit||'')}',this.value)">
+         ${d.qty?`<select style="font-size:10px;padding:2px;border:1px solid var(--rule);border-radius:4px" onchange="_vspSetUseFor('${esc(myCode)}',this.value)">${useOpts(d.useFor)}</select>`:''}`
       : '<span style="color:var(--muted);font-size:11px">·</span>';
     const askCell = sel
-      ? `<span style="white-space:nowrap"><input type="number" min="0" value="${sel.qty||''}" placeholder="SL" style="width:52px;padding:3px;text-align:right;border:1px solid #b8730a;border-radius:4px;font-size:11px" onchange="_vsSelQty('${esc(r.code)}',this.value)">
-           <select style="font-size:10px;padding:2px;border:1px solid var(--rule);border-radius:4px" onchange="_vsSelFrom('${esc(r.code)}',this.value)">
-             ${others.map(w=>`<option value="${w.id}" ${sel.fromWh===w.id?'selected':''}>${esc(String(w.code||w.name))} (${whFmtQty(r.qty[w.id])})</option>`).join('')}
+      ? `<span style="white-space:nowrap"><input type="number" min="0" value="${sel.qty||''}" placeholder="SL" style="width:52px;padding:3px;text-align:right;border:1px solid #b8730a;border-radius:4px;font-size:11px" onchange="_vsSelQty('${esc(r.key)}',this.value)">
+           <select style="font-size:10px;padding:2px;border:1px solid var(--rule);border-radius:4px" onchange="_vsSelFrom('${esc(r.key)}',this.value,${JSON.stringify(r.codes).replace(/"/g,'&quot;')})">
+             ${others.map(w=>`<option value="${w.id}" ${sel.fromWh===w.id?'selected':''}>${esc(String(w.code||w.name))} · ${esc(r.codes[w.id]||'')} (${whFmtQty(r.qty[w.id])})</option>`).join('')}
            </select></span>`
       : (others.length? '<span style="font-size:11px;color:var(--muted)">tích để xin</span>' : '<span style="font-size:11px;color:var(--muted)">—</span>');
     return `<tr style="border-bottom:1px solid var(--rule)${sel?';background:rgba(184,115,10,.08)':''}">
-      <td style="padding:5px 2px;text-align:center">${others.length?`<input type="checkbox" ${sel?'checked':''} onchange="_vsSelToggle('${esc(r.code)}','${esc((r.name||'').replace(/'/g,''))}','${esc(r.unit||'')}','${others[0].id}')">`:''}</td>
-      <td style="padding:5px 6px;font-size:12px">${esc(r.name||'')}<div style="font-family:monospace;font-size:10px;color:var(--muted)">${esc(r.code)}</div></td>
+      <td style="padding:5px 2px;text-align:center">${others.length?`<input type="checkbox" ${sel?'checked':''} onchange="_vsSelToggle('${esc(r.key)}','${esc((r.name||'').replace(/'/g,''))}','${esc(r.unit||'')}','${others[0].id}','${esc(r.codes[others[0].id]||'')}')">`:''}</td>
+      <td style="padding:5px 6px;font-size:12px">${esc(r.name||'')}<div style="font-family:monospace;font-size:10px;color:var(--muted)">${esc(myCode||r.code)}${Object.keys(r.codes).length>1?` <span title="Cùng chủng loại — mỗi kho một mã riêng">+${Object.keys(r.codes).length-1} mã</span>`:''}</div></td>
       <td style="padding:5px 4px;text-align:center;font-size:11px;color:var(--muted)">${esc(r.unit||'')}</td>
       ${cells}
       <td style="padding:5px 6px;text-align:center;white-space:nowrap">${issueCell}</td>
@@ -68261,70 +68275,7 @@ function whValidateBatch(sel, toWh, onHandByWh){
   }
   return {ok:true};
 }
-function openVesselStockOverview(){
-  /* v3.15.92 (Sếp): mở cho cả phía tàu lẫn NV được gán kho — làm việc y như nhau. */
-  if(typeof whIsSiteSideUser==='function' && !whIsSiteSideUser()){
-    toast('Màn này dành cho tài khoản tàu hoặc NV được gán kho — bờ xem kho tàu qua Trung tâm quản lý tàu','warn'); return;
-  }
-  const wh=whMySiteWarehouse();
-  if(!wh){ toast('Tài khoản chưa gắn tàu hoặc kho phụ trách','bad'); return; }
-  /* v3.15.93 (Sếp): hiện tồn của MỌI kho để tàu biết chỗ nào còn hàng mà xin. */
-  const whs=stockViewableWarehouses();
-  const byWh={}; whs.forEach(w=>{ byWh[w.id]=stockByWarehouse(w.id); });
-  const m=whStockMatrixAll(whs, byWh, wh.id, _vsOvSearch);
-  const _nPend=_vsPendCount(wh.id);
-  const nSel=Object.keys(_vsSel).length;
-  const head=m.cols.map(w=>{
-    const mine=w.id===wh.id;
-    return `<th style="padding:5px 4px;text-align:right;font-size:10px;white-space:nowrap${mine?';background:var(--rule);font-weight:700':''}" title="${esc(w.name)}">${mine?'⚓ ':''}${esc(String(w.code||w.name).slice(0,6))}</th>`;
-  }).join('');
-  const body=m.rows.length? m.rows.map(r=>{
-    const sel=_vsSel[r.code];
-    const cells=m.cols.map(w=>{
-      const q=r.qty[w.id]||0; const mine=w.id===wh.id;
-      return `<td style="padding:5px 4px;text-align:right;font-family:monospace;font-size:12px${mine?';background:var(--rule);font-weight:700':''}${(mine&&!q)?';color:var(--bad)':''}${!q?';color:var(--muted)':''}">${q?whFmtQty(q):'·'}</td>`;
-    }).join('');
-    const others=m.cols.filter(w=>w.id!==wh.id && (r.qty[w.id]||0)>0);
-    let act;
-    if(r.mine>0){
-      act=`<button class="btn-sec" style="font-size:11px" onclick="_vsIssueOpen('${esc(r.code)}')">📤 Xuất dùng</button>`;
-    } else if(others.length){
-      act=sel
-        ? `<span style="white-space:nowrap"><input type="number" min="0" value="${sel.qty||''}" placeholder="SL xin" style="width:60px;padding:3px;text-align:right;border:1px solid #b8730a;border-radius:4px;font-size:11px" onchange="_vsSelQty('${esc(r.code)}',this.value)">
-             <select style="font-size:10px;padding:2px;border:1px solid var(--rule);border-radius:4px" onchange="_vsSelFrom('${esc(r.code)}',this.value)">
-               ${others.map(w=>`<option value="${w.id}" ${sel.fromWh===w.id?'selected':''}>${esc(String(w.code||w.name))} (${whFmtQty(r.qty[w.id])})</option>`).join('')}
-             </select></span>`
-        : `<span style="font-size:11px;color:var(--muted)">Tích để xin</span>`;
-    } else {
-      act=`<span style="font-size:11px;color:var(--muted)">Không kho nào còn</span>`;
-    }
-    return `<tr style="border-bottom:1px solid var(--rule)${sel?';background:rgba(184,115,10,.08)':''}">
-      <td style="padding:5px 2px;text-align:center">${others.length?`<input type="checkbox" ${sel?'checked':''} onchange="_vsSelToggle('${esc(r.code)}','${esc((r.name||'').replace(/'/g,''))}','${esc(r.unit||'')}','${others[0].id}')">`:''}</td>
-      <td style="padding:5px 6px;font-size:12px">${esc(r.name||'')}<div style="font-family:monospace;font-size:10px;color:var(--muted)">${esc(r.code)}</div></td>
-      <td style="padding:5px 4px;text-align:center;font-size:11px;color:var(--muted)">${esc(r.unit||'')}</td>
-      ${cells}
-      <td style="padding:5px 6px;text-align:right">${act}</td>
-    </tr>`;
-  }).join('')
-   : `<tr><td colspan="${m.cols.length+4}" style="padding:18px;text-align:center;color:var(--muted)">${_vsOvSearch?'Không tìm thấy vật tư khớp.':'Chưa kho nào có tồn.'}</td></tr>`;
-  openModal('📦 Kho vật tư — ⚓ '+esc(wh.name),
-    `<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
-       <button class="${_nPend?'btn-primary':'btn-sec'}" style="font-size:13px${_nPend?';background:#b8730a;border-color:#b8730a':''}" onclick="openPendingInbound()">📥 Nhận hàng${_nPend?` <span style="background:#fff;color:#b8730a;border-radius:8px;padding:0 6px;font-size:10px">${_nPend}</span>`:''}</button>
-       <button class="btn-sec" style="font-size:13px" onclick="openVesselStockPeriod()" title="Đầu kỳ · Nhập · Xuất · Tồn — điền số ở cột Xuất là xong">📊 Tồn kho</button>
-       <button class="btn-sec" style="font-size:13px" onclick="openVesselWarehouseReport()">📈 Báo cáo kho</button>
-       <span style="flex:1"></span>
-       ${nSel?`<button class="btn-primary" style="font-size:13px" onclick="_vsBatchOpen()">🔄 Lập đề xuất cho ${nSel} mục</button>
-              <button class="btn-ghost" style="font-size:11px" onclick="_vsSel={};openVesselStockOverview()">Bỏ chọn</button>`:''}
-     </div>
-     <input id="vs-ov-q" value="${esc(_vsOvSearch)}" placeholder="Tìm mã hoặc tên vật tư…" style="width:100%;padding:6px 8px;border:1px solid var(--rule);border-radius:6px;font-size:13px;margin-bottom:8px" oninput="_vsOvSearch=this.value" onchange="openVesselStockOverview()">
-     <div class="tbl-scroll" style="max-height:400px;overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;border:1px solid var(--rule)">
-       <thead><tr style="background:var(--rule);text-align:left">
-         <th style="padding:5px 2px;width:26px"></th><th style="padding:5px 6px">Vật tư</th><th style="padding:5px 4px">ĐVT</th>
-         ${head}<th style="padding:5px 6px"></th></tr></thead>
-       <tbody>${body}</tbody></table></div>
-     <div style="font-size:11px;color:var(--muted);margin-top:6px">Cột tô đậm là kho mình. Số ở cột khác = nơi còn hàng để xin — tích chọn (được nhiều mục ở nhiều kho) rồi lập MỘT đề xuất tổng hợp.</div>`,
-    `<button class="btn-ghost" onclick="closeModal()">Đóng</button>`);
-}
+
 /* v3.15.75: chọn vật tư cần xin — dò các kho KHÁC đang còn tồn, chọn xong mở form đề xuất. */
 function _vsReqPick(){
   const wh=whMySiteWarehouse(); if(!wh){ toast('Tài khoản chưa gắn kho tàu','bad'); return; }
@@ -68653,7 +68604,7 @@ function whParseOpeningRows(aoa){
   const groupMode = (col.wh<0);
   const stt = groupMode ? (aoa[hRow]||[]).findIndex(c=>/^stt$/.test(norm(c))) : -1;
   const FOOT=/^(ke toan truong|nguoi lap|giam doc|thu kho|\(ky, ho ten\)|ngay|tong cong|tong)/;
-  let curWh='';
+  let curWh='', curWhCode='';
   const seen={};
   for(let r=hRow+1;r<aoa.length;r++){
     const row=aoa[r]||[];
@@ -68663,7 +68614,9 @@ function whParseOpeningRows(aoa){
       const hasStt = stt>=0 && String(row[stt]||'').trim()!=='' && isFinite(+row[stt]);
       const nm=String(row[col.name>=0?col.name:-1]||'').trim();
       if(!hasStt){
-        if(code && nm && !FOOT.test(norm(nm)) && !FOOT.test(norm(code))){ curWh=nm||code; }
+        /* v3.15.95: dòng nhóm mang CẢ mã kho lẫn tên kho (VD: 'SUR' | 'Kho bộ phận khảo sát').
+           Giữ cả hai — tên để hiện cho người dùng, MÃ để ghép kho khi tên đặt khác. */
+        if(code && nm && !FOOT.test(norm(nm)) && !FOOT.test(norm(code))){ curWh=nm||code; curWhCode=code; }
         continue;   // dòng nhóm / trống / ký tên → không tính là vật tư
       }
     }
@@ -68681,16 +68634,30 @@ function whParseOpeningRows(aoa){
     seen[k]=items.length;
     items.push({ code, name:String(row[col.name>=0?col.name:-1]||'').trim(), unit:String(row[col.unit>=0?col.unit:-1]||'').trim(),
       group:String(row[col.group>=0?col.group:-1]||'').trim(), group2:String(row[col.group2>=0?col.group2:-1]||'').trim(),
-      whKey, qty });
+      whKey, whCode:(groupMode?curWhCode:''), qty });
   }
   return {items, errors, col};
 }
+/* v3.15.95 (Sếp báo: import file kho kỹ thuật app không nhận):
+   FAST ghi TÊN kho trên dòng nhóm ("Kho bộ phận khảo sát"), nếu app đặt tên khác thì trượt.
+   Nay ghép theo THỨ TỰ TIN CẬY: (1) mã kho trên dòng nhóm · (2) tiền tố của mã vật tư ·
+   (3) tên kho. Ba đường này độc lập nên chỉ cần MỘT cái trùng là khớp. */
 function whMatchOpeningWarehouses(items, warehouses){
   const groups={}, unmatched={};
-  const byNorm={};
-  (warehouses||[]).forEach(w=>{ if(w.isActive===false)return; byNorm[whNormName(w.code||'')]=w.id; byNorm[whNormName(w.name||'')]=w.id; });
+  const byCode={}, byName={};
+  (warehouses||[]).forEach(w=>{
+    if(w.isActive===false) return;
+    const c=whNormName(w.code||''); if(c) byCode[c]=w.id;
+    const n=whNormName(w.name||''); if(n) byName[n]=w.id;
+  });
   (items||[]).forEach(it=>{
-    const id=byNorm[whNormName(it.whKey)]||'';
+    let id='';
+    if(it.whCode) id=byCode[whNormName(it.whCode)]||'';
+    if(!id){
+      const p=String(it.code||'').split('.')[0];
+      if(p) id=byCode[whNormName(p)]||'';
+    }
+    if(!id) id=byName[whNormName(it.whKey)]||byCode[whNormName(it.whKey)]||'';
     if(id){ (groups[id]=groups[id]||[]).push(it); }
     else { (unmatched[it.whKey]=unmatched[it.whKey]||[]).push(it); }
   });
