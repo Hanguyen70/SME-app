@@ -3775,7 +3775,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.16.45';
+const APP_VERSION='3.16.48';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -6964,8 +6964,8 @@ const PRESET_ROLES={
      Sếp chốt VM thấy đủ nội dung tab, gồm cả Opex · Nợ NCC · Đối chiếu khoán. */
   vessel_manager: {
     label:'Vessel Manager — Quản lý hoạt động tàu',
-    desc:'Một tab Quản lý hoạt động tàu, nhưng thấy TOÀN BỘ dữ liệu tàu: mọi tàu công ty và tàu QL hộ, mọi bút toán của mọi người (không chỉ mình nhập). KHÔNG cần tick tàu. Được ký & khóa báo cáo chủ tàu. KHÔNG có quyền duyệt chi, kế toán, lương hay quản lý người dùng.',
-    tabs:['operations'],
+    desc:'Quản lý hoạt động tàu + Kho vật tư. Thấy TOÀN BỘ dữ liệu tàu: mọi tàu công ty và tàu QL hộ, mọi bút toán của mọi người (không chỉ mình nhập) — KHÔNG cần tick tàu. Xem kho như thủ kho để KIỂM SOÁT và DUYỆT MUA vật tư: tồn mọi kho, giá trị tồn, đơn giá, lịch sử mua theo NCC, báo cáo kho. Được ký & khóa báo cáo chủ tàu. KHÔNG thao tác kho (không lập/xác nhận/xóa phiếu) và KHÔNG có quyền duyệt chi, kế toán, lương hay quản lý người dùng.',
+    tabs:['operations','inventory'],
     flags:{isVesselManager:true, canSignOwnerReport:true}
   },
   nv_kt: {
@@ -14233,6 +14233,29 @@ function _helpSection_contact(){
    không phân biệt nav-item hay nav-sub-item, rồi ẩn luôn nhóm không còn mục con nào hiện.
    Lý do: nav có nhiều đường dựng (phẳng cho NV, nhóm cho quản lý) nên vá từng đường sẽ sót —
    ảnh test cho thấy "Tạm ứng NV" vẫn hiện dù đã bỏ khỏi bộ tab của tàu từ v3.15.66. */
+/* v3.16.47 (Sếp 16/8: "những màn không được phân quyền: ẩn hẳn thay vì thông báo — phản cảm"):
+   Trước đây nav vẫn hiện đủ mục cho mọi người; bấm vào mới chặn bằng popup đỏ "Vi phạm quyền
+   truy cập". Người dùng không làm gì sai — họ chỉ bấm thứ app bày ra — mà bị báo như kẻ đột nhập.
+   Nay ẩn từ gốc: mục nào không có quyền thì không hiện. Áp cho MỌI VAI, không riêng phía tàu. */
+function applyNavPermissions(){
+  try{
+    if(typeof canAccessTab!=='function') return;
+    document.querySelectorAll('[data-page]').forEach(el=>{
+      const pg=el.dataset.page; if(!pg) return;
+      let ok=false; try{ ok=canAccessTab(pg); }catch(e){ ok=false; }
+      el.style.display = ok ? '' : 'none';
+    });
+    /* Nhóm cha mà mọi mục con đã ẩn thì ẩn theo — không để lại nhóm rỗng bấm vào không ra gì */
+    document.querySelectorAll('.nav-group').forEach(g=>{
+      const items=Array.from(g.querySelectorAll('[data-page]'));
+      if(!items.length) return;
+      const anyVisible=items.some(el=>el.style.display!=='none');
+      const btn=g.querySelector('.nav-group-btn');
+      if(btn) btn.style.display = anyVisible ? '' : 'none';
+      g.style.display = anyVisible ? '' : 'none';
+    });
+  }catch(e){ console.warn('[nav-perm]',e); }
+}
 function _vaEnforceNav(){
   try{
     /* v3.16.24: quay lại luật cũ — chỉ phía tàu (gồm ĐƠN VỊ kho kỹ thuật, vì tài khoản gắn
@@ -14424,14 +14447,8 @@ function applyRoleUI(){
   //   PHẢI chạy TRƯỚC logic ẩn group rỗng bên dưới, nếu không group sẽ bị ẩn nhầm.
   //   Gate quyền: giữ nguyên như trang vessels cũ — user phải có tab 'vessels' hoặc 'operations'
   //   (admin/không giới hạn tabs thấy hết). Người không có quyền → submenu rỗng → group tự ẩn.
-  try{
-    const _canOps = !user || !allowedTabs || allowedTabs.includes('vessels') || allowedTabs.includes('operations') || allowedTabs.includes('op_input');
-    const _opsBox=document.getElementById('submenu-vesselops');
-    if(_opsBox){
-      if(_canOps && typeof renderVesselOpsSubmenu==='function'){ renderVesselOpsSubmenu(); }
-      else { _opsBox.innerHTML=''; }
-    }
-  }catch(e){ console.warn('[vesselops-submenu]',e&&e.message); }
+  // v3.16.48: gate + dựng gom về một cửa refreshVesselOpsSubmenu (renderAll cũng gọi → dựng lại sau sync)
+  try{ if(typeof refreshVesselOpsSubmenu==='function') refreshVesselOpsSubmenu(true); }catch(e){ console.warn('[vesselops-submenu]',e&&e.message); }
   // v3.10.54: 4 mục Lương trong dropdown Nhân sự — ẩn/hiện theo canAccessTab (tick hoặc cờ);
   //   'Duyệt thay đổi lương' giữ BOD/CEO/Admin cứng (4 mắt).
   document.querySelectorAll('.nav-sub-item[data-payitem]').forEach(b=>{
@@ -14573,7 +14590,8 @@ function applyRoleUI(){
       }, 900);
     }
   }catch(e){ console.warn('[greet gate guard]',e&&e.message); }
-  try{ _vaEnforceNav(); }catch(e){}   // v3.15.69: chốt nav cho phía tàu
+  try{ _vaEnforceNav(); }catch(e){}          // v3.15.69: chốt nav cho phía tàu
+  try{ applyNavPermissions(); }catch(e){}   // v3.16.47: ẩn mục không có quyền — MỌI vai
 }
 
 async function logout(){
@@ -34096,6 +34114,10 @@ function _applyNavV2(){
   }
 }
 function navigateToPage(pageId){
+  /* v3.16.47: áp lại sau mỗi lần chuyển trang — nav có phần dựng động (submenu tàu, nhóm),
+     nếu chỉ áp một lần lúc đăng nhập thì mục mới dựng sẽ hiện lại dù không có quyền. */
+  try{ applyNavPermissions(); }catch(e){}
+
   // SECURITY GUARD: use centralized permission system
   if(CURRENT_ROLE==='user' && CURRENT_USER){
     const allowed=CURRENT_USER.tabs||[];
@@ -34103,13 +34125,10 @@ function navigateToPage(pageId){
     if(!canAccessTab(pageId)){
       // Don't show modal if this is silent (initial render, etc) — only if real navigation
       // Check if we're called from a real user click vs auto-redirect
-      const isUserClick=window.event && window.event.isTrusted;
-      if(isUserClick){
-        guardAction('access_tab', {tabId:pageId});
-      } else {
-        // Silent log only
-        try{ logAuditEvent('permission_denied',{tab:pageId,silent:true}); }catch(e){}
-      }
+      /* v3.16.47 (Sếp): KHÔNG bật popup "Vi phạm quyền truy cập" nữa — mục không có quyền đã
+         được ẩn khỏi nav (applyNavPermissions), nên tới được đây chỉ còn là link cũ, nút tắt,
+         hoặc chuyển hướng nội bộ. Chuyển về tab hợp lệ trong im lặng, vẫn ghi nhật ký để soát. */
+      try{ logAuditEvent('permission_denied',{tab:pageId,silent:true}); }catch(e){}
       // Redirect to first allowed tab
       pageId=allowed[0]||'plan';
     }
@@ -35988,7 +36007,8 @@ function renderVesselOpsSubmenu(){
   const dashRow = _canDash
     ? `<button class="nav-sub-item" onclick="openFleetDashboard()" title="KPI + cảnh báo + việc hôm nay" style="font-weight:600"><span class="sub-dot" style="background:var(--accent)"></span>📊 Tổng quan đội tàu</button>`
     : '';
-  if(!vessels.length){ box.innerHTML=dashRow||'<div style="padding:8px 14px;font-size:11px;color:var(--muted);font-style:normal">Chưa có tàu</div>'; return; }
+  /* v3.16.48: KHÔNG return sớm khi tàu công ty rỗng — nhánh cũ bỏ luôn nhóm Tàu QL hộ
+     (AFALINA/KATRAN) dù có dữ liệu. Chỉ báo 'Chưa có tàu' khi CẢ HAI danh sách đều rỗng (bên dưới). */
   // v3.10.34: tàu QL hộ (opVessels) — thêm vào dropdown, mở Hub op (Báo cáo chủ tàu). Lọc quyền tương tự.
   let opVessels=VesselService.opVessels().slice();
   try{
@@ -36009,7 +36029,29 @@ function renderVesselOpsSubmenu(){
     ? `<div style="padding:4px 14px 2px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:700">Tàu quản lý hộ</div>`
       + opVessels.map(v=>`<button class="nav-sub-item" onclick="openOpVesselHub('${v.id}')" title="Quản lý hộ ${esc(v.name)}"><span class="sub-dot" style="background:#8a6d3b"></span>${esc(v.name)} <span style="font-size:10px;opacity:.6">QL hộ</span></button>`).join('')
     : '';
+  if(!vessels.length && !opVessels.length){ box.innerHTML=dashRow||'<div style="padding:8px 14px;font-size:11px;color:var(--muted);font-style:normal">Chưa có tàu</div>'; return; }
   box.innerHTML=dashRow+ownRows+opRows;
+}
+/* v3.16.48 (ảnh test VM trongdinh@ trên v3.16.45: tab QL vận hành tàu ghi 'Chưa có tàu' dù đã sync):
+   GỐC — renderVesselOpsSubmenu chỉ được gọi MỘT lần trong applyRoleUI (lúc đăng nhập). Máy mới
+   đăng nhập xong mới pull cloud → lúc dựng submenu S.vessels còn rỗng → chữ 'Chưa có tàu' đứng mãi
+   tới khi tải lại trang. renderAll() sau pull không dựng lại submenu. Nay gom gate + dựng vào MỘT
+   cửa, gọi ở applyRoleUI (như cũ) và renderAll (sau sync / sau sửa tàu). Chỉ dựng lại khi dấu vân
+   danh sách tàu đổi để không nháy dropdown khi người dùng đang thao tác. */
+let _vopsSubmenuFp='';
+function refreshVesselOpsSubmenu(force){
+  try{
+    const box=document.getElementById('submenu-vesselops'); if(!box) return;
+    const user=CURRENT_ROLE==='user';
+    const allowedTabs=user && CURRENT_USER ? (CURRENT_USER.tabs||[]) : null;
+    const canOps = !user || !allowedTabs || allowedTabs.includes('vessels') || allowedTabs.includes('operations') || allowedTabs.includes('op_input');
+    if(!canOps){ box.innerHTML=''; _vopsSubmenuFp='none'; return; }
+    let fp='';
+    try{ fp=(VesselService.vessels().map(v=>v.id+':'+v.name+':'+(v.type||'')).join('|'))+'#'+(VesselService.opVessels().map(v=>v.id+':'+v.name).join('|'))+'#'+((CURRENT_USER&&CURRENT_USER.username)||CURRENT_ROLE); }catch(e){ fp='err'+Date.now(); }
+    if(!force && fp===_vopsSubmenuFp) return;
+    _vopsSubmenuFp=fp;
+    if(typeof renderVesselOpsSubmenu==='function') renderVesselOpsSubmenu();
+  }catch(e){ console.warn('[vesselops-submenu]',e&&e.message); }
 }
 function openVesselOnHire(vid){
   const v=VesselService.vessels().find(x=>x.id===vid); if(!v){ toast('Không tìm thấy tàu','bad'); return; }
@@ -65187,7 +65229,9 @@ function canViewStockValue(){
   if(isAdmin()) return true;
   const u=CURRENT_USER; if(!u) return false;
   if(u.isVesselAccount) return false;  // v3.08.48 (Mảng 2): tài khoản TÀU KHÔNG bao giờ thấy giá
-  return !!(u.isCentralWarehouse || u.canCheckAcc || u.isBOD || u.isCEO || u.canApproveL1 || u.canApproveL2);
+  /* v3.16.46 (Sếp): VM kiểm soát và duyệt mua vật tư — không thấy giá trị tồn thì không duyệt
+     được. Đặt SAU chốt chặn tài khoản tàu ở trên nên tàu không lách qua. */
+  return !!(u.isCentralWarehouse || u.canCheckAcc || u.isBOD || u.isCEO || u.canApproveL1 || u.canApproveL2 || u.isVesselManager);
 }
 /* v3.15.57 (P0-T1, Sếp 14/8): tài khoản tàu (isVesselAccountUser) trước đây KHÔNG được xét
    trong hàm này → rơi vào nhánh cuối 'return all' → thấy/thao tác được MỌI kho của MỌI tàu +
@@ -70984,7 +71028,7 @@ function _countCommit(){
  * BÁO CÁO KHO (v3.08.23) — mục 11: Nhập/Xuất/Tồn/Điều chuyển/Kiểm kê + vật tư không phát sinh.
  * KHÔNG hiển thị giá trị (mục 10). BOD/Kế toán/thủ kho xem; thuyền trưởng chỉ kho mình.
  * ============================================================ */
-function canViewStockReport(){ return isAdmin()||canManageStock()||isCaptain()||(typeof isVesselAccountUser==='function'&&isVesselAccountUser())|| !!(CURRENT_USER&&(CURRENT_USER.isBOD||CURRENT_USER.isCEO||CURRENT_USER.isNVNS||CURRENT_USER.canCheckAcc)); } // v3.15.57: + tài khoản tàu (báo cáo khóa theo kho tàu mình)
+function canViewStockReport(){ return isAdmin()||canManageStock()||isCaptain()||(typeof isVesselAccountUser==='function'&&isVesselAccountUser())|| !!(CURRENT_USER&&(CURRENT_USER.isBOD||CURRENT_USER.isCEO||CURRENT_USER.isNVNS||CURRENT_USER.canCheckAcc||CURRENT_USER.isVesselManager)); } // v3.15.57: + tài khoản tàu (báo cáo khóa theo kho tàu mình)
 let _whRepFilter={wh:'',from:'',to:'',tab:'inout'};
 function openWarehouseReport(){
   if(!canViewStockReport()){ toast('Bạn không có quyền xem báo cáo kho','bad'); return; }
@@ -83333,6 +83377,15 @@ function canAccessTab(tabId){
   // v3.08.36: QUYỀN NV CƠ BẢN — mọi tài khoản đăng nhập được đều có sẵn bộ tab nhập liệu cơ bản
   //   (không cần tick). NV thường vẫn tự giới hạn: chỉ thấy phiếu MÌNH tạo (scopedRecords).
   //   op_input KHÔNG nằm đây vì cần gán tàu (giữ logic riêng bên dưới).
+  /* v3.16.48 (Sếp: 'Ẩn các mục Phải thu - phải trả / Tạm ứng NV trên VM'): VESSEL MANAGER là vai
+     đóng — chỉ Quản lý hoạt động tàu + Kho. Nhưng NV_CORE_TABS (payables/receivables/…) và
+     'advances' được CẤP NGẦM cho mọi tài khoản đăng nhập nên VM vẫn thấy Phải trả/Phải thu/Tạm ứng
+     dù mẫu vai không hề tick. Với VM: bỏ cấp ngầm ĐÚNG 3 tab này — chỉ tab được TICK TAY mới vào
+     (không ai mất quyền nếu admin cố ý tick). Thư viện (tài liệu chung) giữ nguyên cho VM. Đặt SAU chốt tài khoản tàu (bộ tab tàu vẫn tuyệt đối), TRƯỚC cấp ngầm. */
+  if(typeof isVesselManager==='function' && isVesselManager()
+     && (tabId==='payables' || tabId==='receivables' || tabId==='advances')){
+    return (CURRENT_USER.tabs||[]).includes(tabId);
+  }
   if(NV_CORE_TABS.includes(tabId)) return true;
   // v3.06.00/3.08.42: tab Nhân viên — admin (đã return true ở trên), người có QL NV, HOẶC IT (quản lý tài khoản).
   if(tabId==='staff') return !!CURRENT_USER.canManageUsers || (typeof isITRole==='function' && isITRole());
@@ -89019,6 +89072,7 @@ function maOpen(id){
 }
 function renderAll(opts){
   try{ _applyOpTabLabel(); }catch(e){}  // v3.06.00 nhãn tab Thu-Chi hộ động
+  try{ if(typeof refreshVesselOpsSubmenu==='function') refreshVesselOpsSubmenu(); }catch(e){}  // v3.16.48: danh sách tàu trên thanh tab dựng lại sau sync (fix 'Chưa có tàu' đứng mãi)
   try{ if(document.getElementById('page-periodic') && document.getElementById('page-periodic').classList.contains('active')) renderPeriodic(); }catch(e){}
   try{ if(document.getElementById('page-fin_accounting') && document.getElementById('page-fin_accounting').classList.contains('active')) renderFinAccounting(); }catch(e){}
   opts = opts || {};
