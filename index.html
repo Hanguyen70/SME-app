@@ -1736,11 +1736,11 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
           <select id="opt-type" onchange="opTypeChanged()"><option value="IN">Thu hộ</option><option value="OUT">Chi hộ</option></select>
         </div>
         <div class="field" style="grid-column:span 3"><label>Diễn giải</label><input type="text" id="opt-desc"></div>
-        <div class="field" style="grid-column:span 2"><label id="opt-amount-label">Số tiền <span style="color:var(--muted);text-transform:none;font-weight:400;font-size:10px">(tổng đã gồm VAT)</span></label><input type="text" inputmode="decimal" class="num" id="opt-amount" value="" placeholder="VD: 130.000.000" oninput="opNumFmtLive(this, opUsdRecalc)" style="text-align:right;font-family:var(--font-mono);font-weight:600"></div>
+        <div class="field" style="grid-column:span 2"><label id="opt-amount-label">Số tiền <span style="color:var(--muted);text-transform:none;font-weight:400;font-size:10px">(tổng đã gồm VAT)</span></label><input type="text" inputmode="decimal" data-format-thousands="1" class="num" id="opt-amount" value="" placeholder="VD: 130.000.000" oninput="opNumFmtLive(this, opUsdRecalc)" style="text-align:right;font-family:var(--font-mono);font-weight:600"></div>
         <div class="field"><label>Ngoại tệ gốc</label>
           <select id="opt-ccy" onchange="opCcyChanged()" title="Đồng tiền thực tế của khoản thu/chi — giữ nguyên để đối chiếu / backcharge chủ tàu"></select>
         </div>
-        <div class="field" id="opt-fx-wrap"><label>Tỷ giá <span style="color:var(--muted);text-transform:none;font-weight:400;font-size:10px">(theo loại tiền đã chọn)</span></label><input type="text" inputmode="decimal" class="num" id="opt-fx" value="" placeholder="VD: 26.000" oninput="opNumFmtLive(this, opUsdRecalc)" style="text-align:right;font-family:var(--font-mono)"></div>
+        <div class="field" id="opt-fx-wrap"><label>Tỷ giá <span style="color:var(--muted);text-transform:none;font-weight:400;font-size:10px">(theo loại tiền đã chọn)</span></label><input type="text" inputmode="decimal" data-format-thousands="1" class="num" id="opt-fx" data-nf-int="1" value="" placeholder="VD: 26.000" oninput="opNumFmtLive(this, opUsdRecalc)" style="text-align:right;font-family:var(--font-mono)"></div>
         <div class="field" id="opt-usd-wrap" style="grid-column:span 2"><label>Quy đổi USD <span style="color:var(--muted);text-transform:none;font-weight:400;font-size:10px">(tự tính — vào tổng)</span></label><input type="text" id="opt-usd" readonly style="background:var(--paper-2);font-weight:600;text-align:right;font-family:var(--font-mono)"></div>
       </div>
       <!-- v1.40.1: 3 trường bổ sung CHỈ cho Chi hộ -->
@@ -1790,7 +1790,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
           <div id="opt-khoan-doi-wrap" style="display:none;margin-top:8px;padding:8px 12px;background:rgba(74,107,44,.1);border-radius:4px">
             <div class="form-grid" style="grid-template-columns:1.4fr .8fr .8fr;gap:12px;align-items:end">
               <div class="field"><label>💵 GIÁ TRỊ ĐÒI chủ tàu (khoán)</label>
-                <input type="text" inputmode="decimal" class="num" id="opt-khoan-doi-amt" value="" oninput="opNumFmtLive(this, opKhoanPairRecalc)" placeholder="Số khoán đòi chủ tàu" style="text-align:right;font-family:var(--font-mono);font-weight:600">
+                <input type="text" inputmode="decimal" data-format-thousands="1" class="num" id="opt-khoan-doi-amt" value="" oninput="opNumFmtLive(this, opKhoanPairRecalc)" placeholder="Số khoán đòi chủ tàu" style="text-align:right;font-family:var(--font-mono);font-weight:600">
               </div>
               <div class="field"><label>Tiền tệ đòi</label>
                 <select id="opt-khoan-doi-ccy" onchange="opKhoanPairRecalc()">
@@ -1802,7 +1802,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
                 </select>
               </div>
               <div class="field" id="opt-khoan-doi-fx-wrap" style="display:none"><label>Tỷ giá → VND <span style="font-size:10px;color:var(--muted);font-weight:400;text-transform:none">(1 CCY = ? VND)</span></label>
-                <input type="text" inputmode="decimal" class="num" id="opt-khoan-doi-fx" value="" oninput="opNumFmtLive(this, opKhoanPairRecalc)" placeholder="VD: 27.000" style="text-align:right;font-family:var(--font-mono)">
+                <input type="text" inputmode="decimal" data-format-thousands="1" class="num" id="opt-khoan-doi-fx" data-nf-int="1" value="" oninput="opNumFmtLive(this, opKhoanPairRecalc)" placeholder="VD: 27.000" style="text-align:right;font-family:var(--font-mono)">
               </div>
             </div>
             <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:11px">
@@ -1958,7 +1958,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
       </div>
       <div class="form-grid" style="grid-template-columns:2fr 1fr 0.8fr 1fr">
         <div class="field"><label>Diễn giải</label><input type="text" id="vex-desc" placeholder="Chi tiết phát sinh"></div>
-        <div class="field"><label>Số tiền chưa VAT *</label><input type="text" inputmode="decimal" id="vex-amount-net" value="0" oninput="vexRecalcVat()"></div>
+        <div class="field"><label>Số tiền chưa VAT *</label><input type="text" inputmode="decimal" data-format-thousands="1" id="vex-amount-net" value="0" oninput="vexRecalcVat()"></div>
         <div class="field"><label>CCY</label><select id="vex-ccy"><option>VND</option><option>USD</option></select></div>
         <div class="field"><label>% VAT</label><select id="vex-vat-percent" onchange="vexRecalcVat()">
           <option value="0">0%</option>
@@ -2044,7 +2044,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
       </div>
       <div class="form-grid" style="grid-template-columns:2fr 1fr 0.8fr 1fr">
         <div class="field"><label>Phân bổ Dự án <span style="color:var(--muted);text-transform:none;font-weight:400">(tùy chọn)</span></label><select id="hex-project"><option value="">— Không gắn dự án —</option></select></div>
-        <div class="field"><label>Số tiền chưa VAT *</label><input type="text" inputmode="decimal" id="hex-amount-net" value="0" oninput="hexRecalcVat()"></div>
+        <div class="field"><label>Số tiền chưa VAT *</label><input type="text" inputmode="decimal" data-format-thousands="1" id="hex-amount-net" value="0" oninput="hexRecalcVat()"></div>
         <div class="field"><label>CCY</label><select id="hex-ccy"><option>VND</option><option>USD</option></select></div>
         <div class="field"><label>% VAT</label><select id="hex-vat-percent" onchange="hexRecalcVat()">
           <option value="0" selected>0% (lương thường không VAT)</option>
@@ -2059,8 +2059,8 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
         <div class="field"><label><b>Tổng</b></label><input type="text" id="hex-amount-gross" value="0" readonly style="background:var(--paper-2);font-weight:600"></div>
         <div class="field"><label>Hạn TT</label><input type="date" id="hex-due"></div>
         <div class="field"><label>Dự kiến TT tháng</label><input type="month" id="hex-due-month"></div>
-        <div class="field" style="background:rgba(139,90,43,.06);padding:6px 8px;border-radius:4px"><label>👤 TNCN khấu trừ <span style="color:var(--muted);text-transform:none;font-weight:400;font-size:10px">(chỉ khi là lương)</span></label><input type="text" inputmode="decimal" id="hex-pit-amount" value="0" placeholder="0 = không có TNCN"></div>
-        <div class="field" style="background:rgba(74,140,90,.06);padding:6px 8px;border-radius:4px"><label>🏥 BHXH/BHYT/BHTN <span style="color:var(--muted);text-transform:none;font-weight:400;font-size:10px">(mặc định 32% lương gross)</span></label><input type="text" inputmode="decimal" id="hex-bhxh-amount" value="0" placeholder="0 = không có BHXH"></div>
+        <div class="field" style="background:rgba(139,90,43,.06);padding:6px 8px;border-radius:4px"><label>👤 TNCN khấu trừ <span style="color:var(--muted);text-transform:none;font-weight:400;font-size:10px">(chỉ khi là lương)</span></label><input type="text" inputmode="decimal" data-format-thousands="1" id="hex-pit-amount" value="0" placeholder="0 = không có TNCN"></div>
+        <div class="field" style="background:rgba(74,140,90,.06);padding:6px 8px;border-radius:4px"><label>🏥 BHXH/BHYT/BHTN <span style="color:var(--muted);text-transform:none;font-weight:400;font-size:10px">(mặc định 32% lương gross)</span></label><input type="text" inputmode="decimal" data-format-thousands="1" id="hex-bhxh-amount" value="0" placeholder="0 = không có BHXH"></div>
       </div>
       <div class="form-actions">
         <button class="btn-primary" onclick="addHrExpense()">+ Thêm chi phí (vào Nháp)</button>
@@ -2117,7 +2117,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
         <div class="field"><label>Diễn giải</label><input type="text" id="qex-desc" placeholder="Chi tiết phát sinh"></div>
       </div>
       <div class="form-grid" style="grid-template-columns:1fr 0.8fr 1fr 1fr">
-        <div class="field"><label>Số tiền chưa VAT *</label><input type="text" inputmode="decimal" id="qex-amount-net" value="0" oninput="qexRecalcVat()"></div>
+        <div class="field"><label>Số tiền chưa VAT *</label><input type="text" inputmode="decimal" data-format-thousands="1" id="qex-amount-net" value="0" oninput="qexRecalcVat()"></div>
         <div class="field"><label>CCY</label><select id="qex-ccy"><option>VND</option><option>USD</option></select></div>
         <div class="field"><label>% VAT</label><select id="qex-vat-percent" onchange="qexRecalcVat()">
           <option value="0">0%</option>
@@ -3784,7 +3784,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.16.51';
+const APP_VERSION='3.16.53';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -20637,7 +20637,7 @@ function payOpenAdjust(periodId, empId){
       <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end">
         <div><label style="font-size:10px;color:var(--muted)">Loại</label><select id="adj-type" onchange="payAdjTypeChange()" style="padding:5px 6px;border:1px solid var(--rule);border-radius:4px;font-size:13px">${typeOpts}</select></div>
         <div style="flex:1;min-width:120px"><label style="font-size:10px;color:var(--muted)">Diễn giải</label><input id="adj-label" placeholder="VD: thưởng dự án" style="width:100%;padding:5px 6px;border:1px solid var(--rule);border-radius:4px;font-size:13px"></div>
-        <div><label style="font-size:10px;color:var(--muted)">Số tiền (${ccy})</label><input id="adj-amount" type="text" inputmode="decimal" oninput="this.value=_formatThousands(this.value)" style="width:120px;padding:5px 6px;border:1px solid var(--rule);border-radius:4px;font-size:13px"></div>
+        <div><label style="font-size:10px;color:var(--muted)">Số tiền (${ccy})</label><input id="adj-amount" type="text" inputmode="decimal" data-format-thousands="1" style="width:120px;padding:5px 6px;border:1px solid var(--rule);border-radius:4px;font-size:13px"></div>
         <div id="adj-retro-wrap" style="display:none"><label style="font-size:10px;color:var(--muted)">Kỳ gốc</label><input id="adj-retro" type="month" style="padding:5px 6px;border:1px solid var(--rule);border-radius:4px;font-size:13px"></div>
         <button class="btn-primary" style="font-size:11px" onclick="payAdjustAdd('${periodId}','${empId}')">Thêm</button>
       </div>
@@ -20874,7 +20874,7 @@ function _payBankBatchRender(bid){
     ${usd?`<div style="margin-bottom:8px;padding:7px 9px;border:1px solid var(--rule);border-radius:6px;background:#fbfcfd">
       <div style="font-size:11px;font-weight:600;margin-bottom:4px">💱 Tỷ giá ngày chuyển (${b.ccy} → VND) — dùng để ghi sổ, KHÔNG đổi số tiền chuyển</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-        <input type="number" id="bb-fx" value="${b.fxRate||''}" step="any" placeholder="Tỷ giá" style="width:130px;padding:5px 7px;border:1px solid var(--rule);border-radius:5px">
+        <input type="number" id="bb-fx" data-nf-int="1" value="${b.fxRate||''}" step="any" placeholder="Tỷ giá" style="width:130px;padding:5px 7px;border:1px solid var(--rule);border-radius:5px">
         <input type="date" id="bb-fxd" value="${b.fxDate||''}" style="padding:5px 7px;border:1px solid var(--rule);border-radius:5px">
         <button class="btn-sec" style="padding:4px 10px" onclick="payBankBatchSaveFx('${b.id}')">Lưu tỷ giá</button>
         ${b.fxRate?`<span style="font-size:11px;color:var(--muted)">≈ ${_negU(Math.round(sumRows*(+b.fxRate||0)).toLocaleString('vi-VN'))} đ</span>`:''}
@@ -32885,6 +32885,9 @@ function _parseVatPercent(v){
 function _unformatNumber(s){
   if(s==null||s==='') return 0;
   let str=String(s).trim();
+  /* v3.16.52: chuỗi chuẩn vừa phát ra từ getter ô nhóm nghìn (đã theo ý người gõ) → KHÔNG đoán lại.
+     Chỉ văn bản import (PDF/XML/Excel) và ô chưa nâng cấp mới đi qua luật đoán bên dưới. */
+  if(typeof _nfCanonTrust!=='undefined' && _nfCanonTrust.has(str)) return +str||0;
   // v3.04.29: dấu PHẨY = phân nhóm nghìn kiểu US (12,020.23) → bỏ trước khi xử lý.
   //   VND không bao giờ dùng phẩy. Sau bước này chỉ còn số + dấu chấm.
   if(str.indexOf(',')!==-1) str=str.replace(/,/g,'');
@@ -32929,22 +32932,191 @@ function _unformatNumber(s){
   return +result||0;
 }
 
-// Delegate-style: catch input events on number-like fields and reformat
+/* ═══════════════════════════════════════════════════════════════════
+   v3.16.52 — Ô TIỀN NHÓM NGHÌN: NGUYÊN TẮC CỨNG (Sếp: 'chỉ là số thập phân khi người dùng CHỦ ĐỘNG
+   gõ dấu . hoặc , — app KHÔNG được tự suy diễn'; 'với các loại tiền khác VND giữ đúng nguyên tắc';
+   tỷ giá VND = phương án 2: số nguyên).
+   TRƯỚC: getter đọc chuỗi hiển thị rồi ĐOÁN dấu chấm nào là thập phân theo số chữ số phía sau
+   (đúng 3 = nhóm nghìn, khác = thập phân). Mọi luật đoán đều có ca sai vì dấu nhóm nghìn (app chèn)
+   và dấu thập phân (người gõ) nhìn y hệt; gõ thêm số vào sau số đã nhóm ('15.838'+'2000') đọc lệch.
+   NAY: mỗi ô giữ TRẠNG THÁI Ý ĐỊNH inp._decPos = số chữ số trước dấu thập phân người dùng ĐÃ gõ
+   (null = chưa gõ → mọi dấu trên ô là nhóm nghìn). Bookkeeping ở 'beforeinput' (TRƯỚC khi ký tự vào ô)
+   nên oninput inline đọc đúng ngay. HIỂN THỊ theo loại tiền: VND nhóm '.' lẻ ','; ngoại tệ nhóm ','
+   lẻ '.' (quy ước v3.04.29). NGOẠI LỆ tỷ giá VND (data-nf-int=1 / id chứa fx): số nguyên, mọi dấu = nhóm.
+   30 ô 'type=text inputmode=decimal' cơ chế cũ gộp về cửa này; ô dựng động tự nâng cấp lúc focus.
+   _unformatNumber tin chuỗi chuẩn từ getter — chỉ văn bản import mới qua luật đoán. */
+const _NF_STYLE_VND={grp:'.',dec:','};
+const _NF_STYLE_INTL={grp:',',dec:'.'};
+function _nfDigits(d){ return String(d==null?'':d).replace(/[^0-9]/g,''); }
+function _nfIsNeg(d){ return /^\s*[-−]/.test(String(d==null?'':d)); }
+function _nfCcy(inp){
+  try{
+    const d=(inp.getAttribute&&inp.getAttribute('data-ccy')||'').trim().toUpperCase(); if(d) return d;
+    let sc=inp.closest?inp.closest('.modal, .modal-body, .form-grid, form'):null;
+    if(!sc) sc=inp.parentNode&&inp.parentNode.parentNode;
+    if(sc&&sc.querySelector){ const sel=sc.querySelector('select[id*="ccy"], select.ccy'); if(sel&&sel.value) return String(sel.value).toUpperCase(); }
+  }catch(e){}
+  return 'VND';
+}
+function _nfStyle(inp){ return _nfCcy(inp)==='VND'?_NF_STYLE_VND:_NF_STYLE_INTL; }
+function _nfIsInt(inp){ const f=inp&&inp.dataset?inp.dataset.nfInt:''; if(f==='1')return true; if(f==='0')return false; return /fx/i.test(String(inp&&inp.id||'')); }
+function _nfCanonical(digits, decPos, neg){
+  digits=String(digits||''); let out;
+  if(decPos==null || decPos>digits.length) out=digits;
+  else out=(digits.slice(0,decPos)||'0')+'.'+digits.slice(decPos);
+  if(out==='') return '';
+  return (neg?'-':'')+out;
+}
+function _nfDisplay(digits, decPos, neg, style){
+  style=style||_NF_STYLE_VND; digits=String(digits||'');
+  let intPart, frac=null;
+  if(decPos==null || decPos>digits.length){ intPart=digits; }
+  else { intPart=digits.slice(0,decPos)||'0'; frac=digits.slice(decPos); }
+  if(intPart==='' && frac===null) return '';
+  const grouped=(intPart||'0').replace(/\B(?=(\d{3})+(?!\d))/g,style.grp);
+  return (neg?'−':'')+grouped+(frac!==null?style.dec+frac:'');
+}
+/* Chuỗi code gán / dán → {digits,decPos,neg}. Chỗ DUY NHẤT còn suy luận (không có phím gõ): dấu
+   cuối + 0–2 chữ số = thập phân. Số JS → '.' luôn thập phân. */
+function _nfFromText(v){
+  if(typeof v==='number'){ if(!isFinite(v)) return {digits:'',decPos:null,neg:false}; const st=String(Math.abs(v)); const k=st.indexOf('.'); return {digits:st.replace('.',''), decPos:k<0?null:k, neg:v<0}; }
+  const str=String(v==null?'':v).trim();
+  const neg=/^[-−]/.test(str);
+  const body=str.replace(/[^0-9.,]/g,'');
+  const m=body.match(/[.,](\d{0,2})$/);
+  if(m){ const digits=body.replace(/[.,]/g,''); return {digits, decPos:digits.length-m[1].length, neg}; }
+  return {digits:body.replace(/[.,]/g,''), decPos:null, neg};
+}
+function _nfDigitsBefore(display, caret){ return _nfDigits(String(display||'').slice(0,caret)).length; }
+function _nfCaretAfterDigits(display, n, afterDecimal, decChar){
+  let pos=0,seen=0; const d=String(display||'');
+  while(pos<d.length && seen<n){ if(/\d/.test(d[pos])) seen++; pos++; }
+  if(afterDecimal && d[pos]===decChar) pos++;
+  return pos;
+}
+function _nfRawSet(inp, v){ const desc=inp._origValueDesc; if(desc) desc.set.call(inp,v); else inp.value=v; }
+function _nfRawGet(inp){ const desc=inp._origValueDesc; return desc?desc.get.call(inp):inp.value; }
+const _nfCanonTrust=new Set();
+function _nfTrust(s){ if(/\.\d{3,}$/.test(s)){ _nfCanonTrust.add(s); if(_nfCanonTrust.size>64){ const f=_nfCanonTrust.values().next().value; _nfCanonTrust.delete(f); } } return s; }
+function _nfIntDigits(digits, decPos){
+  if(decPos==null || decPos>=String(digits).length) return String(digits||'');
+  const n=Math.round(parseFloat(_nfCanonical(digits, decPos, false))||0);
+  return n>0?String(n):'';
+}
+function _nfRender(inp, caretDigits, afterDecimal){
+  const cur=_nfRawGet(inp), style=_nfStyle(inp);
+  const digits=_nfDigits(cur), neg=_nfIsNeg(cur);
+  if(_nfIsInt(inp)) inp._decPos=null;
+  if(inp._decPos!=null && inp._decPos>digits.length) inp._decPos=digits.length;
+  const disp=_nfDisplay(digits, inp._decPos, neg, style);
+  if(disp!==cur) _nfRawSet(inp,disp);
+  if(caretDigits!=null){ try{ const p=_nfCaretAfterDigits(disp, caretDigits, afterDecimal, style.dec); inp.setSelectionRange(p,p); }catch(e){} }
+}
+function _nfCommit(inp, digits, decPos, neg, caretDigits, afterDecimal){
+  if(_nfIsInt(inp)){ digits=_nfIntDigits(digits,decPos); decPos=null; }
+  inp._decPos=decPos;
+  _nfRawSet(inp,_nfDisplay(digits, decPos, neg, _nfStyle(inp)));
+  _nfRender(inp, caretDigits, afterDecimal);
+  try{ inp.dispatchEvent(new Event('input',{bubbles:true})); }catch(_){}
+}
+function _nfRefresh(inp){ if(!inp) return; if(!inp._origValueDesc){ _nfUpgradeOne(inp); return; } _nfRender(inp,null,false); }
+function _nfUpgradeOne(inp){
+  if(!inp || inp._origValueDesc) return false;
+  const proto=Object.getPrototypeOf(inp);
+  const desc=Object.getOwnPropertyDescriptor(proto,'value');
+  if(!desc) return false;
+  if(inp.type==='number') inp.type='text';
+  inp.setAttribute('inputmode','decimal');
+  inp.dataset.formatThousands='1';
+  inp._origValueDesc=desc;
+  const st0=_nfFromText(desc.get.call(inp));
+  if(_nfIsInt(inp)){ st0.digits=_nfIntDigits(st0.digits,st0.decPos); st0.decPos=null; }
+  inp._decPos=st0.decPos;
+  desc.set.call(inp,_nfDisplay(st0.digits,inp._decPos,st0.neg,_nfStyle(inp)));
+  Object.defineProperty(inp,'value',{
+    configurable:true,
+    get(){ const displayed=desc.get.call(this); return _nfTrust(_nfCanonical(_nfDigits(displayed), this._decPos, _nfIsNeg(displayed))); },
+    set(v){ const st=_nfFromText(v); if(_nfIsInt(this)){ st.digits=_nfIntDigits(st.digits,st.decPos); st.decPos=null; } this._decPos=st.decPos; desc.set.call(this,_nfDisplay(st.digits,this._decPos,st.neg,_nfStyle(this))); }
+  });
+  return true;
+}
+document.addEventListener('focusin',function(e){
+  const t=e.target;
+  if(t instanceof HTMLInputElement && t.dataset.formatThousands && !t._origValueDesc){ _nfUpgradeOne(t); if(!t.dataset._hintAttached && typeof _attachNumberHint==='function'){ try{ _attachNumberHint(t); t.dataset._hintAttached='1'; }catch(_){} } }
+},true);
+document.addEventListener('beforeinput',function(e){
+  const t=e.target;
+  if(!(t instanceof HTMLInputElement) || !t.dataset.formatThousands) return;
+  if(!t._origValueDesc) _nfUpgradeOne(t);
+  const style=_nfStyle(t), isInt=_nfIsInt(t);
+  const disp=_nfRawGet(t);
+  const selS=t.selectionStart==null?disp.length:t.selectionStart, selE=t.selectionEnd==null?selS:t.selectionEnd;
+  const digits=_nfDigits(disp), neg=_nfIsNeg(disp);
+  const dBefore=_nfDigitsBefore(disp,selS), dSelEnd=_nfDigitsBefore(disp,selE);
+  const selDigits=dSelEnd-dBefore;
+  const decIdx = t._decPos==null ? -1 : _nfCaretAfterDigits(disp,t._decPos,false,style.dec);
+  const selCoversDec = t._decPos!=null && selE>selS && decIdx>=selS && decIdx<selE;
+  const it=e.inputType||'';
+  const data=e.data==null?'':String(e.data);
+  const afterRemoveSel=(dp)=>{ if(dp==null) return null; if(selCoversDec) return null; if(selDigits>0 && dp>dBefore) return dp>=dSelEnd ? dp-selDigits : dBefore; return dp; };
+  if(it==='insertText' && (data==='.'||data===',')){
+    e.preventDefault();
+    if(isInt) return;
+    if(t._decPos!=null && !selCoversDec) return;
+    const nd=digits.slice(0,dBefore)+digits.slice(dSelEnd);
+    _nfCommit(t, nd, dBefore, neg, dBefore, true);
+    return;
+  }
+  if(it==='insertText' || it==='insertCompositionText'){
+    const nd=_nfDigits(data).length;
+    let dp=afterRemoveSel(t._decPos);
+    if(dp!=null && nd>0 && dBefore<=dp){ const caretAfterDot=(decIdx>=0 && selS===decIdx+1); if(!caretAfterDot) dp+=nd; }
+    t._decPos=dp;
+    return;
+  }
+  if(it==='insertFromPaste' || it==='insertFromDrop'){
+    e.preventDefault();
+    let txt=''; try{ txt=(e.dataTransfer&&e.dataTransfer.getData('text'))||''; }catch(_){}
+    if(!txt){ try{ txt=(e.clipboardData&&e.clipboardData.getData('text'))||''; }catch(_){} }
+    const st=_nfFromText(txt);
+    let dp=afterRemoveSel(t._decPos);
+    const nd=digits.slice(0,dBefore)+st.digits+digits.slice(dSelEnd);
+    if(dp!=null && dBefore<=dp && !(decIdx>=0 && selS===decIdx+1)) dp+=st.digits.length;
+    else if(dp==null && st.decPos!=null) dp=dBefore+st.decPos;
+    _nfCommit(t, nd, dp, neg, dBefore+st.digits.length, false);
+    return;
+  }
+  if(it.indexOf('delete')===0){
+    if(selE>selS){ t._decPos=afterRemoveSel(t._decPos); return; }
+    const back=/Backward$/.test(it);
+    const idx=back?selS-1:selS;
+    if(idx<0 || idx>=disp.length) return;
+    const ch=disp[idx];
+    if(t._decPos!=null && idx===decIdx){ e.preventDefault(); _nfCommit(t, digits, null, neg, dBefore, false); return; }
+    if(ch===style.grp || ch===style.dec){
+      e.preventDefault();
+      const rmIdx=back?dBefore-1:dBefore;
+      if(rmIdx<0 || rmIdx>=digits.length) return;
+      const nd=digits.slice(0,rmIdx)+digits.slice(rmIdx+1);
+      let dp=t._decPos; if(dp!=null && rmIdx<dp) dp--;
+      _nfCommit(t, nd, dp, neg, back?dBefore-1:dBefore, false);
+      return;
+    }
+    if(/\d/.test(ch)){ const rmIdx=back?dBefore-1:dBefore; if(t._decPos!=null && rmIdx<t._decPos) t._decPos--; }
+    return;
+  }
+},true);
 document.addEventListener('input',function(e){
   const t=e.target;
   if(!(t instanceof HTMLInputElement)) return;
-  // Apply only to inputs flagged as money-like — those originally type=number that we converted
   if(!t.dataset.formatThousands) return;
-  // Save caret position
-  const oldVal=t.value, caret=t.selectionStart;
-  const digitsBefore=(oldVal.slice(0,caret).match(/\d/g)||[]).length;
-  const newVal=_formatThousands(oldVal);
-  if(newVal===oldVal) return;
-  t.value=newVal;
-  // Restore caret based on digit count
-  let pos=0,seen=0;
-  while(pos<newVal.length && seen<digitsBefore){if(/\d/.test(newVal[pos]))seen++;pos++;}
-  t.setSelectionRange(pos,pos);
+  if(!t._origValueDesc) _nfUpgradeOne(t);
+  const style=_nfStyle(t);
+  const disp=_nfRawGet(t);
+  const caret=t.selectionStart==null?disp.length:t.selectionStart;
+  const dBefore=_nfDigitsBefore(disp,caret);
+  const afterDot=t._decPos!=null && dBefore===t._decPos && caret>0 && disp[caret-1]===style.dec;
+  _nfRender(t, dBefore, afterDot);
 });
 
 // Convert <input type="number"> to text with thousand-formatting.
@@ -32964,42 +33136,7 @@ function upgradeNumericInputs(rootSelector){
     // v2.99.22: Relax — chỉ skip nếu có step thập phân CỰC NHỎ (vd 0.001) hoặc input đặc biệt
     const step=inp.getAttribute('step');
     const skipFormat = step && (step.includes('.') && +step < 0.1);
-    if(!skipFormat && !inp.dataset.formatThousands){
-      inp.type='text';
-      inp.setAttribute('inputmode','decimal');  // v2.99.22: decimal thay numeric cho phép dấu chấm thập phân
-      inp.dataset.formatThousands='1';
-      if(inp.value) inp.value=_formatThousands(inp.value);
-      const proto=Object.getPrototypeOf(inp);
-      const desc=Object.getOwnPropertyDescriptor(proto,'value');
-      if(desc && !inp._origValueDesc){
-        inp._origValueDesc=desc;
-        Object.defineProperty(inp,'value',{
-          configurable:true,
-          get(){
-            const displayed=desc.get.call(this);
-            // v2.99.23: Phân biệt dấu chấm PHÂN NHÓM (vd 6.000.000.000) vs THẬP PHÂN (vd 1234.56).
-            // Quy tắc: 
-            // - Nếu dấu cuối + theo sau ĐÚNG 3 chữ số → đó là PHÂN NHÓM (toàn bộ là VND không thập phân)
-            //   → gỡ hết dấu chấm
-            // - Nếu dấu cuối + theo sau 1-2 chữ số → đó là THẬP PHÂN (USD)
-            //   → các dấu trước là phân nhóm, gỡ, giữ dấu cuối làm thập phân
-            const raw = String(displayed||'').replace(/\s/g,'').replace(/,/g,''); // gỡ dấu phẩy USD
-            if(!raw.includes('.')) return raw;
-            const lastDot = raw.lastIndexOf('.');
-            const afterLast = raw.slice(lastDot+1);
-            // Nếu sau dấu cuối là đúng 3 chữ số → phân nhóm
-            if(/^\d{3}$/.test(afterLast)){
-              return raw.replace(/\./g,'');
-            }
-            // Khác → thập phân (1-2 hoặc 4+ chữ số sau dấu cuối)
-            return raw.slice(0,lastDot).replace(/\./g,'') + '.' + afterLast;
-          },
-          set(v){
-            desc.set.call(this,_formatThousands(v));
-          }
-        });
-      }
-    }
+    if(!skipFormat && !inp._origValueDesc){ _nfUpgradeOne(inp); }   // v3.16.52: một cửa nâng cấp (dùng chung nâng cấp lười lúc focus)
     // v2.99.22: gắn hint "Bằng chữ" cho mọi input số đã format
     if(!inp.dataset._hintAttached){ _attachNumberHint(inp); inp.dataset._hintAttached='1'; }
   });
@@ -44143,7 +44280,7 @@ function _renderCashClearModal(){
         <div style="font-size:11px;color:var(--muted);margin-bottom:12px">Hoàn lại tiền mặt thừa về công ty/quỹ khác. <b>Chỉ giảm số dư quỹ, KHÔNG ghi chi phí.</b></div>
         <div class="form-grid" style="grid-template-columns:1fr 1.5fr;gap:14px">
           <div class="field"><label>Số tiền hoàn (${ccy})</label>
-            <input type="text" inputmode="decimal" id="cc-refund-amt" value="${amt?_formatThousands(String(amt)):''}" oninput="_ccRefundInput(this.value)" class="num" style="font-size:16px;font-weight:600" placeholder="0"></div>
+            <input type="text" inputmode="decimal" data-format-thousands="1" id="cc-refund-amt" value="${amt?_formatThousands(String(amt)):''}" oninput="_ccRefundInput(this.value)" class="num" style="font-size:16px;font-weight:600" placeholder="0"></div>
           <div class="field"><label>Diễn giải</label>
             <input type="text" value="${esc(st.refundNote||'')}" oninput="_cashClearState.refundNote=this.value" placeholder="VD: Nộp lại tiền thừa về quỹ công ty"></div>
         </div>
@@ -44167,7 +44304,7 @@ function _renderCashClearModal(){
         </div>
         <div style="display:grid;grid-template-columns:1.2fr .6fr 2fr;gap:10px">
           <div><label style="font-size:10px;color:var(--muted);display:block;margin-bottom:3px">SỐ TIỀN (${ccy}) *</label>
-            <input type="text" inputmode="decimal" value="${net?_formatThousands(String(net)):''}" oninput="_ccAmtInput(${i},this)" class="num" style="width:100%;padding:7px;font-size:13px;font-weight:600" placeholder="0"></div>
+            <input type="text" inputmode="decimal" data-format-thousands="1" value="${net?_formatThousands(String(net)):''}" oninput="_ccAmtInput(${i},this)" class="num" style="width:100%;padding:7px;font-size:13px;font-weight:600" placeholder="0"></div>
           <div><label style="font-size:10px;color:var(--muted);display:block;margin-bottom:3px">%VAT</label>
             <input type="number" value="${+t.vatPercent||0}" oninput="_ccSet(${i},'vatPercent',this.value)" class="num" style="width:100%;padding:7px;font-size:13px" step="any"></div>
           <div><label style="font-size:10px;color:var(--muted);display:block;margin-bottom:3px">DIỄN GIẢI</label>
@@ -50796,7 +50933,7 @@ function _arEditorBody(r,isPayable){
           const ordered=['USD','VND'].concat(list.filter(c=>c!=='USD'&&c!=='VND'));
           return ordered.map(c=>`<option value="${c}" ${cur===c?'selected':''}>${c}</option>`).join('');
         })()}</select></div>
-        <div class="field" id="ar-fx-wrap" style="${(r.ccy&&r.ccy!=='USD'&&r.ccy!=='VND')?'':'display:none'}"><label>Tỷ giá → VND <span style="font-weight:400;color:var(--muted);font-size:10px;text-transform:none">(1 ${esc(r.ccy||'')} = ? VND · app tự quy USD)</span></label><input type="number" id="ar-fx-usd" value="${(+r.fxToVnd>0)?(+r.fxToVnd):''}" step="any" placeholder="Bắt buộc nhập: 1 ${esc(r.ccy||'EUR')} = ? VND" oninput="arFxPreview()" ${lockedAttr}><div id="ar-fx-preview" style="font-size:10px;color:var(--accent);margin-top:3px;font-family:var(--font-mono)"></div></div>
+        <div class="field" id="ar-fx-wrap" style="${(r.ccy&&r.ccy!=='USD'&&r.ccy!=='VND')?'':'display:none'}"><label>Tỷ giá → VND <span style="font-weight:400;color:var(--muted);font-size:10px;text-transform:none">(1 ${esc(r.ccy||'')} = ? VND · app tự quy USD)</span></label><input type="number" id="ar-fx-usd" data-nf-int="1" value="${(+r.fxToVnd>0)?(+r.fxToVnd):''}" step="any" placeholder="Bắt buộc nhập: 1 ${esc(r.ccy||'EUR')} = ? VND" oninput="arFxPreview()" ${lockedAttr}><div id="ar-fx-preview" style="font-size:10px;color:var(--accent);margin-top:3px;font-family:var(--font-mono)"></div></div>
         <div class="field"><label>% VAT</label><select id="ar-vat-percent" onchange="arRecalcVat()" ${lockedAttr}>
           ${(()=>{
             // v2.99.86: nếu vatPercent là mức lẻ KHÔNG thuộc {0,5,8,10} (vd 0.1% từ import)
@@ -52352,7 +52489,7 @@ function _renderPayrollModal(){
     <tr data-tmpid="${l.tmpId}">
       <td class="row-idx">${i+1}</td>
       <td><input type="text" value="${esc(l.desc||'')}" placeholder="Tên người / nhóm nhận lương" oninput="_mrLineChange('${l.tmpId}','desc',this.value)" style="min-width:280px"></td>
-      <td><input type="text" inputmode="decimal" class="num mr-amt-input" data-tmpid="${l.tmpId}" data-field="amountNet" value="${_mrFmtNum(l.amountNet||0)}" oninput="_mrPayrollAmountStr('${l.tmpId}',this.value)" onfocus="_mrFmtFocus(this)" onblur="_mrFmtBlur(this)" style="min-width:140px;text-align:right"></td>
+      <td><input type="text" inputmode="decimal" data-format-thousands="1" class="num mr-amt-input" data-tmpid="${l.tmpId}" data-field="amountNet" value="${_mrFmtNum(l.amountNet||0)}" oninput="_mrPayrollAmountStr('${l.tmpId}',this.value)" onfocus="_mrFmtFocus(this)" onblur="_mrFmtBlur(this)" style="min-width:140px;text-align:right"></td>
       <td><button class="mr-del-btn" onclick="_mrDeleteLine('${l.tmpId}')" title="Xóa dòng">✕</button></td>
     </tr>`;
   }).join('');
@@ -52451,11 +52588,11 @@ function _renderPayrollModal(){
     <div class="pr-tot-box">
       <div class="field" style="background:rgba(74,140,90,.06);padding:8px 10px;border-radius:4px">
         <label style="font-size:10px">🏥 Tổng BHXH/BHYT/BHTN (${ccy})</label>
-        <input type="text" inputmode="decimal" class="num" id="pr-bhxh" value="${_mrFmtNum(bhxh)}" oninput="_mrPayrollTot('bhxhTotal',this.value)" onfocus="_mrFmtFocus(this)" onblur="_mrFmtBlur(this)" style="text-align:right;font-family:var(--font-mono)">
+        <input type="text" inputmode="decimal" data-format-thousands="1" class="num" id="pr-bhxh" value="${_mrFmtNum(bhxh)}" oninput="_mrPayrollTot('bhxhTotal',this.value)" onfocus="_mrFmtFocus(this)" onblur="_mrFmtBlur(this)" style="text-align:right;font-family:var(--font-mono)">
       </div>
       <div class="field" style="background:rgba(139,90,43,.06);padding:8px 10px;border-radius:4px">
         <label style="font-size:10px">👤 Tổng TNCN khấu trừ (${ccy})</label>
-        <input type="text" inputmode="decimal" class="num" id="pr-pit" value="${_mrFmtNum(pit)}" oninput="_mrPayrollTot('pitTotal',this.value)" onfocus="_mrFmtFocus(this)" onblur="_mrFmtBlur(this)" style="text-align:right;font-family:var(--font-mono)">
+        <input type="text" inputmode="decimal" data-format-thousands="1" class="num" id="pr-pit" value="${_mrFmtNum(pit)}" oninput="_mrPayrollTot('pitTotal',this.value)" onfocus="_mrFmtFocus(this)" onblur="_mrFmtBlur(this)" style="text-align:right;font-family:var(--font-mono)">
       </div>
     </div>
 
@@ -52466,7 +52603,7 @@ function _renderPayrollModal(){
       <div class="form-grid" style="grid-template-columns:1fr 1fr;gap:14px;align-items:end">
         <div class="field">
           <label style="font-size:10px">💵 Lương ĐÒI chủ tàu (khoán) — <b>USD</b></label>
-          <input type="text" inputmode="decimal" class="num" id="pr-khoan-doi" value="${_mrFmtNum(+s.khoanDoi||0)}" oninput="_mrPayrollKhoan(this.value)" onfocus="_mrFmtFocus(this)" onblur="_mrFmtBlur(this)" style="text-align:right;font-family:var(--font-mono)" placeholder="Số khoán đòi chủ tàu (USD)">
+          <input type="text" inputmode="decimal" data-format-thousands="1" class="num" id="pr-khoan-doi" value="${_mrFmtNum(+s.khoanDoi||0)}" oninput="_mrPayrollKhoan(this.value)" onfocus="_mrFmtFocus(this)" onblur="_mrFmtBlur(this)" style="text-align:right;font-family:var(--font-mono)" placeholder="Số khoán đòi chủ tàu (USD)">
         </div>
         <div class="field" style="padding-bottom:6px">
           <div style="font-size:11px;display:flex;justify-content:space-between"><span style="color:var(--muted)">Thực chi (tổng lương phiếu)</span><b style="font-family:var(--font-mono)"><span id="pr-khoan-chi">${_mrFmtNum(totalSalary, ccy)}</span> ${ccy}</b></div>
@@ -52857,7 +52994,7 @@ function _renderMultiRowModal(){
         </div>
         <div class="field" id="mr-fx-wrap" style="margin:0;${(s.ccy&&s.ccy!=='USD'&&s.ccy!=='VND')?'':'display:none'}">
           <label style="font-size:10px">Tỷ giá → VND <span style="font-weight:400;color:var(--muted);font-size:10px;text-transform:none">(1 ${esc(s.ccy||'')} = ? VND · app tự quy USD)</span></label>
-          <input type="number" id="mr-fx" value="${(+s.fxToVnd>0)?(+s.fxToVnd):''}" step="any" placeholder="Bắt buộc: 1 ${esc(s.ccy||'')} = ? VND" oninput="_mrFieldChange('fxToVnd', parseFloat(this.value)||0)">
+          <input type="number" id="mr-fx" data-nf-int="1" value="${(+s.fxToVnd>0)?(+s.fxToVnd):''}" step="any" placeholder="Bắt buộc: 1 ${esc(s.ccy||'')} = ? VND" oninput="_mrFieldChange('fxToVnd', parseFloat(this.value)||0)">
         </div>
       </div>
       <div class="field" style="margin:8px 0 0 0">
@@ -53251,9 +53388,9 @@ function _renderMrLine(l, i){
           ${_mrProjectOpts(l)}
         </select>
       </td>
-      <td><input type="text" inputmode="decimal" class="num mr-amt-input" data-tmpid="${l.tmpId}" data-field="amountNet" value="${_mrFmtNum(l.amountNet||0)}" oninput="_mrLineAmountStr('${l.tmpId}','amountNet',this.value)" onfocus="_mrFmtFocus(this)" onblur="_mrFmtBlur(this)" style="min-width:120px;text-align:right"></td>
+      <td><input type="text" inputmode="decimal" data-format-thousands="1" class="num mr-amt-input" data-tmpid="${l.tmpId}" data-field="amountNet" value="${_mrFmtNum(l.amountNet||0)}" oninput="_mrLineAmountStr('${l.tmpId}','amountNet',this.value)" onfocus="_mrFmtFocus(this)" onblur="_mrFmtBlur(this)" style="min-width:120px;text-align:right"></td>
       <td><input type="number" class="num" value="${l.vatPercent}" step="any" oninput="_mrLineAmount('${l.tmpId}','vatPercent',this.value)" style="width:55px"></td>
-      <td><input type="text" inputmode="decimal" class="num" value="${_mrFmtNum(l.amountGross||0)}" readonly style="background:var(--paper-2);min-width:130px;text-align:right;font-weight:600"></td>
+      <td><input type="text" inputmode="decimal" data-format-thousands="1" class="num" value="${_mrFmtNum(l.amountGross||0)}" readonly style="background:var(--paper-2);min-width:130px;text-align:right;font-weight:600"></td>
       <td><input type="date" value="${esc(l.invoiceDate||'')}" oninput="_mrLineInvoiceDate('${l.tmpId}',this.value)" title="Ngày trên hóa đơn — tự gợi ý dự án đang chạy"></td>
       <td><input type="date" value="${esc(l.dueDate||'')}" oninput="_mrLineChange('${l.tmpId}','dueDate',this.value)"></td>
       <td><button class="mr-del-btn" onclick="_mrDeleteLine('${l.tmpId}')" title="Xóa dòng">✕</button></td>
@@ -55732,14 +55869,14 @@ function addArPayment(kind,id){
       <div class="field">${(()=>{
         // v3.03.41: ngoại tệ ≠ USD/VND → ô tỷ giá là (1 ccy = ? VND), prefill từ fxToUsd × fxRate.
         if(isUsd){
-          return `<label>Tỷ giá tại ngày TT (VND/USD)</label><input type="number" id="pay-fx" value="" step="any" placeholder="Gợi ý ${(+S.fxRate||25000).toLocaleString('vi-VN')} — nhập theo thực tế" oninput="payRecalcVnd()">`;
+          return `<label>Tỷ giá tại ngày TT (VND/USD)</label><input type="number" id="pay-fx" data-nf-int="1" value="" step="any" placeholder="Gợi ý ${(+S.fxRate||25000).toLocaleString('vi-VN')} — nhập theo thực tế" oninput="payRecalcVnd()">`;
         }
         if(r.ccy==='VND'){
-          return `<label>Tỷ giá</label><input type="number" id="pay-fx" value="0" step="any" placeholder="Để 0 nếu là VND" oninput="payRecalcVnd()" disabled>`;
+          return `<label>Tỷ giá</label><input type="number" id="pay-fx" data-nf-int="1" value="0" step="any" placeholder="Để 0 nếu là VND" oninput="payRecalcVnd()" disabled>`;
         }
         // EUR/GBP/SGD... — tỷ giá ccy→VND (gợi ý = fxToUsd phiếu × fxRate USD/VND)
         const suggest = (+r.fxToUsd>0 && +S.fxRate>0) ? Math.round((+S.fxRate)/(+r.fxToUsd)) : 0;
-        return `<label>Tỷ giá → VND <span style="font-weight:400;color:var(--muted);font-size:10px;text-transform:none">(1 ${r.ccy} = ? VND)</span></label><input type="number" id="pay-fx" value="" step="any" placeholder="${suggest>0?('Gợi ý '+(+suggest).toLocaleString('vi-VN')+' — nhập theo thực tế'):('VD: 1 EUR ≈ 27000 VND')}" oninput="payRecalcVnd()">`;
+        return `<label>Tỷ giá → VND <span style="font-weight:400;color:var(--muted);font-size:10px;text-transform:none">(1 ${r.ccy} = ? VND)</span></label><input type="number" id="pay-fx" data-nf-int="1" value="" step="any" placeholder="${suggest>0?('Gợi ý '+(+suggest).toLocaleString('vi-VN')+' — nhập theo thực tế'):('VD: 1 EUR ≈ 27000 VND')}" oninput="payRecalcVnd()">`;
       })()}</div>
       <div class="field" style="grid-column:span 3"><label>Quy đổi VND (tự tính)</label><input type="text" id="pay-vnd" readonly style="background:var(--paper-2);font-weight:600"></div>
       <div class="field" style="grid-column:span 3"><label>Hình thức thanh toán *</label>
@@ -55786,10 +55923,10 @@ function addArPaymentForOrder(id, o){
       <div class="field"><label>Ngày trả</label><input type="date" id="pay-date" value="${todayISO()}"></div>
       <div class="field"><label>Giá trị (${r.ccy})</label><input type="number" id="pay-amount" value="${o.amount}" step="any" readonly style="background:var(--paper-2);font-weight:600" oninput="payRecalcVnd()"></div>
       <div class="field">${(()=>{
-        if(isUsd) return `<label>Tỷ giá (VND/USD)</label><input type="number" id="pay-fx" value="" step="any" placeholder="Gợi ý ${(+S.fxRate||25000).toLocaleString('vi-VN')} — nhập theo thực tế" oninput="payRecalcVnd()">`;
-        if(r.ccy==='VND') return `<label>Tỷ giá</label><input type="number" id="pay-fx" value="0" step="any" oninput="payRecalcVnd()" disabled>`;
+        if(isUsd) return `<label>Tỷ giá (VND/USD)</label><input type="number" id="pay-fx" data-nf-int="1" value="" step="any" placeholder="Gợi ý ${(+S.fxRate||25000).toLocaleString('vi-VN')} — nhập theo thực tế" oninput="payRecalcVnd()">`;
+        if(r.ccy==='VND') return `<label>Tỷ giá</label><input type="number" id="pay-fx" data-nf-int="1" value="0" step="any" oninput="payRecalcVnd()" disabled>`;
         const suggest = (+r.fxToUsd>0 && +S.fxRate>0) ? Math.round((+S.fxRate)/(+r.fxToUsd)) : 0;  // v3.03.41
-        return `<label>Tỷ giá → VND <span style="font-weight:400;color:var(--muted);font-size:10px;text-transform:none">(1 ${r.ccy} = ? VND)</span></label><input type="number" id="pay-fx" value="" step="any" placeholder="${suggest>0?('Gợi ý '+(+suggest).toLocaleString('vi-VN')+' — nhập theo thực tế'):''}" oninput="payRecalcVnd()">`;
+        return `<label>Tỷ giá → VND <span style="font-weight:400;color:var(--muted);font-size:10px;text-transform:none">(1 ${r.ccy} = ? VND)</span></label><input type="number" id="pay-fx" data-nf-int="1" value="" step="any" placeholder="${suggest>0?('Gợi ý '+(+suggest).toLocaleString('vi-VN')+' — nhập theo thực tế'):''}" oninput="payRecalcVnd()">`;
       })()}</div>
       <div class="field" style="grid-column:span 3"><label>Quy đổi VND</label><input type="text" id="pay-vnd" readonly style="background:var(--paper-2);font-weight:600"></div>
       <div class="field" style="grid-column:span 3"><label>Hình thức *</label>
@@ -56029,7 +56166,7 @@ function arQuickReceive(id){
         <div id="qr-mode-hint" style="font-size:10px;color:var(--muted);font-style:normal;margin-top:3px"></div>
       </div>
       <div class="field"><label>Ngày nhận tiền *</label><input type="date" id="qr-date" value="${todayISO()}"></div>
-      <div class="field"><label>${isUsd?'Tỷ giá tại ngày TT (VND/USD) *':'Tỷ giá'}</label><input type="number" id="qr-fx" value="" step="any" placeholder="${isUsd?('Gợi ý '+(+S.fxRate||25000).toLocaleString('vi-VN')+' — nhập theo thực tế'):'Để 0 nếu là VND'}" ${isUsd?'':'disabled'}></div>
+      <div class="field"><label>${isUsd?'Tỷ giá tại ngày TT (VND/USD) *':'Tỷ giá'}</label><input type="number" id="qr-fx" data-nf-int="1" value="" step="any" placeholder="${isUsd?('Gợi ý '+(+S.fxRate||25000).toLocaleString('vi-VN')+' — nhập theo thực tế'):'Để 0 nếu là VND'}" ${isUsd?'':'disabled'}></div>
       <div class="field" style="grid-column:span 2"><label>Hình thức thanh toán *</label>
         <select id="qr-method" onchange="qrMethodChanged()">
           <option value="bank">Chuyển khoản (qua ngân hàng)</option>
@@ -57774,9 +57911,9 @@ function openOpReceiveForm(){
     </div>
     <div class="field"><label>Diễn giải <span style="color:var(--bad)">*</span></label><input type="text" id="orf-desc" placeholder="VD: FEMCO Advance – Vessel Operating Costs"></div>
     <div class="form-grid" style="grid-template-columns:2fr 1fr 1.3fr">
-      <div class="field"><label>Số tiền <span style="color:var(--bad)">*</span></label><input type="text" inputmode="decimal" class="num" id="orf-amount" placeholder="VD: 500.000" oninput="opNumFmtLive(this,_orfUsdRecalc)" style="text-align:right;font-family:var(--font-mono);font-weight:600"></div>
+      <div class="field"><label>Số tiền <span style="color:var(--bad)">*</span></label><input type="text" inputmode="decimal" data-format-thousands="1" class="num" id="orf-amount" placeholder="VD: 500.000" oninput="opNumFmtLive(this,_orfUsdRecalc)" style="text-align:right;font-family:var(--font-mono);font-weight:600"></div>
       <div class="field"><label>Ngoại tệ</label><select id="orf-ccy" onchange="_orfCcyChanged()">${ccyOpts}</select></div>
-      <div class="field" id="orf-fx-wrap" style="display:none"><label>Tỷ giá → VND <span id="orf-fx-lbl" style="color:var(--muted);font-size:10px;text-transform:none;font-weight:400">(1 NT = ? VND)</span></label><input type="text" inputmode="decimal" class="num" id="orf-fx" placeholder="VD: 26.300" oninput="opNumFmtLive(this,_orfUsdRecalc)" style="text-align:right;font-family:var(--font-mono)"></div>
+      <div class="field" id="orf-fx-wrap" style="display:none"><label>Tỷ giá → VND <span id="orf-fx-lbl" style="color:var(--muted);font-size:10px;text-transform:none;font-weight:400">(1 NT = ? VND)</span></label><input type="text" inputmode="decimal" data-format-thousands="1" class="num" id="orf-fx" data-nf-int="1" placeholder="VD: 26.300" oninput="opNumFmtLive(this,_orfUsdRecalc)" style="text-align:right;font-family:var(--font-mono)"></div>
     </div>
     <div id="orf-usd-line" style="font-size:11px;color:var(--muted);margin-top:-4px"></div>
     <div class="field" style="margin-top:8px"><label>Tài khoản NH nhận tiền <span style="font-weight:400;color:var(--muted);font-size:10px;text-transform:none">(tùy chọn — chọn để ghi tăng Sổ ngân hàng; bỏ trống nếu chưa rõ/tiền mặt)</span></label>
@@ -57910,6 +58047,7 @@ function opCcyChanged(){
    (số tiền VND/đòi đều là số nguyên). Sau format gọi recalc. */
 function opNumFmtLive(input, recalcFn){
   if(!input) return;
+  if(input.dataset && input.dataset.formatThousands){ try{ if(typeof recalcFn==='function') recalcFn(); }catch(e){} return; }   // v3.16.52
   // v3.04.29: ĐỊNH DẠNG THEO LOẠI TIỀN — VND không thập phân (nhóm nghìn '.'),
   //   ngoại tệ khác có cent (nhóm nghìn ',' + thập phân '.'). Phân biệt dấu rõ ràng, dễ kiểm tra.
   //   Ô Tỷ giá (opt-fx / opt-khoan-doi-fx): luôn cho phép thập phân kiểu US (rate có lẻ).
@@ -58187,7 +58325,7 @@ function _renderOpMrModal(){
       <td class="row-idx">${i+1}</td>
       <td><input type="text" value="${esc(l.invoiceNo||'')}" placeholder="Số HĐ" oninput="_opMrLine('${l.tmpId}','invoiceNo',this.value)" style="width:100%"></td>
       <td><input type="text" value="${esc(l.desc||'')}" placeholder="Diễn giải khoản chi hộ..." oninput="_opMrLine('${l.tmpId}','desc',this.value)" style="width:100%"></td>
-      <td><input type="text" inputmode="decimal" class="num" value="${l.gross?_mrFmtNum(l.gross):''}" placeholder="Gross (gồm VAT)" oninput="_opMrLineAmt('${l.tmpId}',this.value)" style="width:100%;text-align:right;font-weight:600"></td>
+      <td><input type="text" inputmode="decimal" data-format-thousands="1" class="num" value="${l.gross?_mrFmtNum(l.gross):''}" placeholder="Gross (gồm VAT)" oninput="_opMrLineAmt('${l.tmpId}',this.value)" style="width:100%;text-align:right;font-weight:600"></td>
       <td class="num" style="font-family:var(--font-mono);color:var(--muted);min-width:90px;text-align:right">${usd?_fmtForeign(usd,'USD'):'—'}</td>
       <td style="text-align:center"><input type="checkbox" ${l.isBudget?'checked':''} onchange="_opMrLineBudget('${l.tmpId}',this.checked)" title="Chi dự kiến (chưa phát sinh thực)"></td>
       <td style="text-align:center"><input type="checkbox" ${l.reportToOwner?'checked':''} onchange="_opMrLine('${l.tmpId}','reportToOwner',this.checked)" title="Đưa vào báo cáo chủ tàu"></td>
@@ -58213,7 +58351,7 @@ function _renderOpMrModal(){
         <div class="field" style="margin:0"><label style="font-size:10px">Ngoại tệ gốc</label>
           <select onchange="_opMrHead('ccy',this.value)">${OP_CURRENCIES.map(c=>`<option value="${c}" ${s.ccy===c?'selected':''}>${c}</option>`).join('')}</select>
         </div>
-        <div class="field" style="margin:0;${needFx?'':'visibility:hidden'}"><label style="font-size:10px">Tỷ giá → VND (1 ${esc(s.ccy)} = ? VND · app tự quy USD)</label><input type="text" inputmode="decimal" class="num" value="${s.fxInput?_mrFmtNum(s.fxInput):''}" placeholder="VD: 27.000" oninput="_opMrFx(this.value)" style="text-align:right"></div>
+        <div class="field" style="margin:0;${needFx?'':'visibility:hidden'}"><label style="font-size:10px">Tỷ giá → VND (1 ${esc(s.ccy)} = ? VND · app tự quy USD)</label><input type="text" inputmode="decimal" data-format-thousands="1" class="num" value="${s.fxInput?_mrFmtNum(s.fxInput):''}" placeholder="VD: 27.000" oninput="_opMrFx(this.value)" style="text-align:right"></div>
       </div>
       <div class="form-grid" style="grid-template-columns:2fr 1fr 1fr;margin-top:8px">
         <div class="field" style="margin:0"><label style="font-size:10px">Tên NCC / Nhà cung cấp</label><input type="text" id="opmr-vendor" list="opmr-vendor-sug" value="${esc(s.vendor)}" placeholder="Gõ tên — gợi ý NCC (tự điền MST)" oninput="_opMrVendor(this.value)"><datalist id="opmr-vendor-sug"></datalist></div>
@@ -58227,7 +58365,7 @@ function _renderOpMrModal(){
       ${s.khoanChk?`<div class="form-grid" style="grid-template-columns:1fr 1fr 1fr;margin-top:8px;padding:8px 10px;background:rgba(74,107,44,.08);border-radius:4px">
         <div class="field" style="margin:0"><label style="font-size:10px">Loại chi phí (khoán)</label><select id="opmr-khoan-cat" onchange="_opMrHead('khoanCat',this.value)">${_opMrKhoanCatOpts(s.khoanCat)}</select></div>
         <div class="field" style="margin:0"><label style="font-size:10px">Kỳ khoán</label><input type="month" value="${esc(s.khoanPeriod)}" oninput="_opMrHead('khoanPeriod',this.value)"></div>
-        <div class="field" style="margin:0"><label style="font-size:10px">Số khoán đòi chủ tàu (${esc(s.ccy)})</label><input type="text" inputmode="decimal" class="num" value="${s.khoanDoiAmt?_mrFmtNum(s.khoanDoiAmt):''}" placeholder="Số đòi" oninput="_opMrKhoanAmt(this.value)" style="text-align:right;font-weight:600"></div>
+        <div class="field" style="margin:0"><label style="font-size:10px">Số khoán đòi chủ tàu (${esc(s.ccy)})</label><input type="text" inputmode="decimal" data-format-thousands="1" class="num" value="${s.khoanDoiAmt?_mrFmtNum(s.khoanDoiAmt):''}" placeholder="Số đòi" oninput="_opMrKhoanAmt(this.value)" style="text-align:right;font-weight:600"></div>
       </div>`:''}
     </div>
     <div style="font-size:11px;color:var(--accent);margin-bottom:6px;padding:6px 10px;background:rgba(var(--accent-rgb,65,65,65),.05);border-radius:4px">⚠ Chi hộ: nhập <b>GROSS (đã gồm VAT)</b>. VAT chi hộ KHÔNG khấu trừ — không lên tờ khai GTGT công ty.</div>
@@ -59669,15 +59807,15 @@ function confirmOpPayment(id){
       </div>
       <div class="field">
         <label>Phí ngân hàng</label>
-        <input type="text" inputmode="decimal" id="op-bank-fee" value="${defaultBankFee?_formatThousands(String(defaultBankFee)):'0'}" oninput="this.value=_formatThousands(this.value)">
+        <input type="text" inputmode="decimal" data-format-thousands="1" id="op-bank-fee" value="${defaultBankFee?_formatThousands(String(defaultBankFee)):'0'}">
       </div>
       <div class="field">
         <label>Phí khác</label>
-        <input type="text" inputmode="decimal" id="op-other-fee" value="0" oninput="this.value=_formatThousands(this.value)">
+        <input type="text" inputmode="decimal" data-format-thousands="1" id="op-other-fee" value="0">
       </div>
       <div class="field" id="op-fee-fx-wrap">
         <label>Tỷ giá phí → USD (1 USD = ?)</label>
-        <input type="text" inputmode="decimal" id="op-fee-fx" value="" oninput="_opFeeFxInput(this)" placeholder="Gợi ý ${(+S.fxRate||25000).toLocaleString('vi-VN')} — nhập theo thực tế">
+        <input type="text" inputmode="decimal" data-format-thousands="1" id="op-fee-fx" data-nf-int="1" value="" oninput="_opFeeFxInput(this)" placeholder="Gợi ý ${(+S.fxRate||25000).toLocaleString('vi-VN')} — nhập theo thực tế">
       </div>
       <div class="field">
         <label>Ghi chú phí (tùy chọn)</label>
@@ -59859,15 +59997,15 @@ function editOpFees(id){
       </div>
       <div class="field">
         <label>Phí ngân hàng</label>
-        <input type="text" inputmode="decimal" id="op-bank-fee" value="${_formatThousands(String(t.bankFee||0))}" oninput="this.value=_formatThousands(this.value)">
+        <input type="text" inputmode="decimal" data-format-thousands="1" id="op-bank-fee" value="${_formatThousands(String(t.bankFee||0))}">
       </div>
       <div class="field">
         <label>Phí khác</label>
-        <input type="text" inputmode="decimal" id="op-other-fee" value="${_formatThousands(String(t.otherFee||0))}" oninput="this.value=_formatThousands(this.value)">
+        <input type="text" inputmode="decimal" data-format-thousands="1" id="op-other-fee" value="${_formatThousands(String(t.otherFee||0))}">
       </div>
       <div class="field" id="op-fee-fx-wrap">
         <label>Tỷ giá phí → USD (1 USD = ?)</label>
-        <input type="text" inputmode="decimal" id="op-fee-fx" value="${(t.feeFxToUsd||t.fxToUsd)?_formatThousands(String(t.feeFxToUsd||t.fxToUsd)):''}" oninput="_opFeeFxInput(this)" placeholder="Gợi ý ${(+S.fxRate||25000).toLocaleString('vi-VN')} — nhập theo thực tế">
+        <input type="text" inputmode="decimal" data-format-thousands="1" id="op-fee-fx" data-nf-int="1" value="${(t.feeFxToUsd||t.fxToUsd)?_formatThousands(String(t.feeFxToUsd||t.fxToUsd)):''}" oninput="_opFeeFxInput(this)" placeholder="Gợi ý ${(+S.fxRate||25000).toLocaleString('vi-VN')} — nhập theo thực tế">
       </div>
       <div class="field">
         <label>Ghi chú phí</label>
@@ -60689,7 +60827,7 @@ function openOpNccPayment(id){
   const remain=opNccRemaining(t);
   const body=`<div style="font-size:13px;color:var(--muted);margin-bottom:10px">NCC: <b>${esc(t.vendor||'—')}</b> · ${esc(t.desc||'')}<br>Còn nợ: <b style="color:var(--bad)">${remain.toLocaleString('vi-VN')} ${ccy}</b></div>
     <div class="field"><label>Ngày thanh toán</label><input type="date" id="op-ncc-pay-date" value="${todayISO()}"></div>
-    <div class="field"><label>Số tiền trả đợt này (${ccy})</label><input type="text" inputmode="decimal" class="num" id="op-ncc-pay-amt" value="${remain>0?String(Math.round(remain)):''}" placeholder="Để trống / =còn nợ là trả hết" style="text-align:right;font-family:var(--font-mono)" oninput="opNumFmtLive&&opNumFmtLive(this)"></div>
+    <div class="field"><label>Số tiền trả đợt này (${ccy})</label><input type="text" inputmode="decimal" data-format-thousands="1" class="num" id="op-ncc-pay-amt" value="${remain>0?String(Math.round(remain)):''}" placeholder="Để trống / =còn nợ là trả hết" style="text-align:right;font-family:var(--font-mono)" oninput="opNumFmtLive&&opNumFmtLive(this)"></div>
     <div class="form-grid" style="grid-template-columns:1fr 1fr">
       <div class="field"><label>Phí ngân hàng (${ccy})</label><input type="number" id="op-ncc-bankfee" value="0" step="any" placeholder="0"></div>
       <div class="field"><label>Phí khác (${ccy})</label><input type="number" id="op-ncc-otherfee" value="0" step="any" placeholder="0"></div>
@@ -71919,7 +72057,7 @@ function _historicalForm(r){
       </div>
       <div class="field">
         <label>Tỷ giá bình quân năm này (VND/USD)</label>
-        <input type="number" id="hd-fxrate" step="any" value="${r.fxRate||''}" placeholder="VD năm 2024: 24500 — chỉ cần khi số tiền nhập bằng VND">
+        <input type="number" id="hd-fxrate" data-nf-int="1" step="any" value="${r.fxRate||''}" placeholder="VD năm 2024: 24500 — chỉ cần khi số tiền nhập bằng VND">
         <div style="font-size:11px;color:var(--muted);margin-top:3px">Dùng để quy đổi số liệu năm cũ sang USD theo đúng tỷ giá của năm đó. Bỏ trống nếu số tiền nhập bằng USD.</div>
       </div>
       <div class="field"><label>Ghi chú</label><input type="text" id="hd-note" value="${(r.note||'').replace(/"/g,'&quot;')}" placeholder="Tùy chọn"></div>
@@ -83509,6 +83647,15 @@ function canAccessTab(tabId){
     if((CURRENT_USER.tabs||[]).includes('vessels')) return true;
     if((CURRENT_USER.assignedVesselIds||[]).length>0 || (CURRENT_USER.assignedOpVesselIds||[]).length>0) return true;
     return false;
+  }
+  /* v3.16.53 (Sếp: 'Ẩn Phải thu - phải trả / tạm ứng nhân viên trên VM'): VESSEL MANAGER là vai
+     đóng — chỉ Quản lý hoạt động tàu + Kho. payables/receivables (NV_CORE_TABS) và 'advances' được
+     cấp NGẦM cho mọi tài khoản đăng nhập nên VM vẫn thấy dù mẫu vai chỉ tick operations+inventory.
+     Với VM: 3 tab này chỉ vào được khi admin TICK TAY (không ai mất quyền). Đặt SAU chốt tài khoản
+     tàu (bộ tab tàu vẫn tuyệt đối), TRƯỚC 2 nhánh cấp ngầm. Thư viện giữ cho VM. */
+  if(isVesselManager() && CURRENT_ROLE!=='admin'
+     && (tabId==='payables' || tabId==='receivables' || tabId==='advances')){
+    return (CURRENT_USER.tabs||[]).includes(tabId);
   }
   // v3.08.36: QUYỀN NV CƠ BẢN — mọi tài khoản đăng nhập được đều có sẵn bộ tab nhập liệu cơ bản
   //   (không cần tick). NV thường vẫn tự giới hạn: chỉ thấy phiếu MÌNH tạo (scopedRecords).

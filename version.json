@@ -1,5 +1,5 @@
 {
-  "version": "3.16.51",
-  "swVersion": "v3.16.51",
-  "notes": "v3.16.51: Ở màn Quản lý hộ của hai tàu quản lý hộ, thẻ Thu và Chi hộ được thay bằng hai thẻ báo cáo chỉ để xem và in. Thẻ thứ nhất là bảng Chi phí theo tháng gồm hai cột Chi khoán và Chi vận hành, mỗi tháng một dòng theo tổng số tiền quy USD, không tách đòi và chi. Chi khoán là phần thực chi cho khoán, chi vận hành là chi hộ thường không gồm chi dự kiến. Thẻ thứ hai là Danh sách thuyền viên, suy ra từ các phiếu lương thuyền viên đã nhập cho tàu, gom theo từng người kèm tổng chi, số kỳ và kỳ gần nhất. Cả hai thẻ chỉ xem và in, không nhập hay sửa, và không tác động đến số dư hay nghiệp vụ. Nền v3.16.50 giữ nguyên."
+  "version": "3.16.53",
+  "swVersion": "v3.16.53",
+  "notes": "v3.16.53: Theo yêu cầu của Sếp, tài khoản Vessel Manager không còn thấy ba mục Phải thu, Phải trả và Tạm ứng nhân viên. Ba mục này vốn được cấp ngầm cho mọi tài khoản đăng nhập nên dù mẫu vai VM chỉ tick Quản lý hoạt động tàu và Kho thì vẫn hiện. Nay với VM, chỉ khi admin tick tay đúng mục thì mới vào được; nhân viên thường, admin và mục Thư viện giữ nguyên như cũ, còn tài khoản tàu nếu lỡ mang cờ VM vẫn bị khóa trong bộ tab của tàu. Thanh điều hướng tự ẩn các mục này theo cơ chế ẩn mục không có quyền đã có. Nền v3.16.52 giữ nguyên."
 }
