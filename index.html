@@ -3775,7 +3775,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.16.42';
+const APP_VERSION='3.16.45';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -6958,6 +6958,16 @@ const PRESET_ROLES={
     tabs:['vessels','cashfund'],
     flags:{}
   },
+  /* v3.16.43 (Sếp chốt): chức danh VESSEL MANAGER — chỉ dùng ĐÚNG MỘT tab Quản lý hoạt động tàu.
+     Cơ chế cấp tab đã có sẵn (u.tabs + canAccessTab), nên đây chỉ là thêm một mẫu vai, không
+     dựng gì mới. VM quản TẤT CẢ tàu nên KHÔNG cần gán tàu đích danh như Thuyền trưởng.
+     Sếp chốt VM thấy đủ nội dung tab, gồm cả Opex · Nợ NCC · Đối chiếu khoán. */
+  vessel_manager: {
+    label:'Vessel Manager — Quản lý hoạt động tàu',
+    desc:'Một tab Quản lý hoạt động tàu, nhưng thấy TOÀN BỘ dữ liệu tàu: mọi tàu công ty và tàu QL hộ, mọi bút toán của mọi người (không chỉ mình nhập). KHÔNG cần tick tàu. Được ký & khóa báo cáo chủ tàu. KHÔNG có quyền duyệt chi, kế toán, lương hay quản lý người dùng.',
+    tabs:['operations'],
+    flags:{isVesselManager:true, canSignOwnerReport:true}
+  },
   nv_kt: {
     label:'NV KT — Kế toán viên',
     desc:'Phải trả, Ngân hàng, NSNN + KT Kiểm hồ sơ',
@@ -7808,6 +7818,13 @@ function userEditorModal(initial,idx){
             </div>
           </label>
           <label style="display:flex;align-items:flex-start;gap:8px;padding:6px 0;cursor:pointer;border-top:1px solid var(--rule);background:rgba(28,58,92,.05)">
+            <input type="checkbox" id="user-is-vessel-manager" ${initial.isVesselManager?'checked':''} style="margin-top:3px">
+            <div>
+              <div><b style="color:#1c3a5c">⛵ Vessel Manager — thấy toàn bộ dữ liệu tàu</b></div>
+              <div style="font-size:11px;color:var(--muted);font-style:normal;margin-top:2px">Thấy MỌI tàu công ty và tàu QL hộ (không cần tick tàu bên dưới), và MỌI bút toán của mọi người trong phạm vi tàu. KHÔNG kèm quyền duyệt chi, kế toán hay lương.</div>
+            </div>
+          </label>
+          <label style="display:flex;align-items:flex-start;gap:8px;padding:6px 0;cursor:pointer;border-top:1px solid var(--rule);background:rgba(28,58,92,.05)">
             <input type="checkbox" id="user-can-sign-owner" ${initial.canSignOwnerReport?'checked':''} style="margin-top:3px">
             <div>
               <div><b style="color:#1c3a5c">🔒 Ký &amp; khóa báo cáo chủ tàu</b></div>
@@ -8108,6 +8125,7 @@ function editUser(idx){
     canApproveL1:!!u.canApproveL1,
     canApproveFund:!!u.canApproveFund,
     canSignOwnerReport:!!u.canSignOwnerReport,
+    isVesselManager:!!u.isVesselManager,   // v3.16.45
     canSignHr:!!u.canSignHr,
     isPayrollAcc:!!u.isPayrollAcc,
     canViewPayroll:!!u.canViewPayroll,  // v3.12.38
@@ -9233,6 +9251,7 @@ async function saveUser(idx){
   const canApproveL2=!!(document.getElementById('user-can-approve-l2')||{}).checked;
   const canApproveFund=(document.getElementById('user-can-approve-fund')||{}).checked||false;
   const canSignOwnerReport=(document.getElementById('user-can-sign-owner')||{}).checked||false;
+  const isVesselManager=(document.getElementById('user-is-vessel-manager')||{}).checked||false;   // v3.16.45
   let canSignHr=(document.getElementById('user-can-sign-hr')||{}).checked||false;
   if(isPayrollAcc) canSignHr=true;  /* v3.12.08: vai gộp KT tiền lương tự cấp Ký NS */
   const isNVNS=(document.getElementById('user-is-nvns')||{}).checked||false;
@@ -9340,6 +9359,7 @@ async function saveUser(idx){
       u.canCheckAcc=_itBasic?(u.canCheckAcc||false):(isViewer?false:canCheckAcc);
       u.canApproveL2=_itBasic?(u.canApproveL2||false):(isViewer?false:canApproveL2);
       u.canSignOwnerReport=_itBasic?(u.canSignOwnerReport||false):(isViewer?false:canSignOwnerReport);  // v3.06.74 FIX: trước đây nhánh sửa user BỎ SÓT cờ này → tích + lưu không ăn
+      u.isVesselManager=_itBasic?(u.isVesselManager||false):(isViewer?false:isVesselManager);   // v3.16.45
       u.canSignHr=_itBasic?(u.canSignHr||false):(isViewer?false:canSignHr);  // v3.07.91: quyền ký Module Nhân sự
       u.isPayrollAcc=_itBasic?(u.isPayrollAcc||false):(isViewer?false:isPayrollAcc);  // v3.12.08: KT tiền lương (HR+KT)
       u.canViewPayroll=_itBasic?(u.canViewPayroll||false):(isViewer?false:canViewPayroll);  // v3.12.38: cờ HR xem lương
@@ -9417,6 +9437,7 @@ async function saveUser(idx){
         canApproveL2:(_emptyPerm||isViewer)?false:canApproveL2,
         canApproveFund:(_emptyPerm||isViewer)?false:canApproveFund,
         canSignOwnerReport:(_emptyPerm||isViewer)?false:canSignOwnerReport,
+        isVesselManager:(_emptyPerm||isViewer)?false:isVesselManager,   // v3.16.45
         canSignHr:(_emptyPerm||isViewer)?false:canSignHr,
         isPayrollAcc:(_emptyPerm||isViewer)?false:isPayrollAcc,
         canViewPayroll:(_emptyPerm||isViewer)?false:canViewPayroll,  // v3.12.38
@@ -10857,8 +10878,18 @@ function lookupUserDeptName(userName){
    - false: NV Nhập liệu thường — chỉ thấy bút toán do mình tạo
    v1.72.0: bổ sung canCheckAcc — NV Kế toán phải thấy hết để kiểm chứng từ của NV khác.
 */
+/* v3.16.45 (Sếp 16/8: "VM = BOD thấy toàn bộ nội dung tab… chỉ thấy hết những thứ liên quan
+   đến tàu"): VESSEL MANAGER là vai QUẢN LÝ, không phải NV được phân công vài tàu. Trước đây mẫu
+   vai không có cờ nào vượt phạm vi nên VM bị lọc như NV thường — tick tàu nào chỉ thấy tàu đó,
+   và chỉ thấy bản ghi do chính mình nhập. Cờ này mở ĐÚNG phạm vi dữ liệu TÀU, KHÔNG kèm quyền
+   duyệt, kế toán, lương hay quản lý người dùng. */
+function isVesselManager(){
+  if(CURRENT_ROLE==='admin') return true;
+  return !!(CURRENT_USER && CURRENT_USER.isVesselManager);
+}
 function canSeeAllRecords(){
-  return isAdmin() || canCheckAcc() || canApproveL1() || canApproveL2();
+  /* v3.16.45: VM thấy mọi bản ghi — quản lý đội tàu mà chỉ thấy phiếu mình nhập thì vô nghĩa. */
+  return isAdmin() || canCheckAcc() || canApproveL1() || canApproveL2() || isVesselManager();
 }
 
 /* ===== v1.74.0: Company helpers (đa công ty) ===== */
@@ -12500,6 +12531,9 @@ function userAssignedVesselIds(){
     return out;
   }
   if(CURRENT_ROLE==='admin') return VesselService.vessels().map(v=>v.id);
+  /* v3.16.45: VM quản TẤT CẢ tàu — không phải tick từng tàu. Đặt SAU nhánh phía tàu ở trên để
+     tài khoản tàu không lách qua được bằng cờ này. */
+  if(typeof isVesselManager==='function' && isVesselManager()) return VesselService.vessels().map(v=>v.id);
   const a=CURRENT_USER&&CURRENT_USER.assignedVesselIds;
   if(!Array.isArray(a) || a.length===0) return VesselService.vessels().map(v=>v.id);
   return a;
@@ -12576,6 +12610,8 @@ function userAssignedOpVesselIds(){
   if(CURRENT_ROLE==='admin') return VesselService.opVessels().map(v=>v.id);
   // Người duyệt L1/L2 cũng thấy hết (để duyệt được)
   if(canApproveL1()||canApproveL2()) return VesselService.opVessels().map(v=>v.id);
+  /* v3.16.45: VM thấy mọi tàu QL hộ — đây là việc chính của vai này */
+  if(typeof isVesselManager==='function' && isVesselManager()) return VesselService.opVessels().map(v=>v.id);
   const a=CURRENT_USER&&CURRENT_USER.assignedOpVesselIds;
   if(!Array.isArray(a) || a.length===0) return VesselService.opVessels().map(v=>v.id);
   return a;
@@ -36248,6 +36284,7 @@ function renderVessels(){
       <td class="r num">${v.dwt.toLocaleString()}</td>
       <td class="r mono">${v.year}</td>
       <td><div class="row-actions">
+        ${isAdmin()?`<button class="icon-btn" title="Xem ĐÚNG giao diện mà tài khoản tàu/đơn vị này nhìn thấy — admin thao tác đầy đủ" onclick="whAdminOpenVesselDash('${v.id}')">🖥</button>`:''}
         <button class="icon-btn" title="📧 Gửi email chứng từ tàu" onclick="sendVesselDocEmail('${v.id}')">📧</button>
         <button class="icon-btn" title="Sửa" onclick="editVessel('${v.id}')">✎</button>
         <button class="icon-btn danger" title="Xóa" onclick="delVessel('${v.id}')">✕</button>
@@ -68595,6 +68632,27 @@ function whIsSiteSideUser(){ return !!(whIsVesselSideUser() || whIsStoreAccount(
    không hạn chế"): admin mở được màn kho của BẤT KỲ kho nào, làm được mọi thao tác trong đó.
    Không có chế độ 'chỉ xem' — admin không bị giới hạn. */
 let _adminWhView='';
+/* v3.16.44 (Sếp: "admin không xem được đầy đủ các giao diện tại TÀU — kiểm tra ngay"):
+   KIỂM: các màn con của tàu (thuyền viên · đăng kiểm · on/off-hire · thông báo · chấm công ·
+   email tàu) đều nhận vesselId và KHÔNG chặn admin. _vaDashCards(vid) cũng nhận mã tàu.
+   Thứ THIẾU chỉ là LỐI VÀO: renderVesselAcctOpsBar chỉ chạy cho phía tàu, admin không phải
+   phía tàu nên chưa bao giờ dựng được màn đó. Nay admin mở dashboard của bất kỳ tàu/đơn vị nào.
+   KHÔNG giới hạn chỉ-xem — admin toàn quyền (luật Sếp chốt ở v3.16.42). */
+function whAdminOpenVesselDash(vid){
+  if(!isAdmin()){ toast('Chỉ admin','bad'); return; }
+  const v=VesselService.vessels().find(x=>x && x.id===vid);
+  if(!v){ toast('Không tìm thấy tàu/đơn vị','bad'); return; }
+  const isUnit=!!v.isShoreUnit;
+  /* Đặt kho của tàu/đơn vị này làm kho admin đang mở, rồi dựng thẻ ở chế độ forVessel=true —
+     khi đó thẻ Kho mở ĐÚNG màn kho của tàu (openVesselStockOverview), không rơi về màn tồn của
+     bờ. Không đặt thì admin bấm vào lại thấy bảng tồn kiểu bờ, không phải giao diện tàu. */
+  const _wh=InventoryService.warehouses().find(w=>w && w.vesselId===vid && w.isActive!==false);
+  _adminWhView=_wh?_wh.id:'';
+  openModal((isUnit?'📦 ':'⚓ ')+esc(v.name)+' — giao diện '+(isUnit?'đơn vị kho':'tàu'),
+    `<div style="font-size:11px;color:var(--muted);margin-bottom:10px">Đây là đúng bộ màn mà tài khoản ${isUnit?'đơn vị này':'tàu này'} nhìn thấy. Admin thao tác được đầy đủ.${_wh?'':' <b style="color:var(--bad)">Tàu/đơn vị này chưa có kho.</b>'}</div>
+     <div style="display:grid;gap:10px">${_vaDashCards(vid,true)}</div>`,
+    `<button class="btn-ghost" onclick="closeModal()">Đóng</button>`);
+}
 function whAdminOpenWarehouse(whId){
   if(!isAdmin()){ toast('Chỉ admin','bad'); return; }
   _adminWhView=String(whId||'');
