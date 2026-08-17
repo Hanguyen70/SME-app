@@ -1,5 +1,5 @@
 {
-  "version": "3.16.49",
-  "swVersion": "v3.16.49",
-  "notes": "v3.16.49: Ẩn cứng nhóm Chi phí cũ (Tàu và Dự án O&M, Nhân sự bảo mật, Quản lý chung) trên thanh điều hướng cho mọi vai. Nhóm này đã bỏ từ lâu vì nghiệp vụ chuyển hết vào Phải trả, nhưng với tài khoản Vessel Manager dùng giao diện nav phẳng thì ba tab con vẫn được coi là có quyền nên không bị ẩn theo quyền, và dấu ẩn cũ ở nhóm cha có thể bị mã đời trước hoặc bộ nhớ đệm xoá mất. Nay bổ sung một lớp ẩn cứng ở tầng giao diện áp cho mọi vai và mọi chế độ hiển thị, không phụ thuộc mã chạy hay bộ nhớ đệm, nên nhóm này không còn hiện lại được. Nền v3.16.48 giữ nguyên. Lưu ý sau khi lên bản này cần tải lại trang một lần để bộ nhớ đệm trang cũ được thay."
+  "version": "3.16.51",
+  "swVersion": "v3.16.51",
+  "notes": "v3.16.51: Ở màn Quản lý hộ của hai tàu quản lý hộ, thẻ Thu và Chi hộ được thay bằng hai thẻ báo cáo chỉ để xem và in. Thẻ thứ nhất là bảng Chi phí theo tháng gồm hai cột Chi khoán và Chi vận hành, mỗi tháng một dòng theo tổng số tiền quy USD, không tách đòi và chi. Chi khoán là phần thực chi cho khoán, chi vận hành là chi hộ thường không gồm chi dự kiến. Thẻ thứ hai là Danh sách thuyền viên, suy ra từ các phiếu lương thuyền viên đã nhập cho tàu, gom theo từng người kèm tổng chi, số kỳ và kỳ gần nhất. Cả hai thẻ chỉ xem và in, không nhập hay sửa, và không tác động đến số dư hay nghiệp vụ. Nền v3.16.50 giữ nguyên."
 }
