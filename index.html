@@ -3784,7 +3784,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.16.56';
+const APP_VERSION='3.16.57';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -36290,12 +36290,16 @@ function renderVesselOpsSubmenu(){
     }
   }catch(e){}
   opVessels.sort((a,b)=>String(a.name||'').localeCompare(String(b.name||'')));
-  const ownRows=vessels.map(v=>{
+  /* v3.16.57 (Sếp: 'ẩn khỏi tab của VM cho gọn — KHÔNG đụng gì tới Kho kỹ thuật'): CHỈ VM bỏ đơn vị
+     kho (isShoreUnit, vd KHO KỸ THUẬT) khỏi submenu chọn tàu — nó là kho, vào qua tab Kho vật tư, hiện
+     ở đây gây rối cho VM. Vai khác (admin/BOD/…) GIỮ NGUYÊN. Không đổi bản ghi/cờ/cơ chế kho. */
+  const _hideUnitForVM = (typeof isVesselManager==='function' && isVesselManager() && CURRENT_ROLE!=='admin');
+  const ownRows=vessels.filter(v=>!(_hideUnitForVM && v && v.isShoreUnit)).map(v=>{
     const tag=v.type==='SERVICE'?'DV':'KT';
     return `<button class="nav-sub-item" onclick="openVesselHub('${v.id}')" title="Mở Trung tâm quản lý tàu ${esc(v.name)}"><span class="sub-dot"></span>${esc(v.name)} <span style="font-size:10px;opacity:.6">${tag}</span></button>`;
   }).join('');
   const opRows=opVessels.length
-    ? `<div style="padding:4px 14px 2px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:700">Tàu quản lý hộ</div>`
+    ? (_hideUnitForVM ? '' : `<div style="padding:4px 14px 2px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:700">Tàu quản lý hộ</div>`)   /* v3.16.57: VM bỏ nhãn tiêu đề (chữ đứng dọc, không hợp lý); AFALINA/KATRAN giữ */
       + opVessels.map(v=>`<button class="nav-sub-item" onclick="openOpVesselHub('${v.id}')" title="Quản lý hộ ${esc(v.name)}"><span class="sub-dot" style="background:#8a6d3b"></span>${esc(v.name)} <span style="font-size:10px;opacity:.6">QL hộ</span></button>`).join('')
     : '';
   box.innerHTML=dashRow+ownRows+opRows;

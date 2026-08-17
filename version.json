@@ -1,5 +1,5 @@
 {
-  "version": "3.16.56",
-  "swVersion": "v3.16.56",
-  "notes": "v3.16.56: Hai thay đổi cho tài khoản Vessel Manager. Thứ nhất, dọn gọn thanh điều hướng: nay chỉ còn các nút tàu công ty, tàu quản lý hộ, Thu-Chi hộ và Kho vật tư; hai tab Quản lý vận hành tàu và Thư viện được ẩn cho gọn vì nội dung tàu đã vào được qua nút tàu và Thu-Chi hộ. Mẫu vai được cập nhật và cơ chế dựng danh sách tàu vẫn giữ cho VM nên không mất nút mở tàu. Thứ hai, hai thẻ Sổ theo dõi Khoán và Sổ Chi phí vận hành trên màn Quản lý hộ nay mở bảng xem ngay tại chỗ giống thẻ Số dư và đối chiếu, thay vì nhảy về trang tính: Sổ Khoán hiển thị theo tháng và loại với Thực chi, Mức khoán và Balance; Sổ Chi phí vận hành liệt kê các khoản Seahorse tự chịu kèm quy USD, đều có nút in. Nền v3.16.55 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần để thay bộ nhớ đệm."
+  "version": "3.16.57",
+  "swVersion": "v3.16.57",
+  "notes": "v3.16.57: Dọn nốt hai nút còn sót trên thanh điều hướng của riêng tài khoản Vessel Manager. Với VM, danh sách chọn tàu nay không hiện đơn vị Kho kỹ thuật nữa, vì đây thực chất là kho vật tư kỹ thuật được đăng ký dưới dạng tàu để dùng chung cơ chế kho, và đã vào được qua tab Kho vật tư; đưa nó vào danh sách tàu chỉ gây rối. Nhãn tiêu đề Tàu quản lý hộ cũng được bỏ cho gọn, còn AFALINA và KATRAN vẫn hiển thị bình thường. Thay đổi chỉ áp dụng cho VM; các vai khác giữ nguyên, và không có gì trong bản ghi, cờ hay cơ chế của Kho kỹ thuật bị đụng tới. Nền v3.16.56 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần."
 }
