@@ -439,6 +439,15 @@ body.readonly-mode::before{
    Lưu ý: logic ẩn/hiện theo quyền của từng tab (JS) KHÔNG đổi — chỉ đổi cách trình bày. */
 .nav:not(.nav--grouped) .nav-group-btn{display:none!important}
 .nav:not(.nav--grouped) .nav-group{display:contents}
+/* v3.16.49 (Sếp: 'dọn dẹp lỗi đó cẩn thận — app Trọng vẫn hiện thị tào lao'): ẨN CỨNG nhóm
+   'Chi phí (legacy)' (Tàu/Dự án O&M · Nhân sự bảo mật · Quản lý chung — bỏ từ v1.30, nghiệp vụ đã
+   chuyển vào Phải trả). Với VM (nav phẳng, không .nav--grouped) 3 tab con thuộc NV_CORE_TABS nên
+   canAccessTab=true → applyNavPermissions không ẩn; inline display:none của nhóm cha từng bị JS đời
+   trước xoá. Rule !important này phủ MỌI vai/chế độ, MỌI phần tử con — không JS/cache nào bật lại được. */
+.nav [data-legacy="true"],
+.nav [data-legacy="true"] *,
+#nav-group-expenses,
+#nav-group-expenses *{display:none!important}
 .nav:not(.nav--grouped) .nav-submenu{display:contents!important;position:static;background:none;border:none;box-shadow:none;min-width:0;z-index:auto}
 .nav:not(.nav--grouped) .nav-sub-item{
   padding:14px 20px;font-size:13px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;
@@ -3775,7 +3784,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.16.48';
+const APP_VERSION='3.16.49';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);

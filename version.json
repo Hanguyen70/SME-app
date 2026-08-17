@@ -1,5 +1,5 @@
 {
-  "version": "3.16.48",
-  "swVersion": "v3.16.48",
-  "notes": "v3.16.48: Trả cách hiển thị thanh điều hướng về đúng version chuẩn trước đó. Ở bản 3.16.47, cơ chế ẩn mục không có quyền vô tình bật hiển thị lại cho mọi mục mà tài khoản có quyền, khiến những nhóm đã được ẩn có chủ đích từ lâu bị sống lại: nhóm Chi phí cũ gồm Tàu và Dự án O&M, Nhân sự bảo mật, Quản lý chung đã bỏ từ phiên bản đầu vì nghiệp vụ chuyển hết vào Phải trả, cùng các tab Tài chính Kế toán bị lặp khi tài khoản quản lý dùng giao diện gom nhóm. Nay việc ẩn theo quyền chỉ ẩn đúng những mục tài khoản không có quyền, không bao giờ tự bật hiển thị mục nào, nên mọi thứ đã ẩn ở tầng bố cục hay nghiệp vụ đều giữ nguyên như bản chuẩn. Nguyên tắc admin xem theo nhóm chức năng và nhân viên xem nav lẻ được giữ nguyên; ý muốn ẩn hẳn màn không được phân quyền của bản 3.16.47 vẫn đạt. Nền v3.16.47 giữ nguyên."
+  "version": "3.16.49",
+  "swVersion": "v3.16.49",
+  "notes": "v3.16.49: Ẩn cứng nhóm Chi phí cũ (Tàu và Dự án O&M, Nhân sự bảo mật, Quản lý chung) trên thanh điều hướng cho mọi vai. Nhóm này đã bỏ từ lâu vì nghiệp vụ chuyển hết vào Phải trả, nhưng với tài khoản Vessel Manager dùng giao diện nav phẳng thì ba tab con vẫn được coi là có quyền nên không bị ẩn theo quyền, và dấu ẩn cũ ở nhóm cha có thể bị mã đời trước hoặc bộ nhớ đệm xoá mất. Nay bổ sung một lớp ẩn cứng ở tầng giao diện áp cho mọi vai và mọi chế độ hiển thị, không phụ thuộc mã chạy hay bộ nhớ đệm, nên nhóm này không còn hiện lại được. Nền v3.16.48 giữ nguyên. Lưu ý sau khi lên bản này cần tải lại trang một lần để bộ nhớ đệm trang cũ được thay."
 }
