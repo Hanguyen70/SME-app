@@ -3784,7 +3784,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.16.55';
+const APP_VERSION='3.16.56';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -6973,8 +6973,8 @@ const PRESET_ROLES={
      Sếp chốt VM thấy đủ nội dung tab, gồm cả Opex · Nợ NCC · Đối chiếu khoán. */
   vessel_manager: {
     label:'Vessel Manager — Quản lý hoạt động tàu',
-    desc:'Quản lý hoạt động tàu + Kho vật tư. Thấy TOÀN BỘ dữ liệu tàu: mọi tàu công ty và tàu QL hộ, mọi bút toán của mọi người (không chỉ mình nhập) — KHÔNG cần tick tàu. Xem kho như thủ kho để KIỂM SOÁT và DUYỆT MUA vật tư: tồn mọi kho, giá trị tồn, đơn giá, lịch sử mua theo NCC, báo cáo kho. Được ký & khóa báo cáo chủ tàu. KHÔNG thao tác kho (không lập/xác nhận/xóa phiếu) và KHÔNG có quyền duyệt chi, kế toán, lương hay quản lý người dùng.',
-    tabs:['operations','inventory'],
+    desc:'Kho vật tư + quản lý tàu (vào qua nút tàu & Thu-Chi hộ trên nav). Thấy TOÀN BỘ dữ liệu tàu: mọi tàu công ty và tàu QL hộ, mọi bút toán của mọi người (không chỉ mình nhập) — KHÔNG cần tick tàu. Xem kho như thủ kho để KIỂM SOÁT và DUYỆT MUA vật tư: tồn mọi kho, giá trị tồn, đơn giá, lịch sử mua theo NCC, báo cáo kho. Được ký & khóa báo cáo chủ tàu. KHÔNG thao tác kho (không lập/xác nhận/xóa phiếu) và KHÔNG có quyền duyệt chi, kế toán, lương hay quản lý người dùng.',
+    tabs:['inventory'],
     flags:{isVesselManager:true, canSignOwnerReport:true}
   },
   nv_kt: {
@@ -14479,7 +14479,7 @@ function applyRoleUI(){
   //   Gate quyền: giữ nguyên như trang vessels cũ — user phải có tab 'vessels' hoặc 'operations'
   //   (admin/không giới hạn tabs thấy hết). Người không có quyền → submenu rỗng → group tự ẩn.
   try{
-    const _canOps = !user || !allowedTabs || allowedTabs.includes('vessels') || allowedTabs.includes('operations') || allowedTabs.includes('op_input');
+    const _canOps = !user || !allowedTabs || allowedTabs.includes('vessels') || allowedTabs.includes('operations') || allowedTabs.includes('op_input') || (typeof isVesselManager==='function' && isVesselManager());   // v3.16.56: VM bỏ tab 'operations' khỏi nav nhưng VẪN cần submenu chọn tàu (việc chính của vai)
     const _opsBox=document.getElementById('submenu-vesselops');
     if(_opsBox){
       if(_canOps && typeof renderVesselOpsSubmenu==='function'){ renderVesselOpsSubmenu(); }
@@ -35982,6 +35982,71 @@ function _gotoSeahorseOpex(vid){
     }catch(e){ console.warn('[goto-seaopex]',e); }
   },90);
 }
+/* ═══════════════════════════════════════════════════════════════════
+   v3.16.56 (Sếp: 'Sổ theo dõi Khoán và Sổ Chi phí vận hành — tạo bảng xem TẠI SỔ như Số dư & đối
+   chiếu, KHÔNG mở về trang tính'): 2 modal xem-tại-chỗ, dùng data thuần có sẵn
+   (khoanReconcile / _seahorseOpexRows), lọc đúng tàu. Thay _gotoKhoanBook/_gotoSeahorseOpex. */
+function openOpKhoanReport(vid){
+  const v=(VesselService.opVessels().find(x=>x.id===vid))||(VesselService.vessels().find(x=>x.id===vid));
+  if(!v){ toast('Không tìm thấy tàu','bad'); return; }
+  const rec=(typeof khoanReconcile==='function')?khoanReconcile(vid):{pairs:[]};
+  const pairs=(rec.pairs||[]).slice().sort((a,b)=>(a.period||'').localeCompare(b.period||'')||(a.cat||'').localeCompare(b.cat||''));
+  const _f=n=>_khoanFmtUsd(n);
+  let vThuc=0,vKhoan=0;
+  const rowsHtml=pairs.length?pairs.map(g=>{
+    const bal=g.doi-g.chi; vThuc+=g.chi; vKhoan+=g.doi;
+    const stat=bal>=-0.005?'<span class="ds-need" style="color:var(--good);font-size:10px">✓ OK</span>':'<span class="ds-need" style="color:var(--warn);font-size:10px">⚠ Check</span>';
+    return `<tr>
+      <td class="c mono" style="font-size:11px">${esc(g.period||'—')}</td>
+      <td style="font-size:13px">${esc(g.cat||'—')}</td>
+      <td class="r mono">${g.chiCount?_f(g.chi):'<span style="color:var(--muted)">—</span>'}</td>
+      <td class="r mono">${g.doiCount?_f(g.doi):'<span style="color:var(--muted)">—</span>'}</td>
+      <td class="r mono" style="font-weight:600;color:${bal>=-0.005?'var(--good)':'var(--bad)'}">${_f(bal)}</td>
+      <td class="c">${stat}</td></tr>`;
+  }).join(''):'<tr><td colspan="6" class="empty">Chưa có dữ liệu khoán cho tàu này</td></tr>';
+  const gBal=vKhoan-vThuc;
+  const body=`
+    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">⚓ <b>${esc(v.name)}</b> · Sổ theo dõi Khoán — Mức khoán (số đòi chủ tàu) − Thực chi (chi phí thực) = Balance, theo Tháng × Loại. Dương = chi trong khoán; âm = vượt khoán.</div>
+    <table class="tbl" style="width:100%;font-size:13px">
+      <thead><tr><th class="c">Tháng</th><th>Loại khoán</th><th class="r">Thực chi (USD)</th><th class="r">Mức khoán (USD)</th><th class="r">Balance</th><th class="c">TT</th></tr></thead>
+      <tbody>${rowsHtml}</tbody>
+      <tfoot><tr style="border-top:2px solid var(--rule);font-weight:700">
+        <td colspan="2">TỔNG (USD)</td>
+        <td class="r mono">${_f(vThuc)}</td>
+        <td class="r mono">${_f(vKhoan)}</td>
+        <td class="r mono" style="color:${gBal>=-0.005?'var(--good)':'var(--bad)'}">${_f(gBal)}</td>
+        <td></td></tr></tfoot>
+    </table>`;
+  openModal('⇄ Sổ theo dõi Khoán — '+esc(v.name), body,
+    `<button class="btn-ghost" onclick="closeModal();openOpVesselHub('${vid}')">← Quản lý hộ</button><button class="btn-sec" onclick="window.print()">🖨 In</button>`);
+}
+function openOpSeahorseOpexReport(vid){
+  const v=(VesselService.opVessels().find(x=>x.id===vid))||(VesselService.vessels().find(x=>x.id===vid));
+  if(!v){ toast('Không tìm thấy tàu','bad'); return; }
+  const all=(typeof _seahorseOpexRows==='function')?_seahorseOpexRows():[];
+  const list=all.filter(p=>p.vesselId===vid).sort((a,b)=>String(b.issueDate||b.createdAt||'').localeCompare(String(a.issueDate||a.createdAt||'')));
+  const _f=n=>_khoanFmtUsd(n);
+  let tot=0;
+  const rowsHtml=list.length?list.map(p=>{
+    const m=_seaOpexUsd(p); tot+=m.amountUsd;
+    const paid=(typeof arPaidTotal==='function'?arPaidTotal(p):0)>0.0001;
+    return `<tr>
+      <td class="c mono" style="font-size:11px">${esc((p.issueDate||p.createdAt||'').slice(0,10)||'—')}</td>
+      <td style="font-size:12px">${esc(p.partner||'—')}<div style="font-size:11px;color:var(--muted)">${esc(p.desc||'')}</div></td>
+      <td class="r mono">${m.gross?(m.gross.toLocaleString('vi-VN')+' '+esc(m.ccy||'')):'—'}</td>
+      <td class="r mono" style="font-weight:600">${_f(m.amountUsd)}</td>
+      <td class="c">${paid?'<span class="ds-need" style="color:var(--good);font-size:10px">Đã TT</span>':'<span class="ds-need" style="color:var(--muted);font-size:10px">Chưa TT</span>'}</td></tr>`;
+  }).join(''):'<tr><td colspan="5" class="empty">Chưa có chi phí vận hành Seahorse tự chịu cho tàu này</td></tr>';
+  const body=`
+    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">⚓ <b>${esc(v.name)}</b> · Sổ Chi phí vận hành — chi phí <b>Seahorse tự chịu</b> (nội bộ, KHÔNG lên báo cáo chủ tàu). Quy USD.</div>
+    <table class="tbl" style="width:100%;font-size:13px">
+      <thead><tr><th class="c">Ngày HĐ</th><th>NCC · Diễn giải</th><th class="r">Gross (gốc)</th><th class="r">Quy USD</th><th class="c">TT</th></tr></thead>
+      <tbody>${rowsHtml}</tbody>
+      <tfoot><tr style="border-top:2px solid var(--rule);font-weight:700"><td colspan="3">TỔNG (USD) · ${list.length} khoản</td><td class="r mono">${_f(tot)}</td><td></td></tr></tfoot>
+    </table>`;
+  openModal('⚙ Sổ Chi phí vận hành — '+esc(v.name), body,
+    `<button class="btn-ghost" onclick="closeModal();openOpVesselHub('${vid}')">← Quản lý hộ</button><button class="btn-sec" onclick="window.print()">🖨 In</button>`);
+}
 function openOpVesselHub(vid){
   /* v3.15.64: chặn tại cửa vào theo phạm vi tàu QL hộ được giao (phía tàu = rỗng → không vào được) */
   try{
@@ -36017,8 +36082,8 @@ function openOpVesselHub(vid){
     </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">
       ${card('📄','Báo cáo chủ tàu','Tập hợp thu/chi hộ theo tháng · xem/in PDF & Excel.','Mở báo cáo (theo tháng)',`closeModal();openOpReportModal('${vid}')`,'#1c5a8c')}
-      ${card('⇄','Sổ theo dõi Khoán','Mức khoán − Thực chi = Balance, theo Tháng × Loại (lọc sẵn tàu này).','Mở sổ Khoán',`_gotoKhoanBook('${vid}')`)}
-      ${card('⚙','Sổ Chi phí vận hành','Chi Seahorse tự chịu — nội bộ, không lên báo cáo chủ tàu (lọc sẵn tàu này).','Mở sổ Chi phí VH',`_gotoSeahorseOpex('${vid}')`)}
+      ${card('⇄','Sổ theo dõi Khoán','Mức khoán − Thực chi = Balance, theo Tháng × Loại (xem tại chỗ).','Mở sổ Khoán',`closeModal();openOpKhoanReport('${vid}')`)}
+      ${card('⚙','Sổ Chi phí vận hành','Chi Seahorse tự chịu — nội bộ, không lên báo cáo chủ tàu (xem tại chỗ).','Mở sổ Chi phí VH',`closeModal();openOpSeahorseOpexReport('${vid}')`)}
       ${card('👥','Danh sách thuyền viên','Hồ sơ thuyền viên trên tàu — hợp nhất từ Quyết định điều động & Hồ sơ NS.','Mở danh sách',`closeModal();openVesselCrewList('${vid}')`)}
       ${card('💰','Số dư & đối chiếu','Chi tiết cấu thành số dư chủ tàu.','Xem chi tiết số dư',`closeModal();_qvOwnerDetail('${vid}',true)`)}
     </div>
@@ -83565,6 +83630,14 @@ function canAccessTab(tabId){
   if(isVesselManager() && CURRENT_ROLE!=='admin'
      && (tabId==='payables' || tabId==='receivables' || tabId==='advances')){
     return (CURRENT_USER.tabs||[]).includes(tabId);
+  }
+  /* v3.16.56 (Sếp: 'Nav VM chỉ hiện: các tàu công ty, tàu quản lý hộ, Thu-Chi hộ, Kho vật tư — còn lại ẩn cho gọn'):
+     VM vào nội dung tàu QL hộ qua NÚT TÀU (submenu) + Thu-Chi hộ (op_input) + Kho vật tư (inventory) — không cần
+     tab 'operations' (06 QL vận hành tàu) hay 'library' trên nav. Ẩn 2 tab này khỏi VM (trừ khi admin tick tay).
+     Nút tàu do renderVesselOpsSubmenu tạo (không có data-page) nên KHÔNG bị ảnh hưởng. */
+  if(isVesselManager() && CURRENT_ROLE!=='admin'
+     && (tabId==='operations' || tabId==='library')){
+    return false;   // ẩn tuyệt đối trên nav VM (vào nội dung tàu qua nút tàu/Thu-Chi hộ; Kho vật tư đủ)
   }
   // v3.08.36: QUYỀN NV CƠ BẢN — mọi tài khoản đăng nhập được đều có sẵn bộ tab nhập liệu cơ bản
   //   (không cần tick). NV thường vẫn tự giới hạn: chỉ thấy phiếu MÌNH tạo (scopedRecords).

@@ -1,5 +1,5 @@
 {
-  "version": "3.16.55",
-  "swVersion": "v3.16.55",
-  "notes": "v3.16.55: Thêm thẻ Danh sách thuyền viên vào màn Quản lý hộ, mở đúng màn hồ sơ người thật đã có sẵn thay vì bảng gom từ lương. Danh sách này hợp nhất từ Quyết định điều động và Hồ sơ nhân sự, hiển thị họ tên, chức danh, ngày lên, ngày xuống, trạng thái và nguồn, không nhập tay tại đây. Áp dụng cho cả hai tàu quản lý hộ giống như tàu công ty. Hai thẻ Sổ theo dõi Khoán và Sổ Chi phí vận hành ở bản trước được giữ nguyên. Nền v3.16.54 giữ nguyên."
+  "version": "3.16.56",
+  "swVersion": "v3.16.56",
+  "notes": "v3.16.56: Hai thay đổi cho tài khoản Vessel Manager. Thứ nhất, dọn gọn thanh điều hướng: nay chỉ còn các nút tàu công ty, tàu quản lý hộ, Thu-Chi hộ và Kho vật tư; hai tab Quản lý vận hành tàu và Thư viện được ẩn cho gọn vì nội dung tàu đã vào được qua nút tàu và Thu-Chi hộ. Mẫu vai được cập nhật và cơ chế dựng danh sách tàu vẫn giữ cho VM nên không mất nút mở tàu. Thứ hai, hai thẻ Sổ theo dõi Khoán và Sổ Chi phí vận hành trên màn Quản lý hộ nay mở bảng xem ngay tại chỗ giống thẻ Số dư và đối chiếu, thay vì nhảy về trang tính: Sổ Khoán hiển thị theo tháng và loại với Thực chi, Mức khoán và Balance; Sổ Chi phí vận hành liệt kê các khoản Seahorse tự chịu kèm quy USD, đều có nút in. Nền v3.16.55 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần để thay bộ nhớ đệm."
 }
