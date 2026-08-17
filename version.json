@@ -1,5 +1,5 @@
 {
-  "version": "3.16.53",
-  "swVersion": "v3.16.53",
-  "notes": "v3.16.53: Theo yêu cầu của Sếp, tài khoản Vessel Manager không còn thấy ba mục Phải thu, Phải trả và Tạm ứng nhân viên. Ba mục này vốn được cấp ngầm cho mọi tài khoản đăng nhập nên dù mẫu vai VM chỉ tick Quản lý hoạt động tàu và Kho thì vẫn hiện. Nay với VM, chỉ khi admin tick tay đúng mục thì mới vào được; nhân viên thường, admin và mục Thư viện giữ nguyên như cũ, còn tài khoản tàu nếu lỡ mang cờ VM vẫn bị khóa trong bộ tab của tàu. Thanh điều hướng tự ẩn các mục này theo cơ chế ẩn mục không có quyền đã có. Nền v3.16.52 giữ nguyên."
+  "version": "3.16.55",
+  "swVersion": "v3.16.55",
+  "notes": "v3.16.55: Thêm thẻ Danh sách thuyền viên vào màn Quản lý hộ, mở đúng màn hồ sơ người thật đã có sẵn thay vì bảng gom từ lương. Danh sách này hợp nhất từ Quyết định điều động và Hồ sơ nhân sự, hiển thị họ tên, chức danh, ngày lên, ngày xuống, trạng thái và nguồn, không nhập tay tại đây. Áp dụng cho cả hai tàu quản lý hộ giống như tàu công ty. Hai thẻ Sổ theo dõi Khoán và Sổ Chi phí vận hành ở bản trước được giữ nguyên. Nền v3.16.54 giữ nguyên."
 }

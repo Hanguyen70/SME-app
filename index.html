@@ -3784,7 +3784,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.16.53';
+const APP_VERSION='3.16.55';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -35954,123 +35954,33 @@ function _gotoOpBookForVessel(vid){
   },80);
 }
 /* ═══════════════════════════════════════════════════════════════════
-   v3.16.51 (Sếp): TÀU QL HỘ — thay thẻ 'Thu / Chi hộ' trong Hub bằng 2 thẻ báo cáo CHỈ-XEM:
-   (1) Chi phí theo tháng: Chi khoán + Chi vận hành (tổng số tiền/tháng, KHÔNG tách đòi/chi).
-   (2) Danh sách thuyền viên (từ phiếu lương gắn tàu: opTx CREW_SALARY + AP VESSEL_MGMT khoanCat).
-   Hàm THUẦN, quy USD dùng chung opTxUsd/apArToUsd; không đụng số dư/nghiệp vụ.
-   - CHI KHOÁN/tháng = Σ 'thực chi khoán' (opTx khoanRole='chi' NET + AP VESSEL_MGMT có khoanCat NET),
-     gộp theo _khoanPeriodOf. Là chi phí Seahorse thực bỏ ra cho phần khoán (khớp cột Thực chi bảng
-     đối chiếu), KHÔNG phải số đòi chủ tàu.
-   - CHI VẬN HÀNH/tháng = Σ chi hộ thường (opTx OUT, KHÔNG khoán, KHÔNG seahorseOwn, KHÔNG dự kiến)
-     + AP chi hộ thường (không khoán). Khớp 'Chi hộ thực' trên màn Sổ. */
-function opCostByMonth(vid){
-  const months={};
-  const _ens=m=>{ if(!months[m]) months[m]={month:m, khoan:0, ops:0}; return months[m]; };
-  const _mon=d=>(d&&/^\d{4}-\d{2}/.test(d))?String(d).slice(0,7):'';
-  VesselService.opTransactions().filter(t=>t.vesselId===vid).forEach(t=>{
-    if(t.khoanRole==='chi'){
-      const net=(+t.amount||0)-(+t.vatAmount||0);
-      const usd=opTxUsd({...t, amount:net, amountUsd:0});
-      const m=_khoanPeriodOf(t)||_mon(t.date); if(m) _ens(m).khoan+=usd;
-      return;
-    }
-    if(t.type!=='OUT') return;
-    if(t.seahorseOwn) return;
-    if(t._isBudget) return;
-    const m=_mon(t.date); if(!m) return;
-    _ens(m).ops+=opTxUsd(t);
-  });
-  AccountingService.payables().forEach(r=>{
-    if(r.vesselId!==vid) return;
-    if(r.seahorseOwn) return;
-    const isKhoan = (r.segment==='VESSEL_MGMT' && r.khoanCat && String(r.khoanCat).trim());
-    if(isKhoan){
-      const net=+r.amountNet||((+r.amountGross||+r.amount||0)-(+r.vatAmount||0))||(+r.amount||0);
-      const usd=(typeof apArToUsd==='function')?apArToUsd(net,r):net;
-      const m=_khoanPeriodOf(r); if(m) _ens(m).khoan+=usd;
-    } else {
-      const m=_mon(r.issueDate||r.date);
-      const net=+r.amountGross||+r.amount||0;
-      const usd=(typeof apArToUsd==='function')?apArToUsd(net,r):net;
-      if(m) _ens(m).ops+=usd;
-    }
-  });
-  const rows=Object.values(months).sort((a,b)=>a.month.localeCompare(b.month));
-  const tot={khoan:rows.reduce((s,r)=>s+r.khoan,0), ops:rows.reduce((s,r)=>s+r.ops,0)};
-  tot.all=tot.khoan+tot.ops;
-  return {rows, tot};
+   v3.16.53b (Sếp sửa ý: 'cần báo cáo Sổ theo dõi Khoán và Sổ Chi phí vận hành (chi Seahorse chịu)'):
+   2 thẻ Hub tàu QL hộ KHÔNG dựng bảng mới — mở thẳng 2 SỔ ĐÃ CÓ trong tab QL vận hành tàu, lọc sẵn
+   tàu, mở section (đang collapsed) và cuộn tới. Bỏ hẳn 4 hàm gom-tháng + 2 modal dựng sai ở v3.16.51. */
+function _gotoKhoanBook(vid){
+  closeModal();
+  try{ navTo('operations'); }catch(e){}
+  setTimeout(()=>{
+    try{
+      const sec=document.getElementById('khoan-recon-section'); if(sec) sec.classList.remove('collapsed');
+      const sel=document.getElementById('khoan-filter-vessel');
+      if(sel){ sel.value=vid; if(typeof renderOpKhoanRecon==='function') renderOpKhoanRecon(); }
+      if(sec && sec.scrollIntoView) sec.scrollIntoView({behavior:'smooth',block:'start'});
+    }catch(e){ console.warn('[goto-khoan]',e); }
+  },90);
 }
-/* Danh sách thuyền viên suy từ phiếu lương gắn tàu QL hộ. Gom theo TÊN người, tổng chi USD + số kỳ + kỳ gần nhất. Chỉ-xem. */
-function opCrewList(vid){
-  const by={};
-  const _add=(name, usd, period)=>{
-    const k=(name||'—').trim()||'—';
-    if(!by[k]) by[k]={name:k, total:0, count:0, last:''};
-    const g=by[k]; g.total+=usd; g.count++; if(period && period>g.last) g.last=period;
-  };
-  VesselService.opTransactions().filter(t=>t.vesselId===vid).forEach(t=>{
-    const nt=_khoanNormalizeCrew(t);
-    const isCrew = (t.opCat==='CREW_SALARY') || (String(t.khoanCat||'').toLowerCase().indexOf('lương thuyền viên')>=0) || (String(nt.khoanCat||'').toLowerCase().indexOf('lương thuyền viên')>=0);
-    if(!isCrew) return;
-    _add(t.vendor||t.who||'', opTxUsd(t), _khoanPeriodOf(t)||(t.date||'').slice(0,7));
-  });
-  AccountingService.payables().forEach(r=>{
-    if(r.vesselId!==vid) return;
-    if(r.segment!=='VESSEL_MGMT') return;
-    if(String(r.khoanCat||'').toLowerCase().indexOf('lương thuyền viên')<0) return;
-    const net=+r.amountNet||((+r.amountGross||+r.amount||0)-(+r.vatAmount||0))||(+r.amount||0);
-    const usd=(typeof apArToUsd==='function')?apArToUsd(net,r):net;
-    _add(r.partner||r.vendor||'', usd, _khoanPeriodOf(r));
-  });
-  const rows=Object.values(by).sort((a,b)=>b.total-a.total);
-  return {rows, total:rows.reduce((s,r)=>s+r.total,0)};
-}
-/* Modal CHỈ-XEM: Chi phí theo tháng (khoán + vận hành) */
-function openOpCostReport(vid){
-  const v=VesselService.opVessels().find(x=>x.id===vid); if(!v){ toast('Không tìm thấy tàu','bad'); return; }
-  const d=opCostByMonth(vid);
-  const _f=n=>(typeof _khoanFmtUsd==='function')?_khoanFmtUsd(n):('$'+(Math.round((n||0)*100)/100).toLocaleString('en-US'));
-  const rowsHtml = d.rows.length ? d.rows.map(r=>`<tr>
-      <td>${esc(r.month)}</td>
-      <td class="r" style="font-family:var(--font-mono)">${r.khoan?_f(r.khoan):'—'}</td>
-      <td class="r" style="font-family:var(--font-mono)">${r.ops?_f(r.ops):'—'}</td>
-      <td class="r" style="font-family:var(--font-mono);font-weight:600">${_f(r.khoan+r.ops)}</td></tr>`).join('')
-    : '<tr><td colspan="4" class="empty">Chưa có chi phí</td></tr>';
-  const body=`
-    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">⚓ <b>${esc(v.name)}</b> · Quản lý hộ — chi phí quy USD theo tháng. Chi khoán = thực chi phần khoán; Chi vận hành = chi hộ thường (không gồm chi dự kiến).</div>
-    <table class="tbl" style="width:100%;font-size:13px">
-      <thead><tr><th style="width:26%">Tháng</th><th class="r">Chi khoán</th><th class="r">Chi vận hành</th><th class="r">Cộng</th></tr></thead>
-      <tbody>${rowsHtml}</tbody>
-      <tfoot><tr style="border-top:2px solid var(--rule);font-weight:700">
-        <td>TỔNG (USD)</td>
-        <td class="r" style="font-family:var(--font-mono)">${_f(d.tot.khoan)}</td>
-        <td class="r" style="font-family:var(--font-mono)">${_f(d.tot.ops)}</td>
-        <td class="r" style="font-family:var(--font-mono)">${_f(d.tot.all)}</td></tr></tfoot>
-    </table>`;
-  openModal('📊 Chi phí theo tháng — '+esc(v.name), body,
-    `<button class="btn-ghost" onclick="closeModal();openOpVesselHub('${vid}')">← Quản lý hộ</button><button class="btn-sec" onclick="window.print()">🖨 In</button>`);
-}
-/* Modal CHỈ-XEM: Danh sách thuyền viên */
-function openOpCrewList(vid){
-  const v=VesselService.opVessels().find(x=>x.id===vid); if(!v){ toast('Không tìm thấy tàu','bad'); return; }
-  const d=opCrewList(vid);
-  const _f=n=>(typeof _khoanFmtUsd==='function')?_khoanFmtUsd(n):('$'+(Math.round((n||0)*100)/100).toLocaleString('en-US'));
-  const rowsHtml = d.rows.length ? d.rows.map((r,i)=>`<tr>
-      <td style="text-align:center">${i+1}</td>
-      <td>${esc(r.name)}</td>
-      <td class="r" style="font-family:var(--font-mono)">${_f(r.total)}</td>
-      <td class="c">${r.count}</td>
-      <td class="c">${esc(r.last||'—')}</td></tr>`).join('')
-    : '<tr><td colspan="5" class="empty">Chưa có phiếu lương thuyền viên cho tàu này</td></tr>';
-  const body=`
-    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">⚓ <b>${esc(v.name)}</b> · Quản lý hộ — suy từ phiếu lương thuyền viên đã nhập (tổng chi quy USD).</div>
-    <table class="tbl" style="width:100%;font-size:13px">
-      <thead><tr><th style="width:36px">#</th><th>Thuyền viên</th><th class="r">Tổng chi (USD)</th><th class="c">Số kỳ</th><th class="c">Kỳ gần nhất</th></tr></thead>
-      <tbody>${rowsHtml}</tbody>
-      <tfoot><tr style="border-top:2px solid var(--rule);font-weight:700"><td colspan="2">TỔNG (${d.rows.length} người)</td><td class="r" style="font-family:var(--font-mono)">${_f(d.total)}</td><td colspan="2"></td></tr></tfoot>
-    </table>`;
-  openModal('🧑‍✈️ Danh sách thuyền viên — '+esc(v.name), body,
-    `<button class="btn-ghost" onclick="closeModal();openOpVesselHub('${vid}')">← Quản lý hộ</button><button class="btn-sec" onclick="window.print()">🖨 In</button>`);
+function _gotoSeahorseOpex(vid){
+  closeModal();
+  try{ navTo('operations'); }catch(e){}
+  setTimeout(()=>{
+    try{
+      const block=document.getElementById('seahorse-opex-block');
+      const sec=block?block.closest('.section'):null; if(sec) sec.classList.remove('collapsed');
+      const sel=document.getElementById('seaopex-filter-vessel');
+      if(sel){ sel.value=vid; if(typeof renderSeahorseOpex==='function') renderSeahorseOpex(); }
+      if(sec && sec.scrollIntoView) sec.scrollIntoView({behavior:'smooth',block:'start'});
+    }catch(e){ console.warn('[goto-seaopex]',e); }
+  },90);
 }
 function openOpVesselHub(vid){
   /* v3.15.64: chặn tại cửa vào theo phạm vi tàu QL hộ được giao (phía tàu = rỗng → không vào được) */
@@ -36092,8 +36002,6 @@ function openOpVesselHub(vid){
   const nAp=AccountingService.payables().filter(p=>p.vesselId===vid && !p.seahorseOwn && !(p.khoanCat&&String(p.khoanCat).trim())).length;
   const thuDisp = bd?toDisplay(bd.thu,'USD'):0;
   const chiDisp = bd?toDisplay(bd.chiRealDisplay,'USD'):0;
-  const _ccm=(typeof opCostByMonth==='function')?opCostByMonth(vid):{tot:{khoan:0,ops:0}};
-  const _crew=(typeof opCrewList==='function')?opCrewList(vid):{rows:[],total:0};
   const card=(icon,title,sub,btnLabel,onclick,accent)=>`<div style="border:1px solid var(--rule);border-radius:10px;padding:14px;background:#fff">
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:20px">${icon}</span><b style="font-size:13px">${title}</b></div>
     <div style="font-size:13px;color:var(--muted);margin-bottom:10px;min-height:32px">${sub}</div>
@@ -36109,8 +36017,9 @@ function openOpVesselHub(vid){
     </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">
       ${card('📄','Báo cáo chủ tàu','Tập hợp thu/chi hộ theo tháng · xem/in PDF & Excel.','Mở báo cáo (theo tháng)',`closeModal();openOpReportModal('${vid}')`,'#1c5a8c')}
-      ${card('📊','Chi phí theo tháng','Chi khoán '+_khoanFmtUsd(_ccm.tot.khoan)+' · Chi vận hành '+_khoanFmtUsd(_ccm.tot.ops)+' (bảng theo tháng · chỉ xem/in).','Mở bảng chi phí',`closeModal();openOpCostReport('${vid}')`)}
-      ${card('🧑‍✈️','Danh sách thuyền viên',_crew.rows.length+' thuyền viên · tổng chi '+_khoanFmtUsd(_crew.total)+' (suy từ phiếu lương · chỉ xem/in).','Mở danh sách',`closeModal();openOpCrewList('${vid}')`)}
+      ${card('⇄','Sổ theo dõi Khoán','Mức khoán − Thực chi = Balance, theo Tháng × Loại (lọc sẵn tàu này).','Mở sổ Khoán',`_gotoKhoanBook('${vid}')`)}
+      ${card('⚙','Sổ Chi phí vận hành','Chi Seahorse tự chịu — nội bộ, không lên báo cáo chủ tàu (lọc sẵn tàu này).','Mở sổ Chi phí VH',`_gotoSeahorseOpex('${vid}')`)}
+      ${card('👥','Danh sách thuyền viên','Hồ sơ thuyền viên trên tàu — hợp nhất từ Quyết định điều động & Hồ sơ NS.','Mở danh sách',`closeModal();openVesselCrewList('${vid}')`)}
       ${card('💰','Số dư & đối chiếu','Chi tiết cấu thành số dư chủ tàu.','Xem chi tiết số dư',`closeModal();_qvOwnerDetail('${vid}',true)`)}
     </div>
     <div style="font-size:10px;color:var(--muted);font-style:normal;margin-top:10px">Tàu quản lý hộ: hiệu suất khai thác & nhiên liệu thuộc chủ tàu, không tính vào KPI đội tàu Seahorse.</div>`;
