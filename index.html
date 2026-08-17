@@ -932,7 +932,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
     <!-- v1.41.0: Help button — always visible to all roles -->
     <!-- v3.16.37 (Sếp: "mọi NV đều được thấy tồn kho tổng hợp"): đặt cạnh nút Hướng dẫn — chỗ
          DUY NHẤT mọi vai đều thấy, kể cả NV không có tab Kho. Một cú bấm, không phải đi vòng. -->
-    <button class="btn btn-ghost" id="btn-quick-stock" onclick="openStockOverview()" title="Tồn kho tổng hợp — xem kho nào còn gì trước khi mua" style="border:1px solid rgba(246,241,232,.4);margin-right:6px">📊 Tồn kho</button>
+    <button class="btn btn-ghost" id="btn-quick-stock" onclick="whOpenStockForRole()" title="Tồn kho tổng hợp — xem kho nào còn gì trước khi mua" style="border:1px solid rgba(246,241,232,.4);margin-right:6px">📊 Tồn kho</button>
     <button class="btn btn-ghost" id="help-btn" onclick="openHelpModal()" title="Hướng dẫn sử dụng (Ctrl+/ hoặc F1)" style="border:1px solid rgba(246,241,232,.4);margin-right:6px">❓ Hướng dẫn</button>
     <!-- Admin actions consolidated in dropdown menu -->
     <div class="menu-wrap" id="admin-menu-wrap">
@@ -3775,7 +3775,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.16.40';
+const APP_VERSION='3.16.42';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -64569,6 +64569,7 @@ function renderWarehousesTable(){
         ${/* v3.16.24 (Sếp): kho kỹ thuật nay là ĐƠN VỊ trong Quản lý hoạt động tàu — NV kho gắn
              đơn vị đó và làm việc y như tàu. Gỡ nút 🛠 và nhãn "n NV" của cơ chế cũ. */''}
         <button class="icon-btn" title="Xem chi tiết: số lượng · đơn giá · thành tiền từng mã" onclick="openWarehouseValueDetail('${w.id}')">👁</button>
+        ${isAdmin()?`<button class="icon-btn" title="Mở MÀN KHO của kho này — đúng như thủ kho/tàu nhìn thấy (admin toàn quyền)" onclick="whAdminOpenWarehouse('${w.id}')">🏗</button>`:''}
         <button class="icon-btn" title="Sửa" onclick="openWarehouseModal('${w.id}')">✎</button>
         <button class="icon-btn danger" title="Xóa" onclick="deleteWarehouse('${w.id}')">✕</button>
       </div></td>`:''}
@@ -68287,6 +68288,16 @@ function whOpenPriceHistory(code, name){
     `<button class="btn-ghost" onclick="closeModal()">Đóng</button>`);
 }
 let _lkQuery='', _lkTarget='';   // _lkTarget: 'stock' | 'xfer'
+/* v3.16.41 (Sếp: "Tồn kho tổng trên nav đang hiển thị như tồn kho, có nút Chứng từ — không đúng"):
+   nút 📊 Tồn kho ở thanh trên cùng trước đây gọi thẳng openStockOverview — màn của BỜ, trong đó
+   có nút '← Chứng từ' dẫn sang sổ chứng từ kho. Phía tàu/đơn vị bấm vào là lạc sang màn bờ.
+   Nay rẽ theo vai: phía tàu/đơn vị → màn TRA TỒN chỉ xem; bờ giữ nguyên màn cũ. */
+function whOpenStockForRole(){
+  if(typeof whIsSiteSideUser==='function' && whIsSiteSideUser()){
+    if(typeof whOpenLookup==='function') return whOpenLookup('view');
+  }
+  return openStockOverview();
+}
 function whOpenLookup(target){
   _lkTarget=target||'stock';
   const whs=stockViewableWarehouses();
@@ -68307,22 +68318,22 @@ function whOpenLookup(target){
         const _p=_c?_basis[_c]:0;
         return `<button class="btn-ghost" style="font-family:monospace;font-size:12px;padding:0 4px;${_p>0?'color:#1c5a8c;text-decoration:underline dotted':'color:var(--muted)'}" onclick="whOpenPriceHistory('${esc(_c||r.code)}','${esc((r.name||'').replace(/'/g,''))}')" title="Xem lịch sử mua 6 tháng theo nhà cung cấp">${_p>0?whMoney(_p):'— xem'}</button>`;
       })()}</td>`:''}
-      <td style="padding:4px;text-align:right">
+      ${_lkTarget==='view'?'':`<td style="padding:4px;text-align:right">
         <select style="font-size:11px;padding:2px;border:1px solid var(--rule);border-radius:4px" onchange="_lkPick('${esc(r.key)}',this.value)">
           <option value="">— lấy từ kho —</option>
           ${whs.filter(w=>r.qty[w.id]>0).map(w=>`<option value="${w.id}|${esc(r.codes[w.id]||'')}|${esc(r.name||'')}|${esc(r.unit||'')}">${esc(whWhShortLabel(w))} (${whFmtQty(r.qty[w.id])})</option>`).join('')}
-        </select></td>
+        </select></td>`}
     </tr>`).join('')
    : `<tr><td colspan="${whs.length+3+(_seePrice?1:0)}" style="padding:16px;text-align:center;color:var(--muted)">Không có vật tư khớp.</td></tr>`;
-  openModal('🔎 Tra tồn mọi kho — chọn để thêm vào phiếu',
+  openModal(_lkTarget==='view'?'📊 Tồn kho tất cả kho':'🔎 Tra tồn mọi kho — chọn để thêm vào phiếu',
     `<input id="lk-q" value="${esc(_lkQuery)}" placeholder="Gõ mã hoặc tên vật tư — tiếng Việt không dấu cũng được…" style="width:100%;padding:6px 8px;border:1px solid var(--rule);border-radius:6px;font-size:13px;margin-bottom:8px" oninput="_lkQuery=this.value" onchange="whOpenLookup('${_lkTarget}')">
      <div class="tbl-scroll" style="max-height:400px;overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:13px;border:1px solid var(--rule)">
        <thead><tr style="background:var(--rule);text-align:left"><th style="padding:5px 6px">Vật tư</th><th style="padding:5px 4px">ĐVT</th>
        ${whs.map(w=>`<th style="padding:5px 6px;text-align:right;font-size:10px;white-space:nowrap" title="${esc(w.name)}">${esc(whWhShortLabel(w))}</th>`).join('')}
        ${_seePrice?'<th style="padding:5px 6px;text-align:right">Đơn giá</th>':''}
-       <th style="padding:5px 6px;text-align:right">Thêm</th></tr></thead>
+       ${_lkTarget==='view'?'':'<th style="padding:5px 6px;text-align:right">Thêm</th>'}</tr></thead>
        <tbody>${body}</tbody></table></div>
-     <div style="font-size:11px;color:var(--muted);margin-top:6px">${_seePrice?'Bấm vào <b>Đơn giá</b> để xem lịch sử mua 6 tháng theo nhà cung cấp. ':''}Chọn kho ở cột cuối để thêm dòng vào phiếu đang soạn — app lấy đúng MÃ của kho đó.${rows.length>=200?' · Hiện 200 dòng đầu, gõ thêm để lọc.':''}</div>`,
+     <div style="font-size:11px;color:var(--muted);margin-top:6px">${_seePrice?'Bấm vào <b>Đơn giá</b> để xem lịch sử mua 6 tháng theo nhà cung cấp. ':''}${_lkTarget==='view'?'Màn chỉ xem — biết kho nào còn hàng trước khi đề xuất mua hay xin điều chuyển.':'Chọn kho ở cột cuối để thêm dòng vào phiếu đang soạn — app lấy đúng MÃ của kho đó.'}${rows.length>=200?' · Hiện 200 dòng đầu, gõ thêm để lọc.':''}</div>`,
     `<button class="btn-ghost" onclick="closeModal()">Đóng</button>`);
 }
 function _lkPick(key, val){
@@ -68580,7 +68591,25 @@ function whMyVesselId(){
    NV kho gắn linkVesselId nên đã là phía tàu, không cần cơ chế quyền thứ hai. */
 function whIsStoreAccount(){ return !!(CURRENT_USER && (CURRENT_USER.isStoreAccount || CURRENT_USER.linkWarehouseId)); }
 function whIsSiteSideUser(){ return !!(whIsVesselSideUser() || whIsStoreAccount()); }
+/* v3.16.42 (Sếp chốt: "phân quyền quy định ngay từ đầu: admin là duy nhất, toàn quyền app,
+   không hạn chế"): admin mở được màn kho của BẤT KỲ kho nào, làm được mọi thao tác trong đó.
+   Không có chế độ 'chỉ xem' — admin không bị giới hạn. */
+let _adminWhView='';
+function whAdminOpenWarehouse(whId){
+  if(!isAdmin()){ toast('Chỉ admin','bad'); return; }
+  _adminWhView=String(whId||'');
+  if(typeof openVesselStockOverview==='function') openVesselStockOverview();
+}
+function whAdminExitWarehouse(){
+  _adminWhView='';
+  try{ closeModal(); }catch(e){}
+}
 function whMySiteWarehouse(){
+  /* v3.16.42: admin đang mở kho nào thì lấy kho đó — admin toàn quyền, xem được mọi kho. */
+  if(_adminWhView && isAdmin()){
+    const w=InventoryService.warehouses().find(x=>x.id===_adminWhView && x.isActive!==false);
+    if(w) return w;
+  }
   /* v3.16.24: rút gọn — kho của tài khoản kho dùng chung, hoặc kho của TÀU/ĐƠN VỊ đang gắn. */
   if(CURRENT_USER && CURRENT_USER.linkWarehouseId){
     const w=InventoryService.warehouses().find(x=>x.id===CURRENT_USER.linkWarehouseId && x.isActive!==false);
@@ -69140,7 +69169,8 @@ function openVesselLedger(){
  * mới là việc của thủ kho. Vì vậy đề xuất điều chuyển KHÔNG bắt tàu chọn kho nguồn nữa.
  * ========================================================================== */
 function openVesselStockOverview(){
-  if(typeof whIsSiteSideUser==='function' && !whIsSiteSideUser()){
+  /* v3.16.42 (Sếp): ADMIN không bị chặn — toàn quyền app, mở được màn kho của mọi kho. */
+  if(!isAdmin() && typeof whIsSiteSideUser==='function' && !whIsSiteSideUser()){
     toast('Màn này dành cho tài khoản TÀU / ĐƠN VỊ kho — tài khoản bờ dùng trang Kho vật tư','warn'); return;
   }
   const wh=whMySiteWarehouse();
@@ -70581,7 +70611,10 @@ function openStockOverview(){
         <td style="border-left:2px solid var(--accent)"></td>
       </tr></tfoot>
     </table></div>`;
-  openModal('📊 Tồn kho tổng hợp — tất cả kho', body, `<button class="btn-ghost" onclick="openStockDocs()">← Chứng từ</button><button class="btn-ghost" onclick="closeModal()">Đóng</button>`);
+  /* v3.16.41 (Sếp): lớp chặn thứ hai — nếu phía tàu/đơn vị vào được màn này bằng đường khác thì
+     nút '← Chứng từ' vẫn phải ẩn, vì nó dẫn sang sổ chứng từ kho của bờ. */
+  const _shoreOnly=!(typeof whIsSiteSideUser==='function' && whIsSiteSideUser());
+  openModal('📊 Tồn kho tổng hợp — tất cả kho', body, `${_shoreOnly?`<button class="btn-ghost" onclick="openStockDocs()">← Chứng từ</button>`:''}<button class="btn-ghost" onclick="closeModal()">Đóng</button>`);
 }
 function _ovApply(){
   _ovFilter.q=(document.getElementById('ov-q')||{}).value||'';
