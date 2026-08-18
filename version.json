@@ -1,5 +1,5 @@
 {
-  "version": "3.16.66",
-  "swVersion": "v3.16.66",
-  "notes": "v3.16.66: Sửa lỗi khi bấm thẻ Kho vật tư trong Trung tâm quản lý tàu bị mở chồng hai màn quản lý tàu lên nhau. Nay thẻ Kho mở thẳng vào màn kho của đúng con tàu đó, có nút quay về tàu, và đóng gọn màn trước nên không còn cảnh hai màn trùng. Áp dụng cho cả admin và Vessel Manager. Các đường mở giao diện tàu đầy đủ ở nơi khác giữ nguyên. Nền v3.16.65 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần."
+  "version": "3.16.69",
+  "swVersion": "v3.16.69",
+  "notes": "v3.16.69: Trên trang Tổng quan đội tàu của Vessel Manager, bỏ tiếp ô chỉ số Số dư chủ tàu trong dải chỉ số nhanh. Số dư của từng tàu quản lý hộ vẫn hiển thị đầy đủ ở cột Số dư chủ tàu trong bảng tàu quản lý hộ bên dưới, nên không mất thông tin. Dải chỉ số còn lại gồm số tàu công ty, số tàu quản lý hộ và số tàu đang khai thác. Nền v3.16.68 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần."
 }

@@ -456,6 +456,10 @@ body.readonly-mode::before{
 .nav:not(.nav--grouped) .nav-sub-item:hover{color:var(--ink);background:none}
 .nav:not(.nav--grouped) .nav-sub-item.active{color:var(--ink);border-bottom-color:var(--accent);background:var(--paper);font-weight:500}
 .nav:not(.nav--grouped) .nav-sub-item .sub-dot{display:none}
+/* v3.16.67 (Sếp: 'để Tổng quan lên đầu cho hợp lý' — CHỈ nút Tổng quan của VM, không đụng vai khác):
+   nút này chỉ render khi VM (_vmDash) nên class vm-nav-overview không tồn tại ở vai khác. order âm
+   đẩy nó về đầu thanh nav phẳng (trước Thu-Chi hộ order 0). Không thêm order lên .nav-sub-item chung. */
+.nav:not(.nav--grouped) .vm-nav-overview{order:-1}
 /* Nhóm BOD ở chế độ phẳng: bỏ viền/đẩy-phải đặc thù để hòa vào hàng tab phẳng */
 .nav:not(.nav--grouped) .nav-group-bod{margin-left:0;border-left:none;padding-left:0}
 
@@ -3789,7 +3793,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.16.66';
+const APP_VERSION='3.16.69';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -36118,8 +36122,7 @@ function renderVmDashboard(){
   const opV=(VesselService.opVessels()||[]).filter(v=>v && v.status!=='inactive');
   const today=(new Date()).toISOString().slice(0,10);
   // ---- KPI ----
-  let totBal=0, below=0, onhireCount=0;
-  opV.forEach(v=>{ const b=opBalance(v.id); totBal+=b; if(b<opMinUsd(v)) below++; });
+  let onhireCount=0;
   coVessels.concat(opV).forEach(v=>{ const seg=(typeof _segForVesselDate==='function')?_segForVesselDate(v.id,today):null; if(seg && (seg.type==='onhire'||seg.type==='transit')) onhireCount++; });
   const kpi=(label,val,cls)=>`<div class="vmk"><div class="vmk-l">${label}</div><div class="vmk-v ${cls||''}">${val}</div></div>`;
   // ---- 1 dòng trạng thái On/Off-hire ----
@@ -36201,8 +36204,6 @@ function renderVmDashboard(){
     <div class="vm-grid">
       ${kpi('Tàu công ty', coVessels.length)}
       ${kpi('Tàu quản lý hộ', opV.length)}
-      ${kpi('Số dư chủ tàu', _f(totBal),'good')}
-      ${kpi('Dưới ngưỡng', below, below?'warn':'')}
       ${kpi('Đang khai thác', onhireCount)}
     </div>
     <div class="vm-sec">Tàu công ty</div>
@@ -36401,7 +36402,7 @@ function renderVesselOpsSubmenu(){
   // v3.16.60: VM có trang tổng quan RIÊNG (page vm_dashboard) — nút này đưa VM về dashboard của mình.
   const _vmDash = (typeof isVesselManager==='function' && isVesselManager() && CURRENT_ROLE!=='admin');
   const dashRow = _vmDash
-    ? `<button class="nav-sub-item" onclick="navigateToPage('vm_dashboard')" title="Trang tổng quan đội tàu" style="font-weight:600"><span class="sub-dot" style="background:var(--accent)"></span>📊 Tổng quan</button>`
+    ? `<button class="nav-sub-item vm-nav-overview" onclick="navigateToPage('vm_dashboard')" title="Trang tổng quan đội tàu" style="font-weight:600"><span class="sub-dot" style="background:var(--accent)"></span>📊 Tổng quan</button>`
     : (_canDash
     ? `<button class="nav-sub-item" onclick="openFleetDashboard()" title="KPI + cảnh báo + việc hôm nay" style="font-weight:600"><span class="sub-dot" style="background:var(--accent)"></span>📊 Tổng quan đội tàu</button>`
     : '');
