@@ -3789,7 +3789,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.16.62';
+const APP_VERSION='3.16.63';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -36557,6 +36557,9 @@ function _vohBody(vid, inner){
 function _vaOpenWhOfVessel(vid, what){
   const wh=InventoryService.warehouses().find(w=>w.type==='VESSEL' && w.vesselId===vid && w.isActive!==false);
   if(!wh){ toast('Tàu này chưa có kho — lập kho cho tàu ở Danh mục kho trước','warn'); return; }
+  /* v3.16.63: nếu admin lỡ đi qua đây (đường cũ), ghim kho đang thao tác để màn con không chặn.
+     Đường chính giờ là whAdminOpenVesselDash (giao diện tàu đầy đủ). */
+  if(isAdmin() && typeof whAdminOpenWarehouse==='function'){ whAdminOpenWarehouse(wh.id); return; }
   if(typeof stockCanAccessWarehouse==='function' && !stockCanAccessWarehouse(wh.id) && !canViewStockReport()){
     toast('Bạn không có quyền với kho này','bad'); return;
   }
@@ -36595,7 +36598,7 @@ function _vaDashCards(vid, forVessel){
         +(nPend?(' · <b style="color:#b8730a">'+nPend+' phiếu chờ nhận</b>'):'')
         +(wh?'<div style="font-size:11px;margin-top:2px">Tồn · nhận hàng · xuất dùng · kiểm kê</div>':''),
         nPend?'Mở kho — có hàng chờ':'Mở kho vật tư',
-        forVessel?'openVesselStockOverview()':`closeModal();_vaOpenWhOfVessel('${vid}','stock')`,
+        forVessel?'openVesselStockOverview()':`whAdminOpenVesselDash('${vid}')`,
         nPend?'#b8730a':'')
     ].join('');
   }
@@ -36617,7 +36620,7 @@ function _vaDashCards(vid, forVessel){
     card('📦','Kho vật tư',
       (wh?(nStock+' mặt hàng tồn'):'Chưa có kho gắn tàu này.')+(nPend?(' · <b style="color:#b8730a">'+nPend+' phiếu chờ nhận</b>'):'')+(wh?'<div style="font-size:11px;margin-top:2px">Tồn · nhận hàng · xuất dùng · kiểm kê</div>':''),
       nPend?'Mở kho — có hàng chờ nhận':'Mở kho',
-      forVessel?'openVesselStockOverview()':`closeModal();_vaOpenWhOfVessel('${vid}','stock')`, nPend?'#b8730a':''),
+      forVessel?'openVesselStockOverview()':`whAdminOpenVesselDash('${vid}')`, nPend?'#b8730a':''),
     _opexAllowed ? card('💰','Chi phí vận hành (OPEX)','Tổng hợp OPEX theo loại chi phí × tháng (chỉ admin/VM).','Mở báo cáo OPEX', `openVesselOpexReport('${vid}')`, '#b8730a') : '',
     card('📢','Thông báo', nUnread?('<b style="color:#c0392b">'+nUnread+' chưa đọc</b>'):'Kết quả xử lý đề nghị/phiếu của tàu.','Xem thông báo', go(`openVesselNotifs('${vid}')`))
   ];
@@ -70077,7 +70080,7 @@ function _trqReject(id){
 function openVesselWarehouseReport(){
   /* v3.15.68: màn này tra kho theo TÀI KHOẢN đang đăng nhập nên chỉ đúng với phía tàu.
      Người bờ lỡ gọi → báo đúng bệnh, không đổ oan 'chưa gắn tàu'. */
-  if(typeof whIsVesselSideUser==='function' && !whIsVesselSideUser()){
+  if(!isAdmin() && typeof whIsVesselSideUser==='function' && !whIsVesselSideUser()){   // v3.16.63: admin toàn quyền — không chặn
     toast('Màn này dành cho tài khoản tàu — bờ xem kho tàu qua Trung tâm quản lý tàu','warn'); return;
   }
   const wh=whMySiteWarehouse();
