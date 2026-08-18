@@ -3789,7 +3789,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.16.63';
+const APP_VERSION='3.16.66';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -36564,7 +36564,7 @@ function _vaOpenWhOfVessel(vid, what){
     toast('Bạn không có quyền với kho này','bad'); return;
   }
   if(what==='count'){
-    if(!canManageStock()&&!isAdmin()){ toast('Chỉ thủ kho/admin kiểm kê','bad'); return; }
+    if(!canManageStock()&&!isAdmin()&&!(typeof isVesselManager==='function'&&isVesselManager())){ toast('Chỉ thủ kho/admin/VM kiểm kê','bad'); return; }   // v3.16.65: VM thao tác như tàu
     if(typeof _startCount==='function'){ _startCount(wh.id); return; }
   }
   if(what==='inbound'){ _stockFilter={type:'IN',wh:wh.id}; openStockDocs(); return; }
@@ -36598,7 +36598,7 @@ function _vaDashCards(vid, forVessel){
         +(nPend?(' · <b style="color:#b8730a">'+nPend+' phiếu chờ nhận</b>'):'')
         +(wh?'<div style="font-size:11px;margin-top:2px">Tồn · nhận hàng · xuất dùng · kiểm kê</div>':''),
         nPend?'Mở kho — có hàng chờ':'Mở kho vật tư',
-        forVessel?'openVesselStockOverview()':`whAdminOpenVesselDash('${vid}')`,
+        forVessel?'openVesselStockOverview()':go(`whOpenVesselStockDirect('${vid}')`),
         nPend?'#b8730a':'')
     ].join('');
   }
@@ -36620,7 +36620,7 @@ function _vaDashCards(vid, forVessel){
     card('📦','Kho vật tư',
       (wh?(nStock+' mặt hàng tồn'):'Chưa có kho gắn tàu này.')+(nPend?(' · <b style="color:#b8730a">'+nPend+' phiếu chờ nhận</b>'):'')+(wh?'<div style="font-size:11px;margin-top:2px">Tồn · nhận hàng · xuất dùng · kiểm kê</div>':''),
       nPend?'Mở kho — có hàng chờ nhận':'Mở kho',
-      forVessel?'openVesselStockOverview()':`whAdminOpenVesselDash('${vid}')`, nPend?'#b8730a':''),
+      forVessel?'openVesselStockOverview()':go(`whOpenVesselStockDirect('${vid}')`), nPend?'#b8730a':''),
     _opexAllowed ? card('💰','Chi phí vận hành (OPEX)','Tổng hợp OPEX theo loại chi phí × tháng (chỉ admin/VM).','Mở báo cáo OPEX', `openVesselOpexReport('${vid}')`, '#b8730a') : '',
     card('📢','Thông báo', nUnread?('<b style="color:#c0392b">'+nUnread+' chưa đọc</b>'):'Kết quả xử lý đề nghị/phiếu của tàu.','Xem thông báo', go(`openVesselNotifs('${vid}')`))
   ];
@@ -36641,10 +36641,10 @@ function _vesselOpexMatrix(vid, fromM, toM){
     if(!m) return;
     if(fromM && m<fromM) return;
     if(toM && m>toM) return;
-    const usd=Math.abs(toDisplay(p.amount||0, p.ccy||'USD', p.fxToUsd));
+    const vnd=Math.abs(_toVndFixed(p.amount||0, p.ccy||'VND'));   // v3.16.64 (Sếp): OPEX hiển thị VNĐ
     const code=p.expenseType||'OTHER';
     if(!byType[code]){ const et=(typeof getExpenseType==='function')?getExpenseType(code):null; byType[code]={code, label:(et&&et.label)||code, icon:(et&&et.icon)||'•', months:{}}; }
-    byType[code].months[m]=(byType[code].months[m]||0)+usd;
+    byType[code].months[m]=(byType[code].months[m]||0)+vnd;
     monthsSet.add(m);
   });
   const months=Array.from(monthsSet).sort();
@@ -36672,14 +36672,14 @@ function _renderVesselOpex(){
   const host=document.getElementById('opex-report-body'); if(!host) return;
   const vid=_opexVid; const v=VesselService.vessels().find(x=>x.id===vid); if(!v) return;
   const mx=_vesselOpexMatrix(vid, _opexRange.from, _opexRange.to);
-  const _f=n=>(n?('$'+Math.round(n).toLocaleString('en-US')):'<span style="color:#cbd2db">—</span>');
+  const _f=n=>(n?(Math.round(n).toLocaleString('vi-VN')):'<span style="color:#cbd2db">—</span>');   // v3.16.64: VNĐ, nghìn dấu chấm, không thập phân
   const monthHead=mx.months.map(m=>`<th style="text-align:right;padding:8px 10px;font-size:11px;white-space:nowrap">${esc(m)}</th>`).join('');
   const rowsHtml=mx.rows.length?mx.rows.map(r=>`<tr>
       <td style="padding:8px 10px;white-space:nowrap"><span style="opacity:.7">${r.icon}</span> ${esc(r.label)}</td>
-      ${mx.months.map(m=>`<td style="text-align:right;padding:8px 10px;font-variant-numeric:tabular-nums">${_f(r.months[m])}</td>`).join('')}
-      <td style="text-align:right;padding:8px 10px;font-weight:600;background:#fafbfc">${_f(r.total)}</td></tr>`).join(''):`<tr><td colspan="${mx.months.length+2}" class="empty">Không có chi phí OPEX trong kỳ đã chọn</td></tr>`;
+      ${mx.months.map(m=>`<td style="text-align:right;padding:6px 8px;font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap">${_f(r.months[m])}</td>`).join('')}
+      <td style="text-align:right;padding:6px 8px;font-size:12px;font-weight:600;background:#fafbfc;white-space:nowrap">${_f(r.total)}</td></tr>`).join(''):`<tr><td colspan="${mx.months.length+2}" class="empty">Không có chi phí OPEX trong kỳ đã chọn</td></tr>`;
   host.innerHTML=`
-    <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Chi phí gắn tàu <b>${esc(v.name)}</b> vào P&L công ty (loại trừ chi hộ tàu QL hộ, mua tồn kho, ứng quỹ). Quy USD.</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Chi phí gắn tàu <b>${esc(v.name)}</b> vào P&L công ty (loại trừ chi hộ tàu QL hộ, mua tồn kho, ứng quỹ). Đơn vị: VNĐ.</div>
     <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:14px;padding:12px;background:var(--paper);border-radius:8px">
       <div style="display:flex;flex-direction:column;gap:3px"><label style="font-size:11px;text-transform:uppercase;color:var(--muted);font-weight:600">Từ tháng</label>
         <input type="month" id="opex-from" value="${esc(_opexRange.from)}" onchange="_opexApply()" style="padding:6px 10px;border:1px solid var(--rule);border-radius:6px"></div>
@@ -36691,13 +36691,13 @@ function _renderVesselOpex(){
       <table class="tbl" style="width:100%;border-collapse:collapse;font-size:13px">
         <thead><tr style="background:#f0f3f7">
           <th style="text-align:left;padding:8px 10px;position:sticky;left:0;background:#f0f3f7">Loại chi phí</th>
-          ${monthHead}<th style="text-align:right;padding:8px 10px;background:#f0f3f7">TỔNG (USD)</th>
+          ${monthHead}<th style="text-align:right;padding:6px 8px;background:#f0f3f7;font-size:11px">TỔNG (VNĐ)</th>
         </tr></thead>
         <tbody>${rowsHtml}</tbody>
         <tfoot><tr style="font-weight:700;border-top:2px solid var(--rule);background:#f0f3f7">
-          <td style="padding:8px 10px;position:sticky;left:0;background:#f0f3f7">TỔNG (USD)</td>
-          ${mx.months.map(m=>`<td style="text-align:right;padding:8px 10px">${_f(mx.colTot[m])}</td>`).join('')}
-          <td style="text-align:right;padding:8px 10px">${_f(mx.grand)}</td></tr></tfoot>
+          <td style="padding:6px 8px;position:sticky;left:0;background:#f0f3f7">TỔNG (VNĐ)</td>
+          ${mx.months.map(m=>`<td style="text-align:right;padding:6px 8px;font-size:12px;white-space:nowrap">${_f(mx.colTot[m])}</td>`).join('')}
+          <td style="text-align:right;padding:6px 8px;font-size:12px;white-space:nowrap">${_f(mx.grand)}</td></tr></tfoot>
       </table></div>`;
 }
 function _opexApply(){
@@ -36709,14 +36709,14 @@ function _vesselOpexExcel(){
   if(typeof XLSX==='undefined'){ toast('Thiếu thư viện Excel','bad'); return; }
   const vid=_opexVid; const v=VesselService.vessels().find(x=>x.id===vid); if(!v) return;
   const mx=_vesselOpexMatrix(vid, _opexRange.from, _opexRange.to);
-  const money=n=>Math.round((+n||0)*100)/100;
+  const money=n=>Math.round(+n||0);   // v3.16.64: VNĐ số nguyên
   const aoa=[];
   aoa.push(['BÁO CÁO CHI PHÍ VẬN HÀNH (OPEX) — '+v.name]);
-  aoa.push(['Kỳ', (_opexRange.from||'')+' → '+(_opexRange.to||''), 'Đơn vị', 'USD']);
+  aoa.push(['Kỳ', (_opexRange.from||'')+' → '+(_opexRange.to||''), 'Đơn vị', 'VNĐ']);
   aoa.push([]);
-  aoa.push(['Loại chi phí', ...mx.months, 'TỔNG (USD)']);
+  aoa.push(['Loại chi phí', ...mx.months, 'TỔNG (VNĐ)']);
   mx.rows.forEach(r=>aoa.push([r.label, ...mx.months.map(m=>money(r.months[m]||0)), money(r.total)]));
-  aoa.push(['TỔNG (USD)', ...mx.months.map(m=>money(mx.colTot[m])), money(mx.grand)]);
+  aoa.push(['TỔNG (VNĐ)', ...mx.months.map(m=>money(mx.colTot[m])), money(mx.grand)]);
   const ws=XLSX.utils.aoa_to_sheet(aoa);
   ws['!cols']=[{wch:28}].concat(mx.months.map(()=>({wch:12}))).concat([{wch:14}]);
   const wb=XLSX.utils.book_new();
@@ -68363,7 +68363,7 @@ function openPendingInbound(myOnly){
   /* v3.15.92 (Sếp): NV được gán kho nhận hàng như tàu. whMySiteWarehouse() để màn này biết
      kho đang làm việc là kho tàu hay kho bộ phận. */
   const _siteWh=(typeof whMySiteWarehouse==='function')?whMySiteWarehouse():null;
-  const canEdit=canManageStock()||whIsSiteSideUser(); // v3.15.57: tài khoản tàu cũng Nhận hàng được (không chỉ captain)
+  const canEdit=canManageStock()||whIsSiteSideUser()||(typeof isVesselManager==='function'&&isVesselManager()); // v3.15.57 tài khoản tàu; v3.16.65 VM (cấp QL cao nhất mảng hoạt động tàu) thao tác đầy đủ như tàu
   const me=(typeof actorName==='function')?actorName():'';
   let list=stockDocList().filter(d=>(d.type==='IN'||d.type==='TRANSFER_IN')&&d.status==='pending'&&stockCanAccessWarehouse(d.warehouseId)); // v3.15.58 N5: + điều chuyển đang tới tàu
   // NV xem phiếu của mình: lọc createdBy === mình
@@ -69260,8 +69260,19 @@ let _adminWhView='';
    Thứ THIẾU chỉ là LỐI VÀO: renderVesselAcctOpsBar chỉ chạy cho phía tàu, admin không phải
    phía tàu nên chưa bao giờ dựng được màn đó. Nay admin mở dashboard của bất kỳ tàu/đơn vị nào.
    KHÔNG giới hạn chỉ-xem — admin toàn quyền (luật Sếp chốt ở v3.16.42). */
+/* v3.16.66 (Sếp: 'admin mở Kho: 2 màn trùng'): thẻ Kho trong Trung tâm QL tàu phải mở THẲNG màn kho
+   của tàu, KHÔNG mở lại một Trung tâm QL tàu thứ hai. Ghim kho của tàu (vid) rồi vào openVesselStockOverview.
+   Dùng cho admin + VM (VM toàn quyền kho tàu từ v3.16.65). */
+function whOpenVesselStockDirect(vid){
+  if(!(isAdmin() || (typeof isVesselManager==='function' && isVesselManager()))){ toast('Chỉ admin / Vessel Manager','bad'); return; }
+  const wh=InventoryService.warehouses().find(w=>w && w.type==='VESSEL' && w.vesselId===vid && w.isActive!==false);
+  if(!wh){ toast('Tàu này chưa có kho — lập kho ở Danh mục kho trước','warn'); return; }
+  _adminWhView=wh.id;
+  if(typeof openVesselStockOverview==='function') openVesselStockOverview();
+}
 function whAdminOpenVesselDash(vid){
-  if(!isAdmin()){ toast('Chỉ admin','bad'); return; }
+  /* v3.16.65 (Sếp: 'VM xem toàn bộ như tàu'): VM cũng vào giao diện kho tàu đầy đủ như admin. */
+  if(!(isAdmin() || (typeof isVesselManager==='function' && isVesselManager()))){ toast('Chỉ admin / Vessel Manager','bad'); return; }
   const v=VesselService.vessels().find(x=>x && x.id===vid);
   if(!v){ toast('Không tìm thấy tàu/đơn vị','bad'); return; }
   const isUnit=!!v.isShoreUnit;
@@ -69285,8 +69296,9 @@ function whAdminExitWarehouse(){
   try{ closeModal(); }catch(e){}
 }
 function whMySiteWarehouse(){
-  /* v3.16.42: admin đang mở kho nào thì lấy kho đó — admin toàn quyền, xem được mọi kho. */
-  if(_adminWhView && isAdmin()){
+  /* v3.16.42: admin đang mở kho nào thì lấy kho đó — admin toàn quyền, xem được mọi kho.
+     v3.16.65: VM cũng dùng _adminWhView để mở kho mọi tàu (xem toàn bộ như tàu). */
+  if(_adminWhView && (isAdmin() || (typeof isVesselManager==='function' && isVesselManager()))){
     const w=InventoryService.warehouses().find(x=>x.id===_adminWhView && x.isActive!==false);
     if(w) return w;
   }
@@ -69849,8 +69861,8 @@ function openVesselLedger(){
  * mới là việc của thủ kho. Vì vậy đề xuất điều chuyển KHÔNG bắt tàu chọn kho nguồn nữa.
  * ========================================================================== */
 function openVesselStockOverview(){
-  /* v3.16.42 (Sếp): ADMIN không bị chặn — toàn quyền app, mở được màn kho của mọi kho. */
-  if(!isAdmin() && typeof whIsSiteSideUser==='function' && !whIsSiteSideUser()){
+  /* v3.16.42: ADMIN không bị chặn — toàn quyền. v3.16.65: VM cũng vào (xem toàn bộ như tàu). */
+  if(!isAdmin() && !(typeof isVesselManager==='function' && isVesselManager()) && typeof whIsSiteSideUser==='function' && !whIsSiteSideUser()){
     toast('Màn này dành cho tài khoản TÀU / ĐƠN VỊ kho — tài khoản bờ dùng trang Kho vật tư','warn'); return;
   }
   const wh=whMySiteWarehouse();
@@ -70080,7 +70092,7 @@ function _trqReject(id){
 function openVesselWarehouseReport(){
   /* v3.15.68: màn này tra kho theo TÀI KHOẢN đang đăng nhập nên chỉ đúng với phía tàu.
      Người bờ lỡ gọi → báo đúng bệnh, không đổ oan 'chưa gắn tàu'. */
-  if(!isAdmin() && typeof whIsVesselSideUser==='function' && !whIsVesselSideUser()){   // v3.16.63: admin toàn quyền — không chặn
+  if(!isAdmin() && !(typeof isVesselManager==='function' && isVesselManager()) && typeof whIsVesselSideUser==='function' && !whIsVesselSideUser()){   // v3.16.63 admin; v3.16.65 +VM
     toast('Màn này dành cho tài khoản tàu — bờ xem kho tàu qua Trung tâm quản lý tàu','warn'); return;
   }
   const wh=whMySiteWarehouse();

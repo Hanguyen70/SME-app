@@ -1,5 +1,5 @@
 {
-  "version": "3.16.63",
-  "swVersion": "v3.16.63",
-  "notes": "v3.16.63: Sửa lỗi phân quyền để bảo đảm nguyên tắc admin toàn quyền trên toàn ứng dụng. Trước đây khi admin mở Kho vật tư của một tàu từ Trung tâm quản lý tàu, màn hình rơi về bảng tồn kiểu tài khoản bờ và thiếu các thao tác nhận hàng, xuất dùng, kiểm kê, sổ kho, đồng thời một số màn con báo chưa gắn kho vì admin không có kho riêng. Nay admin mở Kho vật tư của tàu sẽ vào đúng giao diện kho của tàu với đầy đủ chức năng, và màn báo cáo kho tàu cũng không còn chặn admin. Các quyền của tài khoản tàu và tài khoản khác giữ nguyên. Nền v3.16.62 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần."
+  "version": "3.16.66",
+  "swVersion": "v3.16.66",
+  "notes": "v3.16.66: Sửa lỗi khi bấm thẻ Kho vật tư trong Trung tâm quản lý tàu bị mở chồng hai màn quản lý tàu lên nhau. Nay thẻ Kho mở thẳng vào màn kho của đúng con tàu đó, có nút quay về tàu, và đóng gọn màn trước nên không còn cảnh hai màn trùng. Áp dụng cho cả admin và Vessel Manager. Các đường mở giao diện tàu đầy đủ ở nơi khác giữ nguyên. Nền v3.16.65 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần."
 }
