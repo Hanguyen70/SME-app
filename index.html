@@ -1135,6 +1135,11 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
   </div>
 </section>
 
+<!-- ============ VM DASHBOARD (v3.16.60) — trang tổng quan đội tàu cho Vessel Manager, JS dựng ============ -->
+<section class="page" id="page-vm_dashboard">
+  <div id="vm-dashboard-body"><!-- renderVmDashboard() --></div>
+</section>
+
 <!-- ============ PLAN ============ -->
 <section class="page" id="page-plan">
   <div class="page-head">
@@ -3784,7 +3789,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.16.59';
+const APP_VERSION='3.16.62';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -6974,7 +6979,7 @@ const PRESET_ROLES={
   vessel_manager: {
     label:'Vessel Manager — Quản lý hoạt động tàu',
     desc:'Kho vật tư + quản lý tàu (vào qua nút tàu & Thu-Chi hộ trên nav). Thấy TOÀN BỘ dữ liệu tàu: mọi tàu công ty và tàu QL hộ, mọi bút toán của mọi người (không chỉ mình nhập) — KHÔNG cần tick tàu. Xem kho như thủ kho để KIỂM SOÁT và DUYỆT MUA vật tư: tồn mọi kho, giá trị tồn, đơn giá, lịch sử mua theo NCC, báo cáo kho. Được ký & khóa báo cáo chủ tàu. KHÔNG thao tác kho (không lập/xác nhận/xóa phiếu) và KHÔNG có quyền duyệt chi, kế toán, lương hay quản lý người dùng.',
-    tabs:['inventory'],
+    tabs:['vm_dashboard','inventory'],
     flags:{isVesselManager:true, canSignOwnerReport:true}
   },
   nv_kt: {
@@ -11649,9 +11654,7 @@ function renderVesselAcctOpsBar(){
       </div>
     </div>
   </div>
-  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-bottom:16px">
-    ${_vaDashCards(vid, true)}
-  </div>`;
+  ${_vaDashCards(vid, true)}`;
   _vaHideShoreBlocks();
   try{ whAutoCloseDueIssues(); }catch(e){}   // v3.15.83: qua 24:00 → chốt nháp xuất của ngày đã qua
   _vaRelabelNav(vName);   // v3.15.73: thanh nav đã ẩn; giữ lại phòng khi bật lại nav cho tàu
@@ -14374,6 +14377,10 @@ function applyRoleUI(){
     if(CURRENT_USER.tabs.includes('banking') && !CURRENT_USER.tabs.includes('cashfund')){
       CURRENT_USER.tabs.push('cashfund');
     }
+    // v3.16.60: VM có trang tổng quan riêng — đảm bảo vm_dashboard nằm trong tabs (VM cũ lưu tabs=['inventory'])
+    if((CURRENT_USER.isVesselManager) && !CURRENT_USER.tabs.includes('vm_dashboard')){
+      CURRENT_USER.tabs.unshift('vm_dashboard');
+    }
   }
   // For admin: show all tabs. For user: show only tabs in their allowed list.
   const allowedTabs=user && CURRENT_USER ? (CURRENT_USER.tabs||[]) : null;
@@ -14581,7 +14588,9 @@ function applyRoleUI(){
   const activePage=document.querySelector('.page.active');
   const activePageId=activePage?activePage.id.replace('page-',''):null;
   if(user && allowedTabs && activePageId && !allowedTabs.includes(activePageId)){
-    if(allowedTabs.length){
+    if(typeof isVesselManager==='function' && isVesselManager() && CURRENT_ROLE!=='admin'){
+      navigateToPage('vm_dashboard');   // v3.16.60: VM đăng nhập vào thẳng trang tổng quan đội tàu
+    } else if(allowedTabs.length){
       navigateToPage(allowedTabs[0]);
     }
   }
@@ -36094,6 +36103,121 @@ function openOpVesselHub(vid){
    CHỈ tính tàu CÔNG TY (S.vessels) — tàu QL hộ không vào KPI (hiệu suất/nhiên liệu là của chủ tàu).
    Trả {fleet, alerts[], fuel, today[]}. Trạng thái "hôm nay" suy từ đoạn phủ ngày hiện tại. */
 /* v3.10.33: Modal Dashboard đội tàu — KPI + Cảnh báo + Việc hôm nay. Quyền: admin/BOD/KTT. */
+/* ═══════════════════════════════════════════════════════════════════
+   v3.16.60 (Sếp): TRANG TỔNG QUAN ĐỘI TÀU CHO VESSEL MANAGER.
+   VM đăng nhập vào thẳng trang này (thay tab operations). Theo mẫu đã duyệt: KPI → Tàu công ty (TRÊN)
+   → Tàu quản lý hộ (DƯỚI) → Cảnh báo → Lối vào nhanh (Thu-Chi hộ + Kho vật tư).
+   Dùng TOÀN hàm data có sẵn (opBalance/opMinUsd/vesselCrewMerged/khoanReconcile/_segForVesselDate);
+   KHÔNG tạo hàm data mới. Cột On/Off-hire: đang khai thác → ngày On-hire + Charterer; khác → ngày bắt đầu. */
+function renderVmDashboard(){
+  const box=document.getElementById('vm-dashboard-body'); if(!box) return;
+  const _f=n=>(typeof _khoanFmtUsd==='function')?_khoanFmtUsd(n):('$'+Math.round(n||0).toLocaleString('en-US'));
+  const _d10=s=>s?String(s).slice(0,10):'—';
+  // ---- dữ liệu tàu công ty (loại đơn vị kho isShoreUnit) + tàu QL hộ ----
+  const coVessels=(VesselService.vessels()||[]).filter(v=>v && !v.isShoreUnit && v.status!=='inactive');
+  const opV=(VesselService.opVessels()||[]).filter(v=>v && v.status!=='inactive');
+  const today=(new Date()).toISOString().slice(0,10);
+  // ---- KPI ----
+  let totBal=0, below=0, onhireCount=0;
+  opV.forEach(v=>{ const b=opBalance(v.id); totBal+=b; if(b<opMinUsd(v)) below++; });
+  coVessels.concat(opV).forEach(v=>{ const seg=(typeof _segForVesselDate==='function')?_segForVesselDate(v.id,today):null; if(seg && (seg.type==='onhire'||seg.type==='transit')) onhireCount++; });
+  const kpi=(label,val,cls)=>`<div class="vmk"><div class="vmk-l">${label}</div><div class="vmk-v ${cls||''}">${val}</div></div>`;
+  // ---- 1 dòng trạng thái On/Off-hire ----
+  const statusCell=(vid)=>{
+    const seg=(typeof _segForVesselDate==='function')?_segForVesselDate(vid,today):null;
+    if(!seg) return '<span style="color:var(--muted)">—</span>';
+    const t=(typeof evtType==='function')?evtType(seg.type):{label:seg.type};
+    if(seg.type==='onhire'||seg.type==='transit'){
+      const chr=seg.charterer?(' · '+_esc(seg.charterer)):'';
+      return `<span style="color:var(--good);font-weight:600">${_esc(t.label)}</span><div style="font-size:11px;color:var(--muted)">On-hire ${_d10(seg.startAt)}${chr}</div>`;
+    }
+    return `<span style="color:var(--muted)">${_esc(t.label)}</span><div style="font-size:11px;color:var(--muted)">from ${_d10(seg.startAt)}</div>`;
+  };
+  function _esc(x){ return (typeof esc==='function')?esc(x):String(x==null?'':x); }
+  // ---- Bảng TÀU CÔNG TY (TRÊN) ----
+  const coRows=coVessels.length?coVessels.map(v=>{
+    let crewN=0; try{ crewN=(vesselCrewMerged(v.id)||[]).length; }catch(e){}
+    const tag=v.type==='SERVICE'?'<span class="vmt vmt-dv">DV</span>':'<span class="vmt vmt-kt">KT</span>';
+    return `<tr onclick="openVesselHub('${v.id}')" style="cursor:pointer">
+      <td><b>${_esc(v.name)}</b> ${tag}</td>
+      <td class="c">${crewN||'—'}</td>
+      <td>${statusCell(v.id)}</td>
+      <td class="c"><span class="vm-open">Mở →</span></td></tr>`;
+  }).join(''):'<tr><td colspan="4" class="empty">Chưa có tàu công ty</td></tr>';
+  // ---- Bảng TÀU QL HỘ (DƯỚI) ----
+  const opRows=opV.length?opV.map(v=>{
+    const bal=opBalance(v.id), thr=opMinUsd(v), low=bal<thr;
+    let unrec=0; try{ const rc=khoanReconcile(v.id); unrec=(rc&&rc.pairs?rc.pairs.filter(p=>!p.complete).length:0); }catch(e){}
+    const balC=low?'var(--bad)':'var(--good)';
+    const stat=low?'<span class="vm-chip vm-warn">Dưới ngưỡng</span>':'<span class="vm-chip vm-ok">Trên ngưỡng</span>';
+    const rec=unrec?`<span class="vm-chip vm-warn">${unrec} chưa khóa</span>`:'<span class="vm-chip vm-ok">✓ khớp</span>';
+    return `<tr onclick="openOpVesselHub('${v.id}')" style="cursor:pointer">
+      <td><b>${_esc(v.name)}</b> <span class="vmt vmt-op">QL hộ</span><div style="font-size:11px;color:var(--muted)">${_esc(v.owner||'')}</div></td>
+      <td class="r mono" style="color:${balC};font-weight:600">${_f(bal)}</td>
+      <td>${statusCell(v.id)}</td>
+      <td class="c">${rec}</td>
+      <td class="c">${stat}</td>
+      <td class="c"><span class="vm-open">Mở →</span></td></tr>`;
+  }).join(''):'<tr><td colspan="6" class="empty">Chưa có tàu quản lý hộ</td></tr>';
+  // ---- Cảnh báo ----
+  const alerts=[];
+  opV.forEach(v=>{ const bal=opBalance(v.id); if(bal<opMinUsd(v)) alerts.push(`⚠ <b>${_esc(v.name)}</b> dưới ngưỡng số dư chủ tàu (${_f(bal)} / ngưỡng ${_f(opMinUsd(v))}) — cần nạp quỹ`); });
+  opV.forEach(v=>{ try{ const rc=khoanReconcile(v.id); const u=rc&&rc.pairs?rc.pairs.filter(p=>!p.complete).length:0; if(u) alerts.push(`⚑ <b>${_esc(v.name)}</b> · ${u} kỳ khoán chưa khóa đối chiếu`); }catch(e){} });
+  const alertsHtml=alerts.length?alerts.map(a=>`<div class="vm-alert">${a}</div>`).join(''):'<div style="padding:12px;text-align:center;color:var(--good)">✓ Không có cảnh báo</div>';
+  // ---- Lối vào nhanh: Thu-Chi hộ + Kho vật tư ----
+  const quick=`
+    <a class="vm-q" onclick="navTo('op_input')"><span>🔁</span> Thu-Chi hộ</a>
+    <a class="vm-q" onclick="(typeof whOpenStockForRole==='function'?whOpenStockForRole():navTo('inventory'))"><span>📦</span> Tồn kho tổng hợp</a>`;   /* v3.16.61 (Sếp): VM xem tồn kho tổng hợp (ma trận vật tư × kho) đúng mục đích giám sát, thay vì tab Kho nghiệp vụ */
+  // ---- render ----
+  box.innerHTML=`
+    <style>
+      #page-vm_dashboard .vmk{background:var(--card,#fff);border:1px solid var(--rule);border-radius:8px;padding:14px 16px}
+      #page-vm_dashboard .vmk-l{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);font-weight:600}
+      #page-vm_dashboard .vmk-v{font-size:24px;font-weight:700;margin-top:4px;font-family:var(--font-mono)}
+      #page-vm_dashboard .vmk-v.good{color:var(--good)} #page-vm_dashboard .vmk-v.warn{color:var(--warn)}
+      #page-vm_dashboard .vm-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:20px}
+      #page-vm_dashboard .vm-panel{background:var(--card,#fff);border:1px solid var(--rule);border-radius:8px;overflow:hidden;margin-bottom:20px}
+      #page-vm_dashboard .vm-sec{font-size:13px;font-weight:600;margin:0 2px 8px}
+      #page-vm_dashboard table.vm-tbl{width:100%;border-collapse:collapse}
+      #page-vm_dashboard .vm-tbl th{background:var(--paper);text-align:left;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);font-weight:600;padding:9px 14px;border-bottom:1px solid var(--rule)}
+      #page-vm_dashboard .vm-tbl th.r{text-align:right} #page-vm_dashboard .vm-tbl th.c{text-align:center}
+      #page-vm_dashboard .vm-tbl td{padding:11px 14px;border-bottom:1px solid rgba(0,0,0,.05);font-size:13px}
+      #page-vm_dashboard .vm-tbl tr:hover{background:var(--paper)}
+      #page-vm_dashboard .vm-tbl td.r{text-align:right} #page-vm_dashboard .vm-tbl td.c{text-align:center}
+      #page-vm_dashboard .vmt{font-size:10px;font-weight:600;padding:1px 7px;border-radius:9px}
+      #page-vm_dashboard .vmt-op{background:var(--warn-bg,#fbf1e0);color:var(--warn,#b26a00)} #page-vm_dashboard .vmt-kt{background:#e6eef7;color:#0f5aa8} #page-vm_dashboard .vmt-dv{background:#eef1f5;color:var(--muted)}
+      #page-vm_dashboard .vm-chip{font-size:11px;font-weight:600;padding:2px 9px;border-radius:11px}
+      #page-vm_dashboard .vm-ok{background:var(--good-bg,#e7f4ec);color:var(--good,#1a7a4c)} #page-vm_dashboard .vm-warn{background:var(--warn-bg,#fbf1e0);color:var(--warn,#b26a00)}
+      #page-vm_dashboard .vm-open{font-size:12px;color:var(--accent);font-weight:600}
+      #page-vm_dashboard .vm-alert{padding:10px 14px;border-bottom:1px solid rgba(0,0,0,.05);font-size:13px}
+      #page-vm_dashboard .vm-q{display:flex;align-items:center;gap:10px;padding:14px 16px;background:var(--card,#fff);border:1px solid var(--rule);border-radius:8px;font-weight:500;cursor:pointer;text-decoration:none;color:var(--ink)}
+      #page-vm_dashboard .vm-q:hover{background:var(--paper);color:var(--accent)}
+      #page-vm_dashboard .vm-q span{font-size:18px}
+    </style>
+    <div class="page-head"><div>
+      <div class="page-title">Tổng quan <span class="it">đội tàu</span></div>
+      <div class="page-sub">Fleet Operations · Vessel Manager</div>
+    </div></div>
+    <div class="vm-grid">
+      ${kpi('Tàu công ty', coVessels.length)}
+      ${kpi('Tàu quản lý hộ', opV.length)}
+      ${kpi('Số dư chủ tàu', _f(totBal),'good')}
+      ${kpi('Dưới ngưỡng', below, below?'warn':'')}
+      ${kpi('Đang khai thác', onhireCount)}
+    </div>
+    <div class="vm-sec">Tàu công ty</div>
+    <div class="vm-panel"><table class="vm-tbl">
+      <thead><tr><th>Tàu</th><th class="c">Thuyền viên</th><th>Hoạt động</th><th class="c"></th></tr></thead>
+      <tbody>${coRows}</tbody></table></div>
+    <div class="vm-sec">Tàu quản lý hộ</div>
+    <div class="vm-panel"><table class="vm-tbl">
+      <thead><tr><th>Tàu · Chủ tàu</th><th class="r">Số dư chủ tàu</th><th>Hoạt động</th><th class="c">Đối chiếu</th><th class="c">Ngưỡng</th><th class="c"></th></tr></thead>
+      <tbody>${opRows}</tbody></table></div>
+    <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:20px">
+      <div><div class="vm-sec">Cảnh báo cần xử lý</div><div class="vm-panel">${alertsHtml}</div></div>
+      <div><div class="vm-sec">Lối vào nhanh</div><div style="display:grid;gap:10px">${quick}</div></div>
+    </div>`;
+}
 function openFleetDashboard(){
   // Quyền: chỉ cấp quản lý (không crew)
   /* v3.15.64: chặn tường minh phía tàu — KPI toàn đội tàu là việc của bờ, dù tài khoản tàu
@@ -36274,9 +36398,13 @@ function renderVesselOpsSubmenu(){
   vessels.sort((a,b)=>String(a.name||'').localeCompare(String(b.name||'')));
   // v3.10.33: hàng đầu = Tổng quan đội tàu (dashboard) — chỉ cấp quản lý (admin/BOD/KTT/L1/L2).
   const _canDash = isAdmin() || (CURRENT_USER && (CURRENT_USER.isBOD || CURRENT_USER.canManageUsers || (typeof canApproveL1==='function'&&canApproveL1()) || (typeof canApproveL2==='function'&&canApproveL2())));
-  const dashRow = _canDash
+  // v3.16.60: VM có trang tổng quan RIÊNG (page vm_dashboard) — nút này đưa VM về dashboard của mình.
+  const _vmDash = (typeof isVesselManager==='function' && isVesselManager() && CURRENT_ROLE!=='admin');
+  const dashRow = _vmDash
+    ? `<button class="nav-sub-item" onclick="navigateToPage('vm_dashboard')" title="Trang tổng quan đội tàu" style="font-weight:600"><span class="sub-dot" style="background:var(--accent)"></span>📊 Tổng quan</button>`
+    : (_canDash
     ? `<button class="nav-sub-item" onclick="openFleetDashboard()" title="KPI + cảnh báo + việc hôm nay" style="font-weight:600"><span class="sub-dot" style="background:var(--accent)"></span>📊 Tổng quan đội tàu</button>`
-    : '';
+    : '');
   if(!vessels.length){ box.innerHTML=dashRow||'<div style="padding:8px 14px;font-size:11px;color:var(--muted);font-style:normal">Chưa có tàu</div>'; return; }
   // v3.10.34: tàu QL hộ (opVessels) — thêm vào dropdown, mở Hub op (Báo cáo chủ tàu). Lọc quyền tương tự.
   let opVessels=VesselService.opVessels().slice();
@@ -36307,8 +36435,8 @@ function renderVesselOpsSubmenu(){
 function openVesselOnHire(vid){
   const v=VesselService.vessels().find(x=>x.id===vid); if(!v){ toast('Không tìm thấy tàu','bad'); return; }
   _vohVid=vid;
-  openModal('🛳 Khai thác On/Off-Hire — '+esc(v.name), _vohBody(vid),
-    `<button class="btn-ghost" onclick="openVesselHub('${vid}')">← Trung tâm QL tàu</button>`);
+  openModal('🛳 Vessel Employment — '+esc(v.name), _vohBody(vid),
+    `<button class="btn-ghost" onclick="openVesselHub('${vid}')">← Vessel Center</button>`);
   // v3.10.47 (Sếp): bỏ nút footer "+ Thêm đoạn khai thác" — trùng nút "+ Thêm đoạn" ở header danh sách (đã kèm Excel/PDF).
 }
 function _vohRefresh(){ if(!_vohVid) return; const el=document.getElementById('voh-container'); if(el) el.innerHTML=_vohBody(_vohVid,true); }
@@ -36334,12 +36462,12 @@ function _vohBody(vid, inner){
   const reps=VesselService.dailyReports().filter(r=>r.vesselId===vid).sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));
   // ---- Bảng đoạn khai thác ----
   let evRows;
-  if(!evs.length){ evRows='<tr><td class="empty" colspan="'+(_showVal?9:8)+'">Chưa có đoạn nào — bấm "+ Thêm đoạn"</td></tr>'; }
+  if(!evs.length){ evRows='<tr><td class="empty" colspan="'+(_showVal?9:8)+'">No periods yet — click "+ Add Period"</td></tr>'; }
   else {
     // cảnh báo gap
     const warns=[];
     for(let i=1;i<evs.length;i++){ const p=evs[i-1],c=evs[i]; if(!p.endAt||!c.startAt) continue;
-      const d=new Date(c.startAt).getTime()-new Date(p.endAt).getTime(); if(d>60000) warns.push(`Khoảng trống ${fmtDays(d/(864e5))} giữa ${fmtDateTime(p.endAt)} và ${fmtDateTime(c.startAt)}`); }
+      const d=new Date(c.startAt).getTime()-new Date(p.endAt).getTime(); if(d>60000) warns.push(`Gap ${fmtDays(d/(864e5))} between ${fmtDateTime(p.endAt)} and ${fmtDateTime(c.startAt)}`); }
     evRows=evs.map(e=>{
      try{  // v3.10.96: 1 đoạn lỗi dữ liệu → 1 hàng cảnh báo, không chặn cả modal (sự cố GEOSUPORTER 12/07)
       const t=evtType(e.type);
@@ -36350,7 +36478,7 @@ function _vohBody(vid, inner){
       const val=vd.do.valueUsd+vd.lo.valueUsd+vd.fw.valueUsd;
       const _shortWarn=vd.do.warnShort||vd.lo.warnShort||vd.fw.warnShort;
       const _valCell = _shortWarn
-        ? `<span title="Tiêu thụ vượt (tồn đầu + bơm) — phần vượt chưa có đơn giá, KHÔNG tính vào giá trị. Kiểm tra lại số liệu nhiên liệu." style="color:var(--warn)">${val?fmt(val):'0'} ⚠</span>`
+        ? `<span title="Consumption exceeds (opening + bunkered) — excess has no unit price and is NOT valued. Please review the fuel figures." style="color:var(--warn)">${val?fmt(val):'0'} ⚠</span>`
         : (val?fmt(val):'—');
       const ctx=[];
       if(e.charterer) ctx.push(`<span title="Charterer">🚢 <b>${esc(e.charterer)}</b></span>`);   // v3.16.58
@@ -36367,17 +36495,17 @@ function _vohBody(vid, inner){
         <td class="r mono" style="font-size:11px">${cs.lo?fmtQty(cs.lo):'—'}</td>
         <td class="r mono" style="font-size:11px">${cs.fw?fmtQty(cs.fw):'—'}</td>
         ${_showVal?`<td class="r mono" style="font-size:11px">${_valCell}</td>`:''}
-        <td class="r">${e.sourceFile&&e.sourceFile.url?`<a href="${esc(e.sourceFile.url)}" target="_blank" rel="noopener" class="icon-btn" title="Xem biên bản gốc trên Drive: ${esc(e.sourceFile.name||'')}" style="text-decoration:none">📎</a>`:''}<button class="icon-btn" title="Sửa" onclick="openEventModal('${e.id}','${vid}')">✎</button></td>
+        <td class="r">${e.sourceFile&&e.sourceFile.url?`<a href="${esc(e.sourceFile.url)}" target="_blank" rel="noopener" class="icon-btn" title="View source statement on Drive: ${esc(e.sourceFile.name||'')}" style="text-decoration:none">📎</a>`:''}<button class="icon-btn" title="Edit" onclick="openEventModal('${e.id}','${vid}')">✎</button></td>
       </tr>`;
      }catch(_evErr){
-      return `<tr><td colspan="10" style="color:var(--warn);font-size:11px;padding:6px 8px">⚠ Đoạn <code>${esc(e.id||'?')}</code> lỗi dữ liệu (${esc(String(_evErr&&_evErr.message||_evErr))}) — bấm ✎ kiểm tra. <button class="icon-btn" onclick="openEventModal('${esc(e.id)}','${vid}')">✎</button></td></tr>`;
+      return `<tr><td colspan="10" style="color:var(--warn);font-size:11px;padding:6px 8px">⚠ Period <code>${esc(e.id||'?')}</code> data error (${esc(String(_evErr&&_evErr.message||_evErr))}) — click ✎ to check. <button class="icon-btn" onclick="openEventModal('${esc(e.id)}','${vid}')">✎</button></td></tr>`;
      }
     }).join('');
     if(warns.length) evRows=`<tr><td colspan="${_showVal?10:9}" style="padding:6px 14px;background:var(--paper-3);font-size:11px;color:var(--warn);font-family:var(--font-mono)">⚠ ${warns.join(' · ')}</td></tr>`+evRows;
   }
   // ---- Bảng báo cáo ngày ----
   let drRows;
-  if(!reps.length){ drRows='<tr><td class="empty" colspan="5">Chưa có báo cáo ngày</td></tr>'; }
+  if(!reps.length){ drRows='<tr><td class="empty" colspan="5">No daily reports yet</td></tr>'; }
   else {
     drRows=reps.slice(0,60).map(r=>{
       const fe=(fk)=>{ const f=(r.fuelEnd&&r.fuelEnd[fk])||{}; return f.qty?fmtQty(f.qty)+' '+(f.unit==='phuy'?'phuy':(f.unit||'')):'—'; };
@@ -36386,30 +36514,30 @@ function _vohBody(vid, inner){
         <td class="r mono" style="font-size:11px">${fe('do')}</td>
         <td class="r mono" style="font-size:11px">${fe('lo')}</td>
         <td class="r mono" style="font-size:11px">${fe('fw')}</td>
-        <td class="r"><button class="icon-btn" title="Sửa" onclick="openDailyReportModal('${r.id}','${vid}')">✎</button></td>
+        <td class="r"><button class="icon-btn" title="Edit" onclick="openDailyReportModal('${r.id}','${vid}')">✎</button></td>
       </tr>`;
     }).join('');
   }
   const html=`
-    <div style="font-size:11px;color:var(--muted);font-style:normal;margin-bottom:10px">Toàn bộ đoạn khai thác (On/Off-hire/Standby/Dock…) và báo cáo ngày của <b>${esc(v.name)}</b>. Khai báo trực tiếp tại đây.</div>
+    <div style="font-size:11px;color:var(--muted);font-style:normal;margin-bottom:10px">All employment periods (On/Off-Hire · Standby · Drydocking…) and daily reports for <b>${esc(v.name)}</b>. Log entries here.</div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin:14px 0 6px">
-      <div style="font-family:var(--font-display);font-weight:600;font-size:13px"><span class="tag">⊕</span> Lịch khai thác theo đoạn (${evs.length})</div>
+      <div style="font-family:var(--font-display);font-weight:600;font-size:13px"><span class="tag">⚓</span> Vessel Employment Log (${evs.length})</div>
       <button class="btn-sec" style="font-size:11px" onclick="openEventModal(null,'${vid}')">+ Add Period</button>
       <button class="btn-sec" style="font-size:11px" onclick="_vohImport('onhire-import-file')">📥 Excel</button>
-      <button class="btn-sec" style="font-size:11px" onclick="_vohImport('onhire-pdf-file')">📄 PDF biên bản</button>
+      <button class="btn-sec" style="font-size:11px" onclick="_vohImport('onhire-pdf-file')">📄 PDF Statement</button>
     </div>
     <div class="tbl-scroll"><table class="tbl" style="font-size:13px"><thead><tr>
-      <th>Status</th><th>From</th><th>To</th><th class="r">Duration</th><th>Project / Cảng / Ghi chú</th>
-      <th class="r">DO</th><th class="r">LO</th><th class="r">FW</th>${_showVal?'<th class="r">Giá trị</th>':''}<th></th>
+      <th>Status</th><th>From</th><th>To</th><th class="r">Duration</th><th>Project / Port / Remarks</th>
+      <th class="r">DO</th><th class="r">LO</th><th class="r">FW</th>${_showVal?'<th class="r">Value</th>':''}<th></th>
     </tr></thead><tbody>${evRows}</tbody></table></div>
 
     <div style="display:flex;justify-content:space-between;align-items:center;margin:18px 0 6px">
-      <div style="font-family:var(--font-display);font-weight:600;font-size:13px"><span class="tag">☼</span> Báo cáo hàng ngày (${reps.length}${reps.length>60?' — hiện 60 gần nhất':''})</div>
-      <button class="btn-sec" style="font-size:11px" onclick="openDailyReportModal(null,'${vid}')">+ Thêm BC ngày</button>
+      <div style="font-family:var(--font-display);font-weight:600;font-size:13px"><span class="tag">⚓</span> Vessel Daily Report (${reps.length}${reps.length>60?' — latest 60':''})</div>
+      <button class="btn-sec" style="font-size:11px" onclick="openDailyReportModal(null,'${vid}')">+ Add Daily Report</button>
       <button class="btn-sec" style="font-size:11px" onclick="_vohImport('dar-import-file')">📥 Import Excel</button>
     </div>
     <div class="tbl-scroll"><table class="tbl" style="font-size:13px"><thead><tr>
-      <th>Ngày</th><th class="r">DO cuối ngày</th><th class="r">LO</th><th class="r">FW</th><th></th>
+      <th>Date</th><th class="r">DO EOD</th><th class="r">LO</th><th class="r">FW</th><th></th>
     </tr></thead><tbody>${drRows}</tbody></table></div>`;
   return inner ? html : `<div id="voh-container">${html}</div>`;
 }
@@ -36471,20 +36599,127 @@ function _vaDashCards(vid, forVessel){
         nPend?'#b8730a':'')
     ].join('');
   }
-  return [
-    card('👥','Thuyền viên', crew.length+' người trên tàu (QĐ điều động + hồ sơ NS).','Xem danh sách', go(`openVesselCrewList('${vid}')`)),
+  /* v3.16.62 (Sếp): TÁCH 2 KHỐI — Thông tin chung (định danh/tra cứu) ≠ Hoạt động (vận hành/tiền),
+     không dàn tất cả ngang một lưới. Thẻ OPEX (có tiền) CHỈ admin/VM; tài khoản tàu KHÔNG thấy. */
+  const _blkTitle=(ic,txt)=>`<div style="font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:#1c3a5c;font-weight:700;margin:6px 2px 10px;display:flex;align-items:center;gap:7px">${ic} ${txt}<span style="flex:1;height:1px;background:var(--rule)"></span></div>`;
+  const _grid=cards=>`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px;margin-bottom:18px">${cards.filter(Boolean).join('')}</div>`;
+  // Khối 1 — Thông tin chung
+  const block1=[
     card('📋','Hồ sơ tàu','Định danh · kỹ thuật · đăng kiểm · '+nCert+' chứng chỉ'+(nCertDue?' · <b style="color:#b8730a">'+nCertDue+' cần chú ý</b>':''),'Mở hồ sơ tàu', go(`openVesselCerts('${vid}')`), nCertDue?'#b8730a':''),
-    /* v3.15.71 (Sếp 15/8: "Chuyển Nhận hàng và Kiểm kê vào Kho vật tư"): ba việc kho gom về MỘT
-       cửa — vào Kho vật tư là thấy tồn, nhận hàng, kiểm kê. Tín hiệu "có hàng đang chờ" dồn lên
-       thẻ Kho để tàu không bỏ sót hàng về. */
+    card('👥','Thuyền viên', crew.length+' người trên tàu (QĐ điều động + hồ sơ NS).','Xem danh sách', go(`openVesselCrewList('${vid}')`)),
+    card('📧','Email tàu', v.vesselEmail?hrmEsc(v.vesselEmail):'Chưa cấu hình email tàu.','Gửi chứng từ', go(`sendVesselDocEmail('${vid}')`))
+  ];
+  // Khối 2 — Hoạt động & vận hành
+  const _opexAllowed = !forVessel && !(typeof whIsVesselSideUser==='function' && whIsVesselSideUser()) && (isAdmin() || (typeof isVesselManager==='function' && isVesselManager()));
+  const block2=[
+    card('🛳','Khai thác (On/Off-Hire)', events.length+' đoạn · '+nReports+' báo cáo ngày.','Xem khai thác', `openVesselOnHire('${vid}')`),
+    /* v3.15.71: ba việc kho gom về MỘT cửa — Kho vật tư là tồn + nhận + kiểm kê. */
     card('📦','Kho vật tư',
       (wh?(nStock+' mặt hàng tồn'):'Chưa có kho gắn tàu này.')+(nPend?(' · <b style="color:#b8730a">'+nPend+' phiếu chờ nhận</b>'):'')+(wh?'<div style="font-size:11px;margin-top:2px">Tồn · nhận hàng · xuất dùng · kiểm kê</div>':''),
       nPend?'Mở kho — có hàng chờ nhận':'Mở kho',
       forVessel?'openVesselStockOverview()':`closeModal();_vaOpenWhOfVessel('${vid}','stock')`, nPend?'#b8730a':''),
-    card('🛳','Khai thác (On/Off-Hire)', events.length+' đoạn · '+nReports+' báo cáo ngày.','Xem khai thác', `openVesselOnHire('${vid}')`),
-    card('📧','Email tàu', v.vesselEmail?hrmEsc(v.vesselEmail):'Chưa cấu hình email tàu.','Gửi chứng từ', go(`sendVesselDocEmail('${vid}')`)),
+    _opexAllowed ? card('💰','Chi phí vận hành (OPEX)','Tổng hợp OPEX theo loại chi phí × tháng (chỉ admin/VM).','Mở báo cáo OPEX', `openVesselOpexReport('${vid}')`, '#b8730a') : '',
     card('📢','Thông báo', nUnread?('<b style="color:#c0392b">'+nUnread+' chưa đọc</b>'):'Kết quả xử lý đề nghị/phiếu của tàu.','Xem thông báo', go(`openVesselNotifs('${vid}')`))
-  ].join('');
+  ];
+  return _blkTitle('📄','Thông tin chung')+_grid(block1)+_blkTitle('⚓','Hoạt động &amp; vận hành')+_grid(block2);
+}
+let _opexVid=null, _opexRange={from:'',to:''};
+/* ═══════════════════════════════════════════════════════════════════
+   v3.16.62 (Sếp): BÁO CÁO OPEX THEO TÀU CÔNG TY — ma trận Loại chi phí (dòng) × Tháng (cột).
+   Dùng apCountsInPL (chuẩn P&L: loại VESSEL_MGMT/PO tồn kho/advance) + toDisplay (quy USD) — số KHỚP P&L.
+   Chỉ admin/VM; chặn tuyệt đối tài khoản tàu (whIsVesselSideUser). Dùng hàm data sẵn có, không tự chế lọc. */
+function _vesselOpexMatrix(vid, fromM, toM){
+  const aps=(typeof AccountingService!=='undefined'?AccountingService.payables():[]).filter(p=>p && p.vesselId===vid);
+  const byType={};   // code → {label, months:{YYYY-MM: usd}}
+  const monthsSet=new Set();
+  aps.forEach(p=>{
+    if(typeof apCountsInPL==='function' && !apCountsInPL(p)) return;   // chỉ chi phí vào P&L công ty
+    const m=String(p.issueDate||p.date||'').slice(0,7);
+    if(!m) return;
+    if(fromM && m<fromM) return;
+    if(toM && m>toM) return;
+    const usd=Math.abs(toDisplay(p.amount||0, p.ccy||'USD', p.fxToUsd));
+    const code=p.expenseType||'OTHER';
+    if(!byType[code]){ const et=(typeof getExpenseType==='function')?getExpenseType(code):null; byType[code]={code, label:(et&&et.label)||code, icon:(et&&et.icon)||'•', months:{}}; }
+    byType[code].months[m]=(byType[code].months[m]||0)+usd;
+    monthsSet.add(m);
+  });
+  const months=Array.from(monthsSet).sort();
+  const rows=Object.values(byType).map(r=>{ r.total=months.reduce((s,m)=>s+(r.months[m]||0),0); return r; }).filter(r=>r.total>0.005).sort((a,b)=>b.total-a.total);
+  const colTot={}; months.forEach(m=>colTot[m]=rows.reduce((s,r)=>s+(r.months[m]||0),0));
+  const grand=rows.reduce((s,r)=>s+r.total,0);
+  return {vid, months, rows, colTot, grand};
+}
+function openVesselOpexReport(vid){
+  // CHẶN TUYỆT ĐỐI tài khoản tàu — không thấy bất kỳ con số tiền nào
+  if(typeof whIsVesselSideUser==='function' && whIsVesselSideUser()){ toast('Tài khoản tàu không xem được báo cáo chi phí','bad'); return; }
+  if(!(isAdmin() || (typeof isVesselManager==='function' && isVesselManager()))){ toast('Chỉ admin & Vessel Manager xem được OPEX','bad'); return; }
+  const v=VesselService.vessels().find(x=>x.id===vid); if(!v){ toast('Không tìm thấy tàu','bad'); return; }
+  _opexVid=vid;
+  // mặc định: 12 tháng gần nhất
+  const now=new Date(); const toM=now.toISOString().slice(0,7);
+  const fd=new Date(now.getFullYear(), now.getMonth()-11, 1); const fromM=fd.toISOString().slice(0,7);
+  _opexRange={from:fromM, to:toM};
+  openModal('💰 Chi phí vận hành (OPEX) — '+hrmEsc(v.name),
+    `<div id="opex-report-body"></div>`,
+    `<button class="btn-ghost" onclick="openVesselHub('${vid}')">← Trung tâm QL tàu</button>`);
+  _renderVesselOpex();
+}
+function _renderVesselOpex(){
+  const host=document.getElementById('opex-report-body'); if(!host) return;
+  const vid=_opexVid; const v=VesselService.vessels().find(x=>x.id===vid); if(!v) return;
+  const mx=_vesselOpexMatrix(vid, _opexRange.from, _opexRange.to);
+  const _f=n=>(n?('$'+Math.round(n).toLocaleString('en-US')):'<span style="color:#cbd2db">—</span>');
+  const monthHead=mx.months.map(m=>`<th style="text-align:right;padding:8px 10px;font-size:11px;white-space:nowrap">${esc(m)}</th>`).join('');
+  const rowsHtml=mx.rows.length?mx.rows.map(r=>`<tr>
+      <td style="padding:8px 10px;white-space:nowrap"><span style="opacity:.7">${r.icon}</span> ${esc(r.label)}</td>
+      ${mx.months.map(m=>`<td style="text-align:right;padding:8px 10px;font-variant-numeric:tabular-nums">${_f(r.months[m])}</td>`).join('')}
+      <td style="text-align:right;padding:8px 10px;font-weight:600;background:#fafbfc">${_f(r.total)}</td></tr>`).join(''):`<tr><td colspan="${mx.months.length+2}" class="empty">Không có chi phí OPEX trong kỳ đã chọn</td></tr>`;
+  host.innerHTML=`
+    <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Chi phí gắn tàu <b>${esc(v.name)}</b> vào P&L công ty (loại trừ chi hộ tàu QL hộ, mua tồn kho, ứng quỹ). Quy USD.</div>
+    <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:14px;padding:12px;background:var(--paper);border-radius:8px">
+      <div style="display:flex;flex-direction:column;gap:3px"><label style="font-size:11px;text-transform:uppercase;color:var(--muted);font-weight:600">Từ tháng</label>
+        <input type="month" id="opex-from" value="${esc(_opexRange.from)}" onchange="_opexApply()" style="padding:6px 10px;border:1px solid var(--rule);border-radius:6px"></div>
+      <div style="display:flex;flex-direction:column;gap:3px"><label style="font-size:11px;text-transform:uppercase;color:var(--muted);font-weight:600">Đến tháng</label>
+        <input type="month" id="opex-to" value="${esc(_opexRange.to)}" onchange="_opexApply()" style="padding:6px 10px;border:1px solid var(--rule);border-radius:6px"></div>
+      <button class="btn-sec" style="margin-left:auto;border-color:#1a7a4c;color:#1a7a4c" onclick="_vesselOpexExcel()">📊 Xuất Excel</button>
+    </div>
+    <div style="overflow:auto;border:1px solid var(--rule);border-radius:8px;max-height:460px">
+      <table class="tbl" style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead><tr style="background:#f0f3f7">
+          <th style="text-align:left;padding:8px 10px;position:sticky;left:0;background:#f0f3f7">Loại chi phí</th>
+          ${monthHead}<th style="text-align:right;padding:8px 10px;background:#f0f3f7">TỔNG (USD)</th>
+        </tr></thead>
+        <tbody>${rowsHtml}</tbody>
+        <tfoot><tr style="font-weight:700;border-top:2px solid var(--rule);background:#f0f3f7">
+          <td style="padding:8px 10px;position:sticky;left:0;background:#f0f3f7">TỔNG (USD)</td>
+          ${mx.months.map(m=>`<td style="text-align:right;padding:8px 10px">${_f(mx.colTot[m])}</td>`).join('')}
+          <td style="text-align:right;padding:8px 10px">${_f(mx.grand)}</td></tr></tfoot>
+      </table></div>`;
+}
+function _opexApply(){
+  _opexRange.from=(document.getElementById('opex-from')||{}).value||'';
+  _opexRange.to=(document.getElementById('opex-to')||{}).value||'';
+  _renderVesselOpex();
+}
+function _vesselOpexExcel(){
+  if(typeof XLSX==='undefined'){ toast('Thiếu thư viện Excel','bad'); return; }
+  const vid=_opexVid; const v=VesselService.vessels().find(x=>x.id===vid); if(!v) return;
+  const mx=_vesselOpexMatrix(vid, _opexRange.from, _opexRange.to);
+  const money=n=>Math.round((+n||0)*100)/100;
+  const aoa=[];
+  aoa.push(['BÁO CÁO CHI PHÍ VẬN HÀNH (OPEX) — '+v.name]);
+  aoa.push(['Kỳ', (_opexRange.from||'')+' → '+(_opexRange.to||''), 'Đơn vị', 'USD']);
+  aoa.push([]);
+  aoa.push(['Loại chi phí', ...mx.months, 'TỔNG (USD)']);
+  mx.rows.forEach(r=>aoa.push([r.label, ...mx.months.map(m=>money(r.months[m]||0)), money(r.total)]));
+  aoa.push(['TỔNG (USD)', ...mx.months.map(m=>money(mx.colTot[m])), money(mx.grand)]);
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols']=[{wch:28}].concat(mx.months.map(()=>({wch:12}))).concat([{wch:14}]);
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, String(v.name||'OPEX').replace(/[\\\/\?\*\[\]:]/g,'').slice(0,28)||'OPEX');
+  XLSX.writeFile(wb, 'OPEX_'+String(v.name||'tau').replace(/\s+/g,'_')+'_'+(_opexRange.from||'')+'_'+(_opexRange.to||'')+'.xlsx');
+  toast('✓ Đã xuất Excel OPEX','good');
 }
 function openVesselHub(vid){
   /* v3.15.64: phía tàu chỉ mở được Trung tâm quản lý của CHÍNH tàu mình — chặn tại cửa vào,
@@ -36531,9 +36766,7 @@ function openVesselHub(vid){
         ${idCell('Máy trưởng', _che.name, _srcTag(_che.source))}
       </div>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px">
-      ${_vaDashCards(vid, false)}
-    </div>`;
+    ${_vaDashCards(vid, false)}`;
   openModal('🚢 Trung tâm quản lý tàu — '+hrmEsc(vName), body, `<button class="btn-ghost" onclick="closeModal()">Đóng</button>`);
 }
 
@@ -38244,7 +38477,7 @@ function renderEvents(){
         ${_showVal?`<td class="r num">${value?'$'+fmtQty(value):'—'}</td>`:''}
         <td><div class="row-actions">
           ${(e.type==='onhire'||e.type==='offhire')?`<button class="icon-btn" title="Biên bản ${e.type==='onhire'?'On-Hire':'Off-Hire'} (PDF/email)" onclick="openHireProtocol('${e.id}')" style="color:var(--teal)">📋</button>`:''}
-          <button class="icon-btn" title="Sửa" onclick="openEventModal('${e.id}')">✎</button>
+          <button class="icon-btn" title="Edit" onclick="openEventModal('${e.id}')">✎</button>
         </div></td>
       </tr>`;
     });
@@ -69036,7 +69269,7 @@ function whAdminOpenVesselDash(vid){
   _adminWhView=_wh?_wh.id:'';
   openModal((isUnit?'📦 ':'⚓ ')+esc(v.name)+' — giao diện '+(isUnit?'đơn vị kho':'tàu'),
     `<div style="font-size:11px;color:var(--muted);margin-bottom:10px">Đây là đúng bộ màn mà tài khoản ${isUnit?'đơn vị này':'tàu này'} nhìn thấy. Admin thao tác được đầy đủ.${_wh?'':' <b style="color:var(--bad)">Tàu/đơn vị này chưa có kho.</b>'}</div>
-     <div style="display:grid;gap:10px">${_vaDashCards(vid,true)}</div>`,
+     ${_vaDashCards(vid,true)}`,
     `<button class="btn-ghost" onclick="closeModal()">Đóng</button>`);
 }
 function whAdminOpenWarehouse(whId){
@@ -70986,7 +71219,7 @@ function openStockOnHand(){
  * Tra cứu nhanh: 1 vật tư đang ở những kho nào, tổng bao nhiêu. Lọc loại kho / tìm mã-tên / chỉ còn tồn.
  * Chỉ số lượng — KHÔNG giá trị (theo nguyên tắc kho mục 10).
  * ============================================================ */
-let _ovFilter={q:'',whType:'',nonzero:true};
+let _ovFilter={q:'',whType:'',matGroup:'',nonzero:true};   // v3.16.62: thêm lọc phân loại vật tư (group chính)
 function openStockOverview(){
   /* v3.16.37 (Sếp: "mọi NV đều được cấp quyền thấy TỒN KHO TỔNG HỢP"): bỏ chặn theo quyền —
      biết kho còn gì là việc chung, chặn chỉ khiến người ta mua trùng. Chỉ cần ĐÃ ĐĂNG NHẬP.
@@ -71009,6 +71242,7 @@ function openStockOverview(){
   // lọc tìm kiếm
   const q=(_ovFilter.q||'').trim().toLowerCase();
   if(q) items=items.filter(it=>String(it.code||'').toLowerCase().includes(q) || String(it.name||'').toLowerCase().includes(q));
+  if(_ovFilter.matGroup){ items=items.filter(it=>{ const m=(typeof matByCode==='function')?matByCode(it.code):null; return m && (m.group||'')===_ovFilter.matGroup; }); }   // v3.16.62: lọc theo phân loại vật tư (group chính)
   // tính tổng mỗi vật tư + bỏ vật tư tổng=0 nếu nonzero
   const qtyOf=(whId,code)=>{ const m=byWh[whId][code]; return m?m.qty:0; };
   items=items.map(it=>{ const tot=whs.reduce((s,w)=>s+qtyOf(w.id,it.code),0); return {...it,tot}; });
@@ -71033,10 +71267,12 @@ function openStockOverview(){
   // filter UI
   const typeOpts=[['','Tất cả loại kho'],['CENTRAL','🏛 Kho tổng'],['VESSEL','⛵ Kho tàu'],['VESSEL_TECH','⚙️ Kho kỹ thuật (tàu)'],['OFFICE','🏢 Văn phòng'],['BRANCH','🏭 Chi nhánh'],['OTHER','📦 Khác']]
     .map(([v,l])=>`<option value="${v}" ${_ovFilter.whType===v?'selected':''}>${l}</option>`).join('');
+  const grpOpts=['<option value="">— Tất cả phân loại —</option>'].concat(((typeof matGroups==='function')?matGroups():[]).sort((a,b)=>String(a).localeCompare(String(b))).map(g=>`<option value="${esc(g)}" ${_ovFilter.matGroup===g?'selected':''}>${esc((typeof matGroupDisp==='function')?matGroupDisp(g):g)}</option>`)).join('');   // v3.16.62
   const sel='padding:6px 8px;border:1px solid var(--rule);border-radius:6px;font-size:13px';
   const body=`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
       <input id="ov-q" value="${esc(_ovFilter.q)}" placeholder="🔍 Tìm mã / tên vật tư" style="${sel};flex:1;min-width:180px" oninput="_ovApply()">
       <select id="ov-type" style="${sel}" onchange="_ovApply()">${typeOpts}</select>
+      <select id="ov-group" style="${sel}" onchange="_ovApply()">${grpOpts}</select>
       <label style="font-size:13px;display:flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox" id="ov-nonzero" ${_ovFilter.nonzero?'checked':''} onchange="_ovApply()"> Chỉ còn tồn</label>
       <button class="btn-sec" style="font-size:13px" onclick="_ovExportExcel()">📊 Xuất Excel</button>
     </div>
@@ -71063,6 +71299,7 @@ function openStockOverview(){
 function _ovApply(){
   _ovFilter.q=(document.getElementById('ov-q')||{}).value||'';
   _ovFilter.whType=(document.getElementById('ov-type')||{}).value||'';
+  _ovFilter.matGroup=(document.getElementById('ov-group')||{}).value||'';   // v3.16.62
   _ovFilter.nonzero=!!(document.getElementById('ov-nonzero')||{}).checked;
   openStockOverview();
 }
@@ -83721,6 +83958,8 @@ function canAccessTab(tabId){
      cấp NGẦM cho mọi tài khoản đăng nhập nên VM vẫn thấy dù mẫu vai chỉ tick operations+inventory.
      Với VM: 3 tab này chỉ vào được khi admin TICK TAY (không ai mất quyền). Đặt SAU chốt tài khoản
      tàu (bộ tab tàu vẫn tuyệt đối), TRƯỚC 2 nhánh cấp ngầm. Thư viện giữ cho VM. */
+  /* v3.16.60 (Sếp): trang tổng quan riêng cho Vessel Manager — chỉ VM (và admin) truy cập. */
+  if(tabId==='vm_dashboard'){ return isVesselManager(); }
   if(isVesselManager() && CURRENT_ROLE!=='admin'
      && (tabId==='payables' || tabId==='receivables' || tabId==='advances')){
     return (CURRENT_USER.tabs||[]).includes(tabId);
@@ -89489,6 +89728,7 @@ function renderAll(opts){
   }
 
   maybe('dashboard', renderDashboard);
+  maybe('vm_dashboard', renderVmDashboard);
   maybe('hrm', renderHRM);
   maybe('plan', renderPlanList);
   maybe('plan', renderDockPlanList);

@@ -1,5 +1,5 @@
 {
-  "version": "3.16.59",
-  "swVersion": "v3.16.59",
-  "notes": "v3.16.59: Thêm nút Xuất Excel vào màn Báo cáo Thu/Chi hộ, bên cạnh nút Xuất PDF. Bản Excel dùng đúng cùng bộ lọc từ ngày, đến ngày và danh sách tàu đã chọn, áp dụng đúng các quy tắc của báo cáo chủ tàu như bản PDF, nên số liệu khớp nhau: bỏ phần thực chi khoán, bỏ chi phí Seahorse tự chịu, tôn trọng các khoản không đưa vào báo cáo, và xếp đúng kỳ cho khoản quyết toán sau kỳ khóa. Mỗi tàu một sheet gồm số dư đầu kỳ, bảng thu hộ, bảng chi hộ, lương thuyền viên, dự kiến chi và phần tổng kết số dư cuối kỳ. Quyền ký và khóa kỳ của Vessel Manager vốn đã có sẵn nên không thay đổi; quyền mở khóa kỳ vẫn giữ nguyên chỉ dành cho admin. Nền v3.16.58 giữ nguyên."
+  "version": "3.16.62",
+  "swVersion": "v3.16.62",
+  "notes": "v3.16.62: Hai bổ sung. Thứ nhất, màn Tồn kho tổng hợp có thêm bộ lọc theo phân loại vật tư bên cạnh bộ lọc theo loại kho đang có, giúp thu hẹp danh sách mã theo nhóm vật tư trong khi vẫn giữ cách gom toàn bộ theo kho. Thứ hai, thêm báo cáo Chi phí vận hành OPEX cho từng tàu công ty, mở từ Trung tâm quản lý tàu, trình bày dạng bảng loại chi phí theo hàng và tháng theo cột, quy về USD, có lọc khoảng tháng và nút xuất Excel. Báo cáo chỉ tính chi phí thực vào kết quả kinh doanh của công ty, tự loại phần chi hộ tàu quản lý hộ, mua tồn kho và ứng quỹ nên số khớp với báo cáo lãi lỗ. Chỉ admin và Vessel Manager xem được, tài khoản tàu bị chặn hoàn toàn khỏi mọi thông tin có giá tiền này. Nhân dịp này, Trung tâm quản lý tàu được sắp xếp lại thành hai khối tách bạch là Thông tin chung và Hoạt động, thay vì dàn ngang như trước. Nền v3.16.61 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần."
 }
