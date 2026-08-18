@@ -1302,13 +1302,13 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
 
   <div class="section">
     <div class="section-head">
-      <div class="section-title"><span class="tag">⊕</span>Lịch khai thác theo đoạn (event-based)</div>
+      <div class="section-title"><span class="tag">⊕</span>Vessel Employment Log</div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <label style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:600">Chọn tàu:</label>
         <select id="ev-filter-vessel" onchange="renderEvents()" style="padding:6px 10px;border:1px solid var(--rule);background:var(--paper);font-family:var(--font-mono);font-size:13px;min-width:160px">
           <option value="">— Tất cả tàu —</option>
         </select>
-        <button class="btn-sec" onclick="openEventModal(null)">+ Thêm đoạn</button>
+        <button class="btn-sec" onclick="openEventModal(null)">+ Add Period</button>
         <button class="btn-sec" onclick="onhireDownloadTemplate()" title="Tải file Excel mẫu để nhập nhiều đoạn On/Off-hire" style="border-color:var(--good);color:var(--good)">⬇ Tải mẫu</button>
         <button class="btn-sec" onclick="window._vohReturn='';document.getElementById('onhire-import-file').click()" title="Import nhiều đoạn On/Off-hire từ Excel">📥 Import Excel</button>
         <input type="file" id="onhire-import-file" accept=".xlsx,.xls,.csv" style="display:none" onchange="onhireImportExcel(this)">
@@ -1324,7 +1324,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
 
   <div class="section">
     <div class="section-head">
-      <div class="section-title"><span class="tag">☼</span>Báo cáo hàng ngày của tàu (Daily Report)</div>
+      <div class="section-title"><span class="tag">☼</span>Vessel Daily Report</div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <label style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:600">Chọn tàu:</label>
         <select id="dr-filter-vessel" onchange="renderDailyReports()" style="padding:6px 10px;border:1px solid var(--rule);background:var(--paper);font-family:var(--font-mono);font-size:13px;min-width:160px">
@@ -3784,7 +3784,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.16.57';
+const APP_VERSION='3.16.59';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -36352,7 +36352,9 @@ function _vohBody(vid, inner){
       const _valCell = _shortWarn
         ? `<span title="Tiêu thụ vượt (tồn đầu + bơm) — phần vượt chưa có đơn giá, KHÔNG tính vào giá trị. Kiểm tra lại số liệu nhiên liệu." style="color:var(--warn)">${val?fmt(val):'0'} ⚠</span>`
         : (val?fmt(val):'—');
-      const ctx=[]; if(proj) ctx.push(`<b>${esc(proj.code)}</b> ${esc(proj.name)}`);
+      const ctx=[];
+      if(e.charterer) ctx.push(`<span title="Charterer">🚢 <b>${esc(e.charterer)}</b></span>`);   // v3.16.58
+      if(proj) ctx.push(`<b>${esc(proj.code)}</b> ${esc(proj.name)}`);
       if(e.portFrom||e.portTo) ctx.push(`<span style="color:var(--muted)">⚓ ${esc(e.portFrom||'?')} → ${esc(e.portTo||'?')}</span>`);
       if(e.notes) ctx.push(`<span style="color:var(--muted);font-style:normal">${esc(e.notes)}</span>`);
       return `<tr>
@@ -36392,12 +36394,12 @@ function _vohBody(vid, inner){
     <div style="font-size:11px;color:var(--muted);font-style:normal;margin-bottom:10px">Toàn bộ đoạn khai thác (On/Off-hire/Standby/Dock…) và báo cáo ngày của <b>${esc(v.name)}</b>. Khai báo trực tiếp tại đây.</div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin:14px 0 6px">
       <div style="font-family:var(--font-display);font-weight:600;font-size:13px"><span class="tag">⊕</span> Lịch khai thác theo đoạn (${evs.length})</div>
-      <button class="btn-sec" style="font-size:11px" onclick="openEventModal(null,'${vid}')">+ Thêm đoạn</button>
+      <button class="btn-sec" style="font-size:11px" onclick="openEventModal(null,'${vid}')">+ Add Period</button>
       <button class="btn-sec" style="font-size:11px" onclick="_vohImport('onhire-import-file')">📥 Excel</button>
       <button class="btn-sec" style="font-size:11px" onclick="_vohImport('onhire-pdf-file')">📄 PDF biên bản</button>
     </div>
     <div class="tbl-scroll"><table class="tbl" style="font-size:13px"><thead><tr>
-      <th>Loại</th><th>Bắt đầu</th><th>Kết thúc</th><th class="r">T.gian</th><th>Dự án / Cảng / Ghi chú</th>
+      <th>Status</th><th>From</th><th>To</th><th class="r">Duration</th><th>Project / Cảng / Ghi chú</th>
       <th class="r">DO</th><th class="r">LO</th><th class="r">FW</th>${_showVal?'<th class="r">Giá trị</th>':''}<th></th>
     </tr></thead><tbody>${evRows}</tbody></table></div>
 
@@ -36602,15 +36604,22 @@ function renderVessels(){
    - Consumption = fuelStart + fuelPumped − fuelEnd (per fuel type).
    ============================================================ */
 
+/* v3.16.58 (Sếp — chuẩn hóa thuật ngữ khai thác sang tiếng Anh hàng hải, GĐ1: chỉ nhãn hiển thị,
+   GIỮ NGUYÊN key + hành vi P&L/utilization; mô hình Charter Period để GĐ2 riêng):
+   - offjob GIỮ key (đã là Off-Hire trong data: import alias, PDF redeliver, wizard 'OFF-HIRE kết thúc
+     thuê', role=close) → chỉ đổi nhãn 'Off-Hire'; creatable:false = ngừng cho tạo mới từ dropdown
+     (đóng đoạn dùng vai Ⓑ trong wizard), dữ liệu cũ vẫn hiển thị/tính đúng.
+   - csb (Commercial Standby) → nhãn 'Available' (tàu rảnh, ngoài job / chờ việc thương mại). Standby
+     giữ nghĩa chờ TRONG một job. Hành vi P&L của csb KHÔNG đổi ở GĐ1. */
 const EVENT_TYPES=[
-  {key:'onhire',label:'Onhire',short:'ON',chip:'chip-1',billable:true,wantProject:true},
+  {key:'onhire',label:'On-Hire',short:'ON',chip:'chip-1',billable:true,wantProject:true},
   {key:'transit',label:'Transit',short:'TR',chip:'chip-2',billable:true,wantProject:true,wantPorts:true},
   {key:'standby',label:'Standby',short:'SB',chip:'chip-3',billable:false},
-  {key:'dock',label:'Dock',short:'DK',chip:'chip-4',billable:false},
-  {key:'offjob',label:'Không việc (Off-job)',short:'OFF',chip:'chip-5',billable:false},
-  {key:'csb',label:'Commercial Standby (chờ việc)',short:'CSB',chip:'chip-5',billable:false},   // v3.10.26: chờ việc thương mại — tổng hợp ngày rơi vào cột OFF (fallback), chi phí vào P&L tàu
-  {key:'mob',label:'Mobilization',short:'MOB',chip:'chip-2',billable:false,wantPorts:true},
-  {key:'demob',label:'Demobilization',short:'DMB',chip:'chip-2',billable:false,wantPorts:true}
+  {key:'dock',label:'Drydocking',short:'DD',chip:'chip-4',billable:false},
+  {key:'offjob',label:'Off-Hire',short:'OFF',chip:'chip-5',billable:false,creatable:false},
+  {key:'csb',label:'Available',short:'AVL',chip:'chip-5',billable:false},   // v3.16.58: tàu rảnh/ngoài job (trước: Commercial Standby); hành vi P&L giữ như v3.10.26
+  {key:'mob',label:'Mobilisation',short:'MOB',chip:'chip-2',billable:false,wantPorts:true},
+  {key:'demob',label:'Demobilisation',short:'DMB',chip:'chip-2',billable:false,wantPorts:true}
 ];
 function evtType(k){return EVENT_TYPES.find(e=>e.key===k)||EVENT_TYPES[0];}
 
@@ -36630,6 +36639,7 @@ function defaultEvent(){
     startAt:'',endAt:'',
     projectId:'',
     portFrom:'',portTo:'',
+    charterer:'',
     notes:'',
     fuelStart:{do:fuelStockDefault(),lo:fuelStockDefault(),fw:fuelStockDefault()},
     fuelEnd:{do:fuelStockDefault(),lo:fuelStockDefault(),fw:fuelStockDefault()},
@@ -36932,7 +36942,7 @@ function openEventModal(eventId, presetVesselId){
 
   const _drAllowed=new Set((typeof userAssignedVesselIds==='function')?userAssignedVesselIds():VesselService.vessels().map(v=>v.id));
   const vesselOpts=VesselService.vessels().filter(v=>_drAllowed.has(v.id)).map(v=>`<option value="${v.id}" ${v.id===e.vesselId?'selected':''}>${esc(v.name)} (${v.type==='SERVICE'?'DV':'KT'})</option>`).join('');
-  const typeOpts=EVENT_TYPES.map(t=>`<option value="${t.key}" ${t.key===e.type?'selected':''}>${t.label}</option>`).join('');
+  const typeOpts=EVENT_TYPES.filter(t=>t.creatable!==false || t.key===e.type).map(t=>`<option value="${t.key}" ${t.key===e.type?'selected':''}>${t.label}</option>`).join('');   // v3.16.58: ẩn loại ngừng-tạo (offjob/Off-Hire) khỏi tạo mới; vẫn giữ nếu đang sửa đoạn cũ loại đó
   const projectOpts=`<option value="">— Không liên kết —</option>`+S.projects.map(p=>`<option value="${p.id}" ${p.id===e.projectId?'selected':''}>${esc(p.code)} · ${esc(p.name)}</option>`).join('');
 
   // v1.43.0: Auto-fill tồn đầu unitPrice from prior event's tồn cuối (same vessel)
@@ -37019,21 +37029,24 @@ function openEventModal(eventId, presetVesselId){
 
   const body=`
     <div class="form-grid">
-      <div class="field"><label>Tàu</label><select id="ev-vessel">${vesselOpts}</select></div>
-      <div class="field"><label>Loại đoạn</label><select id="ev-type" onchange="updateEventModalFields()">${typeOpts}</select></div>
-      <div class="field"><label>Bắt đầu (ngày + giờ)</label><input type="datetime-local" id="ev-start" value="${e.startAt||''}"></div>
-      <div class="field"><label>Kết thúc (ngày + giờ)</label><input type="datetime-local" id="ev-end" value="${e.endAt||''}"></div>
+      <div class="field"><label>Vessel</label><select id="ev-vessel">${vesselOpts}</select></div>
+      <div class="field"><label>Activity / Status</label><select id="ev-type" onchange="updateEventModalFields()">${typeOpts}</select></div>
+      <div class="field"><label>From</label><input type="datetime-local" id="ev-start" value="${e.startAt||''}"></div>
+      <div class="field"><label>To</label><input type="datetime-local" id="ev-end" value="${e.endAt||''}"></div>
     </div>
     <div id="ev-extra-fields">
+      <div class="form-grid" id="ev-charterer-row" style="${e.type==='onhire'||e.type==='transit'?'':'display:none'}">
+        <div class="field" style="grid-column:span 2"><label>Charterer</label><input id="ev-charterer" value="${(typeof hrmEsc==='function'?hrmEsc(e.charterer||''):(e.charterer||''))}" placeholder="e.g. Lam Son JOC, PTSC..."></div>
+      </div>
       <div class="form-grid" id="ev-project-row" style="${e.type==='onhire'||e.type==='transit'?'':'display:none'}">
-        <div class="field" style="grid-column:span 2"><label>Dự án liên kết</label><select id="ev-project">${projectOpts}</select></div>
+        <div class="field" style="grid-column:span 2"><label>Linked Project</label><select id="ev-project">${projectOpts}</select></div>
       </div>
       <div class="form-grid" id="ev-port-row" style="${e.type==='transit'||e.type==='mob'||e.type==='demob'?'':'display:none'}">
-        <div class="field"><label>Cảng đi</label><input id="ev-port-from" value="${e.portFrom||''}"></div>
-        <div class="field"><label>Cảng đến</label><input id="ev-port-to" value="${e.portTo||''}"></div>
+        <div class="field"><label>Departure Port</label><input id="ev-port-from" value="${e.portFrom||''}"></div>
+        <div class="field"><label>Arrival Port</label><input id="ev-port-to" value="${e.portTo||''}"></div>
       </div>
       <div class="form-grid">
-        <div class="field" style="grid-column:span 2"><label>Ghi chú</label><input id="ev-notes" value="${e.notes||''}" placeholder="VD: charter Lam Sơn JOC, dock định kỳ..."></div>
+        <div class="field" style="grid-column:span 2"><label>Remarks</label><input id="ev-notes" value="${e.notes||''}" placeholder="VD: charter Lam Sơn JOC, dock định kỳ..."></div>
       </div>
     </div>
     <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--rule)">
@@ -37049,7 +37062,7 @@ function openEventModal(eventId, presetVesselId){
   const foot=`<button class="btn-sec" onclick="closeModal()">Hủy</button>
               ${isEdit?`<button class="btn-sec" style="color:var(--bad)" onclick="deleteEvent('${e.id}')">✕ Xóa đoạn này</button>`:''}
               <button class="btn-primary" onclick="saveEvent('${e.id}',${isEdit})">${isEdit?'Cập nhật':'Lưu đoạn'}</button>`;
-  openModal(isEdit?'Sửa đoạn khai thác':'Thêm đoạn khai thác',body,foot);
+  openModal(isEdit?'Edit Employment Period':'Add Employment Period',body,foot);
 
   // Pre-fill startAt from previous event for same vessel
   if(!isEdit && !e.startAt){
@@ -37160,6 +37173,7 @@ function updateEventModalFields(){
   const t=document.getElementById('ev-type').value;
   const cfg=evtType(t);
   document.getElementById('ev-project-row').style.display = cfg.wantProject ? '' : 'none';
+  const _ch=document.getElementById('ev-charterer-row'); if(_ch) _ch.style.display = cfg.wantProject ? '' : 'none';   // v3.16.58: Charterer chỉ khi On-Hire/Transit
   document.getElementById('ev-port-row').style.display = cfg.wantPorts ? '' : 'none';
 }
 function togglePhuyEv(group,fk){
@@ -37201,6 +37215,7 @@ function saveEvent(eid,isEdit){
     id:eid,
     vesselId,type,startAt,endAt,
     projectId:document.getElementById('ev-project')?document.getElementById('ev-project').value:'',
+    charterer:document.getElementById('ev-charterer')?document.getElementById('ev-charterer').value.trim():'',
     portFrom:document.getElementById('ev-port-from')?document.getElementById('ev-port-from').value:'',
     portTo:document.getElementById('ev-port-to')?document.getElementById('ev-port-to').value:'',
     notes:document.getElementById('ev-notes').value||'',
@@ -38163,7 +38178,7 @@ function renderEvents(){
   const selectedVid=filterEl.value;
 
   if(!VesselService.events().length){
-    block.innerHTML='<div class="empty">Chưa có đoạn khai thác nào — bấm "+ Thêm đoạn" để bắt đầu</div>';
+    block.innerHTML='<div class="empty">No employment periods yet — click "+ Add Period" to start đầu</div>';
     return;
   }
   // Group by vessel, sort by startAt
@@ -61869,6 +61884,7 @@ function openOpReportModal(presetVid){
   const foot=`<button class="btn-sec" onclick="closeModal()">Hủy</button>
               ${canSignOwnerReport()?'<button class="btn-sec" style="border-color:#1c3a5c;color:#1c3a5c" onclick="signLockOwnerReport()" title="Ký duyệt + KHÓA số kỳ này cho các tàu đã chọn — không ai nhập/sửa thêm.">🔒 Ký &amp; khóa kỳ</button>':''}
               ${isAdmin()?'<button class="btn-sec" style="border-color:var(--accent);color:var(--accent)" onclick="promptUnlockOwnerReport()" title="MỞ KHÓA kỳ (tháng của Từ ngày) cho các tàu đang chọn — chỉ ADMIN. Sau khi mở, kỳ này lại sửa được.">🔓 Mở khóa kỳ</button>':''}
+              <button class="btn-sec" style="border-color:#1a7a4c;color:#1a7a4c" onclick="generateOpReportExcel()" title="Xuất báo cáo Thu/Chi hộ ra Excel — cùng bộ lọc, mỗi tàu 1 sheet.">📊 Xuất Excel</button>
               <button class="btn-primary" onclick="generateOpReport()">📄 Xuất PDF</button>`;
   openModal('Báo cáo Thu/Chi hộ — Xuất PDF',body,foot);
 }
@@ -62015,6 +62031,80 @@ function unlockOwnerReport(vesselId, period){
   toast('Đã mở khóa kỳ '+period+'. Nhớ Sync.','good');
   renderAll();
   }, onFail:(rr)=>{ toast('⚠ CHƯA mở khóa được — '+(rr.error||'')+'. Giữ nguyên.','bad'); }});
+}
+/* v3.16.59 (Sếp): Xuất Excel Báo cáo Thu/Chi hộ — CÙNG bộ lọc (from/to/tàu) và CÙNG quy tắc báo cáo
+   chủ tàu như bản PDF (generateOpReport), mỗi tàu 1 sheet. Không đụng hàm PDF. */
+function generateOpReportExcel(){
+  const from=document.getElementById('rep-from').value;
+  const to=document.getElementById('rep-to').value;
+  if(!from||!to){toast('Chọn từ ngày và đến ngày','bad');return;}
+  if(from>to){toast('Từ ngày phải ≤ Đến ngày','bad');return;}
+  const checked=[...document.querySelectorAll('#modal input[data-vessel-id]:checked')].map(c=>c.dataset.vesselId);
+  if(!checked.length){toast('Chọn ít nhất 1 tàu','bad');return;}
+  if(typeof XLSX==='undefined'){toast('Thiếu thư viện Excel','bad');return;}
+  const _effPeriodDate=(x)=>{ if(x&&x.settleMonth){const m=String(x.settleMonth),d=String(x.date||'');return (d.slice(0,7)===m)?d:(m+'-15');} return x?(x.date||''):''; };
+  const money=(n)=>Math.round((+n||0)*100)/100;
+  const wb=XLSX.utils.book_new();
+  let nSheet=0;
+  checked.forEach(vid=>{
+    const v=VesselService.opVessels().find(x=>x.id===vid); if(!v) return;
+    const _apV=(typeof _opApVirtualTx==='function'?_opApVirtualTx():[]).filter(x=>x.vesselId===vid);
+    const all=VesselService.opTransactions().filter(x=>x.vesselId===vid).concat(_apV).sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+    // số dư đầu kỳ (USD) — cùng quy tắc PDF
+    let openBal=0;
+    all.forEach(x=>{
+      const _d=(x&&x.settleMonth)?((String(x.date||'').slice(0,7)===String(x.settleMonth))?String(x.date||''):(String(x.settleMonth)+'-15')):String(x&&x.date||'');
+      if(_d<from){ if(x.khoanRole==='chi') return; const usd=opReportUsd(x); openBal += (x.type==='IN'?usd:-usd) - opTxFeesUsd(x); }
+    });
+    const period=all.filter(x=>{ const d=_effPeriodDate(x); return d>=from && d<=to && x.reportToOwner!==false && !x.seahorseOwn; });
+    const _isKhoanChi=(x)=> x.khoanRole==='chi';
+    const inRows=period.filter(x=>x.type==='IN');
+    const outAll=period.filter(x=>x.type==='OUT' && !x._isBudget && !_isKhoanChi(x));
+    const outRows=outAll.filter(x=>x.opCat!=='CREW_SALARY');
+    const crewRows=outAll.filter(x=>x.opCat==='CREW_SALARY');
+    const budgetRows=period.filter(x=>x.type==='OUT' && x._isBudget && !_isKhoanChi(x));
+    let sumIn=0,sumOut=0,sumBudget=0,sumFee=0,sumCrew=0;
+    period.forEach(x=>{ if(_isKhoanChi(x)) return; if(x.type==='IN') sumIn+=opReportUsd(x); else if(x._isBudget) sumBudget+=opReportUsd(x); else { const u=opReportUsd(x); sumOut+=u; if(x.opCat==='CREW_SALARY') sumCrew+=u; } });
+    period.forEach(x=>{ sumFee+=opTxFeesUsd(x); });
+    let mgmtUsd=0; try{ const mfP=(typeof opMgmtFeeForPeriod==='function')?opMgmtFeeForPeriod(v,from,to):null; if(mfP&&+mfP.amountUsd) mgmtUsd=+mfP.amountUsd; }catch(e){}
+    const closeBal=openBal+sumIn-sumOut-sumBudget-sumFee;
+    const _lk=(typeof ownerReportLockFor==='function')?ownerReportLockFor(vid,String(from).slice(0,7)):null;
+    // dựng AoA
+    const aoa=[];
+    aoa.push(['BÁO CÁO THU/CHI HỘ — STATEMENT OF ACCOUNT']);
+    aoa.push(['Tàu / Vessel', v.name, '', 'Chủ tàu / Owner', v.owner||'']);
+    aoa.push(['Kỳ / Period', from+' → '+to, '', 'Trạng thái', _lk?('Đã khóa · '+(_lk.signedBy||'')):'Chưa khóa']);
+    aoa.push([]);
+    aoa.push(['Số dư đầu kỳ / Balance b/f (USD)', money(openBal)]);
+    aoa.push([]);
+    const secH=(title)=>{ aoa.push([title]); aoa.push(['Ngày/Date','Diễn giải/Particulars','NCC/Vendor','Số HĐ/Inv','Nguyên tệ','CCY','Quy USD']); };
+    const rowOf=(x)=>[ (x.date||'').slice(0,10), x.desc||'', x.vendor||'', x.invoiceNo||'', money(x.amount), x.ccy||'USD', money(opReportUsd(x)) ];
+    // THU HỘ
+    secH('THU HỘ / COLLECTIONS'); inRows.forEach(x=>aoa.push(rowOf(x))); aoa.push(['','','','','','Tổng thu hộ (USD)',money(sumIn)]); aoa.push([]);
+    // CHI HỘ
+    secH('CHI HỘ / DISBURSEMENTS'); outRows.forEach(x=>aoa.push(rowOf(x))); aoa.push(['','','','','','Tổng chi hộ (USD)',money(sumOut-sumCrew)]); aoa.push([]);
+    // LƯƠNG THUYỀN VIÊN
+    if(crewRows.length){ secH('LƯƠNG THUYỀN VIÊN / CREW WAGES'); crewRows.forEach(x=>aoa.push(rowOf(x))); aoa.push(['','','','','','Tổng lương TV (USD)',money(sumCrew)]); aoa.push([]); }
+    // DỰ KIẾN CHI
+    if(budgetRows.length){ secH('DỰ KIẾN CHI / COMMITTED COSTS'); budgetRows.forEach(x=>aoa.push(rowOf(x))); aoa.push(['','','','','','Tổng dự kiến (USD)',money(sumBudget)]); aoa.push([]); }
+    // TỔNG KẾT
+    aoa.push(['TỔNG KẾT / SUMMARY (USD)']);
+    aoa.push(['Số dư đầu kỳ', money(openBal)]);
+    aoa.push(['(+) Thu hộ', money(sumIn)]);
+    aoa.push(['(−) Chi hộ thực', money(sumOut)]);
+    aoa.push(['(−) Dự kiến chi', money(sumBudget)]);
+    aoa.push(['(−) Phí NH & khác', money(sumFee)]);
+    aoa.push(['Số dư cuối kỳ / Balance c/f', money(closeBal)]);
+    if(mgmtUsd) aoa.push(['Phí quản lý / Management fee', money(mgmtUsd)]);
+    const ws=XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols']=[{wch:12},{wch:34},{wch:20},{wch:12},{wch:14},{wch:6},{wch:14}];
+    const safe=String(v.name||('Tau'+(nSheet+1))).replace(/[\\\/\?\*\[\]:]/g,'').slice(0,28)||('Tau'+(nSheet+1));
+    XLSX.utils.book_append_sheet(wb,ws,safe); nSheet++;
+  });
+  if(!nSheet){ toast('Không có dữ liệu để xuất','warn'); return; }
+  const fn='BaoCao_ThuChiHo_'+String(from)+'_'+String(to)+'.xlsx';
+  XLSX.writeFile(wb, fn);
+  toast('✓ Đã xuất Excel: '+fn,'good');
 }
 function generateOpReport(){
   const from=document.getElementById('rep-from').value;
