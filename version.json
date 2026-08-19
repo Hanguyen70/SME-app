@@ -1,5 +1,5 @@
 {
-  "version": "3.16.69",
-  "swVersion": "v3.16.69",
-  "notes": "v3.16.69: Trên trang Tổng quan đội tàu của Vessel Manager, bỏ tiếp ô chỉ số Số dư chủ tàu trong dải chỉ số nhanh. Số dư của từng tàu quản lý hộ vẫn hiển thị đầy đủ ở cột Số dư chủ tàu trong bảng tàu quản lý hộ bên dưới, nên không mất thông tin. Dải chỉ số còn lại gồm số tàu công ty, số tàu quản lý hộ và số tàu đang khai thác. Nền v3.16.68 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần."
+  "version": "3.16.72",
+  "swVersion": "v3.16.72",
+  "notes": "v3.16.72: Sửa lỗi khi cấp quyền Thủ kho hoặc Thủ kho tổng cho một tài khoản đã có sẵn thì quyền bị mất sau khi lưu và đồng bộ lên cloud rồi mở lại. Nguyên nhân là ở luồng cập nhật tài khoản cũ, hai cờ quyền kho này không được ghi lại vào tài khoản, trong khi luồng tạo tài khoản mới thì có. Nay khi sửa một tài khoản đã tồn tại, quyền Thủ kho và Thủ kho tổng được lưu đúng và giữ nguyên sau khi đồng bộ. Các quyền khác không đổi. Nền v3.16.71 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần, sau đó vào lại tài khoản Dung tích chọn Thủ kho tổng và lưu lại."
 }

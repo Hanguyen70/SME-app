@@ -3793,7 +3793,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.16.69';
+const APP_VERSION='3.16.72';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -9383,6 +9383,8 @@ async function saveUser(idx){
       u.canViewPayroll=_itBasic?(u.canViewPayroll||false):(isViewer?false:canViewPayroll);  // v3.12.38: cờ HR xem lương
       u.isNVNS=_itBasic?(u.isNVNS||false):(isViewer?false:isNVNS);  // v3.07.96: cờ NVNS vận hành lương
       u.isHrStaff=_itBasic?(u.isHrStaff||false):(isViewer?false:isHrStaff);  // v3.14.84: hồ sơ+chấm công, không lương
+      u.isWarehouse=_itBasic?(u.isWarehouse||false):(isViewer?false:isWarehouse);  // v3.16.72 FIX: thủ kho — nhánh cập nhật user cũ trước đây KHÔNG set → mất quyền sau khi lưu/đẩy cloud
+      u.isCentralWarehouse=_itBasic?(u.isCentralWarehouse||false):(isViewer?false:isCentralWarehouse);  // v3.16.72 FIX: thủ kho tổng — cùng lỗi, không set khi update
       u.isIT=(isViewer?false:isIT);  // v3.07.97: cờ IT — che dữ liệu nhạy cảm
       u.itBusiness=(u.isIT && itBusiness)||false;  // v3.08.40: IT kiêm nghiệp vụ — vào tab tài chính như NV (lương vẫn che)
       u.assignedVesselIds=isViewer?[]:assignedVesselIds;
@@ -15617,6 +15619,50 @@ const DEFAULT_EXPENSE_TYPES = [
   // BOD-ONLY (nội bộ — chỉ BOD/Admin xem)
   {id:'ET-BOD_ONLY',      code:'BOD_ONLY',      group:'BOD',      label:'Bút toán nội bộ BOD',    icon:'🔒', isPO:false, isBODOnly:true, hint:'CHỈ admin nhập. NV phải có cờ "Là BOD" mới xem được.'}
 ];
+
+/* ══════════════════════════════════════════════════════════════════
+   v3.16.70 (Sếp): PHÂN CẤP CHI PHÍ 4 CẤP — GĐ1 nền dữ liệu (chỉ THÊM, không sửa logic cũ).
+   S.expenseTree = bảng tên nhánh [{code:'1.30.100', name:'Vật tư sửa chữa'}] — admin khai MỘT LẦN
+   (Cách A Sếp chọn). Mã linh hoạt 2-4 cấp. Nhóm SUY RA từ mã (không gán tay). expenseType.treeCode
+   gắn loại vào node lá. Mã kỹ thuật (code) cũ GIỮ NGUYÊN — bút toán/P&L không đụng. */
+function expTreeList(){ return (S && Array.isArray(S.expenseTree)) ? S.expenseTree : []; }
+/* parse '1.30.100.01' → ['1','1.30','1.30.100','1.30.100.01'] (mã tổ tiên tích lũy) */
+function expTreeParse(treeCode){
+  const raw=String(treeCode||'').trim(); if(!raw) return [];
+  const parts=raw.split('.').map(x=>x.trim()).filter(Boolean);
+  const out=[]; let acc='';
+  parts.forEach((seg,i)=>{ acc=i?acc+'.'+seg:seg; out.push(acc); });
+  return out;
+}
+/* tên 1 nhánh theo mã (tra bảng) */
+function expTreeName(code){
+  const n=expTreeList().find(x=>String(x.code)===String(code));
+  return n ? (n.name||'') : '';
+}
+/* đường dẫn đầy đủ: '1.30.100.01' → 'HÀNG HẢI › Vật tư › Vật tư sửa chữa › Boong'
+   (nếu bậc lá chưa có tên nhánh riêng, lấy label loại chi phí truyền vào leafLabel) */
+function expTreePath(treeCode, leafLabel){
+  const anc=expTreeParse(treeCode); if(!anc.length) return '';
+  return anc.map((c,i)=>{ const nm=expTreeName(c); if(nm) return nm; if(i===anc.length-1 && leafLabel) return leafLabel; return c; }).join(' › ');
+}
+/* cấp của mã (số đoạn): 1 → Mảng, 2 → Nhóm, 3 → Nhóm con, 4 → Loại */
+function expTreeLevel(treeCode){ return expTreeParse(treeCode).length; }
+function expTreeLevelName(treeCode){ return ['','Mảng','Nhóm','Nhóm con','Loại'][expTreeLevel(treeCode)] || ('Cấp '+expTreeLevel(treeCode)); }
+/* thêm/sửa 1 nhánh (upsert theo code) */
+function expTreeUpsert(code, name){
+  code=String(code||'').trim(); name=String(name||'').trim();
+  if(!code) return false;
+  if(!S.expenseTree) S.expenseTree=[];
+  const ex=S.expenseTree.find(x=>String(x.code)===code);
+  if(ex){ ex.name=name; } else { S.expenseTree.push({code, name}); }
+  return true;
+}
+function expTreeRemove(code){
+  code=String(code||'').trim();
+  if(!S.expenseTree) return false;
+  S.expenseTree=S.expenseTree.filter(x=>String(x.code)!==code);
+  return true;
+}
 
 /* Lookup helper: get expense type by code from live S.expenseTypes (fallback DEFAULT) */
 function getExpenseType(code){
@@ -27483,7 +27529,8 @@ function defaultState(){
     companies:[  // v1.73.0: đa công ty — [{id, code, name, taxCode, address, isParent, note, createdAt}]
       {id:'CO-PARENT', code:'SEAHORSE', name:'Seahorse Marine & Energy JSC', taxCode:'', address:'Vũng Tàu', isParent:true, note:'Công ty mẹ', createdAt:'2025-01-01T00:00:00.000Z'}
     ],
-    expenseTypes:[],  // v1.30.1: admin-manageable. Auto-populated from DEFAULT_EXPENSE_TYPES on admin login.
+    expenseTypes:[],  // v1.30.1: admin-manageable. Auto-populated from DEFAULT_EXPE
+    expenseTree:[],  // v3.16.70: bảng tên nhánh phân cấp chi phí (mã→tên), admin khai báoNSE_TYPES on admin login.
     revenueTypes:[],  // v1.30.4: admin-manageable. Auto-populated from DEFAULT_REVENUE_TYPES on admin login.
     adminChecklist:[],  // v1.78.0: checklist vận hành — [{id, text, period, done, doneAt, note}]
     healthDismissed:{},  // v3.11.68: mục Sức khỏe dữ liệu đã BỎ QUA — {key: {by,at,label}} (key = open-action của item)
@@ -28183,7 +28230,7 @@ try{ window.restoreApplyTomb=restoreApplyTomb; }catch(e){}
 
 // v2.99.64: Danh mục nền — TUYỆT ĐỐI không cho bia mộ xóa khi merge/sync.
 const TOMBSTONE_PROTECTED_FIELDS=new Set([
-  'projects','vessels','departments','companies','vendors','expenseTypes','revenueTypes'
+  'projects','vessels','departments','companies','vendors','expenseTypes','expenseTree','revenueTypes'
 ]);
 
 // Đánh dấu 1 hoặc nhiều ID là đã xóa. Gọi trong các hàm xóa, TRƯỚC saveState().
@@ -28598,7 +28645,7 @@ function pruneDeletedIds(days){
 // khiến danh mục bị lọc mất khi sync. Gỡ các bia mộ đó để dứt điểm.
 function _healCatalogTombstones(){
   const live=new Set();
-  const fields=['projects','vessels','departments','companies','vendors','expenseTypes','revenueTypes'];
+  const fields=['projects','vessels','departments','companies','vendors','expenseTypes','expenseTree','revenueTypes'];
   fields.forEach(f=>{
     (Array.isArray(S[f])?S[f]:[]).forEach(r=>{ if(r && r.id!=null) live.add(String(r.id)); });
   });
@@ -31067,6 +31114,12 @@ function addExpenseType(){
         <input type="text" id="etype-icon" placeholder="📝" maxlength="4" value="📝">
       </div>
       <div class="field">
+        <label>Mã số phân cấp (2–4 cấp, vd 1.30.100.01) — tùy chọn</label>
+        <input type="text" id="etype-treecode" placeholder="VD: 1.30.100.01" maxlength="20" oninput="_etypePreviewPath()" style="font-variant-numeric:tabular-nums">
+        <div id="etype-treepath" style="font-size:12px;color:var(--good,#1a7a4c);margin-top:4px"></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">Nhóm suy ra theo mã. Đặt tên nhánh ở <a href="#" onclick="closeModal();openExpenseTreeManager();return false">Bảng tên nhánh</a>.</div>
+      </div>
+      <div class="field">
         <label><input type="checkbox" id="etype-isPO"> Đây là PO (mua tồn kho — không vào P&L)</label>
       </div>
       <div class="field" style="padding:10px 12px;background:rgba(var(--accent-rgb,65,65,65),.06);border-left:3px solid var(--accent);margin-top:4px">
@@ -31099,6 +31152,86 @@ function addExpenseType(){
      <button class="btn-primary" onclick="_doAddExpenseType()">Thêm</button>`);
 }
 
+/* ══════════════════════════════════════════════════════════════════
+   v3.16.71 (GĐ2): BẢNG TÊN NHÁNH — admin khai báo tên cho từng mã số phân cấp (Cách A).
+   Khai MỘT LẦN, mọi loại con thừa hưởng. Mã linh hoạt 2-4 cấp. Chỉ thêm/sửa/xóa danh mục tên nhánh;
+   KHÔNG đụng loại chi phí / bút toán / P&L. */
+function openExpenseTreeManager(){
+  if(!isAdmin()){ toast('Chỉ admin quản lý bảng tên nhánh','bad'); return; }
+  _renderExpenseTreeBody();
+}
+function _renderExpenseTreeBody(){
+  const list=(typeof expTreeList==='function'?expTreeList():[]).slice()
+    .sort((a,b)=>String(a.code).localeCompare(String(b.code),undefined,{numeric:true}));
+  const rowOf=(n)=>{
+    const lv=(typeof expTreeLevel==='function')?expTreeLevel(n.code):String(n.code).split('.').length;
+    const pad=(lv-1)*22;
+    const lvName=(typeof expTreeLevelName==='function')?expTreeLevelName(n.code):'';
+    return `<tr>
+      <td style="font-variant-numeric:tabular-nums;padding-left:${8+pad}px"><b>${esc(n.code)}</b></td>
+      <td>${esc(n.name||'')}</td>
+      <td style="color:var(--muted);font-size:12px">${esc(lvName)}</td>
+      <td><div class="row-actions">
+        <button class="icon-btn" title="Sửa" onclick="_expTreeEditRow('${esc(n.code)}')">✎</button>
+        <button class="icon-btn danger" title="Xóa nhánh" onclick="_expTreeDeleteRow('${esc(n.code)}')">⊘</button>
+      </div></td></tr>`;
+  };
+  const rows=list.length?list.map(rowOf).join(''):'<tr><td colspan="4" class="empty">Chưa có nhánh nào — thêm bên dưới</td></tr>';
+  const body=`
+    <div style="font-size:12px;color:var(--muted);margin-bottom:12px">Khai báo tên cho từng mã số phân cấp (vd 1 = HÀNG HẢI, 1.30 = Vật tư, 1.30.100 = Vật tư sửa chữa). Loại chi phí gắn mã số sẽ tự hiện đường dẫn theo bảng này. Mã linh hoạt 2–4 cấp.</div>
+    <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:14px;padding:12px;background:var(--paper);border-radius:8px">
+      <div style="display:flex;flex-direction:column;gap:3px"><label style="font-size:11px;text-transform:uppercase;color:var(--muted);font-weight:600">Mã số</label>
+        <input id="ndTreeCode" placeholder="VD: 1.30.100" maxlength="20" style="padding:7px 10px;border:1px solid var(--rule);border-radius:6px;font-variant-numeric:tabular-nums;width:140px"></div>
+      <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:180px"><label style="font-size:11px;text-transform:uppercase;color:var(--muted);font-weight:600">Tên nhánh</label>
+        <input id="ndTreeName" placeholder="VD: Vật tư sửa chữa" maxlength="80" style="padding:7px 10px;border:1px solid var(--rule);border-radius:6px"></div>
+      <button class="btn-primary" onclick="_expTreeAddRow()">+ Lưu nhánh</button>
+    </div>
+    <div style="overflow:auto;border:1px solid var(--rule);border-radius:8px;max-height:400px">
+      <table class="tbl" style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead><tr style="background:#f0f3f7"><th style="text-align:left;padding:8px 10px">Mã số</th><th style="text-align:left;padding:8px 10px">Tên nhánh</th><th style="text-align:left;padding:8px 10px">Cấp</th><th style="width:80px"></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>`;
+  openModal('🌳 Bảng tên nhánh — phân cấp chi phí', body, `<button class="btn-sec" onclick="closeModal()">Đóng</button>`);
+}
+function _expTreeAddRow(){
+  const code=(document.getElementById('ndTreeCode')||{}).value ? document.getElementById('ndTreeCode').value.trim() : '';
+  const name=(document.getElementById('ndTreeName')||{}).value ? document.getElementById('ndTreeName').value.trim() : '';
+  if(!code){ toast('Nhập mã số','bad'); return; }
+  if(!/^\d+(\.\d+)*$/.test(code)){ toast('Mã số chỉ gồm số và dấu chấm (vd 1.30.100)','bad'); return; }
+  if(!name){ toast('Nhập tên nhánh','bad'); return; }
+  if(typeof expTreeUpsert==='function') expTreeUpsert(code, name);
+  saveState();
+  toast('Đã lưu nhánh '+code);
+  _renderExpenseTreeBody();
+}
+function _expTreeEditRow(code){
+  const cur=(typeof expTreeName==='function')?expTreeName(code):'';
+  const nv=prompt('Sửa tên nhánh '+code+':', cur);
+  if(nv===null) return;
+  if(!nv.trim()){ toast('Tên không được rỗng','bad'); return; }
+  if(typeof expTreeUpsert==='function') expTreeUpsert(code, nv.trim());
+  saveState(); toast('Đã cập nhật '+code); _renderExpenseTreeBody();
+}
+function _expTreeDeleteRow(code){
+  // cảnh báo nếu có loại chi phí đang gắn mã bắt đầu bằng code này
+  const used=(S.expenseTypes||[]).filter(t=>t.treeCode && (String(t.treeCode)===String(code)||String(t.treeCode).indexOf(code+'.')===0));
+  const msg=used.length?('Nhánh '+code+' đang có '+used.length+' loại chi phí gắn dưới nó. Xóa TÊN nhánh (loại chi phí vẫn giữ mã số, chỉ mất tên đường dẫn). Tiếp tục?'):('Xóa nhánh '+code+'?');
+  if(!confirm(msg)) return;
+  if(typeof expTreeRemove==='function') expTreeRemove(code);
+  saveState(); toast('Đã xóa nhánh '+code); _renderExpenseTreeBody();
+}
+
+/* v3.16.71 (GĐ2): preview đường dẫn nhánh khi admin gõ mã số trong form loại chi phí. */
+function _etypePreviewPath(){
+  const el=document.getElementById('etype-treecode'); const out=document.getElementById('etype-treepath');
+  if(!el||!out) return;
+  const tc=el.value.trim();
+  if(!tc){ out.textContent=''; return; }
+  const lab=(document.getElementById('etype-label')||{}).value||'';
+  const path=(typeof expTreePath==='function')?expTreePath(tc, lab):'';
+  const lv=(typeof expTreeLevelName==='function')?expTreeLevelName(tc):'';
+  out.innerHTML = path ? ('📁 '+esc(path)+' <span style="color:var(--muted)">· '+esc(lv)+'</span>') : '';
+}
 function _doAddExpenseType(){
   const err=document.getElementById('etype-err');
   err.textContent='';
@@ -31106,6 +31239,7 @@ function _doAddExpenseType(){
   const label=document.getElementById('etype-label').value.trim();
   const group=document.getElementById('etype-group').value;
   const icon=document.getElementById('etype-icon').value.trim()||'📝';
+  const treeCode=(document.getElementById('etype-treecode')||{}).value ? document.getElementById('etype-treecode').value.trim() : '';   // v3.16.71
   const isPO=document.getElementById('etype-isPO').checked;
   const isFuel=document.getElementById('etype-isFuel').checked;  // v1.43.0
   const isAdvance=document.getElementById('etype-isAdvance').checked;  // v2.21.0
@@ -31124,6 +31258,7 @@ function _doAddExpenseType(){
   Store._apply('expenseTypes', {
     id:'ET-'+codeRaw+'-'+uid().slice(-4),
     code:codeRaw, label, group, icon, isPO,
+    treeCode: treeCode||undefined,   // v3.16.71: mã số phân cấp (nhóm suy ra từ mã)
     isFuel,                  // v1.43.0
     isAdvance,               // v2.21.0
     defaultVendor: defaultVendor||undefined,
@@ -31180,6 +31315,12 @@ function editExpenseType(id){
         <label>Gợi ý/Mô tả</label>
         <input type="text" id="etype-edit-hint" value="${esc(t.hint||'')}" maxlength="200">
       </div>
+      <div class="field">
+        <label>Mã số phân cấp (2–4 cấp, vd 1.30.100.01) — tùy chọn</label>
+        <input type="text" id="etype-edit-treecode" value="${esc(t.treeCode||'')}" placeholder="VD: 1.30.100.01" maxlength="20" oninput="_etypeEditPreviewPath('${esc(t.label||'')}')" style="font-variant-numeric:tabular-nums">
+        <div id="etype-edit-treepath" style="font-size:12px;color:var(--good,#1a7a4c);margin-top:4px"></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">Nhóm suy ra theo mã. <a href="#" onclick="closeModal();openExpenseTreeManager();return false">Bảng tên nhánh</a></div>
+      </div>
       <div id="etype-err" style="color:var(--bad);font-size:13px;margin-top:8px"></div>
     </div>
   `;
@@ -31188,6 +31329,15 @@ function editExpenseType(id){
      <button class="btn-primary" onclick="_doEditExpenseType('${esc(t.id)}')">Cập nhật</button>`);
 }
 
+function _etypeEditPreviewPath(lab){
+  const el=document.getElementById('etype-edit-treecode'); const out=document.getElementById('etype-edit-treepath');
+  if(!el||!out) return;
+  const tc=el.value.trim();
+  if(!tc){ out.textContent=''; return; }
+  const path=(typeof expTreePath==='function')?expTreePath(tc, lab||''):'';
+  const lv=(typeof expTreeLevelName==='function')?expTreeLevelName(tc):'';
+  out.innerHTML = path ? ('📁 '+esc(path)+' <span style="color:var(--muted)">· '+esc(lv)+'</span>') : '';
+}
 function _doEditExpenseType(id){
   const t=(S.expenseTypes||[]).find(x=>x.id===id);
   if(!t)return;
@@ -31196,6 +31346,7 @@ function _doEditExpenseType(id){
   if(!label){err.textContent='Nhập tên hiển thị';return;}
   t.label=label;
   t.icon=document.getElementById('etype-edit-icon').value.trim()||'📝';
+  { const _tc=document.getElementById('etype-edit-treecode'); if(_tc){ const v=_tc.value.trim(); if(v) t.treeCode=v; else delete t.treeCode; } }   // v3.16.71
   t.isPO=document.getElementById('etype-edit-isPO').checked;
   t.isFuel=document.getElementById('etype-edit-isFuel').checked;  // v1.43.0
   t.isAdvance=document.getElementById('etype-edit-isAdvance').checked;  // v2.21.0
@@ -31790,7 +31941,7 @@ function renderCatalog(){
         if(t.isAdvance) flags.push('<span class="ds-need" style="font-size:10px;margin-left:3px" title="Ứng quỹ tiền mặt">Ứng quỹ</span>');
         return `<tr>
           <td class="ds-t-sub" style="font-family:var(--font-mono)" style="padding-left:22px"><b>${esc(t.code)}</b>${fuelChip}${flags.join('')}</td>
-          <td>${t.icon?esc(t.icon)+' ':''}${esc(t.label)}</td>
+          <td>${t.icon?esc(t.icon)+' ':''}${esc(t.label)}${t.treeCode?`<div style="font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums">🔢 ${esc(t.treeCode)} · ${esc((typeof expTreePath==='function'?expTreePath(t.treeCode,t.label):'')||'')}</div>`:''}</td>
           ${adminMode?`<td><div class="row-actions">
             <button class="icon-btn" title="Sửa" onclick="editExpenseType('${t.id||t.code}')">✎</button>
             <button class="icon-btn danger" title="Ẩn (archive)" onclick="archiveExpenseType('${t.id||t.code}')">⊘</button>
