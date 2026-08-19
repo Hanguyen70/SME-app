@@ -1,5 +1,5 @@
 {
-  "version": "3.17.07",
-  "swVersion": "v3.17.07",
-  "notes": "v3.17.07: Chuẩn hóa toàn app về một cơ chế in duy nhất là in ngay trong trang qua vùng in sẵn có, cách báo cáo chủ tàu và báo cáo khoán vẫn dùng. Không nút in nào còn mở cửa sổ mới: 21 nút in kiểu cũ đi qua một bộ chuyển đổ nội dung vào vùng in rồi in, bộ in chứng từ DocEngine cũng in cùng vùng. Các nút In và Đóng mà mẫu cũ tự chèn không còn hiện trên giấy. Mã từng nút in giữ nguyên. Nền v3.17.06 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần."
+  "version": "3.17.08",
+  "swVersion": "v3.17.08",
+  "notes": "v3.17.08: Vùng in không còn bị dọn ngay sau khi dựng xem trước. Chrome bắn sự kiện sau in ngay khi dựng xong bản xem trước, nên nếu đổi tùy chọn trong hộp in như lề hay đầu trang thì trình duyệt dựng lại trên vùng đã rỗng và ra trang trắng. Nay giữ nội dung vùng in tới lần in kế, đúng như báo cáo chủ tàu vẫn làm. Nền v3.17.07 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần và kiểm số phiên bản ở chân app."
 }
