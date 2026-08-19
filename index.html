@@ -3793,7 +3793,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.16.88';
+const APP_VERSION='3.16.89';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -70561,7 +70561,7 @@ function whBuildPeriodDocs(whId, items, fromDate, toDate, by, genDocNo){
   if(outLines.length) out.push(mk('OUT', outLines, 'Xuất trong kỳ '+fromDate+' → '+toDate+' (nạp từ file NXT)'));
   return out;
 }
-function whParseOpeningRows(aoa){
+function whParseOpeningRows(aoa, forcedWh){
   const items=[], errors=[];
   let negCount=0;                 // v3.16.35: đếm mã có số lượng ÂM (vẫn nạp, chỉ để cảnh báo)
   const norm=s=>whNormName(s);
@@ -70648,7 +70648,10 @@ function whParseOpeningRows(aoa){
     if(!code) continue; // dòng trống/trang trí
     if(FOOT.test(norm(code))) continue;
     const qty=+String(row[col.qty]||'').replace(/[, ]/g,'')||0;
-    const whKey=groupMode?curWh:String(row[col.wh]||'').trim();
+    let whKey=groupMode?curWh:String(row[col.wh]||'').trim();
+    /* v3.16.89 (Sếp): file tồn thuần 1 kho KHÔNG có cột Kho. Nếu admin đã chọn 'Ghi vào kho' (forcedWh)
+       thì ÉP mọi dòng vào kho đó — không cần cột kho trong file, không báo 'chưa xác định được kho'. */
+    if(!whKey && forcedWh) whKey='__FORCED__';
     if(!whKey){ errors.push({row:r+1,msg:'Dòng "'+code+'" chưa xác định được kho'}); continue; }
     /* v3.16.35 (Sếp chốt: "cho app nạp cả dòng âm — app khớp FAST tuyệt đối"): tồn âm là sai
        sổ bên FAST, nhưng loại dòng ra thì app và FAST lệch nhau, và kỳ sau sẽ bị luật "tồn đầu
@@ -70811,12 +70814,12 @@ function _opImportFile(file){
       const aoa=whSheetToAoa(wb.Sheets[wb.SheetNames[0]]);   // v3.15.79: quét vùng THẬT, không tin !ref
       /* v3.16.30: chế độ KỲ đi đường riêng — đọc 4 khối NXT, kiểm tồn đầu, rồi mới cho ghi. */
       if(_impMode==='period'){ _opPreviewPeriod(aoa); return; }
-      const {items, errors}=whParseOpeningRows(aoa);
+      const _forced=String((document.getElementById('op-target-wh')||{}).value||'');   // v3.16.89: đọc kho đích TRƯỚC khi parse
+      const {items, errors}=whParseOpeningRows(aoa, _forced);
       /* v3.16.06 (Sếp: "nút chọn kho đâu?"): nếu người dùng đã chỉ đích danh kho ở ô "Ghi vào kho"
          thì ÉP toàn bộ file vào kho đó, không cần khớp tự động. Để trống = tự nhận theo file. */
       /* v3.16.35: nêu rõ số mã có tồn ÂM — app vẫn nạp để khớp FAST, nhưng người nạp phải biết */
       const _neg=+items.filter(i=>(+i.qty||0)<0).length||0;
-      const _forced=String((document.getElementById('op-target-wh')||{}).value||'');
       let groups, unmatched;
       if(_forced){ groups={}; groups[_forced]=items.slice(); unmatched={}; }
       else { const m=whMatchOpeningWarehouses(items, InventoryService.warehouses()); groups=m.groups; unmatched=m.unmatched; }

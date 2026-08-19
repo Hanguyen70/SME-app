@@ -1,5 +1,5 @@
 {
-  "version": "3.16.88",
-  "swVersion": "v3.16.88",
-  "notes": "v3.16.88: Chuẩn hóa lại nguyên tắc nạp kho theo đúng bản chất. Tồn đầu kỳ chỉ được nạp qua kiểu Tồn đầu kỳ với file tồn thuần. Kiểu Nhập Xuất Tồn theo kỳ chỉ tạo phát sinh nhập và xuất, không tự tạo tồn đầu nữa. Kho chưa nạp tồn đầu kỳ thì tồn đầu bằng không và chỉ có phát sinh. Khi nạp Nhập Xuất Tồn, nếu tồn đầu trong file khác tồn đang có trong app thì báo dừng và nhắc nạp Tồn đầu kỳ trước; nếu file khai tồn đầu bằng không thì nạp bình thường. Nền v3.16.87 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần."
+  "version": "3.16.89",
+  "swVersion": "v3.16.89",
+  "notes": "v3.16.89: Sửa lỗi khi nạp file tồn kho một kho không có cột Kho riêng. Trước đây nếu file chỉ có mã và số lượng mà không có cột Kho hay Chi nhánh thì mọi dòng bị báo chưa xác định được kho, kể cả khi đã chọn kho đích ở ô Ghi vào kho. Nay nếu đã chọn kho đích thì toàn bộ dòng trong file được ghi vào đúng kho đó, không cần file phải có cột Kho. Nếu để ô Ghi vào kho ở chế độ tự nhận theo file thì file vẫn cần cột Kho như cũ. Nền v3.16.88 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần."
 }
