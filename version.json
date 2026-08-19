@@ -1,5 +1,5 @@
 {
-  "version": "3.17.06",
-  "swVersion": "v3.17.06",
-  "notes": "v3.17.06: Rà toàn bộ 21 nút in PDF trong app đang mở cửa sổ mới để in. Nay tất cả đi qua một cửa chung: mở được cửa sổ thì in như cũ; bị trình duyệt chặn cửa sổ bật lên thì app tự in ngay trong trang qua vùng in sẵn có thay vì báo lỗi, in trang trắng hay không làm gì. Mã từng nút giữ nguyên. Nền v3.17.05 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần."
+  "version": "3.17.07",
+  "swVersion": "v3.17.07",
+  "notes": "v3.17.07: Chuẩn hóa toàn app về một cơ chế in duy nhất là in ngay trong trang qua vùng in sẵn có, cách báo cáo chủ tàu và báo cáo khoán vẫn dùng. Không nút in nào còn mở cửa sổ mới: 21 nút in kiểu cũ đi qua một bộ chuyển đổ nội dung vào vùng in rồi in, bộ in chứng từ DocEngine cũng in cùng vùng. Các nút In và Đóng mà mẫu cũ tự chèn không còn hiện trên giấy. Mã từng nút in giữ nguyên. Nền v3.17.06 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần."
 }

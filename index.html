@@ -368,6 +368,7 @@ body.readonly-mode::before{
   @page { size: A4; margin: 15mm 12mm; }
   body > * { display: none !important; }
   body > .print-area { display: block !important; }
+  .print-area button, .print-area .noprint, .print-area .toolbar { display:none !important; }   /* v3.17.07: mẫu in cũ có nút In/Đóng tự chèn */
   .print-area { color:#000; font-family:'Times New Roman',serif; font-size:11pt; }
   .print-area .pr-page { page-break-after: always; padding:0; }
   .print-area .pr-page:last-child { page-break-after: auto; }
@@ -3793,7 +3794,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.17.06';
+const APP_VERSION='3.17.07';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -30191,16 +30192,14 @@ function _loadJsPDF(){
   });
   return _jsPDFLoading;
 }
-/* v3.17.06 (Sếp: "kiểm tra các nút in PDF trong app — còn nút nào sai?"): MỘT CỬA cho mọi đường in qua cửa sổ mới.
-   Trước đây 21 nút in tự gọi window.open('','_blank'); popup bị chặn thì nơi báo lỗi, nơi in cả trang app (trắng),
-   nơi vỡ. Nay openPrintWindow(): mở được cửa sổ thì trả về y như cũ (hành vi không đổi); bị chặn thì trả về một
-   "cửa sổ giả" ghi nội dung vào vùng #print-area và in NGAY TRONG TRANG (cơ chế đã chạy ổn của báo cáo chủ tàu).
-   Mã tại từng nút giữ nguyên: document.write / close / print / focus đều có. */
+/* v3.17.07 (Sếp chốt: "CHUẨN HÓA TOÀN APP về cơ chế 2 — in trong trang qua #print-area; KHÔNG tự tạo cơ chế mới").
+   openPrintWindow() là BỘ CHUYỂN cho 21 nút in cũ đang viết HTML kiểu cửa sổ mới (document.write/close/print):
+   KHÔNG mở cửa sổ mới nữa — nội dung viết ra được đổ vào vùng #print-area (CSS @media print của app ẩn toàn bộ,
+   chỉ hiện vùng này; báo cáo chủ tàu/khoán in kiểu này lâu nay) và in ngay trong trang. Mã từng nút giữ nguyên.
+   Lấy <style> trong head để giữ định dạng; bỏ <script> (nút tự gọi print cũ không cần nữa). */
 function openPrintWindow(features){
-  let w=null; try{ w=window.open('','_blank',features||''); }catch(e){ w=null; }
-  if(w) return w;
   const pa=document.getElementById('print-area');
-  if(!pa) return null;
+  if(!pa){ toast('Không tìm thấy vùng in','bad'); return null; }
   let buf='', done=false;
   const flush=()=>{
     if(done) return; done=true;
@@ -30212,15 +30211,13 @@ function openPrintWindow(features){
       dp.querySelectorAll('style').forEach(x=>x.remove());
       body=dp.body?dp.body.innerHTML:buf;
     }catch(e){}
-    pa.innerHTML=styles+'<div>'+body+'</div>';
+    pa.innerHTML=styles+'<div class="pr-doc">'+body+'</div>';
     const clear=()=>{ try{ pa.innerHTML=''; }catch(e){} window.removeEventListener('afterprint',clear); };
     window.addEventListener('afterprint',clear);
     setTimeout(()=>{ try{ window.print(); }catch(e){ console.warn('[print-area]',e); } },200);
   };
-  const shim={ _inPage:true, document:{ write:(h)=>{ buf+=String(h==null?'':h); }, close:flush, get body(){ return pa; } },
+  return { _inPage:true, document:{ write:(h)=>{ buf+=String(h==null?'':h); }, close:flush, get body(){ return pa; } },
     focus:()=>{}, print:flush, close:()=>{}, onload:null };
-  try{ toast('Trình duyệt chặn cửa sổ mới — in ngay trong trang','info'); }catch(e){}
-  return shim;
 }
 const DocEngine = (function(){
   function _esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
