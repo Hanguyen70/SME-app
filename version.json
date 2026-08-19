@@ -1,5 +1,5 @@
 {
-  "version": "3.16.83",
-  "swVersion": "v3.16.83",
-  "notes": "v3.16.83: Làm rõ hai chế độ import kho. Chế độ Tồn đầu kỳ nay chỉ nhận file tồn kho thuần gồm mã và số lượng tồn; nếu chọn nhầm file Nhập Xuất Tồn có đủ các cột tồn đầu, nhập, xuất, tồn cuối thì app sẽ báo và hướng dẫn chuyển sang chế độ Nhập Xuất Tồn theo kỳ, thay vì đọc nhầm cột như trước. File Nhập Xuất Tồn dùng chế độ theo kỳ, khi kho rỗng sẽ tự tạo tồn đầu kỳ. Nền v3.16.82 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần."
+  "version": "3.16.85",
+  "swVersion": "v3.16.85",
+  "notes": "v3.16.85: Rút gọn phần đối chiếu Nhập Xuất Tồn theo kỳ, chỉ đối chiếu số lượng. Bỏ phần kiểm tra giá trị và dung sai vừa thêm ở bản trước, vì giá trị đã do cách tính giá vốn tự xử lý nên không cần đối chiếu. Tồn cuối được kiểm theo công thức tồn đầu cộng nhập trừ xuất về mặt số lượng. Nền v3.16.84 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần."
 }
