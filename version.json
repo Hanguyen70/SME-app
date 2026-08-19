@@ -1,5 +1,5 @@
 {
-  "version": "3.16.98",
-  "swVersion": "v3.16.98",
-  "notes": "v3.16.98: Hộp chọn bản in và xuất Excel chứng từ kho không bày ra thứ người dùng không được phép nữa. Người không được xem giá trị kho thì in và xuất thẳng bản không giá, không hiện lựa chọn có giá. Người được xem giá thấy hai bản trình bày bình thường, bỏ nhãn đỏ bản nội bộ không phát xuống tàu ở hộp chọn; dòng chân trang nội bộ trên bản in có giá của phiếu kho tàu vẫn giữ để có dấu vết. Nền v3.16.97 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần."
+  "version": "3.17.02",
+  "swVersion": "v3.17.02",
+  "notes": "v3.17.02: Quay lại thiết kế cũ cho nút In PDF và Xuất Excel trên phiếu nhập xuất: chỉ hiện khi phiếu đã lưu và có số phiếu, không tự lưu nháp khi in. Khi xuất Excel mà thư viện định dạng chưa tải được thì app báo rõ file đang ở dạng trơn và hướng dẫn tải lại trang để xuất theo chuẩn. Nền v3.17.01 giữ nguyên. Sau khi lên bản này cần tải lại trang một lần bằng Ctrl+F5 để nạp thư viện định dạng Excel."
 }

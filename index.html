@@ -3792,7 +3792,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.16.98';
+const APP_VERSION='3.17.02';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -66052,6 +66052,9 @@ function canViewStockValue(){
   if(isAdmin()) return true;
   const u=CURRENT_USER; if(!u) return false;
   if(u.isVesselAccount) return false;  // v3.08.48 (Mảng 2): tài khoản TÀU KHÔNG bao giờ thấy giá
+  /* v3.17.01 (Sếp: "kho TÀU chặn hoàn toàn phần có giá"): PHÍA TÀU nói chung (thuyền trưởng, tài khoản gắn tàu
+     linkVesselId) cũng không thấy giá — đặt trước mọi cờ bờ để cờ lẫn không lách qua. Admin ở trên vẫn toàn quyền. */
+  if(typeof whIsVesselSideUser==='function' && whIsVesselSideUser()) return false;
   /* v3.16.46 (Sếp): VM kiểm soát và duyệt mua vật tư — không thấy giá trị tồn thì không duyệt
      được. Đặt SAU chốt chặn tài khoản tàu ở trên nên tàu không lách qua. */
   return !!(u.isCentralWarehouse || u.canCheckAcc || u.isBOD || u.isCEO || u.canApproveL1 || u.canApproveL2 || u.isVesselManager);
@@ -69310,8 +69313,8 @@ function _stockRenderForm(){
     <button class="btn-sec" style="font-size:11px;margin-top:6px;margin-left:6px" onclick="whOpenLookup('stock')" title="Tìm mã/tên vật tư và xem tồn ở tất cả kho — chọn để thêm vào phiếu">🔎 Tra tồn mọi kho</button>${_impBtn}
     ${/* v3.16.27: in ngay tại form, khỏi đóng form đi tìm dòng trong bảng kê. Dùng CHUNG hàm
          stockDocPreview — không nhân bản mã, không tải gì thêm, in bằng cửa sổ trình duyệt. */''}
-    ${s.id?`<button class="btn-sec" style="font-size:11px;margin-top:6px;margin-left:6px" onclick="DocEngine.preview(_stockSpec(stockDocById('${s.id}'),{showValue:true}))" title="In phiếu PDF theo mẫu chuẩn FAST — màn bờ luôn bản CÓ giá (v3.16.95)">🖨 PDF</button>
-    <button class="btn-sec" style="font-size:11px;margin-top:6px;margin-left:6px" onclick="whDocExportXlsx('${s.id}', true)" title="Xuất Excel cùng mẫu với bản in — bản CÓ giá">⬇ Excel</button>`:''}
+    ${s.id?`<button class="btn-sec" style="font-size:11px;margin-top:6px;margin-left:6px" onclick="_stockPrint('pdf')" title="In phiếu PDF theo mẫu chuẩn FAST — màn bờ bản có giá">🖨 PDF</button>
+    <button class="btn-sec" style="font-size:11px;margin-top:6px;margin-left:6px" onclick="_stockPrint('xlsx')" title="Xuất Excel cùng mẫu với bản in — bản có giá">⬇ Excel</button>`:''}
     <div style="font-size:11px;color:var(--muted);margin-top:6px">📦 ${isIn?'Đơn giá để trống thì app lấy theo bảng giá vốn của mã; có hóa đơn AP liên kết thì giá theo hóa đơn.':'Không xuất vượt tồn khả dụng (sẽ bị chặn khi xác nhận).'} Mã FAST <b>không bắt buộc</b> — để trống thì app gợi ý theo tên, không khớp thì cấp mã tạm SH-xxxx và đẩy vào 🏷 Soát mã.</div>`;
   openModal((s.id?'✏️ Sửa ':'+ ')+(isIn?'Phiếu nhập kho':'Phiếu xuất kho'), body,
     `<button class="btn-ghost" onclick="openStockDocs()">← Danh sách</button>
@@ -71234,7 +71237,7 @@ function whApplyStockEdit(d, s, confirmNow, by){
   return d;
 }
 
-function _stockSave(confirmNow){
+function _stockSave(confirmNow, stay){   // v3.17.01: stay=true → lưu xong ở lại form (để in/xuất ngay)
   _stockSyncForm();
   const s=_stockDraft; if(!s) return;
   const can=whCanSaveStock(s); if(!can.ok){ toast(can.reason,'bad'); return; }
@@ -71256,9 +71259,19 @@ function _stockSave(confirmNow){
     const doc=whBuildStockDoc(s, confirmNow, by);
     InventoryService.addStockDoc(doc);
     try{ logAuditEvent(s.type==='IN'?'stock_in':'stock_out',{docNo:doc.docNo, confirmed:confirmNow}); }catch(e){}
+    s.id=doc.id;   // v3.17.01: để nhánh stay biết phiếu đã có id
   }
   saveState(); toast('Đã lưu chứng từ'+(confirmNow?' & cập nhật tồn ✓':' (nháp)'),'good');
+  if(stay){ const id=s.id; const d=InventoryService.stockDocById(id); if(d){ _stockDraft=JSON.parse(JSON.stringify(d)); _stockRenderForm(); } return id; }
   _stockDraft=null; openStockDocs();
+}
+/* v3.17.02 (Sếp chốt): QUAY LẠI thiết kế cũ — nút PDF/Excel chỉ hiện khi phiếu ĐÃ LƯU (có số phiếu).
+   Không tự lưu nháp khi in. Màn bờ → bản có giá. */
+function _stockPrint(kind){
+  if(!_stockDraft||!_stockDraft.id){ toast('Lưu phiếu trước rồi mới in / xuất','warn'); return; }
+  const id=_stockDraft.id;
+  if(kind==='xlsx') whDocExportXlsx(id,true);
+  else DocEngine.preview(_stockSpec(stockDocById(id),{showValue:true}));
 }
 function _stockSelfQty(docId, code){ // phần SL của chính phiếu này (để khi sửa không tự chặn mình) — chỉ áp khi phiếu đã confirmed trước đó
   const d=stockDocById(docId); if(!d||d.status!=='confirmed'||d.type!=='OUT') return 0;
@@ -71519,18 +71532,85 @@ function whDocSpecToAoa(spec, opts){
   if(sigs.length){ put([]); put(sigs); put(sigs.map(()=>'(Ký, họ tên)')); }
   return A;
 }
+/* v3.16.99 (Sếp: "mẫu Excel phải theo thiết kế định dạng Excel của app"): trang trí AOA phiếu kho theo
+   CHUẨN STYLE CHUNG ExcelExporter (Calibri, tiêu đề navy, ô tiêu đề cột chữ trắng nền navy, ô số liệu có
+   khung + zebra + numFmt #,##0, dòng tổng nền xám-xanh, chữ ký căn giữa). Bố cục vẫn lấy từ whDocSpecToAoa
+   (một nguồn: đổi mẫu → PDF lẫn Excel đổi theo). Hàm thuần: nhận aoa trơn → trả {aoa, merges, rows}.
+   XLSXStyle chưa tải → trả nguyên aoa trơn (fallback, không vỡ). */
+function whDocAoaStyle(aoa, spec, opts){
+  opts=opts||{};
+  const EE=(typeof ExcelExporter!=='undefined')?ExcelExporter:null;
+  const XS=(typeof window!=='undefined')?window.XLSXStyle:null;
+  const styled=!!(EE&&XS&&(!EE.ready||EE.ready()));
+  if(!styled) return {aoa, merges:[], rows:null, styled:false};
+  const t=String((spec&&spec.docType)||''); const isXfer=(t==='TRANSFER_IN'||t==='TRANSFER_OUT');
+  const NUMF='#,##0', QTYF='#,##0.###';
+  const nCols=isXfer?((opts.showValue)?7:5):7;
+  const last=nCols-1;
+  const hIdx=aoa.findIndex(r=>r&&r[0]==='Stt');
+  const hEnd=isXfer?hIdx:hIdx+2;                       // 01/02-VT: 3 dòng tiêu đề (2 nhãn + A B C D 1 2 3)
+  let totIdx=-1; for(let i=hEnd+1;i<aoa.length;i++){ if(aoa[i]&&aoa[i][4]==='Tổng cộng'){ totIdx=i; break; } }
+  const sigIdx=(function(){ for(let i=aoa.length-1;i>=0;i--){ if(aoa[i]&&aoa[i][0]==='(Ký, họ tên)') return i-1; } return -1; })();
+  const merges=[]; const rows={};
+  const DC=(v,o)=>EE.dataCell(v,o||{}); const HC=(v,a)=>EE.headerCell(v,a); const TC=(v,o)=>EE.totalCell(v,o||{});
+  const plain=(v,o)=>{ o=o||{}; const c=EE.dataCell(v,o); delete c.s.border; return c; };   // chữ đầu trang: không khung
+  const out=aoa.map((row,ri)=>{
+    row=row||[];
+    const full=[]; for(let c=0;c<nCols;c++) full.push(row[c]==null?'':row[c]);
+    if(ri<hIdx){                                       // ---- đầu trang + thông tin ----
+      if(ri===5){ merges.push({s:{r:ri,c:0},e:{r:ri,c:last}}); rows[ri]={hpt:26}; return [EE.title(String(row[2]||''))].concat(full.slice(1).map(()=>'')); }
+      if(ri===6){ return full.map((v,c)=>c===2?plain(v,{align:'center',italic:true}):(c===4?plain(v,{bold:true,align:'right'}):plain(v,{bold:c===5}))); }
+      if(ri<=2){ return full.map((v,c)=>plain(v,{bold:(ri===1&&c===0), align:(c===5?'right':'left'), color:(c===5?'6B7280':'000000')})); }
+      /* khối thông tin: nhãn đậm (cột 0, và cột 3 khi là nhãn có dấu :) */
+      return full.map((v,c)=>{ const lbl=(c===0||c===3||c===4)&&/:\s*$/.test(String(v)); return plain(v,{bold:lbl, color:lbl?'1F3A5F':'000000'}); });
+    }
+    if(ri>=hIdx&&ri<=hEnd){                            // ---- tiêu đề bảng ----
+      rows[ri]={hpt:18};
+      if(!isXfer){
+        if(ri===hIdx){ merges.push({s:{r:ri,c:0},e:{r:ri+1,c:0}},{s:{r:ri,c:1},e:{r:ri+1,c:1}},{s:{r:ri,c:2},e:{r:ri+1,c:2}},{s:{r:ri,c:3},e:{r:ri+1,c:3}},{s:{r:ri,c:4},e:{r:ri,c:5}}); if(opts.showValue) merges.push({s:{r:ri,c:6},e:{r:ri+1,c:6}}); }
+      }
+      return full.map((v,c)=>HC(v,'center'));
+    }
+    if(ri>hEnd&&(totIdx<0||ri<totIdx)){                // ---- dòng số liệu (kể cả dòng trống in sẵn) ----
+      if(!row.length) return full.map(()=>'');
+      const zebra=((ri-hEnd)%2===0)?EE.C.zebra:null;
+      return full.map((v,c)=>{
+        const isNum=(typeof v==='number');
+        let num=null; if(isNum){ num=(isXfer?(c>=5):(c>=6))?NUMF:QTYF; if(c===0) num=null; }
+        return DC(v,{bg:zebra, align:isNum?'right':(c===0?'center':'left'), num, wrap:(isXfer?c===2:c===1)});
+      });
+    }
+    if(ri===totIdx){ merges.push({s:{r:ri,c:0},e:{r:ri,c:4}}); return full.map((v,c)=>{ if(c<4) return TC(c===0?'Tổng cộng':''); if(c===4) return TC(''); return TC(v,{align:'right',num:(c===6||isXfer)?NUMF:QTYF}); }); }
+    if(sigIdx>=0&&(ri===sigIdx||ri===sigIdx+1)){        // ---- chữ ký ----
+      const n=row.length; if(!n) return full.map(()=>'');
+      const cells=full.map(()=>'');   // chia đều cột cho các ô chữ ký
+      row.forEach((v,k)=>{ const c0=Math.round(k*nCols/n), c1=Math.round((k+1)*nCols/n)-1; if(c1>c0) merges.push({s:{r:ri,c:c0},e:{r:ri,c:c1}});
+        cells[c0]=plain(v,{bold:ri===sigIdx, align:'center', color:ri===sigIdx?'1F3A5F':'6B7280'}); });
+      return cells;
+    }
+    const txt=row.join('');
+    if(txt){ merges.push({s:{r:ri,c:0},e:{r:ri,c:last}}); return [plain(txt,{italic:true,color:'6B7280',wrap:true})].concat(full.slice(1).map(()=>'')); }
+    return full.map(()=>'');
+  });
+  return {aoa:out, merges, rows, styled:true};
+}
 function whDocExportXlsx(id, showValue){
   const d=stockDocById(id); if(!d){ toast('Không tìm thấy phiếu','bad'); return; }
   try{
     /* dùng CHÍNH spec của bản in — mẫu đổi ở một chỗ thì cả PDF lẫn Excel đổi theo */
     const spec=_stockSpec(d, {showValue:!!showValue});
-    const aoa=whDocSpecToAoa(spec, {showValue:!!showValue});
-    const ws=XLSX.utils.aoa_to_sheet(aoa);
+    const aoa0=whDocSpecToAoa(spec, {showValue:!!showValue});
+    const st=whDocAoaStyle(aoa0, spec, {showValue:!!showValue});   // v3.16.99: chuẩn style chung của app
+    if(!st.styled){ try{ toast('Thư viện định dạng Excel chưa tải — file xuất ở dạng trơn. Tải lại trang (Ctrl+F5) rồi xuất lại.','warn'); }catch(e){} }   // v3.17.02
+    const U=st.styled?window.XLSXStyle.utils:XLSX.utils;
+    const ws=U.aoa_to_sheet(st.aoa);
+    if(st.merges.length) ws['!merges']=st.merges;
+    if(st.rows) ws['!rows']=st.aoa.map((_,i)=>st.rows[i]||{hpt:16});
     ws['!cols']=[{wch:5},{wch:44},{wch:18},{wch:8},{wch:12},{wch:14},{wch:16}];
-    const wb=XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Phieu');
+    const wb=U.book_new();
+    U.book_append_sheet(wb, ws, 'Phieu');
     const name=(d.docNo||'phieu-kho').replace(/[^A-Za-z0-9_-]+/g,'_')+(showValue?'_co-gia':'_khong-gia')+'.xlsx';
-    XLSX.writeFile(wb, name);
+    (st.styled?window.XLSXStyle:XLSX).writeFile(wb, name);
     try{ logAuditEvent('stock_doc_export_xlsx',{docNo:d.docNo, showValue:!!showValue}); }catch(e){}
     toast('✓ Đã xuất '+name,'good');
   }catch(err){
@@ -71748,10 +71828,26 @@ function _ovExportExcel(){
   if(_ovFilter.nonzero) items=items.filter(it=>it.tot!==0);
   items.sort((a,b)=>String(a.code||'').localeCompare(String(b.code||'')));
   const header=['Mã FAST','Tên vật tư','ĐVT'].concat(whs.map(w=>w.name)).concat(['TỔNG']);
-  const aoa=[header].concat(items.map(it=>[it.code,it.name||'',it.unit||''].concat(whs.map(w=>qtyOf(w.id,it.code))).concat([it.tot])));
-  const ws=XLSX.utils.aoa_to_sheet(aoa); const wb=XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb,ws,'TonKhoTongHop');
-  XLSX.writeFile(wb,'TonKho_TongHop_'+new Date().toISOString().slice(0,10)+'.xlsx');
+  /* v3.17.01: theo CHUẨN STYLE CHUNG ExcelExporter (tiêu đề navy, header chữ trắng, ô số có khung + zebra, dòng tổng). */
+  const EE=(typeof ExcelExporter!=='undefined')?ExcelExporter:null, XS=window.XLSXStyle;
+  const styled=!!(EE&&XS&&(!EE.ready||EE.ready()));
+  const nc=header.length; const merges=[]; let aoa;
+  if(styled){
+    aoa=[[EE.title('TỒN KHO TỔNG HỢP — '+new Date().toISOString().slice(0,10))].concat(header.slice(1).map(()=>'')),[]];
+    merges.push({s:{r:0,c:0},e:{r:0,c:nc-1}});
+    aoa.push(header.map((h,c)=>EE.headerCell(h,c>=3?'right':'left')));
+    items.forEach((it,i)=>{ const bg=(i%2)?EE.C.zebra:null;
+      aoa.push([EE.dataCell(it.code,{bg}),EE.dataCell(it.name||'',{bg,wrap:true}),EE.dataCell(it.unit||'',{bg,align:'center'})]
+        .concat(whs.map(w=>EE.dataCell(qtyOf(w.id,it.code),{bg,align:'right',num:'#,##0.###'})))
+        .concat([EE.dataCell(it.tot,{bg,align:'right',num:'#,##0.###',bold:true})])); });
+    aoa.push([EE.totalCell('TỔNG'),EE.totalCell(''),EE.totalCell('')].concat(whs.map(w=>EE.totalCell(items.reduce((a,it)=>a+qtyOf(w.id,it.code),0),{align:'right',num:'#,##0.###'}))).concat([EE.totalCell(items.reduce((a,it)=>a+it.tot,0),{align:'right',num:'#,##0.###'})]));
+  } else aoa=[header].concat(items.map(it=>[it.code,it.name||'',it.unit||''].concat(whs.map(w=>qtyOf(w.id,it.code))).concat([it.tot])));
+  const U=styled?XS.utils:XLSX.utils;
+  const ws=U.aoa_to_sheet(aoa); const wb=U.book_new();
+  if(merges.length) ws['!merges']=merges;
+  ws['!cols']=[{wch:18},{wch:44},{wch:8}].concat(whs.map(()=>({wch:14}))).concat([{wch:12}]);
+  U.book_append_sheet(wb,ws,'TonKhoTongHop');
+  (styled?XS:XLSX).writeFile(wb,'TonKho_TongHop_'+new Date().toISOString().slice(0,10)+'.xlsx');
   toast('Đã xuất Excel ✓','good');
 }
 
