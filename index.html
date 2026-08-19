@@ -3793,7 +3793,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.16.72';
+const APP_VERSION='3.16.74';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -5721,6 +5721,11 @@ async function pullCfgFromCloud(scriptUrl, userName, password){
       const _del=[].concat(Array.isArray(_local._deletedUserNames)?_local._deletedUserNames:[],
                            Array.isArray(window._deletedUserNames)?window._deletedUserNames:[]);
       cfg.users=mergeCfgUsers(_local.users, cfg.users, _del);
+      /* v3.16.73 FIX: cfg từ cloud KHÔNG mang _deletedUserNames (cờ local) → nếu ghi đè thì mất,
+         lần pull sau merge không loại được NV đã xóa → NV "sống lại". Bảo toàn danh sách đã xóa
+         (gộp local + window, khử trùng) vào cfg mới trước khi lưu. */
+      const _delKeep=Array.from(new Set(_del.map(x=>String(x||'')).filter(Boolean)));
+      if(_delKeep.length) cfg._deletedUserNames=_delKeep;
     }
   }catch(e){ console.warn('[pullCfg] merge users lỗi (giữ cfg cloud):', e&&e.message); }
   setAuthConfig(cfg);
@@ -7913,14 +7918,9 @@ function userEditorModal(initial,idx){
             </div>
           </label>
           <label style="display:flex;align-items:flex-start;gap:8px;padding:6px 0;cursor:pointer;border-top:1px solid var(--rule);background:rgba(28,90,140,.07)">
-            <input type="checkbox" id="user-is-warehouse" ${initial.isWarehouse?'checked':''} style="margin-top:3px">
-            <div><div><b style="color:#1c5a8c">📦 Là Thủ kho</b></div>
-              <div style="font-size:11px;color:var(--muted);font-style:normal;margin-top:2px">Nhập/xuất/điều chuyển/kiểm kê mọi kho. KHÔNG xem giá trị (kho chỉ số lượng).</div></div>
-          </label>
-          <label style="display:flex;align-items:flex-start;gap:8px;padding:6px 0;cursor:pointer;border-top:1px solid var(--rule);background:rgba(28,90,140,.07)">
             <input type="checkbox" id="user-is-central-wh" ${initial.isCentralWarehouse?'checked':''} style="margin-top:3px">
-            <div><div><b style="color:#1c5a8c">🏛 Là Thủ kho tổng</b></div>
-              <div style="font-size:11px;color:var(--muted);font-style:normal;margin-top:2px">In được phiếu CÓ giá (kiểu FAST đầy đủ: Nợ/Có + Giá/Tiền). Dùng cho thủ kho tổng / người đối chiếu kế toán.</div></div>
+            <div><div><b style="color:#1c5a8c">🏛 Là Thủ kho tổng — TOÀN QUYỀN KHO</b></div>
+              <div style="font-size:11px;color:var(--muted);font-style:normal;margin-top:2px">Nhập/xuất/điều chuyển/kiểm kê mọi kho + xem giá trị + in phiếu CÓ giá (kiểu FAST đầy đủ: Nợ/Có + Giá/Tiền). Quyền kho cao nhất.</div></div>
           </label>
           <label style="display:flex;align-items:flex-start;gap:8px;padding:6px 0;cursor:pointer;border-top:1px solid var(--rule);background:rgba(28,90,140,.07)">
             <input type="checkbox" id="user-is-captain" ${initial.isCaptain?'checked':''} style="margin-top:3px">
@@ -65515,7 +65515,7 @@ const MAT_GROUPS_DEFAULT=['Nhiên liệu','Dầu nhờn','Phụ tùng','Vật t�
 function matList(){ return InventoryService.materials().slice(); }
 function matByCode(code){ return InventoryService.materialByCode(code); }
 function matGroups(){ const s=new Set(MAT_GROUPS_DEFAULT); InventoryService.materials().forEach(m=>{ if(m.group) s.add(m.group); }); return Array.from(s); }
-function canManageMaterials(){ return isAdmin() || !!(CURRENT_USER && (CURRENT_USER.isWarehouse || CURRENT_USER.canManageUsers)); }
+function canManageMaterials(){ return isAdmin() || !!(CURRENT_USER && (CURRENT_USER.isWarehouse || CURRENT_USER.isCentralWarehouse || CURRENT_USER.canManageUsers)); }   // v3.16.74: Thủ kho tổng toàn quyền kho
 let _matFilter={q:'',group:'',status:''};
 function openMaterialMaster(){
   const all=matList();
@@ -65946,7 +65946,7 @@ function stockScopedDocs(list){
     return a?(a.createdBy||''):'';
   });
 }
-function canManageStock(){ return isAdmin() || !!(CURRENT_USER && (CURRENT_USER.isWarehouse || CURRENT_USER.canManageUsers)); }
+function canManageStock(){ return isAdmin() || !!(CURRENT_USER && (CURRENT_USER.isWarehouse || CURRENT_USER.isCentralWarehouse || CURRENT_USER.canManageUsers)); }   // v3.16.74: Thủ kho tổng toàn quyền kho
 function isCaptain(){ return !!(CURRENT_USER && CURRENT_USER.isCaptain); }
 /* v3.08.47 (Mảng 1): Vessel Account — loại tài khoản TÀU, tách biệt tài khoản nhân viên.
    isVesselAccountUser(): tài khoản đang đăng nhập là tài khoản của TÀU.
@@ -66308,7 +66308,7 @@ const InvDimensions = (() => {
 function invAnCanAccess(){          // vào module: admin / KT (canCheckAcc) / BOD / QL kho / trưởng BP có kho tàu
   if(typeof isAdmin==='function' && isAdmin()) return true;
   const u = CURRENT_USER || {};
-  if(u.canCheckAcc || u.isBOD || u.canManageUsers || u.isWarehouse) return true;
+  if(u.canCheckAcc || u.isBOD || u.canManageUsers || u.isWarehouse || u.isCentralWarehouse) return true;
   if(u.isDeptHead && (u.assignedVesselIds||[]).length>0) return true;
   return false;
 }
@@ -66317,18 +66317,18 @@ function invAnCan(sens){            // 'basic' | 'commercial' (giá mua/NCC) | '
   if(sens==='basic') return true;
   const u = CURRENT_USER || {};
   const admin = (typeof isAdmin==='function' && isAdmin());
-  if(sens==='commercial') return admin || !!(u.canCheckAcc || u.isBOD || u.isWarehouse || u.canManageUsers || u.invViewPrice);
+  if(sens==='commercial') return admin || !!(u.canCheckAcc || u.isBOD || u.isWarehouse || u.isCentralWarehouse || u.canManageUsers || u.invViewPrice);
   if(sens==='finance')    return admin || !!(u.canCheckAcc || u.isBOD || u.invViewCost);
   return admin;
 }
 function invAnCanDrill(){           // thấy aggregate ≠ mở chứng từ gốc
   const u = CURRENT_USER || {};
-  return (typeof isAdmin==='function' && isAdmin()) || !!(u.canCheckAcc || u.isBOD || u.invDrill || u.isWarehouse);
+  return (typeof isAdmin==='function' && isAdmin()) || !!(u.canCheckAcc || u.isBOD || u.invDrill || u.isWarehouse || u.isCentralWarehouse);
 }
 function invAnScopeWh(){            // trục phạm vi: null = ALL; array = chỉ các kho được xem (trưởng BP tàu)
   if(typeof isAdmin==='function' && isAdmin()) return null;
   const u = CURRENT_USER || {};
-  if(u.canCheckAcc || u.isBOD || u.canManageUsers || u.isWarehouse) return null;
+  if(u.canCheckAcc || u.isBOD || u.canManageUsers || u.isWarehouse || u.isCentralWarehouse) return null;
   const vIds = new Set(u.assignedVesselIds||[]);
   if(!vIds.size) return [];
   return (S.warehouses||[]).filter(w=>w.vesselId && vIds.has(w.vesselId)).map(w=>w.id);

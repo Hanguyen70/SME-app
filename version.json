@@ -1,5 +1,5 @@
 {
-  "version": "3.16.72",
-  "swVersion": "v3.16.72",
-  "notes": "v3.16.72: Sửa lỗi khi cấp quyền Thủ kho hoặc Thủ kho tổng cho một tài khoản đã có sẵn thì quyền bị mất sau khi lưu và đồng bộ lên cloud rồi mở lại. Nguyên nhân là ở luồng cập nhật tài khoản cũ, hai cờ quyền kho này không được ghi lại vào tài khoản, trong khi luồng tạo tài khoản mới thì có. Nay khi sửa một tài khoản đã tồn tại, quyền Thủ kho và Thủ kho tổng được lưu đúng và giữ nguyên sau khi đồng bộ. Các quyền khác không đổi. Nền v3.16.71 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần, sau đó vào lại tài khoản Dung tích chọn Thủ kho tổng và lưu lại."
+  "version": "3.16.74",
+  "swVersion": "v3.16.74",
+  "notes": "v3.16.74: Gộp quyền kho về một cờ duy nhất. Bỏ cờ Thủ kho, và nâng cờ Thủ kho tổng thành toàn quyền với kho gồm nhập, xuất, điều chuyển, kiểm kê mọi kho, xem giá trị và in phiếu có giá đầy đủ. Trước đây tài khoản chỉ được đánh dấu Thủ kho tổng thì thấy được màn kho và giá nhưng không thao tác được vì quyền thao tác gắn với cờ Thủ kho cũ; nay Thủ kho tổng làm được mọi thao tác trong kho. Ô Thủ kho cũ đã gỡ khỏi form phân quyền. Nền v3.16.73 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần, rồi vào tài khoản cần cấp quyền tích Thủ kho tổng và lưu lại."
 }
