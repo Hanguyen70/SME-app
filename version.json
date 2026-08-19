@@ -1,5 +1,5 @@
 {
-  "version": "3.16.86",
-  "swVersion": "v3.16.86",
-  "notes": "v3.16.86: Sửa để bảng giá trị Nhập Xuất Tồn theo tháng luôn hiển thị tồn đầu của tháng đầu tiên. Trước đây nếu phiếu tồn đầu kỳ được nạp từ bản cũ, hệ thống không nhận ra đó là tồn đầu nên cột Tồn đầu tháng đầu bị để trống dù tồn cuối vẫn đúng. Nay mọi phiếu tồn đầu kỳ có mã bắt đầu bằng TDK đều được nhận diện đúng, và tồn đầu tháng đầu được tính từ tồn cuối trừ nhập cộng xuất nên luôn ra số. Nguyên tắc giữ nguyên: chỉ một phiếu tồn đầu kỳ vào ngày đầu năm, mỗi tháng chỉ có nhập và xuất, tồn cuối do app tự tính. Nền v3.16.85 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần."
+  "version": "3.16.88",
+  "swVersion": "v3.16.88",
+  "notes": "v3.16.88: Chuẩn hóa lại nguyên tắc nạp kho theo đúng bản chất. Tồn đầu kỳ chỉ được nạp qua kiểu Tồn đầu kỳ với file tồn thuần. Kiểu Nhập Xuất Tồn theo kỳ chỉ tạo phát sinh nhập và xuất, không tự tạo tồn đầu nữa. Kho chưa nạp tồn đầu kỳ thì tồn đầu bằng không và chỉ có phát sinh. Khi nạp Nhập Xuất Tồn, nếu tồn đầu trong file khác tồn đang có trong app thì báo dừng và nhắc nạp Tồn đầu kỳ trước; nếu file khai tồn đầu bằng không thì nạp bình thường. Nền v3.16.87 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần."
 }

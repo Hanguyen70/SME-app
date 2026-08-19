@@ -3793,7 +3793,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.16.86';
+const APP_VERSION='3.16.88';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -65135,9 +65135,12 @@ function whMonthlyValueRows(stockDocs, whId, costBasis, fromMonth, toMonth){
     // tồn đầu = (tồn cuối kỳ trước) HOẶC (nếu tháng đầu) = tồn đầu nạp từ file + suy ngược phần còn lại
     /* v3.16.86 (Sếp: PHẢI CÓ tồn đầu mỗi tháng). Tháng đầu tiên: tồn đầu = tồn cuối − nhập + xuất − điều chỉnh
        (đẳng thức LUÔN đúng, không phụ thuộc phiếu opening có được nhận diện hay không). Tháng sau: = tồn cuối kỳ trước. */
+    /* v3.16.87 (Sếp: tồn đầu tháng 1 vẫn trống). GỐC: bảng bắt đầu 11 tháng trước (vd 2025-09),
+       các tháng trống trước đó cho prevClose=0, nên tháng đầu CÓ phát sinh lấy open=prevClose=0 (sai).
+       SỬA: nếu prevClose là 0/null (chưa có tồn thật) thì LUÔN suy ngược open = close − nhập + xuất − đ/c. */
     let open;
-    if(prevClose!==null){ open=prevClose; }
-    else { open=Math.round(close-inValue+outValue-adjValue); }
+    if(prevClose){ open=prevClose; }                                  // đã có tồn cuối kỳ trước (>0)
+    else { open=Math.round(close-inValue+outValue-adjValue); }        // tháng đầu có phát sinh: suy ngược
     if(Object.is(open,-0)) open=0;
 
     prevClose=close;
@@ -70533,7 +70536,7 @@ function whLastPeriodTo(whId){
   }catch(e){ return ''; }
 }
 
-function whBuildPeriodDocs(whId, items, fromDate, toDate, by, genDocNo, withOpening){
+function whBuildPeriodDocs(whId, items, fromDate, toDate, by, genDocNo){
   const now=new Date().toISOString();
   const gen=genDocNo||stockGenDocNo;
   const mk=(type, lines, note)=>({id:(typeof uid==='function'?uid():'d'+Math.random()),
@@ -70542,20 +70545,8 @@ function whBuildPeriodDocs(whId, items, fromDate, toDate, by, genDocNo, withOpen
     createdBy:by, createdAt:now, confirmedBy:by, confirmedAt:now, source:'nxt_period_import',
     periodFrom:fromDate, periodTo:toDate});
   const out=[];
-  /* v3.16.79: kho rỗng → nạp tồn đầu kỳ từ cột openQty (phiếu IN riêng ghi NGÀY ĐẦU KỲ, ghi chú tồn đầu). */
-  if(withOpening){
-    const openLines=(items||[]).filter(i=>(+i.openQty||0)>0).map(i=>{
-      const l={code:i.code, name:i.name, unit:i.unit, qty:+i.openQty};
-      if(+i.openPrice>0) l.price=+i.openPrice;
-      return l;
-    });
-    if(openLines.length){
-      out.push({id:(typeof uid==='function'?uid():'d'+Math.random()),
-        docNo:gen('OPENING'), type:'OPENING', date:fromDate, warehouseId:whId, apId:'', costObject:null, lines:openLines,
-        deliveredBy:'', receivedBy:by, note:'Tồn đầu kỳ '+fromDate+' (nạp từ file NXT — kho rỗng)', status:'confirmed',
-        createdBy:by, createdAt:now, confirmedBy:by, confirmedAt:now, source:'nxt_period_opening', periodFrom:fromDate, periodTo:fromDate});   // v3.16.82: type OPENING (Tồn đầu kỳ) — không phải Nhập
-    }
-  }
+  /* v3.16.88 (Sếp chốt): NXT theo kỳ CHỈ tạo Nhập + Xuất (phát sinh). KHÔNG tự tạo tồn đầu —
+     tồn đầu chỉ nạp qua kiểu 'Tồn đầu kỳ' (file tồn thuần). Kho chưa có TDK → tồn đầu = 0, chỉ có PS. */
   const inLines=(items||[]).filter(i=>(+i.inQty||0)>0).map(i=>{
     const l={code:i.code, name:i.name, unit:i.unit, qty:+i.inQty};
     if(+i.inPrice>0) l.price=+i.inPrice;
@@ -70894,8 +70885,7 @@ function _opPreviewPeriod(aoa){
   }
   window._opPeriodWarn=_periodWarn;
   const cls=whCheckPeriodClosing(r.items);
-  const _emptyWh=(typeof whIsWarehouseEmpty==='function') && whIsWarehouseEmpty(whId);   // v3.16.79
-  window._opCache={mode:'period', whId, items:r.items, openOk:chk.ok || _emptyWh};
+  window._opCache={mode:'period', whId, items:r.items, openOk:chk.ok};   // v3.16.88: chỉ khi tồn đầu khớp
   const nIn=r.items.filter(i=>i.inQty>0).length, nOut=r.items.filter(i=>i.outQty>0).length;
   const dTbl=(list, cols)=>`<table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:4px">
       <thead><tr style="background:var(--rule);text-align:left">${cols.map(c=>`<th style="padding:3px 5px">${c}</th>`).join('')}</tr></thead>
@@ -70910,9 +70900,7 @@ function _opPreviewPeriod(aoa){
       📄 Đọc được <b>${r.items.length}</b> mã · nhập <b>${nIn}</b> mã · xuất <b>${nOut}</b> mã · ghi vào kho <b>${esc(_whName(whId))}</b>
     </div>
     ${_periodWarn}
-    ${_emptyWh
-      ? '<div style="padding:8px 10px;border-radius:6px;background:rgba(31,122,77,.08);color:var(--good);font-size:12px">📦 <b>Kho đang RỖNG</b> — sẽ tự nạp <b>tồn đầu kỳ</b> từ cột tồn đầu trong file (ghi ngày '+esc(_impFrom||'đầu kỳ')+'), rồi ghi nhập/xuất trong kỳ. Không cần nạp tồn đầu riêng.</div>'
-      : chk.ok
+    ${chk.ok
       ? '<div style="padding:6px 8px;border-radius:6px;background:rgba(31,122,77,.08);color:var(--good);font-size:12px">✅ Tồn đầu trong file KHỚP tồn app — nối liền mạch, ghi được.</div>'
       : `<div style="padding:8px 10px;border-radius:6px;background:rgba(192,57,43,.08);color:var(--bad);font-size:12px">
            🔒 <b>KHÔNG cho lưu</b> — tồn đầu trong file lệch tồn app ở <b>${chk.diffs.length}</b> mã.
@@ -70923,7 +70911,7 @@ function _opPreviewPeriod(aoa){
         ⚠ Trong file: <b>${cls.diffs.length}</b> mã có Tồn cuối ≠ Tồn đầu + Nhập − Xuất. Đây là lỗi của chính file, kiểm lại bên FAST.
         ${dTbl(cls.diffs, ['Mã','Tên','App tính','File ghi','Lệch'])}</div>`}
     <div style="margin-top:8px">
-      <button class="btn-primary" ${(chk.ok||_emptyWh)?'':'disabled title="Tồn đầu chưa khớp — không cho lưu"'} style="${(chk.ok||_emptyWh)?'':'opacity:.45;cursor:not-allowed'}" onclick="_opImportCommit()">✓ Ghi số liệu kỳ</button>
+      <button class="btn-primary" ${chk.ok?'':'disabled title="Tồn đầu chưa khớp — không cho lưu"'} style="${chk.ok?'':'opacity:.45;cursor:not-allowed'}" onclick="_opImportCommit()">✓ Ghi số liệu kỳ</button>
     </div>`;
 }
 function _opImportCommit(){
@@ -70936,13 +70924,12 @@ function _opImportCommit(){
      có thể bị bỏ qua). LUẬT SẾP: lệch thì KHÔNG cho lưu. */
   if(c.mode==='period'){
     const cur=stockByWarehouse(c.whId);
-    const _emptyWh=(typeof whIsWarehouseEmpty==='function') && whIsWarehouseEmpty(c.whId);   // v3.16.79: kho rỗng → tự nạp tồn đầu từ file
-    if(!_emptyWh){
-      const chk=whCheckPeriodOpening(c.items, cur);
-      if(!chk.ok){
-        toast('🔒 Không cho lưu: tồn đầu trong file lệch tồn app ở '+chk.diffs.length+' mã — sửa cho khớp rồi nạp lại','bad');
-        return;
-      }
+    /* v3.16.88 (Sếp chốt): LUÔN kiểm tồn đầu file khớp tồn app. Kho chưa có TDK → tồn app=0;
+       file khai tồn đầu>0 → lệch → chặn (nạp 'Tồn đầu kỳ' trước). File khai 0 → khớp → nạp NXT. */
+    const chk=whCheckPeriodOpening(c.items, cur);
+    if(!chk.ok){
+      toast('🔒 Không cho lưu: tồn đầu trong file lệch tồn app ở '+chk.diffs.length+' mã. Nếu kho chưa có tồn đầu kỳ, hãy nạp "Tồn đầu kỳ" (file tồn) trước rồi mới nạp NXT','bad');
+      return;
     }
     const date=String((document.getElementById('op-date')||{}).value||new Date().toISOString().slice(0,10));
     const from=String((document.getElementById('imp-from')||{}).value||date);
@@ -70959,7 +70946,7 @@ function _opImportCommit(){
         if(known[String(it.code)]) return;
         try{ InventoryService.addMaterial({code:it.code, name:it.name||it.code, unit:it.unit||'', status:'active', source:'FAST'}); nNew++; }catch(e){}
       });
-      const docs=whBuildPeriodDocs(c.whId, c.items, from, date, by, null, _emptyWh);   // v3.16.79: kho rỗng nạp kèm tồn đầu
+      const docs=whBuildPeriodDocs(c.whId, c.items, from, date, by);   // v3.16.88: chỉ Nhập+Xuất
       docs.forEach(d=>InventoryService.addStockDoc(d));
       whUpsertCostBasis(c.whId, c.items.map(i=>({code:i.code, price:i.inPrice||i.openPrice||0})), date, 'FAST kỳ');
       const cls=whCheckPeriodClosing(c.items);
