@@ -1,5 +1,5 @@
 {
-  "version": "3.16.74",
-  "swVersion": "v3.16.74",
-  "notes": "v3.16.74: Gộp quyền kho về một cờ duy nhất. Bỏ cờ Thủ kho, và nâng cờ Thủ kho tổng thành toàn quyền với kho gồm nhập, xuất, điều chuyển, kiểm kê mọi kho, xem giá trị và in phiếu có giá đầy đủ. Trước đây tài khoản chỉ được đánh dấu Thủ kho tổng thì thấy được màn kho và giá nhưng không thao tác được vì quyền thao tác gắn với cờ Thủ kho cũ; nay Thủ kho tổng làm được mọi thao tác trong kho. Ô Thủ kho cũ đã gỡ khỏi form phân quyền. Nền v3.16.73 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần, rồi vào tài khoản cần cấp quyền tích Thủ kho tổng và lưu lại."
+  "version": "3.16.79",
+  "swVersion": "v3.16.79",
+  "notes": "v3.16.79: Khi import Nhập-Xuất-Tồn theo kỳ vào một kho đang rỗng chưa có tồn, app sẽ tự động nạp tồn đầu kỳ từ cột tồn đầu trong file rồi mới ghi nhập xuất trong kỳ, chỉ trong một bước. Trước đây tồn đầu trong file chỉ dùng để đối chiếu chứ không được ghi, nên với kho rỗng phải nạp tồn đầu riêng trước. Nay phần xem trước sẽ báo rõ kho đang rỗng và sẽ tự nạp tồn đầu, đồng thời cho phép ghi. Với kho đã có số dư thì vẫn giữ nguyên quy tắc cũ là tồn đầu trong file phải khớp tồn đang có mới cho ghi. Rất tiện cho việc nạp lại toàn bộ các kho từ đầu năm. Nền v3.16.78 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần."
 }

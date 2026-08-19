@@ -2831,7 +2831,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
             <!-- v3.15.76 (Sếp 15/8: "không tìm thấy chỗ để import"): nút này trước chỉ nằm trong
                  Chứng từ kho → ⋯ Khác, tức 3 cú bấm cho một việc dựng nền cả sổ kho. Đưa thẳng ra
                  thanh thao tác của trang Kho vật tư. Vẫn gate thủ kho/admin ở trong hàm. -->
-            <button class="btn-sec" style="font-size:13px;border-color:#1c5a8c;color:#1c5a8c" onclick="openOpeningImport()" title="Nạp số tồn ban đầu các kho từ file Excel (một file chứa được nhiều kho)">📦 Nhập tồn đầu kỳ</button>
+            <button class="btn-sec" style="font-size:13px;border-color:#1c5a8c;color:#1c5a8c" onclick="openOpeningImport()" title="Import số liệu kho từ Excel FAST — 2 chế độ: Tồn đầu kỳ (nạp mốc tồn) hoặc Nhập-Xuất-Tồn theo kỳ (nối tiếp số đang có)">📦 Import số liệu</button>
           </div>
         </div>
       </div>
@@ -3793,7 +3793,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.16.74';
+const APP_VERSION='3.16.79';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -7709,7 +7709,7 @@ function userEditorModal(initial,idx){
           <label>Phòng/Ban <span style="font-weight:400;color:var(--muted)">(tùy chọn)</span></label>
           <select id="user-department" style="padding:8px 10px;border:1px solid var(--rule);background:var(--paper);font-size:13px">
             <option value="">— Không gán phòng ban —</option>
-            ${HRService.departments().map(d=>`<option value="${esc(d.id)}" ${initial.departmentId===d.id?'selected':''}>${esc(hrDeptDisplay(d.code,d.name))}</option>`).join('')}
+            ${activeDepartments().map(d=>`<option value="${esc(d.id)}" ${initial.departmentId===d.id?'selected':''}>${esc(hrDeptDisplay(d.code,d.name))}</option>`).join('')}
           </select>
         </div>
         <div class="field">
@@ -16427,7 +16427,7 @@ const COST_CENTER_TYPES = {
 /* Build options for cost center selection (2-step: type → entity) */
 function costCenterEntityOpts(type, selectedId){
   let entities=[];
-  if(type==='department') entities=HRService.departments().map(d=>({id:d.id,label:d.code+' · '+d.name}));
+  if(type==='department') entities=HRService.departments().filter(d=>!d.archived||d.id===selectedId).map(d=>({id:d.id,label:d.code+' · '+d.name+(d.archived?' (ẩn)':'')}));   // v3.16.75: bỏ phòng ẩn, giữ phòng đang chọn
   else if(type==='vessel') entities=VesselService.vessels().map(v=>({id:v.id,label:v.name}));
   else if(type==='project') entities=(S.projects||[]).map(p=>({id:p.id,label:p.code+' · '+p.name}));
   else if(type==='opVessel') entities=VesselService.opVessels().map(v=>({id:v.id,label:v.name}));
@@ -31014,8 +31014,36 @@ function suggestDeptNameEn(code, nameVi){
   return '';  // không đoán được → để trống cho người dùng nhập
 }
 
+/* v3.16.75 (Sếp): quản lý phòng ban chuyển về Trưởng phòng NS (canSignHr) — admin vẫn toàn quyền.
+   Ẩn = archived (giữ dữ liệu), CHỈ ẩn được khi không còn NV nào gán. Nơi CHỌN dùng activeDepartments;
+   nơi HIỂN THỊ tên record cũ giữ full list nên tên không mất. */
+function activeDepartments(){
+  return (typeof HRService!=='undefined'?HRService.departments():[]).filter(d=>d && !d.archived);
+}
+function _deptUsedCount(id){
+  try{ const cfg=getAuthConfig(); return ((cfg&&cfg.users)||[]).filter(u=>u&&u.departmentId===id).length; }catch(e){ return 0; }
+}
+function archiveDepartment(id){
+  if(!(isAdmin()||canSignHr())){ toast('Chỉ Trưởng phòng NS / admin','bad'); return; }
+  const d=HRService.departments().find(x=>x.id===id);
+  if(!d){ toast('Không tìm thấy','bad'); return; }
+  const n=_deptUsedCount(id);
+  if(n>0){ toast('Không thể ẩn: còn '+n+' nhân viên gán phòng "'+(d.name||d.code)+'". Chuyển họ sang phòng khác trước.','bad'); return; }
+  if(!confirm('Ẩn phòng "'+(d.name||d.code)+'"? Sẽ không hiện ở các nơi chọn phòng ban. Dữ liệu vẫn giữ, có thể bỏ ẩn lại.')) return;
+  d.archived=true; saveState(); toast('Đã ẩn phòng '+(d.code||d.name));
+  if(typeof renderCatalog==='function') renderCatalog();
+  if(typeof catalogSwitchTab==='function') catalogSwitchTab('departments');
+}
+function unarchiveDepartment(id){
+  if(!(isAdmin()||canSignHr())){ toast('Chỉ Trưởng phòng NS / admin','bad'); return; }
+  const d=HRService.departments().find(x=>x.id===id);
+  if(!d){ toast('Không tìm thấy','bad'); return; }
+  delete d.archived; saveState(); toast('Đã hiện lại phòng '+(d.code||d.name));
+  if(typeof catalogSwitchTab==='function') catalogSwitchTab('departments');
+}
+
 function openAddDepartmentForm(){
-  // v1.39: NV được thêm (chỉ admin sửa/xóa)
+  if(!(isAdmin()||canSignHr())){ toast('Chỉ Trưởng phòng NS / admin thêm phòng ban','bad'); return; }   // v3.16.75
   const name=prompt('Tên phòng/ban đầy đủ (VD: "Phòng Kế toán"):','');
   if(!name||!name.trim()) return;
   const code=prompt('Mã viết tắt (VD: "KT", không dấu, không space):','');
@@ -31047,7 +31075,7 @@ function openAddDepartmentForm(){
 }
 
 function editDepartment(id){
-  if(!isAdmin()){toast('Chỉ admin','bad');return;}
+  if(!(isAdmin()||canSignHr())){toast('Chỉ Trưởng phòng NS / admin','bad');return;}   // v3.16.75
   const d=HRService.departments().find(x=>x.id===id);
   if(!d){toast('Không tìm thấy','bad');return;}
   const newName=prompt('Đổi tên phòng/ban:',d.name);
@@ -31760,6 +31788,7 @@ function renderCatalog(){
   const deptCount = document.getElementById('cat-dept-count');
   if(deptTbl && deptCount){
     const list = HRService.departments().slice().sort((a,b)=>(a.code||'').localeCompare(b.code||''));
+    const _deptEdit = isAdmin() || (typeof canSignHr==='function' && canSignHr());   // v3.16.75: Trưởng phòng NS quản lý phòng ban
     deptCount.textContent = `(${list.length})`;
     if(!list.length){
       deptTbl.innerHTML = '<tr><td class="empty">Chưa có phòng/ban — bấm "+ Thêm"</td></tr>';
@@ -31770,11 +31799,12 @@ function renderCatalog(){
       list.forEach(d => {
         h += `<tr>
           <td><span class="ds-need">🏢 ${esc(d.code)}</span></td>
-          <td><b>${esc(d.name)}</b>${d.nameEn?`<div style="font-size:11px;color:var(--muted);font-style:normal">${esc(d.nameEn)}</div>`:''}</td>
+          <td><b>${esc(d.name)}</b>${d.archived?' <span style="font-size:10px;color:#b26a00;background:#fff3e0;padding:1px 6px;border-radius:8px">ẨN</span>':''}${d.nameEn?`<div style="font-size:11px;color:var(--muted);font-style:normal">${esc(d.nameEn)}</div>`:''}</td>
           <td style="font-size:11px;color:var(--muted)">${esc(d.createdBy||'—')}</td>
-          ${adminMode?`<td><div class="row-actions">
+          ${_deptEdit?`<td><div class="row-actions">
             <button class="icon-btn" title="Sửa" onclick="editDepartment('${d.id}')">✎</button>
-            <button class="icon-btn danger" title="Xóa" onclick="deleteDepartment('${d.id}')">✕</button>
+            ${d.archived?`<button class="icon-btn" title="Bỏ ẩn — hiện lại" onclick="unarchiveDepartment('${d.id}')">↩</button>`:`<button class="icon-btn" title="Ẩn (chỉ khi không còn NV gán)" onclick="archiveDepartment('${d.id}')">⊘</button>`}
+            ${isAdmin()?`<button class="icon-btn danger" title="Xóa" onclick="deleteDepartment('${d.id}')">✕</button>`:''}
           </div></td>`:''}
         </tr>`;
       });
@@ -53307,8 +53337,8 @@ function _renderMultiRowModal(){
     `<option value="${k}" ${s.segment===k?'selected':''}>${esc(seg.name)}</option>`).join('');
 
   const deptOpts = '<option value="">— Không gán —</option>' +
-    HRService.departments().map(d=>
-      `<option value="${esc(d.id)}" ${s.departmentId===d.id?'selected':''}>${esc(hrDeptDisplay(d.code,d.name))}</option>`
+    HRService.departments().filter(d=>!d.archived||s.departmentId===d.id).map(d=>   // v3.16.75: ẩn phòng archived, giữ phòng đang gán
+      `<option value="${esc(d.id)}" ${s.departmentId===d.id?'selected':''}>${esc(hrDeptDisplay(d.code,d.name))}${d.archived?' (ẩn)':''}</option>`
     ).join('');
 
   // v1.37.3: AR mode → dropdown Dự án thay cho Phòng/Ban
@@ -67400,7 +67430,7 @@ function openStockDocs(){
       <button class="btn-sec" style="font-size:13px" onclick="openWarehouseReport()">📈 Báo cáo kho</button>
       <button class="btn-sec" style="font-size:13px" onclick="whCodeStandardReport()" title="Đối chiếu mã vật tư với danh mục phân nhóm chuẩn của FAST">🏷 Soát mã theo danh mục</button>
       <button class="btn-sec" style="font-size:13px" onclick="openTempCodeReview()" title="Kiểm tra & đổi các mã vật tư tạm do app gợi ý/tự cấp">🏷 Soát mã${stockTempCount()?` <span style="background:#b8730a;color:#fff;border-radius:8px;padding:0 6px;font-size:10px">${stockTempCount()}</span>`:''}</button>
-      <button class="btn-sec" style="font-size:13px" onclick="openOpeningImport()" title="Nạp số tồn ban đầu các kho từ file Excel FAST (kèm tự thêm danh mục)">📦 Nhập tồn đầu kỳ</button>
+      <button class="btn-sec" style="font-size:13px" onclick="openOpeningImport()" title="Import số liệu kho từ Excel FAST — Tồn đầu kỳ hoặc Nhập-Xuất-Tồn theo kỳ (kèm tự thêm danh mục)">📦 Import số liệu</button>
     </div>`:''}
     <div class="tbl-scroll" style="max-height:440px"><table style="width:100%;border-collapse:collapse;font-size:13px;border:1px solid var(--rule)">
       <thead><tr style="background:var(--rule);text-align:left"><th style="padding:6px 8px">Số CT</th><th style="padding:6px 8px;text-align:center">Loại</th><th style="padding:6px 8px">Ngày</th><th style="padding:6px 8px">Kho</th><th style="padding:6px 8px">Dòng</th><th style="padding:6px 8px">TT</th><th style="padding:6px 8px"></th></tr></thead>
@@ -70423,13 +70453,15 @@ function whParseNxtPeriod(aoa){
     if(!stt && code.indexOf('.')<0){ whCode=code; whKey=String(row[col.name>=0?col.name:2]||'').trim(); continue; }
     const openQty=num(row[col.openQ]), inQty=num(row[col.inQ]), outQty=num(row[col.outQ]), closeQty=num(row[col.closeQ]);
     if(!openQty && !inQty && !outQty && !closeQty) continue;
-    const inVal=num(row[col.inV]), openVal=num(row[col.openV]);
+    const inVal=num(row[col.inV]), openVal=num(row[col.openV]), outVal=num(row[col.outV]), closeVal=num(row[col.closeV]);   // v3.16.77
     items.push({code, name:col.name>=0?String(row[col.name]||'').trim():'',
       unit:col.unit>=0?String(row[col.unit]||'').trim():'',
-      openQty, openVal, inQty, inVal, outQty, outVal:num(row[col.outV]),
-      closeQty, closeVal:num(row[col.closeV]),
+      openQty, openVal, inQty, inVal, outQty, outVal,
+      closeQty, closeVal,
       inPrice:(inVal>0&&inQty>0)?Math.round((inVal/inQty)*100)/100:0,
       openPrice:(openVal>0&&openQty>0)?Math.round((openVal/openQty)*100)/100:0,
+      outPrice:(outVal>0&&outQty>0)?Math.round((outVal/outQty)*100)/100:0,   // v3.16.77: đơn giá xuất từ file (lấy theo số từng tháng)
+      closePrice:(closeVal>0&&closeQty>0)?Math.round((closeVal/closeQty)*100)/100:0,
       whKey, whCode});
   }
   return {items, error: items.length?'':'Không đọc được dòng vật tư nào'};
@@ -70464,7 +70496,31 @@ function whCheckPeriodClosing(items){
   return {ok:diffs.length===0, diffs};
 }
 /* Sinh phiếu cho kỳ: ghi NGÀY CUỐI KỲ để tồn app khớp file ngay tại mốc đó. */
-function whBuildPeriodDocs(whId, items, fromDate, toDate, by, genDocNo){
+/* v3.16.79 (Sếp): kho RỖNG (chưa có tồn mã nào) → import NXT tự nạp tồn đầu từ file (1 bước). */
+function whIsWarehouseEmpty(whId){
+  try{
+    const st=stockByWarehouse(whId);
+    return !Object.keys(st||{}).some(c=>Math.abs((st[c]&&st[c].qty)||0)>0.0005);
+  }catch(e){ return false; }
+}
+
+/* v3.16.78 (Sếp): tìm NGÀY CUỐI KỲ NXT gần nhất đã nạp cho 1 kho — để chặn kỳ sau lùi ngày.
+   Quét phiếu source='nxt_period_import' của kho, lấy periodTo lớn nhất. */
+function whLastPeriodTo(whId){
+  try{
+    const docs=((S&&S.invMovements)||[]);
+    let last='';
+    (docs||[]).forEach(d=>{
+      if(!d||d.warehouseId!==whId) return;
+      if(d.source!=='nxt_period_import') return;
+      const to=String(d.periodTo||d.date||'');
+      if(to && to>last) last=to;
+    });
+    return last;
+  }catch(e){ return ''; }
+}
+
+function whBuildPeriodDocs(whId, items, fromDate, toDate, by, genDocNo, withOpening){
   const now=new Date().toISOString();
   const gen=genDocNo||stockGenDocNo;
   const mk=(type, lines, note)=>({id:(typeof uid==='function'?uid():'d'+Math.random()),
@@ -70473,12 +70529,30 @@ function whBuildPeriodDocs(whId, items, fromDate, toDate, by, genDocNo){
     createdBy:by, createdAt:now, confirmedBy:by, confirmedAt:now, source:'nxt_period_import',
     periodFrom:fromDate, periodTo:toDate});
   const out=[];
+  /* v3.16.79: kho rỗng → nạp tồn đầu kỳ từ cột openQty (phiếu IN riêng ghi NGÀY ĐẦU KỲ, ghi chú tồn đầu). */
+  if(withOpening){
+    const openLines=(items||[]).filter(i=>(+i.openQty||0)>0).map(i=>{
+      const l={code:i.code, name:i.name, unit:i.unit, qty:+i.openQty};
+      if(+i.openPrice>0) l.price=+i.openPrice;
+      return l;
+    });
+    if(openLines.length){
+      out.push({id:(typeof uid==='function'?uid():'d'+Math.random()),
+        docNo:gen('IN'), type:'IN', date:fromDate, warehouseId:whId, apId:'', costObject:null, lines:openLines,
+        deliveredBy:'', receivedBy:by, note:'Tồn đầu kỳ '+fromDate+' (nạp từ file NXT — kho rỗng)', status:'confirmed',
+        createdBy:by, createdAt:now, confirmedBy:by, confirmedAt:now, source:'nxt_period_opening', periodFrom:fromDate, periodTo:fromDate});
+    }
+  }
   const inLines=(items||[]).filter(i=>(+i.inQty||0)>0).map(i=>{
     const l={code:i.code, name:i.name, unit:i.unit, qty:+i.inQty};
     if(+i.inPrice>0) l.price=+i.inPrice;
     return l;
   });
-  const outLines=(items||[]).filter(i=>(+i.outQty||0)>0).map(i=>({code:i.code, name:i.name, unit:i.unit, qty:+i.outQty}));
+  const outLines=(items||[]).filter(i=>(+i.outQty||0)>0).map(i=>{
+    const l={code:i.code, name:i.name, unit:i.unit, qty:+i.outQty};
+    if(+i.outPrice>0) l.price=+i.outPrice;   // v3.16.77: giá trị xuất theo file NXT từng tháng
+    return l;
+  });
   if(inLines.length) out.push(mk('IN', inLines, 'Nhập trong kỳ '+fromDate+' → '+toDate+' (nạp từ file NXT)'));
   if(outLines.length) out.push(mk('OUT', outLines, 'Xuất trong kỳ '+fromDate+' → '+toDate+' (nạp từ file NXT)'));
   return out;
@@ -70789,8 +70863,17 @@ function _opPreviewPeriod(aoa){
   }
   const cur=stockByWarehouse(whId);
   const chk=whCheckPeriodOpening(r.items, cur);
+  /* v3.16.78: cảnh báo nếu ngày bắt đầu kỳ CŨ HƠN ngày cuối kỳ NXT gần nhất đã nạp cho kho. */
+  const _impFrom=String((document.getElementById('imp-from')||{}).value||'');
+  const _lastTo=whLastPeriodTo(whId);
+  let _periodWarn='';
+  if(_lastTo && _impFrom && _impFrom < _lastTo){
+    _periodWarn='<div style="padding:6px 8px;border-radius:6px;background:rgba(178,106,0,.1);color:#8a5200;font-size:12px;margin-bottom:8px">⚠ Kỳ này bắt đầu <b>'+esc(_impFrom)+'</b> CŨ HƠN ngày cuối kỳ gần nhất đã nạp (<b>'+esc(_lastTo)+'</b>). Kỳ sau không nên lùi trước kỳ trước — kiểm lại ngày.</div>';
+  }
+  window._opPeriodWarn=_periodWarn;
   const cls=whCheckPeriodClosing(r.items);
-  window._opCache={mode:'period', whId, items:r.items, openOk:chk.ok};
+  const _emptyWh=(typeof whIsWarehouseEmpty==='function') && whIsWarehouseEmpty(whId);   // v3.16.79
+  window._opCache={mode:'period', whId, items:r.items, openOk:chk.ok || _emptyWh};
   const nIn=r.items.filter(i=>i.inQty>0).length, nOut=r.items.filter(i=>i.outQty>0).length;
   const dTbl=(list, cols)=>`<table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:4px">
       <thead><tr style="background:var(--rule);text-align:left">${cols.map(c=>`<th style="padding:3px 5px">${c}</th>`).join('')}</tr></thead>
@@ -70804,7 +70887,10 @@ function _opPreviewPeriod(aoa){
     <div style="padding:6px 8px;border:1px solid var(--rule);border-radius:6px;font-size:12px;margin-bottom:6px">
       📄 Đọc được <b>${r.items.length}</b> mã · nhập <b>${nIn}</b> mã · xuất <b>${nOut}</b> mã · ghi vào kho <b>${esc(_whName(whId))}</b>
     </div>
-    ${chk.ok
+    ${_periodWarn}
+    ${_emptyWh
+      ? '<div style="padding:8px 10px;border-radius:6px;background:rgba(31,122,77,.08);color:var(--good);font-size:12px">📦 <b>Kho đang RỖNG</b> — sẽ tự nạp <b>tồn đầu kỳ</b> từ cột tồn đầu trong file (ghi ngày '+esc(_impFrom||'đầu kỳ')+'), rồi ghi nhập/xuất trong kỳ. Không cần nạp tồn đầu riêng.</div>'
+      : chk.ok
       ? '<div style="padding:6px 8px;border-radius:6px;background:rgba(31,122,77,.08);color:var(--good);font-size:12px">✅ Tồn đầu trong file KHỚP tồn app — nối liền mạch, ghi được.</div>'
       : `<div style="padding:8px 10px;border-radius:6px;background:rgba(192,57,43,.08);color:var(--bad);font-size:12px">
            🔒 <b>KHÔNG cho lưu</b> — tồn đầu trong file lệch tồn app ở <b>${chk.diffs.length}</b> mã.
@@ -70815,7 +70901,7 @@ function _opPreviewPeriod(aoa){
         ⚠ Trong file: <b>${cls.diffs.length}</b> mã có Tồn cuối ≠ Tồn đầu + Nhập − Xuất. Đây là lỗi của chính file, kiểm lại bên FAST.
         ${dTbl(cls.diffs, ['Mã','Tên','App tính','File ghi','Lệch'])}</div>`}
     <div style="margin-top:8px">
-      <button class="btn-primary" ${chk.ok?'':'disabled title="Tồn đầu chưa khớp — không cho lưu"'} style="${chk.ok?'':'opacity:.45;cursor:not-allowed'}" onclick="_opImportCommit()">✓ Ghi số liệu kỳ</button>
+      <button class="btn-primary" ${(chk.ok||_emptyWh)?'':'disabled title="Tồn đầu chưa khớp — không cho lưu"'} style="${(chk.ok||_emptyWh)?'':'opacity:.45;cursor:not-allowed'}" onclick="_opImportCommit()">✓ Ghi số liệu kỳ</button>
     </div>`;
 }
 function _opImportCommit(){
@@ -70828,13 +70914,21 @@ function _opImportCommit(){
      có thể bị bỏ qua). LUẬT SẾP: lệch thì KHÔNG cho lưu. */
   if(c.mode==='period'){
     const cur=stockByWarehouse(c.whId);
-    const chk=whCheckPeriodOpening(c.items, cur);
-    if(!chk.ok){
-      toast('🔒 Không cho lưu: tồn đầu trong file lệch tồn app ở '+chk.diffs.length+' mã — sửa cho khớp rồi nạp lại','bad');
-      return;
+    const _emptyWh=(typeof whIsWarehouseEmpty==='function') && whIsWarehouseEmpty(c.whId);   // v3.16.79: kho rỗng → tự nạp tồn đầu từ file
+    if(!_emptyWh){
+      const chk=whCheckPeriodOpening(c.items, cur);
+      if(!chk.ok){
+        toast('🔒 Không cho lưu: tồn đầu trong file lệch tồn app ở '+chk.diffs.length+' mã — sửa cho khớp rồi nạp lại','bad');
+        return;
+      }
     }
     const date=String((document.getElementById('op-date')||{}).value||new Date().toISOString().slice(0,10));
     const from=String((document.getElementById('imp-from')||{}).value||date);
+    /* v3.16.78: kỳ sau không nên lùi trước ngày cuối kỳ đã nạp — cảnh báo xác nhận (không chặn cứng). */
+    const _lastTo=whLastPeriodTo(c.whId);
+    if(_lastTo && from && from < _lastTo){
+      if(!confirm('⚠ Kỳ này bắt đầu '+from+' CŨ HƠN ngày cuối kỳ gần nhất đã nạp ('+_lastTo+') cho kho này. Nạp chồng kỳ cũ có thể sai số dư. Vẫn tiếp tục?')) return;
+    }
     const by=actorName();
     try{
       const known={}; InventoryService.materials().forEach(m=>{ known[String(m.code)]=1; });
@@ -70843,7 +70937,7 @@ function _opImportCommit(){
         if(known[String(it.code)]) return;
         try{ InventoryService.addMaterial({code:it.code, name:it.name||it.code, unit:it.unit||'', status:'active', source:'FAST'}); nNew++; }catch(e){}
       });
-      const docs=whBuildPeriodDocs(c.whId, c.items, from, date, by);
+      const docs=whBuildPeriodDocs(c.whId, c.items, from, date, by, null, _emptyWh);   // v3.16.79: kho rỗng nạp kèm tồn đầu
       docs.forEach(d=>InventoryService.addStockDoc(d));
       whUpsertCostBasis(c.whId, c.items.map(i=>({code:i.code, price:i.inPrice||i.openPrice||0})), date, 'FAST kỳ');
       const cls=whCheckPeriodClosing(c.items);
