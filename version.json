@@ -1,5 +1,5 @@
 {
-  "version": "3.17.03",
-  "swVersion": "v3.17.03",
-  "notes": "v3.17.03: Sửa nút In ở màn xem trước chứng từ ra trang trắng. Trước đây app mở cửa sổ mới để in, trình duyệt chặn cửa sổ bật lên thì rơi về in cả trang app nên hộp in chỉ thấy tờ giấy trắng. Nay in qua khung ẩn trong trang, không bị chặn, in đúng nội dung phiếu; chọn Save as PDF trong hộp in là lưu được về máy. Bản in không còn lặp tên công ty hai lần khi chưa có logo. Áp dụng cho mọi chứng từ dùng bộ in chung. Nền v3.17.02 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần."
+  "version": "3.17.04",
+  "swVersion": "v3.17.04",
+  "notes": "v3.17.04: Nút In ở màn xem trước chứng từ nay dùng đúng vùng in sẵn có của app, cách mà báo cáo chủ tàu và báo cáo khoán vẫn in lâu nay, nên không còn ra trang trắng do trình duyệt chặn cửa sổ bật lên hay do khung ẩn. Bấm In, hộp in hiện đúng phiếu, chọn Save as PDF là lưu về máy. Nền v3.17.03 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần."
 }
