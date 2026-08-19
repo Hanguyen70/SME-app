@@ -1,5 +1,5 @@
 {
-  "version": "3.16.79",
-  "swVersion": "v3.16.79",
-  "notes": "v3.16.79: Khi import Nhập-Xuất-Tồn theo kỳ vào một kho đang rỗng chưa có tồn, app sẽ tự động nạp tồn đầu kỳ từ cột tồn đầu trong file rồi mới ghi nhập xuất trong kỳ, chỉ trong một bước. Trước đây tồn đầu trong file chỉ dùng để đối chiếu chứ không được ghi, nên với kho rỗng phải nạp tồn đầu riêng trước. Nay phần xem trước sẽ báo rõ kho đang rỗng và sẽ tự nạp tồn đầu, đồng thời cho phép ghi. Với kho đã có số dư thì vẫn giữ nguyên quy tắc cũ là tồn đầu trong file phải khớp tồn đang có mới cho ghi. Rất tiện cho việc nạp lại toàn bộ các kho từ đầu năm. Nền v3.16.78 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần."
+  "version": "3.16.80",
+  "swVersion": "v3.16.80",
+  "notes": "v3.16.80: Sửa bảng giá trị Nhập Xuất Tồn theo tháng để tách đúng bản chất số liệu. Trước đây phần tồn đầu kỳ nạp từ file bị gộp chung vào cột Nhập của tháng đầu, khiến cột Nhập bị thổi lên và ô Tồn đầu để trống. Nay phiếu tồn đầu kỳ được tính vào cột Tồn đầu, còn cột Nhập chỉ gồm nhập thật trong tháng; tồn cuối mỗi tháng nối sang tồn đầu tháng sau. Nền v3.16.79 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần."
 }

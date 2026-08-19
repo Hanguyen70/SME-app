@@ -3793,7 +3793,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.16.79';
+const APP_VERSION='3.16.80';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -65090,9 +65090,9 @@ function whFifoRun(stockDocs, whId, costBasis, upToDate){
       }
     });
     docVal=Math.round(docVal*100)/100;
-    if(isAdj){ adjValue+=sg*docVal; flows.push({date:d.date, kind:'adj', value:sg*docVal}); }
-    else if(sg>0){ inValue+=docVal; flows.push({date:d.date, kind:'in', value:docVal}); }
-    else { outValue+=docVal; flows.push({date:d.date, kind:'out', value:docVal}); }
+    if(isAdj){ adjValue+=sg*docVal; flows.push({date:d.date, kind:'adj', value:sg*docVal, source:d.source}); }
+    else if(sg>0){ inValue+=docVal; flows.push({date:d.date, kind:'in', value:docVal, source:d.source}); }   // v3.16.80: mang source để tách tồn đầu
+    else { outValue+=docVal; flows.push({date:d.date, kind:'out', value:docVal, source:d.source}); }
   });
   Object.keys(lots).forEach(code=>{
     /* v3.16.11: làm tròn về ĐỒNG — chia lô ra số lẻ thì cộng lại lệch vài xu, kế toán không dùng */
@@ -65122,11 +65122,18 @@ function whMonthlyValueRows(stockDocs, whId, costBasis, fromMonth, toMonth){
   return months.map((ym,i)=>{
     const all=whFifoRun(stockDocs, whId, costBasis, endOf(ym));
     const inM=all.flows.filter(f=>String(f.date||'').slice(0,7)===ym);
-    const inValue=inM.filter(f=>f.kind==='in').reduce((s,f)=>s+f.value,0);
+    /* v3.16.80 (Sếp): phiếu 'nxt_period_opening' là TỒN ĐẦU KỲ — KHÔNG tính vào cột Nhập,
+       mà cộng vào Tồn đầu tháng đó. Tách đúng bản chất số liệu. */
+    const openingValue=inM.filter(f=>f.kind==='in'&&f.source==='nxt_period_opening').reduce((s,f)=>s+f.value,0);
+    const inValue=inM.filter(f=>f.kind==='in'&&f.source!=='nxt_period_opening').reduce((s,f)=>s+f.value,0);
     const outValue=inM.filter(f=>f.kind==='out').reduce((s,f)=>s+f.value,0);
     const adjValue=inM.filter(f=>f.kind==='adj').reduce((s,f)=>s+f.value,0);
     const close=Math.round(Object.values(all.valueByCode).reduce((s,v)=>s+v,0));
-    let open=(prevClose===null)? Math.round(close-inValue+outValue-adjValue) : prevClose;
+    // tồn đầu = (tồn cuối kỳ trước) HOẶC (nếu tháng đầu) = tồn đầu nạp từ file + suy ngược phần còn lại
+    let open;
+    if(prevClose!==null){ open=prevClose; }
+    else if(openingValue>0){ open=Math.round(openingValue); }   // tháng đầu có tồn đầu nạp từ file
+    else { open=Math.round(close-inValue+outValue-adjValue); }  // suy ngược như cũ
     if(Object.is(open,-0) || open===0) open=0;      // tháng đầu không hiện "-0"
 
     prevClose=close;
