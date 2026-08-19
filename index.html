@@ -3792,7 +3792,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.17.02';
+const APP_VERSION='3.17.03';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -30277,7 +30277,8 @@ const DocEngine = (function(){
       : `<tr>
       <td colspan="5" style="border:1px solid #333;padding:4px;text-align:right;font-weight:700;font-size:11px">Tổng cộng</td>
       <td style="border:1px solid #333;padding:4px;text-align:right;font-weight:700;font-size:11px">${_esc(rows.reduce((a,r)=>a+(+r.qty||0),0).toLocaleString('vi-VN'))}</td></tr>`;
-    const logo = co.logoUrl ? `<img src="${_esc(co.logoUrl)}" style="max-height:54px;max-width:170px" crossorigin="anonymous">` : `<div style="font-size:16px;font-weight:700;color:#1c3a5c">${_esc(co.name||'')}</div>`;
+    /* v3.17.03 (Sếp, ảnh bản in): không có logo thì KHÔNG in tên công ty thay logo — tên đã in ngay bên cạnh → bị lặp 2 lần */
+    const logo = co.logoUrl ? `<img src="${_esc(co.logoUrl)}" style="max-height:54px;max-width:170px" crossorigin="anonymous">` : '';
     const parties=(spec.parties||[]).map(p=>`<div style="font-size:11px;margin:1px 0"><b>${_esc(p.label)}:</b> ${_esc(p.name||'')}</div>`).join('');
     const sigs=(spec.signatures||[]);
     const sigCells=sigs.map(s=>`<div style="text-align:center;flex:1">
@@ -30331,7 +30332,20 @@ const DocEngine = (function(){
   /* In qua cửa sổ mới */
   function print(spec){
     const html=renderHtml(spec);
-    const w=window.open('','_blank'); if(!w){ window.print(); return; }
+    /* v3.17.03 (Sếp, ảnh hộp in trang TRẮNG): window.open bị trình duyệt chặn popup → rơi vào window.print()
+       in trang app (modal không nằm trong vùng in) → ra giấy trắng. Nay in qua IFRAME ẩn: không bị chặn popup,
+       in đúng nội dung phiếu. Lỗi iframe thì mới lùi về cửa sổ mới. */
+    try{
+      const old=document.getElementById('doc-print-frame'); if(old) old.remove();
+      const f=document.createElement('iframe'); f.id='doc-print-frame';
+      f.style.cssText='position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
+      document.body.appendChild(f);
+      const dd=f.contentWindow.document;
+      dd.open(); dd.write(`<html><head><meta charset="utf-8"><title>${_esc(spec.docTitle||'Chứng từ')}</title><style>html{font-variant-numeric:tabular-nums lining-nums}body{margin:0}@page{margin:12mm}</style></head><body>${html}</body></html>`); dd.close();
+      setTimeout(()=>{ try{ f.contentWindow.focus(); f.contentWindow.print(); }catch(e){ console.warn('[DocEngine] iframe print',e); } setTimeout(()=>{ try{ f.remove(); }catch(e){} }, 60000); }, 300);
+      return;
+    }catch(e){ console.warn('[DocEngine] iframe print fail, fallback window.open:',e); }
+    const w=window.open('','_blank'); if(!w){ toast('Trình duyệt chặn cửa sổ in — dùng nút 📄 Tải PDF','warn'); return; }
     w.document.write(`<html><head><style>html{font-variant-numeric:tabular-nums lining-nums}</style><title>${_esc(spec.docTitle||'Chứng từ')}</title></head><body onload="setTimeout(function(){window.print();},250)">${html}</body></html>`);
     w.document.close();
   }

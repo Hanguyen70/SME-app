@@ -1,5 +1,5 @@
 {
-  "version": "3.17.02",
-  "swVersion": "v3.17.02",
-  "notes": "v3.17.02: Quay lại thiết kế cũ cho nút In PDF và Xuất Excel trên phiếu nhập xuất: chỉ hiện khi phiếu đã lưu và có số phiếu, không tự lưu nháp khi in. Khi xuất Excel mà thư viện định dạng chưa tải được thì app báo rõ file đang ở dạng trơn và hướng dẫn tải lại trang để xuất theo chuẩn. Nền v3.17.01 giữ nguyên. Sau khi lên bản này cần tải lại trang một lần bằng Ctrl+F5 để nạp thư viện định dạng Excel."
+  "version": "3.17.03",
+  "swVersion": "v3.17.03",
+  "notes": "v3.17.03: Sửa nút In ở màn xem trước chứng từ ra trang trắng. Trước đây app mở cửa sổ mới để in, trình duyệt chặn cửa sổ bật lên thì rơi về in cả trang app nên hộp in chỉ thấy tờ giấy trắng. Nay in qua khung ẩn trong trang, không bị chặn, in đúng nội dung phiếu; chọn Save as PDF trong hộp in là lưu được về máy. Bản in không còn lặp tên công ty hai lần khi chưa có logo. Áp dụng cho mọi chứng từ dùng bộ in chung. Nền v3.17.02 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần."
 }
