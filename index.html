@@ -2812,7 +2812,8 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
             <button class="btn-primary" style="font-size:13px" onclick="openStockForm('IN')">+ Phiếu nhập</button>
             <button class="btn-sec" style="font-size:13px" onclick="openStockForm('OUT')">+ Phiếu xuất</button>
             <button class="btn-sec" style="font-size:13px" onclick="openStockTransfer()">🔄 Điều chuyển</button>
-            <button class="btn-sec" style="font-size:13px" onclick="openStockCount()">📋 Kiểm kê</button>
+            <!-- v3.17.05 (Sếp): Chờ nhập về nhóm Nhập/Xuất; Kiểm kê sang Theo dõi -->
+            <button class="btn-sec" style="font-size:13px" onclick="openPendingInbound()">⏳ Chờ nhập <span id="qa-pending-badge"></span></button>
           </div>
         </div>
         <div style="flex:1;min-width:200px">
@@ -2820,7 +2821,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
           <div style="display:flex;gap:6px;flex-wrap:wrap">
             <button class="btn-sec" style="font-size:13px" onclick="openStockOverview()">📊 Tồn tổng hợp</button>
             <button class="btn-sec" style="font-size:13px" onclick="openStockDocs()">🗂 Chứng từ kho</button>
-            <button class="btn-sec" style="font-size:13px" onclick="openPendingInbound()">⏳ Chờ nhập <span id="qa-pending-badge"></span></button>
+            <button class="btn-sec" style="font-size:13px" onclick="openStockCount()">📋 Kiểm kê</button>
           </div>
         </div>
         <div style="flex:1;min-width:200px">
@@ -3792,7 +3793,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.17.04';
+const APP_VERSION='3.17.05';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);

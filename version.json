@@ -1,5 +1,5 @@
 {
-  "version": "3.17.04",
-  "swVersion": "v3.17.04",
-  "notes": "v3.17.04: Nút In ở màn xem trước chứng từ nay dùng đúng vùng in sẵn có của app, cách mà báo cáo chủ tàu và báo cáo khoán vẫn in lâu nay, nên không còn ra trang trắng do trình duyệt chặn cửa sổ bật lên hay do khung ẩn. Bấm In, hộp in hiện đúng phiếu, chọn Save as PDF là lưu về máy. Nền v3.17.03 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần."
+  "version": "3.17.05",
+  "swVersion": "v3.17.05",
+  "notes": "v3.17.05: Sắp lại nút ở trang Kho vật tư: Chờ nhập chuyển sang nhóm Nhập Xuất cạnh Điều chuyển, Kiểm kê chuyển sang nhóm Theo dõi cạnh Chứng từ kho. Chỉ đổi vị trí nút, chức năng giữ nguyên. Nền v3.17.04 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần."
 }
