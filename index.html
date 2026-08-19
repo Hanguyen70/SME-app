@@ -3793,7 +3793,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.16.89';
+const APP_VERSION='3.16.91';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -70777,7 +70777,7 @@ function openOpeningImport(){
        <label style="font-size:12px" id="imp-lb-date">Ngày chốt tồn</label>
        <input type="date" id="op-date" value="${today}" style="padding:6px 8px;border:1px solid var(--rule);border-radius:6px">
        <label style="font-size:12px">Ghi vào kho</label>
-       <select id="op-target-wh" style="padding:6px 8px;border:1px solid var(--rule);border-radius:6px" onchange="if(window._opCache&&window._opFileRef)_opImportFile(window._opFileRef)">
+       <select id="op-target-wh" style="padding:6px 8px;border:1px solid var(--rule);border-radius:6px" onchange="if(window._opFileRef)_opImportFile(window._opFileRef)">
          <option value="">— Tự nhận theo file (khuyên dùng) —</option>
          ${stockAllowedWarehouses().map(w=>`<option value="${w.id}">${esc(w.name)}${w.code?(' · '+esc(w.code)):''}</option>`).join('')}
        </select>
@@ -70812,6 +70812,7 @@ function _opImportFile(file){
     try{
       const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});
       const aoa=whSheetToAoa(wb.Sheets[wb.SheetNames[0]]);   // v3.15.79: quét vùng THẬT, không tin !ref
+      window._opFileRef=file;   // v3.16.90: set TRƯỚC nhánh period — đổi kho ở ô 'Ghi vào kho' phải dựng lại preview (trước đây period return sớm nên _opFileRef không set → đổi kho không có tác dụng, giữ kho match nhầm)
       /* v3.16.30: chế độ KỲ đi đường riêng — đọc 4 khối NXT, kiểm tồn đầu, rồi mới cho ghi. */
       if(_impMode==='period'){ _opPreviewPeriod(aoa); return; }
       const _forced=String((document.getElementById('op-target-wh')||{}).value||'');   // v3.16.89: đọc kho đích TRƯỚC khi parse
@@ -70823,8 +70824,7 @@ function _opImportFile(file){
       let groups, unmatched;
       if(_forced){ groups={}; groups[_forced]=items.slice(); unmatched={}; }
       else { const m=whMatchOpeningWarehouses(items, InventoryService.warehouses()); groups=m.groups; unmatched=m.unmatched; }
-      window._opCache={groups, unmatched};
-      window._opFileRef=file;      // đổi kho ở ô trên → dựng lại xem trước, khỏi chọn file lại
+      window._opCache={groups, unmatched};   // v3.16.90: _opFileRef đã set ở trên
       const whName=id=>_whName(id);
       const eH=errors.map(e=>`<div style="color:#b3261e;font-size:11px">Dòng ${e.row}: ${esc(e.msg)}</div>`).join('');
       const gH=Object.keys(groups).map(id=>{

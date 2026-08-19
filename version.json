@@ -1,5 +1,5 @@
 {
-  "version": "3.16.89",
-  "swVersion": "v3.16.89",
-  "notes": "v3.16.89: Sửa lỗi khi nạp file tồn kho một kho không có cột Kho riêng. Trước đây nếu file chỉ có mã và số lượng mà không có cột Kho hay Chi nhánh thì mọi dòng bị báo chưa xác định được kho, kể cả khi đã chọn kho đích ở ô Ghi vào kho. Nay nếu đã chọn kho đích thì toàn bộ dòng trong file được ghi vào đúng kho đó, không cần file phải có cột Kho. Nếu để ô Ghi vào kho ở chế độ tự nhận theo file thì file vẫn cần cột Kho như cũ. Nền v3.16.88 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần."
+  "version": "3.16.91",
+  "swVersion": "v3.16.91",
+  "notes": "v3.16.91: Sửa nốt lỗi đổi kho ở ô Ghi vào kho khi import Nhập Xuất Tồn. Trước đây nếu lần xem trước đầu bị báo lệch và dừng, thì khi chọn kho khác app không dựng lại xem trước nên vẫn kẹt ở kho nhận nhầm ban đầu. Nay chỉ cần đã chọn file là đổi kho sẽ dựng lại xem trước và đối chiếu đúng theo kho vừa chọn, kể cả khi lần trước bị lỗi. Đi cùng bản trước để việc chọn kho trong Nhập Xuất Tồn hoạt động đúng như bên Tồn đầu kỳ. Nền v3.16.90 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần."
 }
