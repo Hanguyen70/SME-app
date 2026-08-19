@@ -3793,7 +3793,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.17.05';
+const APP_VERSION='3.17.06';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -8540,7 +8540,7 @@ function _user2FAShowBackupCodes(idx, plainCodes){
 /* v1.56.0: Print backup codes (opens print dialog with formatted page) */
 function _user2FAPrintBackupCodes(codesStr, userName, fullName){
   const codes = codesStr.split(',');
-  const win = window.open('', '_blank', 'width=720,height=900');
+  const win = openPrintWindow('width=720,height=900');
   if(!win){ toast('Trình duyệt chặn popup — bật popup cho trang này','bad'); return; }
   win.document.write(`
     <!DOCTYPE html><html><head><style>html{font-variant-numeric:tabular-nums lining-nums}</style><meta charset="utf-8"><title>2FA Backup Codes - ${esc(userName)}</title>
@@ -8831,7 +8831,7 @@ function _adminShowRecoveryKey(recoveryKey){
 
 /* v1.60.0: Print Recovery Key */
 function _adminPrintRecoveryKey(key){
-  const win = window.open('', '_blank', 'width=720,height=600');
+  const win = openPrintWindow('width=720,height=600');
   if(!win){ toast('Trình duyệt chặn popup — bật popup','bad'); return; }
   win.document.write(`
     <!DOCTYPE html><html><head><style>html{font-variant-numeric:tabular-nums lining-nums}</style><meta charset="utf-8"><title>Admin Recovery Key</title>
@@ -9154,7 +9154,7 @@ function _adminShow2FABackupCodes(plainCodes){
 /* v1.58.0: Print admin backup codes */
 function _adminPrint2FABackupCodes(codesStr){
   const codes = codesStr.split(',');
-  const win = window.open('', '_blank', 'width=720,height=900');
+  const win = openPrintWindow('width=720,height=900');
   if(!win){ toast('Trình duyệt chặn popup — bật popup cho trang này','bad'); return; }
   win.document.write(`
     <!DOCTYPE html><html><head><style>html{font-variant-numeric:tabular-nums lining-nums}</style><meta charset="utf-8"><title>Admin 2FA Backup Codes</title>
@@ -13605,7 +13605,7 @@ function _printHelp(){
   // Open print dialog with just help content
   const helpContent = document.getElementById('help-content-scroll');
   if(!helpContent){toast('Không tìm thấy nội dung hướng dẫn','bad');return;}
-  const w = window.open('', '_blank', 'width=800,height=900');
+  const w = openPrintWindow('width=800,height=900');
   if(!w){toast('Trình duyệt chặn popup — bật lại để in','bad');return;}
   w.document.write(`<!DOCTYPE html><html><head><style>html{font-variant-numeric:tabular-nums lining-nums}</style><title>Hướng dẫn Seahorse Manager</title>
     <style>
@@ -21028,7 +21028,7 @@ function payBankBatchPdf(bid){
       <td style="border:none;text-align:center;width:33%"><b>KẾ TOÁN TRƯỞNG</b><br><i style="font-size:10px">(Ký, họ tên)</i></td>
       <td style="border:none;text-align:center;width:33%"><b>GIÁM ĐỐC</b><br><i style="font-size:10px">(Ký, đóng dấu)</i></td></tr></table>
     <button onclick="window.print()" style="margin-top:16px;padding:8px 18px">🖨 In / Lưu PDF</button></body></html>`;
-  const w=window.open('','_blank'); if(!w){ toast('Trình duyệt chặn popup — cho phép popup để in','warn'); return; }
+  const w=openPrintWindow(); if(!w){ toast('Trình duyệt chặn popup — cho phép popup để in','warn'); return; }
   w.document.write(html); w.document.close();
   (b.auditTrail=b.auditTrail||[]).push({at:new Date().toISOString(),by:(CURRENT_USER&&CURRENT_USER.name)||'',act:'pdf',note:'In PDF mẫu '+tpl.key});
   const p=payPeriodById(b.periodId); if(p) _payAudit(p,'bank_batch_pdf','In bảng chuyển khoản PDF (mẫu '+tpl.key+')');
@@ -26987,7 +26987,7 @@ function payslipBatchAll(id){
   if(!valid.length){ toast('Chưa có NV nào được tính lương','warn'); return; }
   const withEmail=valid.filter(r=>{ const e=HRService.employees().find(x=>x.id===r.empId); return e&&e.email; }).length;
   const all=valid.map(r=>_payslipHtml(p,r,{idAttr:false})).join('');
-  const w=window.open('','_blank');
+  const w=openPrintWindow();
   if(!w){ toast('Trình duyệt chặn cửa sổ in','bad'); return; }
   w.document.write('<html><head><style>html{font-variant-numeric:tabular-nums lining-nums}</style><title>Payslips '+esc(p.period)+'</title><style>@media print{.noprint{display:none}}</style></head><body><div class="noprint" style="text-align:center;padding:10px;font-family:Arial"><button onclick="window.print()" style="padding:8px 20px;font-size:13px;cursor:pointer">🖨 In tất cả / Lưu PDF</button> · '+valid.length+' phiếu lương</div>'+all+'</body></html>');
   w.document.close();
@@ -26996,7 +26996,7 @@ function payslipBatchAll(id){
 }
 function payslipPrint(){
   const el=document.getElementById('payslip-print'); if(!el){ window.print(); return; }
-  const w=window.open('','_blank'); if(!w){ window.print(); return; }
+  const w=openPrintWindow(); if(!w){ window.print(); return; }
   w.document.write('<html><head><style>html{font-variant-numeric:tabular-nums lining-nums}</style><title>Payslip</title></head><body>'+el.outerHTML+'</body></html>');
   w.document.close(); setTimeout(()=>{ try{w.print();}catch(e){} },300);
 }
@@ -30191,6 +30191,37 @@ function _loadJsPDF(){
   });
   return _jsPDFLoading;
 }
+/* v3.17.06 (Sếp: "kiểm tra các nút in PDF trong app — còn nút nào sai?"): MỘT CỬA cho mọi đường in qua cửa sổ mới.
+   Trước đây 21 nút in tự gọi window.open('','_blank'); popup bị chặn thì nơi báo lỗi, nơi in cả trang app (trắng),
+   nơi vỡ. Nay openPrintWindow(): mở được cửa sổ thì trả về y như cũ (hành vi không đổi); bị chặn thì trả về một
+   "cửa sổ giả" ghi nội dung vào vùng #print-area và in NGAY TRONG TRANG (cơ chế đã chạy ổn của báo cáo chủ tàu).
+   Mã tại từng nút giữ nguyên: document.write / close / print / focus đều có. */
+function openPrintWindow(features){
+  let w=null; try{ w=window.open('','_blank',features||''); }catch(e){ w=null; }
+  if(w) return w;
+  const pa=document.getElementById('print-area');
+  if(!pa) return null;
+  let buf='', done=false;
+  const flush=()=>{
+    if(done) return; done=true;
+    let body=buf, styles='';
+    try{
+      const dp=new DOMParser().parseFromString(buf,'text/html');
+      dp.querySelectorAll('script').forEach(x=>x.remove());
+      styles=Array.from(dp.querySelectorAll('style')).map(x=>'<style>'+x.textContent+'</style>').join('');
+      dp.querySelectorAll('style').forEach(x=>x.remove());
+      body=dp.body?dp.body.innerHTML:buf;
+    }catch(e){}
+    pa.innerHTML=styles+'<div>'+body+'</div>';
+    const clear=()=>{ try{ pa.innerHTML=''; }catch(e){} window.removeEventListener('afterprint',clear); };
+    window.addEventListener('afterprint',clear);
+    setTimeout(()=>{ try{ window.print(); }catch(e){ console.warn('[print-area]',e); } },200);
+  };
+  const shim={ _inPage:true, document:{ write:(h)=>{ buf+=String(h==null?'':h); }, close:flush, get body(){ return pa; } },
+    focus:()=>{}, print:flush, close:()=>{}, onload:null };
+  try{ toast('Trình duyệt chặn cửa sổ mới — in ngay trong trang','info'); }catch(e){}
+  return shim;
+}
 const DocEngine = (function(){
   function _esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
   /* HTML chứng từ — mẫu tách rời, tái dùng cho preview/print/pdf */
@@ -30344,7 +30375,7 @@ const DocEngine = (function(){
       setTimeout(()=>{ try{ window.print(); }catch(e){ console.warn('[DocEngine] print',e); } }, 150);
       return;
     }
-    const w=window.open('','_blank'); if(!w){ toast('Trình duyệt chặn cửa sổ in — dùng nút 📄 Tải PDF','warn'); return; }
+    const w=openPrintWindow(); if(!w){ toast('Trình duyệt chặn cửa sổ in — dùng nút 📄 Tải PDF','warn'); return; }
     w.document.write(`<html><head><style>html{font-variant-numeric:tabular-nums lining-nums}</style><title>${_esc(spec.docTitle||'Chứng từ')}</title></head><body onload="setTimeout(function(){window.print();},250)">${html}</body></html>`);
     w.document.close();
   }
@@ -35584,7 +35615,7 @@ function exportProjectsPdf(){
     <script>window.onload=function(){setTimeout(function(){window.print();},250);}<\/script>
   </body></html>`;
 
-  const w=window.open('','_blank');
+  const w=openPrintWindow();
   if(!w){ toast('Trình duyệt chặn cửa sổ in — cho phép popup rồi thử lại','bad'); return; }
   w.document.write(html); w.document.close();
 }
@@ -40699,7 +40730,7 @@ function apprBatchPdf(batchId){
   const total={};
   rs.forEach(r=>{ const c=r.ccy||'VND'; total[c]=(total[c]||0)+(+r.amountGross||+r.amount||0); });
   const totalStr=Object.entries(total).map(([c,v])=>v.toLocaleString('vi-VN')+' '+c).join(' · ');
-  const w=window.open('','_blank');
+  const w=openPrintWindow();
   if(!w){ toast('Trình duyệt chặn popup — cho phép để in','bad'); return; }
   w.document.write(`<html><head><style>html{font-variant-numeric:tabular-nums lining-nums}</style><meta charset="utf-8"><title>Ho so GD duyet chi</title>
     <style>body{font-family:Arial,sans-serif;padding:24px;font-size:13px}h2{margin:0 0 4px}table{width:100%;border-collapse:collapse;margin-top:12px}th,td{border:1px solid #999;padding:5px 7px;font-size:13px}th{background:#eee}.muted{color:#666;font-size:13px}.sign{margin-top:40px;display:flex;justify-content:space-around;text-align:center}</style>
@@ -41195,7 +41226,7 @@ function exportApprovalBatchPdf(records, lvl){
     </tr>`;
   }).join('');
   const totalStr=Object.entries(totalByCcy).map(([c,v])=>fmt(v,c)).join(' · ');
-  const win=window.open('','_blank');
+  const win=openPrintWindow();
   if(!win){ toast('Trình duyệt chặn popup — bật popup để xuất PDF','bad'); return; }
   win.document.write(`
     <!DOCTYPE html><html><head><style>html{font-variant-numeric:tabular-nums lining-nums}</style><meta charset="utf-8"><title>${title} - ${dateStr}</title>
@@ -69904,7 +69935,7 @@ function _vsBatchPrint(){
   const reason=String((document.getElementById('vsb-reason')||{}).value||'').trim();
   /* Gom theo KHO NGUỒN: mỗi kho một khối để thủ kho kho đó biết ngay phần việc của mình */
   const groups={}; sel.forEach(x=>{ (groups[x.fromWh]=groups[x.fromWh]||[]).push(x); });
-  const w2=window.open('','_blank','width=900,height=900');
+  const w2=openPrintWindow('width=900,height=900');
   if(!w2){ toast('Trình duyệt chặn popup — cho phép popup để in','warn'); return; }
   let stt=0;
   const blocks=Object.keys(groups).map(id=>{
@@ -69950,7 +69981,7 @@ function _vspPrint(){
   const co=S.companyInfo||{};
   /* v3.15.83: DocEngine là bộ in CHỨNG TỪ (cột cố định mã/tên/ĐVT/SL/giá) — báo cáo NXT có bộ cột
      khác hẳn nên in bằng cửa sổ riêng, không ép vào khuôn chứng từ. */
-  const w=window.open('','_blank','width=900,height=900');
+  const w=openPrintWindow('width=900,height=900');
   if(!w){ toast('Trình duyệt chặn popup — cho phép popup để in','warn'); return; }
   const tr=rows.map((r,i)=>`<tr>
       <td class="c">${i+1}</td><td class="m">${esc(r.code)}</td><td>${esc(r.name||'')}</td>
@@ -71684,7 +71715,7 @@ function stockPrintApBundle(key){
     <div style="font-size:10px;color:#666;margin-top:8px">Kèm theo: ${docs.length} phiếu nhập kho đã xác nhận (in liền sau trang này). Dùng đính hồ sơ thanh toán toàn bộ/từng phần.</div>
   </div>`;
   const html=[summary].concat(parts).join('<div style="page-break-after:always"></div>');
-  const w=window.open('','_blank');
+  const w=openPrintWindow();
   if(!w){ toast('Trình duyệt chặn cửa sổ in — cho phép popup rồi thử lại','bad'); return; }
   w.document.write(`<html><head><style>html{font-variant-numeric:tabular-nums lining-nums}</style><title>Bộ phiếu nhập kho</title></head><body onload="setTimeout(function(){window.print();},300)">${html}</body></html>`);
   w.document.close();
@@ -74870,7 +74901,7 @@ function printMMR(){
   const area=document.getElementById('mmr-print-area');
   if(!area){toast('Chưa có nội dung MMR','bad');return;}
   // Open print window
-  const w=window.open('','_blank');
+  const w=openPrintWindow();
   if(!w){toast('Trình duyệt chặn popup — cho phép popup để in','bad');return;}
   const ci=S.companyInfo||{};
   const monthEl=document.getElementById('rep-mmr-month');
@@ -76107,7 +76138,7 @@ function nsnnVatExportPDF(){
     <td style="text-align:right">${fmt(s.net,c)}</td><td></td>
     <td style="text-align:right">${fmt(s.vat,c)}</td>
     <td style="text-align:right">${fmt(s.gross,c)}</td><td></td></tr>`).join('');
-  const win=window.open('','_blank');
+  const win=openPrintWindow();
   win.document.write(`<!DOCTYPE html><html><head><style>html{font-variant-numeric:tabular-nums lining-nums}</style><meta charset="utf-8"><title>Bảng kê GTGT ${opt.month}</title>
     <style>body{font-family:Arial,sans-serif;font-size:11px;padding:20px;color:#222}
     h2{text-align:center;margin:4px 0}.sub{text-align:center;font-size:11px;color:#555;margin-bottom:14px}
@@ -79972,7 +80003,7 @@ function assetExportPdf(which){
   }
   // v3.10.88 R12 audit-cuối (LỖI #3): TSCĐ có ccy per-record — tổng phải quy Base, không cộng thô đa tệ.
   const totalCost=CCY_AGG.sumBase(list, a=>(+a.originalCost||0), a=>a.ccy||'VND', null, 'assetExportPdf.totalCost').value;
-  const win=window.open('','_blank');
+  const win=openPrintWindow();
   if(!win){ toast('Trình duyệt chặn cửa sổ in — cho phép popup','bad'); return; }
   const esc2=s=>String(s==null?'':s).replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
   win.document.write(`<!doctype html><html><head><style>html{font-variant-numeric:tabular-nums lining-nums}</style><meta charset="utf-8"><title>${title}</title>
@@ -80747,7 +80778,7 @@ function _qnOverheadRows(from, to){
   return { cats:Object.values(byCat).sort((a,b)=>b.total-a.total), grand, count, excluded };
 }
 function _periodicPdfWin(title, sub, tableHtml, foot){
-  const win=window.open('','_blank');
+  const win=openPrintWindow();
   if(!win){ toast('Trình duyệt chặn cửa sổ in — cho phép popup','bad'); return; }
   const co=(S.companyInfo&&S.companyInfo.name)||'SEAHORSE MARINE & ENERGY JSC';
   win.document.write(`<!doctype html><html><head><style>html{font-variant-numeric:tabular-nums lining-nums}</style><meta charset="utf-8"><title>${title}</title>
@@ -80842,7 +80873,7 @@ function arExportPdf(kind){
   });
   const totalLines=Object.entries(byCcy).map(([c,v])=>
     `${c}: Tổng <b>${fmtN(v.tot)}</b> · Đã ${isAp?'trả':'thu'} <b>${fmtN(v.paid)}</b> · Còn lại <b>${fmtN(v.rem)}</b>`).join(' &nbsp;|&nbsp; ');
-  const win=window.open('','_blank');
+  const win=openPrintWindow();
   if(!win){ toast('Trình duyệt chặn cửa sổ in — cho phép popup','bad'); return; }
   const esc2=s=>String(s==null?'':s).replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
   win.document.write(`<!doctype html><html><head><style>html{font-variant-numeric:tabular-nums lining-nums}</style><meta charset="utf-8"><title>${title}</title>
@@ -80899,7 +80930,7 @@ function apHandoverPdf(){
       <td></td>
     </tr>`;
   }).join('');
-  const win=window.open('','_blank');
+  const win=openPrintWindow();
   if(!win){ toast('Trình duyệt chặn cửa sổ in — cho phép popup','bad'); return; }
   const today=new Date().toLocaleDateString('vi-VN');
   win.document.write(`<!doctype html><html><head><style>html{font-variant-numeric:tabular-nums lining-nums}</style><meta charset="utf-8"><title>Biên bản bàn giao chứng từ</title>
@@ -81329,7 +81360,7 @@ function apPaymentOrderPdf(){
       <td style="font-size:10px">${bankLabel}</td>
     </tr>`;
   }).join('');
-  const win=window.open('','_blank');
+  const win=openPrintWindow();
   if(!win){ toast('Trình duyệt chặn cửa sổ in — cho phép popup','bad'); return; }
   const today=new Date().toLocaleDateString('vi-VN');
   const orderNo='LTD-'+new Date().toISOString().slice(0,10).replace(/-/g,'')+'-'+Math.random().toString(36).slice(2,5).toUpperCase();
@@ -81431,7 +81462,7 @@ function printPayOrderFromRecords(recs){
   const proposers=[...new Set(rows.map(r=>r._payProposedBy||r.createdBy||'').filter(Boolean))];
   const ktName=proposers.length===1?proposers[0]:'.....................................';
   const kttName=actorName();  // người đang duyệt L1 = KTT
-  const win=window.open('','_blank');
+  const win=openPrintWindow();
   if(!win){ toast('Trình duyệt chặn cửa sổ in — cho phép popup','bad'); return; }
   const today=new Date().toLocaleDateString('vi-VN');
   const orderNo='LTD-'+new Date().toISOString().slice(0,10).replace(/-/g,'')+'-'+Math.random().toString(36).slice(2,5).toUpperCase();

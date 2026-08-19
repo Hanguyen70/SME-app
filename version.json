@@ -1,5 +1,5 @@
 {
-  "version": "3.17.05",
-  "swVersion": "v3.17.05",
-  "notes": "v3.17.05: Sắp lại nút ở trang Kho vật tư: Chờ nhập chuyển sang nhóm Nhập Xuất cạnh Điều chuyển, Kiểm kê chuyển sang nhóm Theo dõi cạnh Chứng từ kho. Chỉ đổi vị trí nút, chức năng giữ nguyên. Nền v3.17.04 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần."
+  "version": "3.17.06",
+  "swVersion": "v3.17.06",
+  "notes": "v3.17.06: Rà toàn bộ 21 nút in PDF trong app đang mở cửa sổ mới để in. Nay tất cả đi qua một cửa chung: mở được cửa sổ thì in như cũ; bị trình duyệt chặn cửa sổ bật lên thì app tự in ngay trong trang qua vùng in sẵn có thay vì báo lỗi, in trang trắng hay không làm gì. Mã từng nút giữ nguyên. Nền v3.17.05 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần."
 }
