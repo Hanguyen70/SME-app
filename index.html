@@ -3793,7 +3793,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.16.85';
+const APP_VERSION='3.16.86';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -65090,9 +65090,9 @@ function whFifoRun(stockDocs, whId, costBasis, upToDate){
       }
     });
     docVal=Math.round(docVal*100)/100;
-    if(isAdj){ adjValue+=sg*docVal; flows.push({date:d.date, kind:'adj', value:sg*docVal, source:d.source, docType:d.type}); }
-    else if(sg>0){ inValue+=docVal; flows.push({date:d.date, kind:'in', value:docVal, source:d.source, docType:d.type}); }   // v3.16.80/81: mang source+type để tách tồn đầu
-    else { outValue+=docVal; flows.push({date:d.date, kind:'out', value:docVal, source:d.source, docType:d.type}); }
+    if(isAdj){ adjValue+=sg*docVal; flows.push({date:d.date, kind:'adj', value:sg*docVal, source:d.source, docType:d.type, docNo:d.docNo}); }
+    else if(sg>0){ inValue+=docVal; flows.push({date:d.date, kind:'in', value:docVal, source:d.source, docType:d.type, docNo:d.docNo}); }   // v3.16.80/81/86: source+type+docNo để tách tồn đầu
+    else { outValue+=docVal; flows.push({date:d.date, kind:'out', value:docVal, source:d.source, docType:d.type, docNo:d.docNo}); }
   });
   Object.keys(lots).forEach(code=>{
     /* v3.16.11: làm tròn về ĐỒNG — chia lô ra số lẻ thì cộng lại lệch vài xu, kế toán không dùng */
@@ -65126,18 +65126,19 @@ function whMonthlyValueRows(stockDocs, whId, costBasis, fromMonth, toMonth){
        mà cộng vào Tồn đầu tháng đó. Tách đúng bản chất số liệu. */
     /* v3.16.81 (Sếp): tồn đầu kỳ nhận diện qua LOẠI phiếu OPENING hoặc source opening
        (nxt_period_opening = kho rỗng nạp qua NXT; opening_import = chế độ Tồn đầu kỳ). */
-    const _isOpen=(f)=> f.docType==='OPENING' || f.source==='nxt_period_opening' || f.source==='opening_import';
+    const _isOpen=(f)=> f.docType==='OPENING' || f.source==='nxt_period_opening' || f.source==='opening_import' || (f.docNo&&/^TDK/.test(String(f.docNo)));   // v3.16.86: +docNo TDK (bao phiếu tồn đầu nạp bản cũ)
     const openingValue=inM.filter(f=>f.kind==='in'&&_isOpen(f)).reduce((s,f)=>s+f.value,0);
     const inValue=inM.filter(f=>f.kind==='in'&&!_isOpen(f)).reduce((s,f)=>s+f.value,0);
     const outValue=inM.filter(f=>f.kind==='out').reduce((s,f)=>s+f.value,0);
     const adjValue=inM.filter(f=>f.kind==='adj').reduce((s,f)=>s+f.value,0);
     const close=Math.round(Object.values(all.valueByCode).reduce((s,v)=>s+v,0));
     // tồn đầu = (tồn cuối kỳ trước) HOẶC (nếu tháng đầu) = tồn đầu nạp từ file + suy ngược phần còn lại
+    /* v3.16.86 (Sếp: PHẢI CÓ tồn đầu mỗi tháng). Tháng đầu tiên: tồn đầu = tồn cuối − nhập + xuất − điều chỉnh
+       (đẳng thức LUÔN đúng, không phụ thuộc phiếu opening có được nhận diện hay không). Tháng sau: = tồn cuối kỳ trước. */
     let open;
     if(prevClose!==null){ open=prevClose; }
-    else if(openingValue>0){ open=Math.round(openingValue); }   // tháng đầu có tồn đầu nạp từ file
-    else { open=Math.round(close-inValue+outValue-adjValue); }  // suy ngược như cũ
-    if(Object.is(open,-0) || open===0) open=0;      // tháng đầu không hiện "-0"
+    else { open=Math.round(close-inValue+outValue-adjValue); }
+    if(Object.is(open,-0)) open=0;
 
     prevClose=close;
     return {month:ym, open, inValue:Math.round(inValue), outValue:Math.round(outValue),

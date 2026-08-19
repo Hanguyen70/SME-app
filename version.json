@@ -1,5 +1,5 @@
 {
-  "version": "3.16.85",
-  "swVersion": "v3.16.85",
-  "notes": "v3.16.85: Rút gọn phần đối chiếu Nhập Xuất Tồn theo kỳ, chỉ đối chiếu số lượng. Bỏ phần kiểm tra giá trị và dung sai vừa thêm ở bản trước, vì giá trị đã do cách tính giá vốn tự xử lý nên không cần đối chiếu. Tồn cuối được kiểm theo công thức tồn đầu cộng nhập trừ xuất về mặt số lượng. Nền v3.16.84 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần."
+  "version": "3.16.86",
+  "swVersion": "v3.16.86",
+  "notes": "v3.16.86: Sửa để bảng giá trị Nhập Xuất Tồn theo tháng luôn hiển thị tồn đầu của tháng đầu tiên. Trước đây nếu phiếu tồn đầu kỳ được nạp từ bản cũ, hệ thống không nhận ra đó là tồn đầu nên cột Tồn đầu tháng đầu bị để trống dù tồn cuối vẫn đúng. Nay mọi phiếu tồn đầu kỳ có mã bắt đầu bằng TDK đều được nhận diện đúng, và tồn đầu tháng đầu được tính từ tồn cuối trừ nhập cộng xuất nên luôn ra số. Nguyên tắc giữ nguyên: chỉ một phiếu tồn đầu kỳ vào ngày đầu năm, mỗi tháng chỉ có nhập và xuất, tồn cuối do app tự tính. Nền v3.16.85 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần."
 }
