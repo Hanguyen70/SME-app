@@ -1,5 +1,5 @@
 {
-  "version": "3.16.91",
-  "swVersion": "v3.16.91",
-  "notes": "v3.16.91: Sửa nốt lỗi đổi kho ở ô Ghi vào kho khi import Nhập Xuất Tồn. Trước đây nếu lần xem trước đầu bị báo lệch và dừng, thì khi chọn kho khác app không dựng lại xem trước nên vẫn kẹt ở kho nhận nhầm ban đầu. Nay chỉ cần đã chọn file là đổi kho sẽ dựng lại xem trước và đối chiếu đúng theo kho vừa chọn, kể cả khi lần trước bị lỗi. Đi cùng bản trước để việc chọn kho trong Nhập Xuất Tồn hoạt động đúng như bên Tồn đầu kỳ. Nền v3.16.90 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần."
+  "version": "3.16.92",
+  "swVersion": "v3.16.92",
+  "notes": "v3.16.92: Import Nhập Xuất Tồn nay nhận cả kiểu in chỉ số lượng của FAST. FAST có hai kiểu in cùng báo cáo: kiểu đủ số lượng lẫn giá trị (tiêu đề hai dòng Nhập/Xuất kèm Số lượng/Giá trị, như file GM) và kiểu chỉ số lượng (tiêu đề một dòng Tồn đầu · Sl nhập · Sl xuất · Tồn cuối, không có cột giá trị, như file GS). Trước đây app chỉ nhận đúng chữ Nhập/Xuất nên kiểu chỉ số lượng bị báo không phải mẫu. Nay nhận cả hai; với file chỉ số lượng, phần xem trước ghi rõ và giá trị nhập xuất để FIFO tự tính. Cửa chặn bên chế độ Tồn đầu kỳ cũng nhận diện được kiểu này để không nạp nhầm. Nền v3.16.91 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần."
 }

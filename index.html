@@ -3793,7 +3793,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.16.91';
+const APP_VERSION='3.16.92';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -70445,20 +70445,28 @@ function whParseNxtPeriod(aoa){
     const iCode=c.findIndex(x=>/^ma( vat tu| vt| hang)?$/.test(x)||x==='ma');
     if(iCode<0) continue;
     const iOpen=c.findIndex(x=>/^ton dau/.test(x));
-    const iIn=c.findIndex(x=>/^nhap$/.test(x));
-    const iOut=c.findIndex(x=>/^xuat$/.test(x));
+    /* v3.16.92 (Sếp: "cùng mẫu FAST sao file được file không?"): FAST có 2 kiểu in báo cáo NXT —
+       (A) SL + Giá trị: tiêu đề 2 dòng "Nhập"/"Xuất" + dòng con "Số lượng"/"Giá trị" (file GM);
+       (B) CHỈ SỐ LƯỢNG: tiêu đề 1 dòng "Tồn đầu · Sl nhập · Sl xuất · Tồn cuối", KHÔNG có cột Giá trị (file GS).
+       Trước đây chỉ nhận đúng chữ "Nhập"/"Xuất" nên kiểu B bị báo "không phải mẫu". Nay nhận cả
+       "Sl nhập"/"SL xuất"/"Số lượng nhập"…; kiểu B giá trị = 0 (FIFO tự tính, đúng luật v3.16.85). */
+    const iIn=c.findIndex(x=>/^(sl |so luong |sl|soluong)?nhap$/.test(x));
+    const iOut=c.findIndex(x=>/^(sl |so luong |sl|soluong)?xuat$/.test(x));
     const iClose=c.findIndex(x=>/^ton cuoi/.test(x));
     if(iOpen<0||iIn<0||iOut<0||iClose<0) continue;
     hRow=r;
+    /* kiểu A: dòng ngay dưới tiêu đề có "Số lượng"/"Giá trị" → cột giá trị = cột SL + 1; kiểu B: không có */
+    const sub=(aoa[r+1]||[]).map(norm);
+    const hasVal=sub.some(x=>/^gia tri/.test(x));
     col={code:iCode,
       name:c.findIndex(x=>/^ten( vat tu| vt| hang)?$/.test(x)||x==='ten'),
       unit:c.findIndex(x=>/don vi|dvt/.test(x)),
-      openQ:iOpen, openV:iOpen+1, inQ:iIn, inV:iIn+1, outQ:iOut, outV:iOut+1, closeQ:iClose, closeV:iClose+1};
+      openQ:iOpen, openV:hasVal?iOpen+1:-1, inQ:iIn, inV:hasVal?iIn+1:-1, outQ:iOut, outV:hasVal?iOut+1:-1, closeQ:iClose, closeV:hasVal?iClose+1:-1};
     break;
   }
   if(hRow<0) return {items:[], error:'File không phải mẫu Nhập-Xuất-Tồn (cần đủ 4 cột: Tồn đầu · Nhập · Xuất · Tồn cuối)'};
   const items=[]; let whKey='', whCode='';
-  for(let r=hRow+2;r<aoa.length;r++){
+  for(let r=hRow+1;r<aoa.length;r++){   // v3.16.92: bắt đầu ngay sau tiêu đề (dòng con "Số lượng/Giá trị" không có mã → tự bỏ qua)
     const row=aoa[r]||[];
     const code=String(row[col.code]==null?'':row[col.code]).trim();
     if(!code) continue;
@@ -70467,7 +70475,8 @@ function whParseNxtPeriod(aoa){
     if(!stt && code.indexOf('.')<0){ whCode=code; whKey=String(row[col.name>=0?col.name:2]||'').trim(); continue; }
     const openQty=num(row[col.openQ]), inQty=num(row[col.inQ]), outQty=num(row[col.outQ]), closeQty=num(row[col.closeQ]);
     if(!openQty && !inQty && !outQty && !closeQty) continue;
-    const inVal=num(row[col.inV]), openVal=num(row[col.openV]), outVal=num(row[col.outV]), closeVal=num(row[col.closeV]);   // v3.16.77
+    const vc=(i)=>i>=0?num(row[i]):0;   // v3.16.92: kiểu chỉ-SL không có cột giá trị
+    const inVal=vc(col.inV), openVal=vc(col.openV), outVal=vc(col.outV), closeVal=vc(col.closeV);   // v3.16.77
     items.push({code, name:col.name>=0?String(row[col.name]||'').trim():'',
       unit:col.unit>=0?String(row[col.unit]||'').trim():'',
       openQty, openVal, inQty, inVal, outQty, outVal,
@@ -70576,8 +70585,8 @@ function whParseOpeningRows(aoa, forcedWh){
     const iQty=cells.findIndex(c=>/so luong|ton kho|ton cuoi|^ton$|^sl$/.test(c));
     /* v3.16.83 (Sếp): chế độ 'Tồn đầu kỳ' CHỈ nhận file tồn thuần. File NXT (có đủ cột Nhập + Xuất +
        Tồn đầu) phải dùng chế độ 'Nhập - Xuất - Tồn theo kỳ' để tách đúng bản chất. Nhận diện & báo. */
-    const hasNhap=cells.some(c=>/^nhap$|nhap trong ky|^nhap /.test(c));
-    const hasXuat=cells.some(c=>/^xuat$|xuat trong ky|^xuat /.test(c));
+    const hasNhap=cells.some(c=>/^nhap$|nhap trong ky|^nhap |^(sl|so luong) ?nhap$/.test(c));   // v3.16.92: + mẫu FAST chỉ-SL "Sl nhập"
+    const hasXuat=cells.some(c=>/^xuat$|xuat trong ky|^xuat |^(sl|so luong) ?xuat$/.test(c));
     const hasTonDau=cells.some(c=>/ton dau/.test(c));
     if(iCode>=0 && hasNhap && hasXuat && hasTonDau){
       errors.push({row:r+1, msg:'File này là báo cáo NHẬP - XUẤT - TỒN (có đủ cột Tồn đầu, Nhập, Xuất, Tồn cuối). Chế độ "Tồn đầu kỳ" chỉ dùng cho file TỒN thuần. Hãy đổi Kiểu số liệu sang "Nhập - Xuất - Tồn theo kỳ" để nạp đúng.'});
@@ -70900,7 +70909,7 @@ function _opPreviewPeriod(aoa){
       ${list.length>15?`<div style="font-size:11px;color:var(--muted)">… và ${list.length-15} mã nữa</div>`:''}`;
   host.innerHTML=`
     <div style="padding:6px 8px;border:1px solid var(--rule);border-radius:6px;font-size:12px;margin-bottom:6px">
-      📄 Đọc được <b>${r.items.length}</b> mã · nhập <b>${nIn}</b> mã · xuất <b>${nOut}</b> mã · ghi vào kho <b>${esc(_whName(whId))}</b>
+      📄 Đọc được <b>${r.items.length}</b> mã · nhập <b>${nIn}</b> mã · xuất <b>${nOut}</b> mã · ghi vào kho <b>${esc(_whName(whId))}</b>${(r.items.some(i=>i.inVal>0||i.openVal>0||i.outVal>0))?'':' · <span style="color:#8a5200">file kiểu <b>chỉ số lượng</b> (không có cột Giá trị) — giá trị nhập/xuất để FIFO tự tính</span>'}
     </div>
     ${_periodWarn}
     ${chk.ok
