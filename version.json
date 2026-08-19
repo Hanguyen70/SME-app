@@ -1,5 +1,5 @@
 {
-  "version": "3.16.92",
-  "swVersion": "v3.16.92",
-  "notes": "v3.16.92: Import Nhập Xuất Tồn nay nhận cả kiểu in chỉ số lượng của FAST. FAST có hai kiểu in cùng báo cáo: kiểu đủ số lượng lẫn giá trị (tiêu đề hai dòng Nhập/Xuất kèm Số lượng/Giá trị, như file GM) và kiểu chỉ số lượng (tiêu đề một dòng Tồn đầu · Sl nhập · Sl xuất · Tồn cuối, không có cột giá trị, như file GS). Trước đây app chỉ nhận đúng chữ Nhập/Xuất nên kiểu chỉ số lượng bị báo không phải mẫu. Nay nhận cả hai; với file chỉ số lượng, phần xem trước ghi rõ và giá trị nhập xuất để FIFO tự tính. Cửa chặn bên chế độ Tồn đầu kỳ cũng nhận diện được kiểu này để không nạp nhầm. Nền v3.16.91 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần."
+  "version": "3.16.97",
+  "swVersion": "v3.16.97",
+  "notes": "v3.16.97: Sửa cách lấy tiền tố kho khi gợi ý mã theo cây. Đoạn đầu của mã vật tư (GS, GM, SUR, CW) là tên kho theo FAST, khác với mã kho trong app (KHO-GEOSUPORTER), bản trước lấy nhầm mã kho app. Nay app suy tiền tố từ kho nhận hàng của phiếu, tức theo tàu hay đơn vị được mua cho: mua cho Geosupporter ra GS, cho kỹ thuật ra SUR, theo thứ tự mã kho đã là tiền tố ngắn, tên gọi khác đã nhớ từ lần nạp FAST, bảng tên kho chuẩn, rồi học từ mã vật tư đang tồn trong kho. Trong hộp gợi ý có thêm ô Kho tiền tố để đổi tay khi cần, chọn xong app nhớ cho kho đó. Nền v3.16.96 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần."
 }
