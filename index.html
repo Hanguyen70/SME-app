@@ -3792,7 +3792,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.16.97';
+const APP_VERSION='3.16.98';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -70121,10 +70121,11 @@ let _vsShowOther=false;
 function whDocExportXlsxPrompt(id){   // v3.16.94
   const d=stockDocById(id); if(!d){ toast('Không tìm thấy phiếu','bad'); return; }
   if(typeof whIsVesselSideUser==='function' && whIsVesselSideUser()){ whDocExportXlsx(id,false); return; }
+  if(!(typeof canViewStockValue==='function' && canViewStockValue())){ whDocExportXlsx(id,false); return; }   // v3.16.98: không được xem giá → không bày lựa chọn
   const _vesselDoc=whIsVesselWhDoc(d, InventoryService.warehouses());
   openModal('⬇ Xuất Excel '+esc(d.docNo),
-    `<button class="${_vesselDoc?'btn-primary':'btn-sec'}" style="display:block;width:100%;margin-bottom:8px;text-align:left" onclick="closeModal();whDocExportXlsx('${id}',false)">Excel KHÔNG giá — bản phát cho tàu/thủ kho</button>
-     <button class="${_vesselDoc?'btn-sec':'btn-primary'}" style="display:block;width:100%;text-align:left${_vesselDoc?';border-color:var(--bad);color:var(--bad)':''}" onclick="closeModal();whDocExportXlsx('${id}',true)">Excel CÓ giá — hồ sơ thanh toán / nhập FAST${_vesselDoc?'<div style="font-size:10px;font-weight:400;margin-top:2px">⚠ Bản nội bộ — không phát xuống tàu</div>':''}</button>`,
+    `<button class="${_vesselDoc?'btn-primary':'btn-sec'}" style="display:block;width:100%;margin-bottom:8px;text-align:left" onclick="closeModal();whDocExportXlsx('${id}',false)">Excel không giá — bản phát cho tàu / thủ kho</button>
+     <button class="${_vesselDoc?'btn-sec':'btn-primary'}" style="display:block;width:100%;text-align:left" onclick="closeModal();whDocExportXlsx('${id}',true)">Excel có giá — hồ sơ thanh toán / nhập FAST</button>`,
     `<button class="btn-ghost" onclick="closeModal()">Hủy</button>`);
 }
 function _vlPrint(id){
@@ -71555,10 +71556,15 @@ function stockDocPreview(id){
      phiếu thuộc KHO TÀU → bản KHÔNG giá là mặc định (nút chính), bản có giá xuống nút phụ
      kèm nhãn đỏ "bản nội bộ". App không chặn được việc bờ tự gửi PDF xuống tàu, nên bản có
      giá của phiếu kho tàu còn đóng thêm dòng chân "KHÔNG PHÁT XUỐNG TÀU" để có dấu vết. */
+  /* v3.16.98 (Sếp: "cấm thì ẩn đi, không bày ra gây tò mò, phản cảm"): người KHÔNG được xem giá → in thẳng
+     bản không giá, không hiện lựa chọn có giá. Người được xem giá → 2 bản trình bày bình thường, không nhãn đỏ
+     "cấm"; bản có giá của phiếu kho tàu vẫn đóng chân trang nội bộ như cũ (v3.15.60) — chỉ bỏ cách bày ở hộp chọn. */
+  if(!(typeof canViewStockValue==='function' && canViewStockValue())){
+    DocEngine.preview(_stockSpec(d,{showValue:false})); return;
+  }
   const _vesselDoc=whIsVesselWhDoc(d, InventoryService.warehouses());
-  const _btnNoVal=`<button class="${_vesselDoc?'btn-primary':'btn-sec'}" style="display:block;width:100%;margin-bottom:8px;text-align:left" onclick="closeModal();DocEngine.preview(_stockSpec(stockDocById('${id}'),{showValue:false}))">📋 Phiếu đề nghị (KHÔNG giá) — bản phát cho tàu/thủ kho</button>`;
-  const _btnVal=`<button class="${_vesselDoc?'btn-sec':'btn-primary'}" style="display:block;width:100%;text-align:left${_vesselDoc?';border-color:var(--bad);color:var(--bad)':''}" onclick="closeModal();DocEngine.preview(_stockSpec(stockDocById('${id}'),{showValue:true}))">🏛 Phiếu đầy đủ (CÓ giá + CP nhập kho) — đính hồ sơ thanh toán / nhập FAST${_vesselDoc?'<div style="font-size:10px;font-weight:400;margin-top:2px">⚠ Bản nội bộ — không phát xuống tàu</div>':''}</button>`;
-  /* v3.16.31 (Sếp): xuất Excel — cùng mẫu, cùng dữ liệu với bản in. PDF thì in từ bản xem trước. */
+  const _btnNoVal=`<button class="${_vesselDoc?'btn-primary':'btn-sec'}" style="display:block;width:100%;margin-bottom:8px;text-align:left" onclick="closeModal();DocEngine.preview(_stockSpec(stockDocById('${id}'),{showValue:false}))">📋 Phiếu không giá — bản phát cho tàu / thủ kho</button>`;
+  const _btnVal=`<button class="${_vesselDoc?'btn-sec':'btn-primary'}" style="display:block;width:100%;text-align:left" onclick="closeModal();DocEngine.preview(_stockSpec(stockDocById('${id}'),{showValue:true}))">🏛 Phiếu có giá + CP nhập kho — hồ sơ thanh toán / nhập FAST</button>`;
   const _btnXls=`<div style="display:flex;gap:6px;margin-top:8px">
      <button class="btn-sec" style="flex:1;font-size:12px" onclick="closeModal();whDocExportXlsx('${id}',false)">⬇ Excel (không giá)</button>
      <button class="btn-sec" style="flex:1;font-size:12px" onclick="closeModal();whDocExportXlsx('${id}',true)">⬇ Excel (có giá)</button>

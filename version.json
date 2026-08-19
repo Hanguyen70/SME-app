@@ -1,5 +1,5 @@
 {
-  "version": "3.16.97",
-  "swVersion": "v3.16.97",
-  "notes": "v3.16.97: Sửa cách lấy tiền tố kho khi gợi ý mã theo cây. Đoạn đầu của mã vật tư (GS, GM, SUR, CW) là tên kho theo FAST, khác với mã kho trong app (KHO-GEOSUPORTER), bản trước lấy nhầm mã kho app. Nay app suy tiền tố từ kho nhận hàng của phiếu, tức theo tàu hay đơn vị được mua cho: mua cho Geosupporter ra GS, cho kỹ thuật ra SUR, theo thứ tự mã kho đã là tiền tố ngắn, tên gọi khác đã nhớ từ lần nạp FAST, bảng tên kho chuẩn, rồi học từ mã vật tư đang tồn trong kho. Trong hộp gợi ý có thêm ô Kho tiền tố để đổi tay khi cần, chọn xong app nhớ cho kho đó. Nền v3.16.96 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần."
+  "version": "3.16.98",
+  "swVersion": "v3.16.98",
+  "notes": "v3.16.98: Hộp chọn bản in và xuất Excel chứng từ kho không bày ra thứ người dùng không được phép nữa. Người không được xem giá trị kho thì in và xuất thẳng bản không giá, không hiện lựa chọn có giá. Người được xem giá thấy hai bản trình bày bình thường, bỏ nhãn đỏ bản nội bộ không phát xuống tàu ở hộp chọn; dòng chân trang nội bộ trên bản in có giá của phiếu kho tàu vẫn giữ để có dấu vết. Nền v3.16.97 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần."
 }
