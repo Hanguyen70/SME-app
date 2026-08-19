@@ -3793,7 +3793,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.16.80';
+const APP_VERSION='3.16.83';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -65090,9 +65090,9 @@ function whFifoRun(stockDocs, whId, costBasis, upToDate){
       }
     });
     docVal=Math.round(docVal*100)/100;
-    if(isAdj){ adjValue+=sg*docVal; flows.push({date:d.date, kind:'adj', value:sg*docVal, source:d.source}); }
-    else if(sg>0){ inValue+=docVal; flows.push({date:d.date, kind:'in', value:docVal, source:d.source}); }   // v3.16.80: mang source để tách tồn đầu
-    else { outValue+=docVal; flows.push({date:d.date, kind:'out', value:docVal, source:d.source}); }
+    if(isAdj){ adjValue+=sg*docVal; flows.push({date:d.date, kind:'adj', value:sg*docVal, source:d.source, docType:d.type}); }
+    else if(sg>0){ inValue+=docVal; flows.push({date:d.date, kind:'in', value:docVal, source:d.source, docType:d.type}); }   // v3.16.80/81: mang source+type để tách tồn đầu
+    else { outValue+=docVal; flows.push({date:d.date, kind:'out', value:docVal, source:d.source, docType:d.type}); }
   });
   Object.keys(lots).forEach(code=>{
     /* v3.16.11: làm tròn về ĐỒNG — chia lô ra số lẻ thì cộng lại lệch vài xu, kế toán không dùng */
@@ -65124,8 +65124,11 @@ function whMonthlyValueRows(stockDocs, whId, costBasis, fromMonth, toMonth){
     const inM=all.flows.filter(f=>String(f.date||'').slice(0,7)===ym);
     /* v3.16.80 (Sếp): phiếu 'nxt_period_opening' là TỒN ĐẦU KỲ — KHÔNG tính vào cột Nhập,
        mà cộng vào Tồn đầu tháng đó. Tách đúng bản chất số liệu. */
-    const openingValue=inM.filter(f=>f.kind==='in'&&f.source==='nxt_period_opening').reduce((s,f)=>s+f.value,0);
-    const inValue=inM.filter(f=>f.kind==='in'&&f.source!=='nxt_period_opening').reduce((s,f)=>s+f.value,0);
+    /* v3.16.81 (Sếp): tồn đầu kỳ nhận diện qua LOẠI phiếu OPENING hoặc source opening
+       (nxt_period_opening = kho rỗng nạp qua NXT; opening_import = chế độ Tồn đầu kỳ). */
+    const _isOpen=(f)=> f.docType==='OPENING' || f.source==='nxt_period_opening' || f.source==='opening_import';
+    const openingValue=inM.filter(f=>f.kind==='in'&&_isOpen(f)).reduce((s,f)=>s+f.value,0);
+    const inValue=inM.filter(f=>f.kind==='in'&&!_isOpen(f)).reduce((s,f)=>s+f.value,0);
     const outValue=inM.filter(f=>f.kind==='out').reduce((s,f)=>s+f.value,0);
     const adjValue=inM.filter(f=>f.kind==='adj').reduce((s,f)=>s+f.value,0);
     const close=Math.round(Object.values(all.valueByCode).reduce((s,v)=>s+v,0));
@@ -70545,9 +70548,9 @@ function whBuildPeriodDocs(whId, items, fromDate, toDate, by, genDocNo, withOpen
     });
     if(openLines.length){
       out.push({id:(typeof uid==='function'?uid():'d'+Math.random()),
-        docNo:gen('IN'), type:'IN', date:fromDate, warehouseId:whId, apId:'', costObject:null, lines:openLines,
+        docNo:gen('OPENING'), type:'OPENING', date:fromDate, warehouseId:whId, apId:'', costObject:null, lines:openLines,
         deliveredBy:'', receivedBy:by, note:'Tồn đầu kỳ '+fromDate+' (nạp từ file NXT — kho rỗng)', status:'confirmed',
-        createdBy:by, createdAt:now, confirmedBy:by, confirmedAt:now, source:'nxt_period_opening', periodFrom:fromDate, periodTo:fromDate});
+        createdBy:by, createdAt:now, confirmedBy:by, confirmedAt:now, source:'nxt_period_opening', periodFrom:fromDate, periodTo:fromDate});   // v3.16.82: type OPENING (Tồn đầu kỳ) — không phải Nhập
     }
   }
   const inLines=(items||[]).filter(i=>(+i.inQty||0)>0).map(i=>{
@@ -70577,6 +70580,15 @@ function whParseOpeningRows(aoa){
     const cells=(aoa[r]||[]).map(c=>norm(c));
     const iCode=cells.findIndex(c=>/^ma( vat tu| vt| hang)?$/.test(c)||c==='ma');
     const iQty=cells.findIndex(c=>/so luong|ton kho|ton cuoi|^ton$|^sl$/.test(c));
+    /* v3.16.83 (Sếp): chế độ 'Tồn đầu kỳ' CHỈ nhận file tồn thuần. File NXT (có đủ cột Nhập + Xuất +
+       Tồn đầu) phải dùng chế độ 'Nhập - Xuất - Tồn theo kỳ' để tách đúng bản chất. Nhận diện & báo. */
+    const hasNhap=cells.some(c=>/^nhap$|nhap trong ky|^nhap /.test(c));
+    const hasXuat=cells.some(c=>/^xuat$|xuat trong ky|^xuat /.test(c));
+    const hasTonDau=cells.some(c=>/ton dau/.test(c));
+    if(iCode>=0 && hasNhap && hasXuat && hasTonDau){
+      errors.push({row:r+1, msg:'File này là báo cáo NHẬP - XUẤT - TỒN (có đủ cột Tồn đầu, Nhập, Xuất, Tồn cuối). Chế độ "Tồn đầu kỳ" chỉ dùng cho file TỒN thuần. Hãy đổi Kiểu số liệu sang "Nhập - Xuất - Tồn theo kỳ" để nạp đúng.'});
+      return {items:[], errors, isNxtFile:true};
+    }
     if(iCode>=0&&iQty>=0){
       hRow=r;
       /* v3.15.99: báo cáo NXT của FAST có cặp cột "Số lượng | Giá trị" dưới mỗi khối
@@ -71927,7 +71939,7 @@ function openWarehouseReport(){
     <div class="tbl-scroll" style="max-height:420px">${content}</div>`;
   openModal('📊 Báo cáo kho', body, `<button class="btn-ghost" onclick="closeModal()">Đóng</button>`);
 }
-function _whTypeLabel(t){ return ({IN:'Nhập',OUT:'Xuất',TRANSFER_IN:'ĐC nhận',TRANSFER_OUT:'ĐC chuyển',ADJUST_IN:'Điều chỉnh+',ADJUST_OUT:'Điều chỉnh−'})[t]||t; }
+function _whTypeLabel(t){ return ({IN:'Nhập',OUT:'Xuất',OPENING:'Tồn đầu kỳ',COUNT:'Kiểm kê',TRANSFER_IN:'ĐC nhận',TRANSFER_OUT:'ĐC chuyển',ADJUST_IN:'Điều chỉnh+',ADJUST_OUT:'Điều chỉnh−'})[t]||t; }   // v3.16.82: +OPENING
 function _whRepTable(headers, rows){
   const th=headers.map(h=>`<th style="padding:6px 8px;background:var(--rule);text-align:left;font-size:11px">${esc(h)}</th>`).join('');
   const tb=rows.length? rows.map(r=>'<tr style="border-bottom:1px solid var(--rule)">'+r.map((c,i)=>`<td style="padding:4px 8px;font-size:11px${i===0?';font-family:monospace':''}">${esc(c)}</td>`).join('')+'</tr>').join('')

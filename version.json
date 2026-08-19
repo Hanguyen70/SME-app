@@ -1,5 +1,5 @@
 {
-  "version": "3.16.80",
-  "swVersion": "v3.16.80",
-  "notes": "v3.16.80: Sửa bảng giá trị Nhập Xuất Tồn theo tháng để tách đúng bản chất số liệu. Trước đây phần tồn đầu kỳ nạp từ file bị gộp chung vào cột Nhập của tháng đầu, khiến cột Nhập bị thổi lên và ô Tồn đầu để trống. Nay phiếu tồn đầu kỳ được tính vào cột Tồn đầu, còn cột Nhập chỉ gồm nhập thật trong tháng; tồn cuối mỗi tháng nối sang tồn đầu tháng sau. Nền v3.16.79 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần."
+  "version": "3.16.83",
+  "swVersion": "v3.16.83",
+  "notes": "v3.16.83: Làm rõ hai chế độ import kho. Chế độ Tồn đầu kỳ nay chỉ nhận file tồn kho thuần gồm mã và số lượng tồn; nếu chọn nhầm file Nhập Xuất Tồn có đủ các cột tồn đầu, nhập, xuất, tồn cuối thì app sẽ báo và hướng dẫn chuyển sang chế độ Nhập Xuất Tồn theo kỳ, thay vì đọc nhầm cột như trước. File Nhập Xuất Tồn dùng chế độ theo kỳ, khi kho rỗng sẽ tự tạo tồn đầu kỳ. Nền v3.16.82 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần."
 }
