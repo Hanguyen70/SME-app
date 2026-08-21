@@ -1,5 +1,5 @@
 {
-  "version": "3.17.48",
-  "swVersion": "v3.17.48",
-  "notes": "v3.17.48: Ô tổng dư nợ vay chỉ thống kê dòng kỳ hạn ngân hàng khi thực có dư nợ: ngân hàng không có vay ngắn, trung hay dài hạn thì dòng đó ẩn, giống dòng tổ chức cá nhân đã ẩn khi bằng không từ trước. Cách phân loại giữ nguyên quy tắc đã chốt: chỉ khoản vay ngân hàng mới tách theo kỳ hạn, khoản vay tổ chức và cá nhân luôn nằm dòng riêng mọi kỳ hạn. Nền v3.17.47 giữ nguyên."
+  "version": "3.17.49",
+  "swVersion": "v3.17.49",
+  "notes": "v3.17.49 HOTFIX: sửa lỗi đăng nhập render trắng do bản 3.17.44 chèn nhầm khối thẻ chi hộ của màn duyệt điện thoại vào trang tổng quan Vessel Manager, làm hỏng cả một dòng style; khối lạc đã gỡ, style trả nguyên, và định nghĩa thẻ chi hộ đặt lại đúng chỗ trong màn duyệt điện thoại. Bổ sung test chạy thật hàm duyệt điện thoại và soát trang tổng quan để loại lỗi cùng loại. Ưu tiên cập nhật bản này ngay."
 }

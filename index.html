@@ -3794,7 +3794,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.17.48';
+const APP_VERSION='3.17.49';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -36504,19 +36504,9 @@ function renderVmDashboard(){
     <a class="vm-q" onclick="navTo('op_input')"><span>🔁</span> Thu-Chi hộ</a>
     <a class="vm-q" onclick="(typeof whOpenStockForRole==='function'?whOpenStockForRole():navTo('inventory'))"><span>📦</span> Tồn kho tổng hợp</a>`;   /* v3.16.61 (Sếp): VM xem tồn kho tổng hợp (ma trận vật tư × kho) đúng mục đích giám sát, thay vì tab Kho nghiệp vụ */
   // ---- render ----
-  const opCards=opRows.map(t=>{ const st=opWfStatus(t); const meta=OP_WF_STATES[st]||{};
-      const rem=(typeof opNccRemaining==='function' && typeof opIsNccPayable==='function' && opIsNccPayable(t))?opNccRemaining(t):(+t.amount||0);
-      return `<div style="border:1px solid var(--rule);border-left:3px solid #2a5a8c;border-radius:8px;padding:10px 12px;margin-bottom:8px;background:var(--paper)">
-        <div style="display:flex;justify-content:space-between;font-size:12px"><b>🚢 ${esc(opVesselName_(t.vesselId)||'Chi hộ')}</b><span class="ds-need">${esc(meta.short||st)}</span></div>
-        <div style="font-size:12px;color:var(--muted);margin:2px 0">${esc((t.vendor||t.desc||'').slice(0,50))}</div>
-        <div style="font-family:var(--font-mono);font-weight:700">${(+rem).toLocaleString('vi-VN')} ${esc(t.ccy||'VND')}</div>
-        <div style="display:flex;gap:6px;margin-top:6px">
-          ${meta.next?`<button class="btn-primary" style="font-size:12px;padding:4px 12px" onclick="opWfAdvance('${esc(t.id)}','${esc(meta.next)}')">${esc(meta.nextLabel||'Duyệt')}</button>`:''}
-          ${!t.payApproved?`<button class="btn-sec" style="font-size:12px;padding:4px 10px" onclick="approveOpPayment('${esc(t.id)}')">✓ Lệnh chi</button>`:''}
-        </div></div>`; }).join('');
     box.innerHTML=`
     <style>
-      #page-vm_dashboard .vmk{background:var(--card,#fff)+opCards;border:1px solid var(--rule);border-radius:8px;padding:14px 16px}
+      #page-vm_dashboard .vmk{background:var(--card,#fff);border:1px solid var(--rule);border-radius:8px;padding:14px 16px}
       #page-vm_dashboard .vmk-l{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);font-weight:600}
       #page-vm_dashboard .vmk-v{font-size:24px;font-weight:700;margin-top:4px;font-family:var(--font-mono)}
       #page-vm_dashboard .vmk-v.good{color:var(--good)} #page-vm_dashboard .vmk-v.warn{color:var(--warn)}
@@ -90749,6 +90739,16 @@ function renderMobileApproval(){
     }
     const rows=apPendingForMe({level:_maLevel});
     const opRows=(typeof opPendingForMe==='function')?opPendingForMe({level:_maLevel}):[];   /* v3.17.44 Cách A */
+    const opCards=opRows.map(t=>{ const st=opWfStatus(t); const meta=OP_WF_STATES[st]||{};
+      const rem=(typeof opNccRemaining==='function' && typeof opIsNccPayable==='function' && opIsNccPayable(t))?opNccRemaining(t):(+t.amount||0);
+      return `<div style="border:1px solid var(--rule);border-left:3px solid #2a5a8c;border-radius:8px;padding:10px 12px;margin-bottom:8px;background:var(--paper)">
+        <div style="display:flex;justify-content:space-between;font-size:12px"><b>🚢 ${esc(opVesselName_(t.vesselId)||'Chi hộ')}</b><span class="ds-need">${esc(meta.short||st)}</span></div>
+        <div style="font-size:12px;color:var(--muted);margin:2px 0">${esc((t.vendor||t.desc||'').slice(0,50))}</div>
+        <div style="font-family:var(--font-mono);font-weight:700">${(+rem).toLocaleString('vi-VN')} ${esc(t.ccy||'VND')}</div>
+        <div style="display:flex;gap:6px;margin-top:6px">
+          ${meta.next?`<button class="btn-primary" style="font-size:12px;padding:4px 12px" onclick="opWfAdvance('${esc(t.id)}','${esc(meta.next)}')">${esc(meta.nextLabel||'Duyệt')}</button>`:''}
+          ${!t.payApproved?`<button class="btn-sec" style="font-size:12px;padding:4px 10px" onclick="approveOpPayment('${esc(t.id)}')">✓ Lệnh chi</button>`:''}
+        </div></div>`; }).join('');
     const _lvlLabel={pending_acc:'Chờ KT kiểm', pending_l1:'Chờ L1 duyệt', pending_l2:'Chờ L2 duyệt'};
     if(!rows.length && !opRows.length){
       box.innerHTML='<div style="text-align:center;padding:40px 16px;color:var(--muted)"><div style="font-size:28px">✅</div><div style="margin-top:8px;font-size:13px">Không có phiếu nào chờ bạn xử lý.</div></div>';
