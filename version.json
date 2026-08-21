@@ -1,5 +1,5 @@
 {
-  "version": "3.17.49",
-  "swVersion": "v3.17.49",
-  "notes": "v3.17.49 HOTFIX: sửa lỗi đăng nhập render trắng do bản 3.17.44 chèn nhầm khối thẻ chi hộ của màn duyệt điện thoại vào trang tổng quan Vessel Manager, làm hỏng cả một dòng style; khối lạc đã gỡ, style trả nguyên, và định nghĩa thẻ chi hộ đặt lại đúng chỗ trong màn duyệt điện thoại. Bổ sung test chạy thật hàm duyệt điện thoại và soát trang tổng quan để loại lỗi cùng loại. Ưu tiên cập nhật bản này ngay."
+  "version": "3.17.51",
+  "swVersion": "v3.17.51",
+  "notes": "v3.17.51: Chi hộ chủ tàu chuyển hẳn vào cùng danh sách bút toán chờ duyệt theo lệnh: khối chi hộ nằm ngay đầu danh sách lô với ô tick từng phiếu, tick hết mặc định, một nút duyệt bước kế cho các phiếu đã tick, kế toán trưởng và cấp một cấp hai thao tác như lệnh phải trả thường; mỗi dòng gắn rõ tên tàu quản lý hộ, kèm nút duyệt lệnh chi và xem phiếu; từng phiếu tiến đúng một bước theo máy trạng thái chi hộ hiện hành nên mọi chốt quyền và khóa kỳ chủ tàu giữ nguyên; khối riêng phía trên tab đã gỡ. Nền v3.17.50 giữ nguyên. Sau khi lên bản này tải lại trang một lần."
 }

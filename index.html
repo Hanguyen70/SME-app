@@ -2226,8 +2226,11 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
   <div class="section">
     <div class="section-head">
       <div class="section-title">Hạn mức tín dụng (theo NH)</div>
-      <button class="btn-sec" onclick="openCreditFacilityForm()" style="font-size:11px">+ Hạn mức mới</button>
-      <button class="btn-sec" onclick="cfacImportExcel()" style="font-size:11px">📥 Import Excel</button>
+      <span style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end"><!-- v3.17.50 (Sếp): nút gom về PHẢI -->
+        <button class="btn-sec" onclick="openCreditFacilityForm()" style="font-size:11px">+ Hạn mức mới</button>
+        <button class="btn-sec" onclick="pledgeCatalogOpen()" style="font-size:11px" title="Danh mục Tài sản bảo đảm — 1 TSBĐ bảo đảm nhiều khế ước, không cộng trùng (mẫu duyệt v3.17.50)">🔐 Danh mục TSBĐ</button>
+        <button class="btn-sec" onclick="cfacImportExcel()" style="font-size:11px">📥 Import Excel</button>
+      </span>
     </div>
     <div id="credit-facilities-list"></div>
   </div>
@@ -2235,9 +2238,10 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
   <div class="section">
     <div class="section-head">
       <div class="section-title">Tín dụng &amp; Vay</div>
+      <span style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end"><!-- v3.17.50 (Sếp): nút gom về PHẢI -->
       <button class="btn-sec" onclick="addLoan()" style="font-size:11px">+ Món vay mới</button>
       <button class="btn-sec" onclick="creditAssessOpen()" style="font-size:11px" title="Bảng WAIR · LS quý · lãi đã trả/phải trả — chỉ khoản 🏦">📊 Đánh giá tín dụng NH</button>
-      <button class="btn-sec" onclick="loanCostBookOpen()" style="font-size:11px" title="Chi phí lãi theo NH×tháng + biến động phí/ngày (đơn giá chi phí ngày)">📉 Sổ chi phí lãi vay</button>
+      <button class="btn-sec" onclick="loanCostBookOpen()" style="font-size:11px" title="Chi phí lãi theo NH×tháng + biến động phí/ngày (đơn giá chi phí ngày)">📉 Sổ chi phí lãi vay</button></span>
     </div>
     <!-- v2.65.0: Bộ lọc khoản vay — giúp tìm nhanh khi có nhiều món vay -->
     <div id="loan-filter-bar" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:rgba(0,0,0,.02);border:1px solid var(--rule);padding:8px 12px;margin-bottom:10px;font-size:13px">
@@ -3794,7 +3798,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.17.49';
+const APP_VERSION='3.17.51';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -10650,6 +10654,17 @@ function wfStatus(r){return (r&&r.status)||'draft';}
 /* v3.17.44 (Cách A — Sếp duyệt): CHI HỘ trực tiếp chờ duyệt vào hàng đợi chung.
    Thuần đọc opTransactions; nút hành động gọi ĐÚNG máy trạng thái sẵn có (opWfAdvance /
    approveOpPayment) — không chuyển dữ liệu, báo cáo chủ tàu không đổi nguồn. */
+/* v3.17.51: duyệt LÔ chi hộ — từng phiếu tick tiến ĐÚNG 1 bước theo máy trạng thái sẵn có. */
+function opBatchAdvance(){
+  const ids=[...document.querySelectorAll('[data-opb]:checked')].map(c=>c.getAttribute('data-opb'));
+  if(!ids.length){ toast('Chưa tick phiếu chi hộ nào','warn'); return; }
+  let n=0;
+  ids.forEach(id=>{ try{ const t=VesselService.opTransactions().find(x=>x&&x.id===id); if(!t) return;
+    const st=(typeof opWfStatus==='function')?opWfStatus(t):(t.ncStatus||'draft');
+    const nx=(OP_WF_STATES[st]||{}).next; if(!nx) return;
+    opWfAdvance(id, nx); n++; }catch(e){} });
+  toast('Đã chuyển bước '+n+' phiếu chi hộ (theo quyền từng bước)','good');
+}
 function opPendingForMe(opts){
   opts=opts||{};
   const out=[];
@@ -27399,6 +27414,7 @@ function defaultState(){
     stockCounts:[],   // v3.08.22 Phiếu kiểm kê: [{id,docNo,date,warehouseId,lines:[{code,name,unit,systemQty,countedQty,diff}],note,status,createdBy,createdAt,adjustDocId}]
     fixedAssets:[],   // TSCĐ
     tools:[],         // CCDC + MMTB
+    pledges:[],   // v3.17.50 (MẪU DUYỆT MAU_Danh_muc_TSBD): danh mục Tài sản bảo đảm — 1 TSBĐ ↔ N khế ước
     opVessels:[], opTransactions:[], opMgmtFees:[],  // v2.71.5: kỳ phí QL đã phát hành
     ownerReportLocks:[],  // v3.04.27: [{vesselId, period(YYYY-MM), signedBy, signedByDept, signedAt, note}] — khóa kỳ đã gửi chủ tàu
     advances:[],  // v3.02.89: tạm ứng nhân viên (công tác/cá nhân)
@@ -41102,29 +41118,8 @@ function renderApprovalList(){
   if(!document.getElementById('page-approval')) return;
   try{ renderPostAudit(); }catch(e){ console.warn('[postaudit]',e&&e.message); }
   fillApprovalFilterDropdowns();
-  /* v3.17.44 Cách A: khối CHI HỘ chờ duyệt — nguồn opTransactions, nút = máy trạng thái op sẵn có */
-  try{
-    let host=document.getElementById('appr-op-block');
-    if(!host){ const pg=document.getElementById('page-approval');
-      if(pg){ host=document.createElement('div'); host.id='appr-op-block'; pg.insertBefore(host, pg.firstChild.nextSibling); } }
-    if(host){
-      const ops=(typeof opPendingForMe==='function')?opPendingForMe({}):[];
-      host.innerHTML = ops.length? `<div class="dash-panel" style="margin:8px 0;border-left:3px solid #2a5a8c">
-        <div style="font-size:13px;font-weight:700;margin-bottom:6px">🚢 Chi hộ chủ tàu chờ duyệt (${ops.length})</div>
-        ${ops.map(t=>{ const st=opWfStatus(t); const meta=OP_WF_STATES[st]||{};
-          const rem=(typeof opNccRemaining==='function' && opIsNccPayable && opIsNccPayable(t))?opNccRemaining(t):(+t.amount||0);
-          return `<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;padding:6px 4px;border-bottom:1px dotted var(--rule);font-size:12px">
-            <span>🚢 <b>${esc(opVesselName_(t.vesselId)||'')}</b> · ${esc((t.vendor||t.desc||'').slice(0,40))}
-              <span class="ds-need" style="margin-left:6px">${esc(meta.short||st)}</span>
-              ${!t.payApproved?'<span class="ds-need" style="color:var(--warn)">chờ lệnh chi</span>':''}</span>
-            <span style="display:flex;gap:6px;align-items:center;white-space:nowrap">
-              <b style="font-family:var(--font-mono)">${(+rem).toLocaleString('vi-VN')} ${esc(t.ccy||'VND')}</b>
-              ${meta.next?`<button class="btn-sec" style="font-size:11px;padding:2px 10px" onclick="opWfAdvance('${esc(t.id)}','${esc(meta.next)}')">${esc(meta.nextLabel||'Duyệt')}</button>`:''}
-              ${!t.payApproved?`<button class="btn-ghost" style="font-size:11px;padding:2px 10px" onclick="approveOpPayment('${esc(t.id)}')">✓ Duyệt lệnh chi</button>`:''}
-              <button class="btn-ghost" style="font-size:11px;padding:2px 8px" onclick="showOpTxDetail('${esc(t.id)}')">👁</button>
-            </span></div>`; }).join('')}</div>` : '';
-    }
-  }catch(e){ console.warn('[appr-op]',e&&e.message); }
+  /* v3.17.51 (Sếp): Chi hộ CHUYỂN vào cùng danh sách bút toán chờ duyệt — render nối đuôi
+     tEl (xem dưới), KTT/L1/L2 tick + Duyệt như lệnh AP thường; tên tàu gắn rõ 🚢. */
 
   try{ renderApprovalOrders(); }catch(e){}
   const candidates=approvalGetCandidates();
@@ -41315,7 +41310,29 @@ function renderApprovalList(){
       <button class="icon-btn" title="Xem chi tiết" onclick="approvalOpenDetail('${c.kind}','${c.id}')" style="flex-shrink:0">👁</button>
     </div>`;
   });
-  tEl.innerHTML=`<div style="display:flex;flex-direction:column;gap:8px">${cards}</div>`;
+  /* v3.17.51: thẻ CHI HỘ (tàu QL hộ) hòa chung danh sách — checkbox riêng + nút duyệt lô riêng
+     gọi ĐÚNG máy trạng thái op (không trộn id vào APPROVAL_SELECTED của AP). */
+  let opBatch='';
+  try{
+    const ops=(typeof opPendingForMe==='function')?opPendingForMe({}):[];
+    if(ops.length){
+      window._opBatchIds=ops.map(t=>t.id);
+      opBatch=`<div style="border:1.5px solid #2a5a8c;border-radius:10px;padding:8px 10px;background:rgba(42,90,140,.04)">
+        <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;font-weight:700;margin-bottom:4px">
+          <span>🚢 CHI HỘ CHỦ TÀU — tàu quản lý hộ (${ops.length})</span>
+          <span><label style="font-size:11px;font-weight:400"><input type="checkbox" id="opb-all" checked onclick="document.querySelectorAll('[data-opb]').forEach(c=>c.checked=this.checked)"> tick hết</label>
+          <button class="btn-primary" style="font-size:11px;padding:3px 12px;margin-left:8px" onclick="opBatchAdvance()">✓ Duyệt bước kế các phiếu đã tick</button></span></div>
+        ${ops.map(t=>{ const st=opWfStatus(t); const meta=OP_WF_STATES[st]||{};
+          const rem=(typeof opNccRemaining==='function'&&typeof opIsNccPayable==='function'&&opIsNccPayable(t))?opNccRemaining(t):(+t.amount||0);
+          return `<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;padding:5px 4px;border-bottom:1px dotted var(--rule);font-size:12px">
+            <span><input type="checkbox" data-opb="${esc(t.id)}" checked> 🚢 <b>${esc(opVesselName_(t.vesselId)||'')}</b> · ${esc((t.vendor||t.desc||'').slice(0,42))} <span class="ds-need">${esc(meta.short||st)}</span>${!t.payApproved?'<span class="ds-need" style="color:var(--warn)">chờ lệnh chi</span>':''}</span>
+            <span style="white-space:nowrap;display:flex;gap:6px;align-items:center"><b style="font-family:var(--font-mono)">${(+rem).toLocaleString('vi-VN')} ${esc(t.ccy||'VND')}</b>
+              ${!t.payApproved?`<button class="btn-ghost" style="font-size:10px;padding:1px 8px" onclick="approveOpPayment('${esc(t.id)}')">✓ Lệnh chi</button>`:''}
+              <button class="btn-ghost" style="font-size:10px;padding:1px 6px" onclick="showOpTxDetail('${esc(t.id)}')">👁</button></span></div>`; }).join('')}
+      </div>`;
+    } else window._opBatchIds=[];
+  }catch(e){ console.warn('[appr-op-batch]',e&&e.message); }
+  tEl.innerHTML=`<div style="display:flex;flex-direction:column;gap:8px">${opBatch}${cards}</div>`;
   // Update select-all checkbox state
   const allChecked=candidates.every(c=>APPROVAL_SELECTED.has(c.id));
   document.getElementById('appr-select-all').checked=allChecked;
@@ -78193,6 +78210,134 @@ function loanCostBookOpen(){
 }
 /* v3.15.45 GĐ-L1: PHÂN LOẠI HÀNG LOẠT bên cho vay — gom theo lender, admin/KT tick 1 lần cho mọi
    khoản của bên đó; không đoán theo tên. */
+
+/* ═══════════ v3.17.50 — DANH MỤC TÀI SẢN BẢO ĐẢM (GĐ1, mẫu MAU_Danh_muc_TSBD Sếp duyệt) ═══════════
+   Nguyên tắc: 1 TSBĐ = 1 bản ghi, khế ước THAM CHIẾU pledgeIds[] → giá trị KHÔNG BAO GIỜ cộng trùng.
+   Không tự sửa/xóa: xóa chặn khi còn khế ước gán; giải chấp cần KT xác nhận; trường thế chấp cũ trên
+   khế ước GIỮ làm vết — màn "Rà soát nối" để KT nối tay. GĐ2 (Đánh giá tín dụng đọc theo danh mục) làm bản sau. */
+function _pledges(){ S.pledges=Array.isArray(S.pledges)?S.pledges:[]; return S.pledges.filter(x=>x&&!x._deleted); }
+function pledgeCanEdit(){ return isAdmin()||canCheckAcc()||canApproveL1(); }
+function pledgeLoansOf(pg){ return AccountingService.loans().filter(l=>l&&!l._deleted&&Array.isArray(l.pledgeIds)&&l.pledgeIds.includes(pg.id)); }
+function pledgeValVnd(pg){ const v=+pg.value||0; if((pg.ccy||'VND')==='VND') return v; const fx=(typeof fxRate==='function')?fxRate():0; return (pg.ccy==='USD'&&fx>0)?v*fx:0; }
+function pledgeTotals(){ const t={total:0,cash:0,other:0,nLoan:new Set()};
+  _pledges().forEach(pg=>{ if(pg.status==='released') return; const v=pledgeValVnd(pg); t.total+=v; if(pg.kind==='deposit')t.cash+=v; else t.other+=v;
+    pledgeLoansOf(pg).forEach(l=>t.nLoan.add(l.id)); });
+  return {total:t.total,cash:t.cash,other:t.other,nLoans:t.nLoan.size}; }
+const PLEDGE_KINDS={deposit:'💰 Tiền gửi',vessel:'🚢 Tàu',estate:'🏢 BĐS',machine:'⚙️ Máy móc',other:'📦 Khác'};
+function pledgeCatalogOpen(){
+  if(!(pledgeCanEdit()||canApproveL2()||CURRENT_USER&&CURRENT_USER.isBOD)){ toast('Phạm vi KT/KTT/BOD/Admin','bad'); return; }
+  const T=pledgeTotals(); const f=v=>Math.round(v).toLocaleString('vi-VN');
+  const kpi=(l,v,su)=>`<div style="border:1px solid var(--rule);border-radius:4px;padding:7px 10px;background:var(--paper-3);min-width:0"><div style="font-size:9px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);font-weight:700">${l}</div><div style="font-family:var(--font-mono);font-size:16px;font-weight:700">${v}</div><div style="font-size:10px;color:var(--muted)">${su||''}</div></div>`;
+  const rows=_pledges().map(pg=>{ const ls=pledgeLoansOf(pg); const rel=pg.status==='released';
+    const allClosed=ls.length>0&&ls.every(l=>l.status==='closed');
+    const chips=ls.length?ls.map(l=>`<span style="display:inline-block;font-size:10px;padding:0 7px;border-radius:9px;border:1px solid var(--rule);background:${l.status==='closed'?'var(--paper-3)':'#eef4fb'};margin:1px 2px 1px 0">${hrmEsc(l.contractNo||l.bankName||l.id)}${l.status==='closed'?' (tất toán)':''}</span>`).join(''):'<span style="font-size:10px;color:var(--warn)">chưa gán khế ước</span>';
+    return `<tr style="${rel?'opacity:.5':''}">
+      <td style="padding:6px 8px;font-family:var(--font-mono);font-size:11px">${hrmEsc(pg.code||'')}</td>
+      <td style="padding:6px 8px;font-size:12px;white-space:nowrap">${PLEDGE_KINDS[pg.kind]||pg.kind||''}</td>
+      <td style="padding:6px 8px"><b>${hrmEsc(pg.name||'')}</b>${pg.note?`<div style="font-size:10px;color:var(--muted)">${hrmEsc(pg.note)}</div>`:''}</td>
+      <td style="padding:6px 8px;text-align:right;font-family:var(--font-mono)">${f(+pg.value||0)} ${hrmEsc(pg.ccy||'VND')}</td>
+      <td style="padding:6px 8px;font-size:11px">${hrmEsc(pg.bankRecv||'')}</td>
+      <td style="padding:6px 8px;max-width:230px">${chips}</td>
+      <td style="padding:6px 8px;font-size:10px">${rel?'Đã giải chấp':(allClosed?'<span style="color:var(--warn)">Chờ giải chấp</span>':'<span style="color:var(--good)">Đang TC</span>')}</td>
+      <td style="padding:6px 8px;white-space:nowrap;text-align:right">${pledgeCanEdit()&&!rel?`<button class="btn-ghost" style="font-size:11px;padding:2px 8px" onclick="pledgeAssignOpen('${hrmEsc(pg.id)}')">🔗 Gán</button><button class="btn-ghost" style="font-size:11px;padding:2px 8px" onclick="pledgeForm('${hrmEsc(pg.id)}')">✏️</button>${allClosed?`<button class="btn-sec" style="font-size:11px;padding:2px 8px" onclick="pledgeRelease('${hrmEsc(pg.id)}')">✓ Giải chấp</button>`:''}${ls.length===0?`<button class="btn-ghost" style="font-size:11px;padding:2px 8px" onclick="pledgeDelete('${hrmEsc(pg.id)}')">🗑</button>`:''}`:''}</td></tr>`; }).join('');
+  const legacy=AccountingService.loans().filter(l=>l&&!l._deleted&&(+l.pledgeAmount>0)&&!(Array.isArray(l.pledgeIds)&&l.pledgeIds.length)).length;
+  openModal('🔐 Danh mục Tài sản bảo đảm ('+_pledges().filter(x=>x.status!=='released').length+' khoản)',
+    `<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:10px">
+      ${kpi('Tổng giá trị TSBĐ',f(T.total)+' ₫','khử trùng tuyệt đối')}${kpi('🔵 Tiền gửi cầm cố',f(T.cash)+' ₫','')}${kpi('🟤 Tài sản khác',f(T.other)+' ₫','')}${kpi('Khế ước được bảo đảm',T.nLoans+' / '+AccountingService.loans().filter(l=>l&&!l._deleted&&l.status!=='closed').length,'')}</div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Giá trị mỗi TSBĐ chỉ tính MỘT lần dù bảo đảm bao nhiêu khế ước · xóa bị chặn khi còn khế ước gán · giải chấp cần KT xác nhận.</div>
+    <div class="tbl-scroll" style="max-height:380px;overflow:auto"><table style="width:100%;border-collapse:collapse">
+      <thead><tr style="background:var(--rule);text-align:left;font-size:10px"><th style="padding:5px 8px">Mã</th><th style="padding:5px 8px">Loại</th><th style="padding:5px 8px">Tài sản</th><th style="padding:5px 8px;text-align:right">Giá trị</th><th style="padding:5px 8px">NH nhận TC</th><th style="padding:5px 8px">Bảo đảm cho</th><th style="padding:5px 8px">Trạng thái</th><th></th></tr></thead>
+      <tbody>${rows||'<tr><td colspan="8" style="padding:16px;text-align:center;color:var(--muted)">Chưa có TSBĐ — bấm ＋ Thêm</td></tr>'}</tbody></table></div>`,
+    `<button class="btn-ghost" onclick="closeModal()">Đóng</button>
+     ${legacy>0&&pledgeCanEdit()?`<button class="btn-ghost" onclick="pledgeLegacyReview()" title="Khế ước cũ còn mang trường thế chấp trên phiếu, chưa nối danh mục">🔎 Rà soát nối khế ước cũ (${legacy})</button>`:''}
+     ${pledgeCanEdit()?'<button class="btn-primary" onclick="pledgeForm()">＋ Thêm TSBĐ</button>':''}`);
+}
+function pledgeForm(id){
+  if(!pledgeCanEdit()){ toast('Chỉ KT/KTT/Admin','bad'); return; }
+  const pg=id?_pledges().find(x=>x.id===id):null;
+  const K=Object.entries(PLEDGE_KINDS).map(([k,v])=>`<option value="${k}" ${pg&&pg.kind===k?'selected':''}>${v}</option>`).join('');
+  openModal((pg?'✏️ Sửa':'＋ Thêm')+' Tài sản bảo đảm',
+    `<div class="form-grid" style="grid-template-columns:1fr 1fr">
+      <div class="field"><label>Loại *</label><select id="pg-kind">${K}</select></div>
+      <div class="field"><label>Mã (tự sinh nếu trống)</label><input id="pg-code" value="${hrmEsc(pg?pg.code:'')}" placeholder="TSBD-00x"></div>
+    </div>
+    <div class="field"><label>Tên tài sản / Số sổ TK *</label><input id="pg-name" value="${hrmEsc(pg?pg.name:'')}" placeholder="VD: STK VCB 123.456 · SEAHORSE-KEYSTONE"></div>
+    <div class="form-grid" style="grid-template-columns:2fr 1fr 1.3fr">
+      <div class="field"><label>Giá trị *</label><input type="text" inputmode="decimal" id="pg-value" value="${pg?(+pg.value||0):''}"></div>
+      <div class="field"><label>CCY</label><select id="pg-ccy"><option ${pg&&pg.ccy==='VND'?'selected':''}>VND</option><option ${pg&&pg.ccy==='USD'?'selected':''}>USD</option></select></div>
+      <div class="field"><label>NH nhận thế chấp</label><input id="pg-bank" value="${hrmEsc(pg?pg.bankRecv:'')}" placeholder="VCB CN VT"></div>
+    </div>
+    <div class="field"><label>Ghi chú (chứng thư định giá, GCN…)</label><input id="pg-note" value="${hrmEsc(pg?pg.note:'')}"></div>`,
+    `<button class="btn-ghost" onclick="pledgeCatalogOpen()">← Quay lại</button><button class="btn-primary" onclick="pledgeSave('${hrmEsc(id||'')}')">💾 Lưu</button>`);
+}
+function pledgeSave(id){
+  const g=x=>document.getElementById(x); const name=(g('pg-name').value||'').trim();
+  const val=_unformatNumber(g('pg-value').value);
+  if(!name||val<=0){ toast('Nhập tên tài sản + giá trị > 0','bad'); return; }
+  commitMutation(()=>{ S.pledges=Array.isArray(S.pledges)?S.pledges:[];
+    let pg=id?S.pledges.find(x=>x&&x.id===id):null;
+    if(!pg){ pg={id:'pg_'+Date.now()+'_'+Math.random().toString(36).slice(2,6),createdBy:actorName(),createdAt:new Date().toISOString()}; S.pledges.push(pg); }
+    pg.kind=g('pg-kind').value; pg.name=name; pg.value=val; pg.ccy=g('pg-ccy').value||'VND';
+    pg.bankRecv=(g('pg-bank').value||'').trim(); pg.note=(g('pg-note').value||'').trim();
+    if(!pg.code) pg.code=(g('pg-code').value||'').trim()||('TSBD-'+String(S.pledges.filter(x=>x&&!x._deleted).length).padStart(3,'0'));
+    else if((g('pg-code').value||'').trim()) pg.code=(g('pg-code').value||'').trim();
+    pg.updatedAt=new Date().toISOString(); pg.updatedBy=actorName();
+  },{action:'pledge_save',fields:['loans'],onOk:()=>{ try{logAuditEvent('pledge_save',{id,actor:actorName()});}catch(e){} toast('✓ Đã lưu TSBĐ','good'); pledgeCatalogOpen(); }});
+}
+function pledgeAssignOpen(id){
+  const pg=_pledges().find(x=>x.id===id); if(!pg) return;
+  const rows=AccountingService.loans().filter(l=>l&&!l._deleted).map(l=>{
+    const on=Array.isArray(l.pledgeIds)&&l.pledgeIds.includes(id);
+    return `<label style="display:flex;justify-content:space-between;gap:8px;padding:6px 4px;border-bottom:1px dotted var(--rule);font-size:12px;align-items:center;${l.status==='closed'?'opacity:.55':''}">
+      <span><input type="checkbox" data-pg-loan="${hrmEsc(l.id)}" ${on?'checked':''}> ${hrmEsc(l.contractNo||'')} · ${hrmEsc(l.bankName||l.lenderName||'')} ${l.status==='closed'?'(tất toán)':''}</span>
+      <b style="font-family:var(--font-mono);font-size:11px">${(+l.principal||+l.amount||0).toLocaleString('vi-VN')} ${hrmEsc(l.ccy||'VND')}</b></label>`; }).join('');
+  openModal('🔗 Gán khế ước ↔ '+hrmEsc(pg.code||pg.name),
+    `<div style="font-size:11px;color:var(--muted);margin-bottom:6px">Tick các khế ước được TSBĐ này bảo đảm — một khế ước cũng có thể nhận nhiều TSBĐ.</div>
+     <div style="max-height:340px;overflow:auto">${rows||'<div style="padding:12px;color:var(--muted)">Chưa có khế ước</div>'}</div>`,
+    `<button class="btn-ghost" onclick="pledgeCatalogOpen()">← Quay lại</button><button class="btn-primary" onclick="pledgeAssignSave('${hrmEsc(id)}')">💾 Lưu gán</button>`);
+}
+function pledgeAssignSave(id){
+  const boxes=[...document.querySelectorAll('[data-pg-loan]')];
+  commitMutation(()=>{ boxes.forEach(b=>{ const l=AccountingService.loans().find(x=>x&&x.id===b.getAttribute('data-pg-loan')); if(!l) return;
+      l.pledgeIds=Array.isArray(l.pledgeIds)?l.pledgeIds:[];
+      const has=l.pledgeIds.includes(id);
+      if(b.checked&&!has){ l.pledgeIds.push(id); touchRecord(l); }
+      else if(!b.checked&&has){ l.pledgeIds=l.pledgeIds.filter(x=>x!==id); touchRecord(l); } });
+  },{action:'pledge_assign',fields:['loans'],onOk:()=>{ try{logAuditEvent('pledge_assign',{pledgeId:id,actor:actorName()});}catch(e){} toast('✓ Đã lưu gán','good'); pledgeCatalogOpen(); }});
+}
+function pledgeRelease(id){
+  const pg=_pledges().find(x=>x.id===id); if(!pg) return;
+  const ls=pledgeLoansOf(pg);
+  if(!(ls.length&&ls.every(l=>l.status==='closed'))){ toast('Chỉ giải chấp khi MỌI khế ước gán đã tất toán','bad'); return; }
+  if(!confirm('Giải chấp '+(pg.code||pg.name)+'? (có audit, không xóa dữ liệu)')) return;
+  commitMutation(()=>{ pg.status='released'; pg.releasedAt=new Date().toISOString(); pg.releasedBy=actorName(); },
+    {action:'pledge_release',fields:['loans'],onOk:()=>{ try{logAuditEvent('pledge_release',{id,actor:actorName()});}catch(e){} toast('✓ Đã giải chấp','good'); pledgeCatalogOpen(); }});
+}
+function pledgeDelete(id){
+  const pg=_pledges().find(x=>x.id===id); if(!pg) return;
+  if(pledgeLoansOf(pg).length){ toast('Còn khế ước đang gán — không xóa được','bad'); return; }
+  if(!confirm('Xóa TSBĐ '+(pg.code||pg.name)+' (chưa gán khế ước nào)?')) return;
+  commitMutation(()=>{ pg._deleted=true; pg.updatedAt=new Date().toISOString(); },
+    {action:'pledge_delete',fields:['loans'],onOk:()=>{ toast('Đã xóa','good'); pledgeCatalogOpen(); }});
+}
+function pledgeLegacyReview(){
+  const list=AccountingService.loans().filter(l=>l&&!l._deleted&&(+l.pledgeAmount>0)&&!(Array.isArray(l.pledgeIds)&&l.pledgeIds.length));
+  const opts=_pledges().filter(x=>x.status!=='released').map(pg=>`<option value="${hrmEsc(pg.id)}">${hrmEsc(pg.code||'')} · ${hrmEsc(pg.name||'')}</option>`).join('');
+  const rows=list.map((l,ix)=>`<div style="display:flex;justify-content:space-between;gap:8px;padding:6px 4px;border-bottom:1px dotted var(--rule);font-size:12px;align-items:center">
+      <span>${hrmEsc(l.contractNo||'')} · ${hrmEsc(l.bankName||l.lenderName||'')} · thế chấp cũ <b style="font-family:var(--font-mono)">${(+l.pledgeAmount||0).toLocaleString('vi-VN')}</b></span>
+      <span style="display:flex;gap:6px"><select id="plg-${ix}" data-loan="${hrmEsc(l.id)}"><option value="">— chọn TSBĐ —</option>${opts}</select>
+      <button class="btn-sec" style="font-size:11px;padding:2px 8px" onclick="pledgeLegacyLink(${ix})">Nối</button></span></div>`).join('');
+  openModal('🔎 Rà soát nối khế ước cũ → Danh mục TSBĐ ('+list.length+')',
+    `<div style="font-size:11px;color:var(--muted);margin-bottom:6px">Khế ước còn mang trường thế chấp trên phiếu (giữ làm vết). Chọn TSBĐ trong danh mục rồi bấm Nối — app không tự chuyển. Chưa có TSBĐ tương ứng? Đóng và bấm ＋ Thêm trước.</div>
+     <div style="max-height:360px;overflow:auto">${rows||'✓ Không còn khế ước nào cần nối'}</div>`,
+    `<button class="btn-ghost" onclick="pledgeCatalogOpen()">← Quay lại</button>`);
+}
+function pledgeLegacyLink(ix){
+  const sel=document.getElementById('plg-'+ix); if(!sel||!sel.value){ toast('Chọn TSBĐ trước','warn'); return; }
+  const l=AccountingService.loans().find(x=>x&&x.id===sel.getAttribute('data-loan')); if(!l) return;
+  commitMutation(()=>{ l.pledgeIds=Array.isArray(l.pledgeIds)?l.pledgeIds:[]; if(!l.pledgeIds.includes(sel.value)) l.pledgeIds.push(sel.value); touchRecord(l); },
+    {action:'pledge_legacy_link',fields:['loans'],onOk:()=>{ try{logAuditEvent('pledge_legacy_link',{loanId:l.id,pledgeId:sel.value,actor:actorName()});}catch(e){} toast('✓ Đã nối','good'); pledgeLegacyReview(); }});
+}
 function loanLenderTypeBulk(){
   if(!isAdmin() && !canCheckAcc()){ toast('Chỉ admin/kế toán','bad'); return; }
   /* v3.15.50 (fix ca Asineran): liệt kê TẤT CẢ bên cho vay — chưa phân loại lên đầu, đã phân loại bên
