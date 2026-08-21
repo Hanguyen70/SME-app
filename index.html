@@ -3794,7 +3794,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.17.22';
+const APP_VERSION='3.17.23';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -15926,7 +15926,7 @@ function applyAdvanceToFund(r){
   const fundCcy=fund.ccy||'VND';
   let amt=+r.amount||0;
   if(apCcy!==fundCcy){
-    const fx=S.fxRate||25000;
+    const fx=fxRate();
     if(apCcy==='USD'&&fundCcy==='VND') amt=amt*fx;
     else if(apCcy==='VND'&&fundCcy==='USD') amt=amt/fx;
   }
@@ -16049,7 +16049,7 @@ function applyDockToAsset(r){
   const faCcy=fa.ccy||'VND';
   let amt=+r.amount||0;
   if(apCcy!==faCcy){
-    const fx=S.fxRate||25000;
+    const fx=fxRate();
     if(apCcy==='USD'&&faCcy==='VND') amt=amt*fx;
     else if(apCcy==='VND'&&faCcy==='USD') amt=amt/fx;
   }
@@ -28002,7 +28002,7 @@ try{ window.checkLoanInterestDupes=checkLoanInterestDupes; window.cleanLoanInter
 function auditOpVessel(nameSub){
   const vessels=VesselService.opVessels().filter(v=>!nameSub || (v.name||'').toLowerCase().includes(String(nameSub).toLowerCase()));
   if(!vessels.length){ dlog('Không tìm thấy tàu QL khớp:', nameSub); return; }
-  const fxRate=+S.fxRate||25000;
+  const fxRate=fxRate();
   const toUsd=(raw,ccy)=>{ raw=+raw||0; if(!raw) return 0; if((ccy||'USD')==='USD') return raw; return raw/fxRate; };
   vessels.forEach(v=>{
     dlog('\n===== TÀU QL:', v.name, '(chủ:', v.owner||'?', ') =====');
@@ -28123,7 +28123,7 @@ function fixOpCcyFx(apply, nguong, vndOnly){
   const dryRun = (apply!==false);
   const TH = (+nguong>0)?+nguong:5000;
   const onlyVnd = (vndOnly!==false);  // mặc định CHỈ-VND
-  const fxRate=+S.fxRate||25000;
+  const fxRate=fxRate();
   const ops=VesselService.opTransactions();
   const changes=[];
   ops.forEach(t=>{
@@ -33613,7 +33613,7 @@ function setupFxControls(){
       fxIn.value='';  // để trống → placeholder "—" hiện ra → không gây nhầm
       return;
     }
-    fxIn.value=S.fxRate||25000;
+    fxIn.value=fxRate();
     // v1.94.0: chỉ KTT (canApproveL2) + Admin được sửa tỷ giá — người khác chỉ xem
     const canEditFx = canApproveL2();
     if(canEditFx){
@@ -33625,7 +33625,7 @@ function setupFxControls(){
       if(!fxIn._fxBound){
         fxIn._fxBound=true;
         const saveFx=()=>{
-          const old=+S.fxRate||25000;
+          const old=fxRate();
           const nv=Math.max(1,+fxIn.value||25000);
           if(nv===old) return;
           S.fxRate=nv;
@@ -33670,7 +33670,7 @@ function setupFxControls(){
 /* v1.88.0: Danh sách ngoại tệ cho thu-chi hộ tàu QL (backcharge — giữ nguyên đồng gốc, KHÔNG quy đổi).
    Chỉ dùng trong tab Vận hành tàu / Thu-chi hộ. Lõi báo cáo BI vẫn chỉ USD/VND. */
 const OP_CURRENCIES = ['USD','VND','SGD','EUR','NOK','CNY','JPY','THB','MYR','AUD','GBP','RUB','KRW'];  // v3.13.96: +KRW (Won Hàn Quốc — Sếp yêu cầu 30/7)
-function fxRate(){return Math.max(1,+S.fxRate||25000);}
+function fxRate(){return Math.max(1,+S.fxRate||25000);}   /* v3.17.23: NGUỒN DUY NHẤT cho tỷ giá tham chiếu — mọi ||25000/||26000 rải rác đã gom về đây */
 function displayCcy(){return S.displayCcy==='VND'?'VND':'USD';}
 function toDisplay(amount,sourceCcy,fxToUsd){
   // Convert any amount from its source currency into the currently selected display currency
@@ -33706,12 +33706,17 @@ function _toUsdFixed(amount, sourceCcy){
 
 /* v2.99.3: Quy đổi CỨNG về VND — không phụ thuộc displayCcy. 
    Dùng cho báo cáo Phải thu (AR) — luôn quy về VND cho tổng. */
-function _toVndFixed(amount, sourceCcy){
+function _toVndFixed(amount, sourceCcy, fxToUsd){
   if(amount==null||isNaN(amount)) return 0;
   const src=(sourceCcy||'VND').toUpperCase();
   if(src==='VND') return amount;
   if(src==='USD') return amount*fxRate();
-  return amount;  // các ccy khác: giữ nguyên (chưa có tỷ giá)
+  /* v3.17.23 (Sếp — kiểm toàn app loại tiền): TRƯỚC ĐÂY ccy khác trả NGUYÊN SỐ → bị cộng thô
+     vào tổng VND rồi gắn '₫' (lỗi ②-2 báo cáo 21/8). Nay theo đúng nguyên tắc sẵn có của
+     toDisplay (v3.07.58): có fxToUsd của bản ghi → quy qua USD rồi × fxRate(); không có →
+     trả 0, thà thiếu còn hơn sai lệch lớn. */
+  const fx=+fxToUsd||0;
+  return fx>0 ? (amount/fx)*fxRate() : 0;
 }
 /* HTML escape — XSS protection.
    Use whenever interpolating user-controlled strings into innerHTML/template literals.
@@ -34036,8 +34041,10 @@ function fmtRefLine(n, ccy, style){
 function fmtVndWithNote(n, sourceCcy){
   if(n==null||isNaN(n)) return '—';
   if(n===0) return '—';
-  const fx = +S.fxRate || 25000;
+  const fx = fxRate();
   // Quy đổi sang VND
+  /* v3.17.23: chỉ USD được ×fx (lỗi ②-1: SGD/EUR từng bị nhân tỷ giá USD). Ccy khác → nguyên tệ (fmtCcy), không quy. */
+  if(sourceCcy && sourceCcy!=='VND' && sourceCcy!=='USD') return `<div style="font-weight:600">${fmtCcy(n, sourceCcy)}</div>`;
   const vndAmt = (sourceCcy==='VND' || !sourceCcy) ? n : (n * fx);
   const neg = vndAmt < 0;
   const vndStr = Math.abs(vndAmt).toLocaleString('vi-VN', {maximumFractionDigits:0});
@@ -36900,7 +36907,7 @@ function _vesselOpexMatrix(vid, fromM, toM){
     if(!m) return;
     if(fromM && m<fromM) return;
     if(toM && m>toM) return;
-    const vnd=Math.abs(_toVndFixed(p.amount||0, p.ccy||'VND'));   // v3.16.64 (Sếp): OPEX hiển thị VNĐ
+    const vnd=Math.abs(_toVndFixed(p.amount||0, p.ccy||'VND', p.fxToUsd));   // v3.16.64 (Sếp): OPEX hiển thị VNĐ
     const code=p.expenseType||'OTHER';
     if(!byType[code]){ const et=(typeof getExpenseType==='function')?getExpenseType(code):null; byType[code]={code, label:(et&&et.label)||code, icon:(et&&et.icon)||'•', months:{}}; }
     byType[code].months[m]=(byType[code].months[m]||0)+vnd;
@@ -37331,7 +37338,7 @@ function _fifoFuelValue(startL, startPriceUsdL, pumpedL, pumpPriceUsdL, consumed
 /* Quy đơn giá 1 lớp → USD/lít (xử lý VND→USD + đơn vị chọn → lít). */
 function _fuelUnitPriceUsdPerL(layer){
   const l=layer||{};
-  const fx=+S.fxRate||25000;
+  const fx=fxRate();
   const raw = (l.unitPrice!=null && l.unitPrice!=='') ? (+l.unitPrice||0) : (+l.price||0);
   const priceUsd = (l.priceCcy==='VND') ? (raw/fx) : raw;
   const unitToL = toLiters(1, l.unit, l.phuyLiters) || 1;   // giá theo đơn-vị-chọn → theo lít
@@ -37624,7 +37631,7 @@ function evFuelRecomputeAll(){
 
   // Step 3: Compute value for each row + accumulate block totals
   // Total normalized to a primary CCY: pick first non-zero priceCcy encountered, default USD
-  const fx = +S.fxRate || 25000;
+  const fx = fxRate();
   groups.forEach(group=>{
     let blockTotalUsd = 0;
     let primaryCcy = null;
@@ -45439,15 +45446,19 @@ function renderBanking(){
             <div><span style="color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em">Đã vay</span><br><b style="font-size:16px;color:var(--bad)">${fmtCcy(totals.drawnVnd,'VND')}</b></div>
             <div><span style="color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em">Còn có thể sử dụng</span><br><b style="font-size:16px;color:var(--teal)">${fmtCcy(totals.remainingVnd,'VND')}</b></div>
             <div><span style="color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em">Sử dụng</span><br><b style="font-size:16px;color:${totals.utilization>80?'var(--bad)':(totals.utilization>50?'var(--accent)':'var(--ink)')}">${_negU(totals.utilization.toFixed(1))}%</b></div>
-            <div style="font-size:10px;color:var(--muted);font-style:normal;align-self:end">Quy đổi VND theo FX ${(+S.fxRate||25000).toLocaleString('vi-VN')}</div>
+            <div style="font-size:10px;color:var(--muted);font-style:normal;align-self:end">Quy đổi VND theo FX ${fxRate().toLocaleString('vi-VN')}</div>
           </div>
           ${(()=>{
             // v3.09.88: cảnh báo khoản vay ĐANG VAY chưa gán hạn mức → chưa tính vào % sử dụng
             const _unassigned=AccountingService.loans().filter(l=>l&&(l.status==='active'||!l.status)&&!l.facilityId);
             if(!_unassigned.length) return '';
-            const _sumVnd=_unassigned.reduce((s,l)=>{ const r=loanRemainingPrincipal(l); return s+((l.ccy==='USD')?r*(+S.fxRate||25000):r); },0);
+            /* v3.17.23 (lỗi ②-3): trước cộng THÔ ccy lạ vào tổng VND. Nay dùng lại _toVndFixed
+               (VND/USD quy chuẩn; ccy khác không tỷ giá → 0) và liệt kê phần ccy lạ riêng. */
+            const _sumVnd=_unassigned.reduce((s,l)=>s+_toVndFixed(loanRemainingPrincipal(l), l.ccy||'VND'),0);
+            const _othCcy={}; _unassigned.forEach(l=>{ const c=(l.ccy||'VND').toUpperCase(); if(c!=='VND'&&c!=='USD'){ _othCcy[c]=(_othCcy[c]||0)+loanRemainingPrincipal(l); } });
+            const _othTxt=Object.entries(_othCcy).map(([c,v])=>' + '+fmtCcy(v,c)).join('');
             return `<div style="margin-top:8px;padding:7px 10px;background:var(--paper-3);border-left:3px solid var(--warn);border-radius:3px;font-size:11px">
-              ⚠ <b>${_unassigned.length}</b> khoản vay đang vay <b>CHƯA gán hạn mức</b> (tổng dư nợ ~${fmtCcy(_sumVnd,'VND')}) → chưa tính vào % sử dụng. Bấm badge "⚠ Chưa gán hạn mức" ở mỗi khoản bên dưới để gán.
+              ⚠ <b>${_unassigned.length}</b> khoản vay đang vay <b>CHƯA gán hạn mức</b> (tổng dư nợ ~${fmtCcy(_sumVnd,'VND')}${_othTxt}) → chưa tính vào % sử dụng. Bấm badge "⚠ Chưa gán hạn mức" ở mỗi khoản bên dưới để gán.
             </div>`;
           })()}
         </div>
@@ -45904,7 +45915,7 @@ function creditFacilitySummary(){
     const linkedLoans = loans.filter(l=>l.facilityId === f.id);
     // v3.09.88: Đã vay = tổng dư nợ CÒN LẠI, QUY ĐỔI về ccy của HẠN MỨC (facility).
     //   Khoản vay có thể khác ccy hạn mức (vd hạn mức VND, vay USD) → phải quy đổi, không cộng thô.
-    const _fxR = (+S.fxRate||25000);
+    const _fxR = fxRate();
     const _fCcy = f.ccy||'VND';
     const drawn = linkedLoans.reduce((s,l)=>{
       const rem = loanRemainingPrincipal(l);        // dư nợ theo ccy GỐC của khoản vay
@@ -45931,7 +45942,7 @@ function creditFacilitySummary(){
    v3.09.88: quy đổi về VND (displayCcy công ty). drawn của mỗi facility đã quy về ccy facility. */
 function creditFacilityTotalsUsd(){
   const list = creditFacilitySummary();
-  const fx = (+S.fxRate||25000);
+  const fx = fxRate();
   let limitVnd = 0, drawnVnd = 0;
   list.forEach(f=>{
     const toVnd = (f.ccy==='USD') ? fx : 1;   // facility USD → ×fx; VND → giữ
@@ -49000,7 +49011,7 @@ function mgmtFeeCcyReview(bad){
   bad=bad||(AccountingService.receivables()||[]).filter(r=>r && r._mgmtFeeId && (r.ccy||'VND')!=='USD');
   if(!bad.length){ toast('Không còn phiếu phí QL sai loại tiền','good'); return; }
   window._mgmtCcyList=bad.map(r=>r.id);
-  const fx=+S.fxRate||26000;
+  const fx=fxRate();
   const rows=bad.map((r,i)=>{
     const amt=+r.amount||0;
     const suspect=amt>=1000000;   // số ≥ 1 triệu: nhiều khả năng KT đã nhập theo VND — KHÔNG tick sẵn
@@ -49406,7 +49417,7 @@ function apBatchPayOne(batchId, orderId){
     <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr">
       <div class="field"><label>Ngày trả</label><input type="date" id="bp1-date" value="${todayISO()}"></div>
       <div class="field"><label>Tổng chi đợt này (${ccy})</label><input type="number" id="bp1-amount" value="${defAmt}" step="any"></div>
-      <div class="field">${isUsd?`<label>Tỷ giá (VND/USD)</label><input type="number" id="bp1-fx" step="any" placeholder="Gợi ý ${(+S.fxRate||25000).toLocaleString('vi-VN')}">`:`<label>Tỷ giá</label><input type="number" id="bp1-fx" value="0" disabled>`}</div>
+      <div class="field">${isUsd?`<label>Tỷ giá (VND/USD)</label><input type="number" id="bp1-fx" step="any" placeholder="Gợi ý ${fxRate().toLocaleString('vi-VN')}">`:`<label>Tỷ giá</label><input type="number" id="bp1-fx" value="0" disabled>`}</div>
       <div class="field" style="grid-column:span 2"><label>Hình thức *</label><select id="bp1-method"><option value="bank" ${(f0._payMethod!=='cash'&&f0._payMethod!=='loan')?'selected':''}>Chuyển khoản</option><option value="cash" ${f0._payMethod==='cash'?'selected':''}>Tiền mặt</option><option value="loan" ${f0._payMethod==='loan'?'selected':''}>💳 Giải ngân (vay NH)</option></select></div>
       <div class="field"><label>Tài khoản NH *</label><select id="bp1-bank"><option value="">— Chọn —</option>${bankOpts}</select></div>
       <div class="field"><label>Tiền phí</label><select id="bp1-feeccy"><option value="VND" selected>VND</option>${ccy&&ccy!=='VND'?`<option value="${ccy}">${ccy} (theo phiếu)</option>`:''}${(ccy!=='USD')?`<option value="USD">USD</option>`:''}</select></div>
@@ -50041,11 +50052,11 @@ function renderArAp(kind){
     if(isAp){
       fNet+=toDisplay(net,r.ccy||'USD',r.fxToUsd); fVat+=toDisplay(vat,r.ccy||'USD',r.fxToUsd); fTot+=toDisplay(tot,r.ccy||'USD',r.fxToUsd); fPaid+=toDisplay(pd,r.ccy||'USD',r.fxToUsd); fRem+=toDisplay(rem,r.ccy||'USD',r.fxToUsd);
     } else {
-      fNet+=_toVndFixed(net,r.ccy||'VND'); fVat+=_toVndFixed(vat,r.ccy||'VND'); fTot+=_toVndFixed(tot,r.ccy||'VND'); fPaid+=_toVndFixed(pd,r.ccy||'VND'); fRem+=_toVndFixed(rem,r.ccy||'VND');
+      fNet+=_toVndFixed(net,r.ccy||'VND',r.fxToUsd); fVat+=_toVndFixed(vat,r.ccy||'VND',r.fxToUsd); fTot+=_toVndFixed(tot,r.ccy||'VND',r.fxToUsd); fPaid+=_toVndFixed(pd,r.ccy||'VND'); fRem+=_toVndFixed(rem,r.ccy||'VND');
     }
     if(wfS==='approved'){
       if(isAp){ sumNet+=toDisplay(net,r.ccy||'USD',r.fxToUsd); sumVat+=toDisplay(vat,r.ccy||'USD',r.fxToUsd); sumTot+=toDisplay(tot,r.ccy||'USD',r.fxToUsd); sumPaid+=toDisplay(pd,r.ccy||'USD',r.fxToUsd); sumRem+=toDisplay(rem,r.ccy||'USD',r.fxToUsd); }
-      else { sumNet+=_toVndFixed(net,r.ccy||'VND'); sumVat+=_toVndFixed(vat,r.ccy||'VND'); sumTot+=_toVndFixed(tot,r.ccy||'VND'); sumPaid+=_toVndFixed(pd,r.ccy||'VND'); sumRem+=_toVndFixed(rem,r.ccy||'VND'); }
+      else { sumNet+=_toVndFixed(net,r.ccy||'VND',r.fxToUsd); sumVat+=_toVndFixed(vat,r.ccy||'VND',r.fxToUsd); sumTot+=_toVndFixed(tot,r.ccy||'VND',r.fxToUsd); sumPaid+=_toVndFixed(pd,r.ccy||'VND'); sumRem+=_toVndFixed(rem,r.ccy||'VND'); }
     }
   });
   // v3.01.30: RENDER — gộp phiếu nhiều dòng (batchId ≥2 dòng) thành 1 dòng tổng.
@@ -56587,7 +56598,7 @@ function addArPayment(kind,id){
       <div class="field">${(()=>{
         // v3.03.41: ngoại tệ ≠ USD/VND → ô tỷ giá là (1 ccy = ? VND), prefill từ fxToUsd × fxRate.
         if(isUsd){
-          return `<label>Tỷ giá tại ngày TT (VND/USD)</label><input type="number" id="pay-fx" data-nf-int="1" value="" step="any" placeholder="Gợi ý ${(+S.fxRate||25000).toLocaleString('vi-VN')} — nhập theo thực tế" oninput="payRecalcVnd()">`;
+          return `<label>Tỷ giá tại ngày TT (VND/USD)</label><input type="number" id="pay-fx" data-nf-int="1" value="" step="any" placeholder="Gợi ý ${fxRate().toLocaleString('vi-VN')} — nhập theo thực tế" oninput="payRecalcVnd()">`;
         }
         if(r.ccy==='VND'){
           return `<label>Tỷ giá</label><input type="number" id="pay-fx" data-nf-int="1" value="0" step="any" placeholder="Để 0 nếu là VND" oninput="payRecalcVnd()" disabled>`;
@@ -56641,7 +56652,7 @@ function addArPaymentForOrder(id, o){
       <div class="field"><label>Ngày trả</label><input type="date" id="pay-date" value="${todayISO()}"></div>
       <div class="field"><label>Giá trị (${r.ccy})</label><input type="number" id="pay-amount" value="${o.amount}" step="any" readonly style="background:var(--paper-2);font-weight:600" oninput="payRecalcVnd()"></div>
       <div class="field">${(()=>{
-        if(isUsd) return `<label>Tỷ giá (VND/USD)</label><input type="number" id="pay-fx" data-nf-int="1" value="" step="any" placeholder="Gợi ý ${(+S.fxRate||25000).toLocaleString('vi-VN')} — nhập theo thực tế" oninput="payRecalcVnd()">`;
+        if(isUsd) return `<label>Tỷ giá (VND/USD)</label><input type="number" id="pay-fx" data-nf-int="1" value="" step="any" placeholder="Gợi ý ${fxRate().toLocaleString('vi-VN')} — nhập theo thực tế" oninput="payRecalcVnd()">`;
         if(r.ccy==='VND') return `<label>Tỷ giá</label><input type="number" id="pay-fx" data-nf-int="1" value="0" step="any" oninput="payRecalcVnd()" disabled>`;
         const suggest = (+r.fxToUsd>0 && +S.fxRate>0) ? Math.round((+S.fxRate)/(+r.fxToUsd)) : 0;  // v3.03.41
         return `<label>Tỷ giá → VND <span style="font-weight:400;color:var(--muted);font-size:10px;text-transform:none">(1 ${r.ccy} = ? VND)</span></label><input type="number" id="pay-fx" data-nf-int="1" value="" step="any" placeholder="${suggest>0?('Gợi ý '+(+suggest).toLocaleString('vi-VN')+' — nhập theo thực tế'):''}" oninput="payRecalcVnd()">`;
@@ -56884,7 +56895,7 @@ function arQuickReceive(id){
         <div id="qr-mode-hint" style="font-size:10px;color:var(--muted);font-style:normal;margin-top:3px"></div>
       </div>
       <div class="field"><label>Ngày nhận tiền *</label><input type="date" id="qr-date" value="${todayISO()}"></div>
-      <div class="field"><label>${isUsd?'Tỷ giá tại ngày TT (VND/USD) *':'Tỷ giá'}</label><input type="number" id="qr-fx" data-nf-int="1" value="" step="any" placeholder="${isUsd?('Gợi ý '+(+S.fxRate||25000).toLocaleString('vi-VN')+' — nhập theo thực tế'):'Để 0 nếu là VND'}" ${isUsd?'':'disabled'}></div>
+      <div class="field"><label>${isUsd?'Tỷ giá tại ngày TT (VND/USD) *':'Tỷ giá'}</label><input type="number" id="qr-fx" data-nf-int="1" value="" step="any" placeholder="${isUsd?('Gợi ý '+fxRate().toLocaleString('vi-VN')+' — nhập theo thực tế'):'Để 0 nếu là VND'}" ${isUsd?'':'disabled'}></div>
       <div class="field" style="grid-column:span 2"><label>Hình thức thanh toán *</label>
         <select id="qr-method" onchange="qrMethodChanged()">
           <option value="bank">Chuyển khoản (qua ngân hàng)</option>
@@ -57519,7 +57530,7 @@ function _mfMonthChanged(vid){
 function opMinUsd(v){
   if(!v) return 0;
   const m=+v.min||0;
-  return (v.ccy==='USD') ? m : (((+S.fxRate||25000)>0) ? m/(+S.fxRate||25000) : m);
+  return (v.ccy==='USD') ? m : ((fxRate()>0) ? m/fxRate() : m);
 }
 /* Tổng phí QL ĐÃ phát hành (thực tế) cho 1 tàu — đọc từ các bút toán phí đã ghi */
 function opMgmtFeeIssued(vid){
@@ -60246,7 +60257,7 @@ function editOpTx(id){
     const _fxVnd=+d._fxVndInput||0;
     delete d._fxVndInput;
     if(ccy==='USD'){ fx=1; d.fxToVnd=0; }
-    else if(ccy==='VND'){ fx=(+S.fxRate||25000); d.fxToVnd=0; }
+    else if(ccy==='VND'){ fx=fxRate(); d.fxToVnd=0; }
     else {
       if(_fxVnd>0){
         if(_fxVnd>500000){ toast('Tỷ giá 1 '+ccy+' = '+_fxVnd.toLocaleString('vi-VN')+' VND vô lý — kiểm tra lại','bad'); return false; }
@@ -60534,7 +60545,7 @@ function confirmOpPayment(id){
       </div>
       <div class="field" id="op-fee-fx-wrap">
         <label>Tỷ giá phí → USD (1 USD = ?)</label>
-        <input type="text" inputmode="decimal" data-format-thousands="1" id="op-fee-fx" data-nf-int="1" value="" oninput="_opFeeFxInput(this)" placeholder="Gợi ý ${(+S.fxRate||25000).toLocaleString('vi-VN')} — nhập theo thực tế">
+        <input type="text" inputmode="decimal" data-format-thousands="1" id="op-fee-fx" data-nf-int="1" value="" oninput="_opFeeFxInput(this)" placeholder="Gợi ý ${fxRate().toLocaleString('vi-VN')} — nhập theo thực tế">
       </div>
       <div class="field">
         <label>Ghi chú phí (tùy chọn)</label>
@@ -60724,7 +60735,7 @@ function editOpFees(id){
       </div>
       <div class="field" id="op-fee-fx-wrap">
         <label>Tỷ giá phí → USD (1 USD = ?)</label>
-        <input type="text" inputmode="decimal" data-format-thousands="1" id="op-fee-fx" data-nf-int="1" value="${(t.feeFxToUsd||t.fxToUsd)?_formatThousands(String(t.feeFxToUsd||t.fxToUsd)):''}" oninput="_opFeeFxInput(this)" placeholder="Gợi ý ${(+S.fxRate||25000).toLocaleString('vi-VN')} — nhập theo thực tế">
+        <input type="text" inputmode="decimal" data-format-thousands="1" id="op-fee-fx" data-nf-int="1" value="${(t.feeFxToUsd||t.fxToUsd)?_formatThousands(String(t.feeFxToUsd||t.fxToUsd)):''}" oninput="_opFeeFxInput(this)" placeholder="Gợi ý ${fxRate().toLocaleString('vi-VN')} — nhập theo thực tế">
       </div>
       <div class="field">
         <label>Ghi chú phí</label>
@@ -60806,7 +60817,7 @@ function saveOpEditFull(id){
   let amountUsd, fxToVnd = +t.fxToVnd||0;
   if(ccyT==='USD'){ txFx=1; amountUsd = amount; fxToVnd=0; }
   else if(ccyT==='VND'){
-    if(txFx<=1) txFx=(+S.fxRate||25000);  // fxToUsd=1 cho VND là sai → dùng tỷ giá hệ thống
+    if(txFx<=1) txFx=fxRate();  // fxToUsd=1 cho VND là sai → dùng tỷ giá hệ thống
     amountUsd = amount/txFx; fxToVnd=0;
   }
   else {
@@ -60815,7 +60826,7 @@ function saveOpEditFull(id){
       const _cv=_opConvert(amount, ccyT, fxToVnd);
       amountUsd=_cv.usd; txFx=_cv.fxToUsd;
     } else {
-      if(txFx<=0) txFx=(+S.fxRate||25000);
+      if(txFx<=0) txFx=fxRate();
       amountUsd = amount/txFx;
     }
   }
@@ -64551,7 +64562,7 @@ function _bhxhPaidForMonth(monthDate, monthlyBhxhVnd){
   const y = monthDate.getFullYear();
   const m = monthDate.getMonth();
   const monthStr = `${y}-${String(m+1).padStart(2,'0')}`;
-  const fx = +S.fxRate || 25000;
+  const fx = fxRate();
   let sumPaid = 0;
   AccountingService.payables().forEach(r=>{
     if(wfStatus(r)!=='approved') return;
@@ -64580,7 +64591,7 @@ function _salaryPaidForMonth(monthDate){
   const m = monthDate.getMonth();
   const monthStr = `${y}-${String(m+1).padStart(2,'0')}`;
   const monthlyVnd = (typeof _cfMonthlySalaryVnd==='function') ? _cfMonthlySalaryVnd() : 0;
-  const fx = +S.fxRate || 25000;
+  const fx = fxRate();
   let sumPaid = 0;
   // Quỹ Lương withdrawals
   if(S.salaryFund && Array.isArray(S.salaryFund.withdrawals)){
@@ -64616,7 +64627,7 @@ function _ytdRevenueProgress(){
   const year = +today.slice(0,4);
   const yearStart = year + '-01-01';
   const monthsElapsed = (+today.slice(5,7)) - 0 + (+today.slice(8,10))/30;  // ~5.97 cho 30/5
-  const fxNow = (+S.fxRate||25000);
+  const fxNow = fxRate();
   const toUsd = (amt, ccy) => ccy==='USD' ? (+amt||0) : (+amt||0)/fxNow;
 
   const segs = ['VESSEL_SERVICE','VESSEL_TECH','OM','VESSEL_MGMT','PORT','OTHER'];
@@ -64783,7 +64794,7 @@ function _renderQuickView(){
             <div style="display:flex;justify-content:space-between;font-size:11px;margin-top:4px"><span style="color:var(--muted)">Tỷ lệ sử dụng</span><span style="color:${utilColor};font-weight:600">${_negU(ct.utilization.toFixed(1))}%</span></div>
           </div>`;
         })()}
-        <div style="font-size:10px;color:var(--muted);font-style:normal;text-align:center">Quy đổi USD theo tỷ giá ${(+S.fxRate||25000).toLocaleString('vi-VN')}</div>
+        <div style="font-size:10px;color:var(--muted);font-style:normal;text-align:center">Quy đổi USD theo tỷ giá ${fxRate().toLocaleString('vi-VN')}</div>
         ${(()=>{
           // v2.94.0: Card Tiến độ doanh thu YTD — KH (Plan) vs Dự kiến (Project) vs Thực hiện (AR)
           const p = _ytdRevenueProgress();
@@ -73065,7 +73076,7 @@ function bcqtGetDateRange(){
 /* Convert amount to USD using FX rate.
    If ccy is VND → divide by fxRate. Otherwise return as-is. */
 function bcqtToUsd(amount, ccy){
-  const fx = +S.fxRate || 25000;
+  const fx = fxRate();
   if(ccy === 'VND') return (+amount || 0) / fx;
   return (+amount || 0);  // USD or unknown → assume USD
 }
@@ -73081,7 +73092,7 @@ function histIncludeOn(){
 function histSums(filterFn){
   const out={revenue:0, cost:0, usedCurrentFx:false};
   if(!histIncludeOn()) return out;
-  const curFx=+S.fxRate||25000;
+  const curFx=fxRate();
   (S.historicalData||[]).forEach(r=>{
     if(filterFn && !filterFn(r)) return;
     let amt;
@@ -73392,7 +73403,7 @@ function bcqtAggregate(range){
   const includeHist = canSeeHist && !!(document.getElementById('bcqt-include-hist')||{}).checked;
   if(includeHist){
     const fromY = +from.slice(0,4), toY = +to.slice(0,4);
-    const curFx = +S.fxRate || 25000;
+    const curFx = fxRate();
     (S.historicalData||[]).forEach(r => {
       if(r.year < fromY || r.year > toY) return;
       if(!matchCompany(r)) return;
@@ -73591,7 +73602,7 @@ function renderBCQT(){
   document.getElementById('bcqt-segment-table').innerHTML = tbl;
   // v1.91.0: điền tỷ giá hiện tại vào ghi chú (thay cho interpolation tĩnh lỗi)
   const fxNote=document.getElementById('bcqt-fx-note');
-  if(fxNote) fxNote.textContent=(+S.fxRate||25000).toLocaleString('vi-VN');
+  if(fxNote) fxNote.textContent=fxRate().toLocaleString('vi-VN');
   // v1.93.0: tỷ giá USD/VNĐ bình quân gia quyền cả năm — từ thanh toán AR/AP (bản ghi USD)
   const fxAvgEl=document.getElementById('bcqt-fx-avg');
   if(fxAvgEl){
@@ -73644,8 +73655,8 @@ function renderBCQT(){
 function bcqtSalaryFundByYear(){
   const sf = S.salaryFund;
   if(!sf){ return { years: [], rows: [], totalIn: 0, totalOut: 0, balance: 0 }; }
-  const fxRate = S.fxRate || 25000;
-  const toVnd = (amt, ccy) => (ccy === 'USD') ? (amt * fxRate) : amt;  // Quỹ TL chủ yếu VND
+  const _fxR = fxRate();   // v3.17.23: một nguồn tỷ giá; bỏ biến cục bộ che hàm fxRate
+  const toVnd = (amt, ccy) => (ccy === 'USD') ? (amt * _fxR) : amt;  // Quỹ TL chủ yếu VND
 
   // Aggregate by year
   const byYear = {};  // {2024: {in, out}, 2025: ...}
@@ -73737,7 +73748,7 @@ function renderBcqtSalaryFundNote(){
     <div style="margin-top:6px;font-size:10px;color:var(--muted);font-style:normal">
       💡 <b>Thu trích</b>: từ AR doanh thu (theo % cấu hình ở tab 💰 Quỹ TL).
       <b>Chi</b>: rút quỹ cho ${(sf.rows.length>0?'phụ cấp, thưởng, phúc lợi, tham quan, bảo hiểm...':'các mục được duyệt')}.
-      Số liệu quy đổi VND theo FX rate hiện tại (${(S.fxRate||25000).toLocaleString('vi-VN')} VND/USD).
+      Số liệu quy đổi VND theo FX rate hiện tại (${(fxRate()).toLocaleString('vi-VN')} VND/USD).
     </div>
   `;
 }
@@ -73746,8 +73757,8 @@ function renderBcqtExecBlocks(range, data){
   const wrap = document.getElementById('bcqt-exec-blocks');
   if(!wrap) return;
   const { from, to } = range;
-  const fxRate = S.fxRate || 25000;
-  const toUsd = (amt, ccy) => (ccy === 'VND') ? (amt / fxRate) : amt;
+  const _fxR = fxRate();   // v3.17.23: một nguồn tỷ giá
+  const toUsd = (amt, ccy) => (ccy === 'VND') ? (amt / _fxR) : amt;
   const fmtUsd = n => _negU((Math.round(n||0)).toLocaleString('en-US'));   // v3.10.93: nguồn '-803,653'
 
   // ===== Block 1: Hoạt động tàu =====
@@ -73978,7 +73989,7 @@ function bcqtExportExcel(){
 
   const aoa = [
     [`BÁO CÁO QUẢN TRỊ - ${range.label}`],
-    [`Kỳ: ${range.from} → ${range.to} · Tỷ giá USD/VND: ${S.fxRate||25000}`],
+    [`Kỳ: ${range.from} → ${range.to} · Tỷ giá USD/VND: ${fxRate()}`],
     [],
     ['Mảng hoạt động','Doanh thu (USD)','Chi phí (USD)','Lợi nhuận (USD)','Margin %','Số AR','Số AP']
   ];
@@ -75205,7 +75216,7 @@ function renderCashflowForecast(){
   // Starting balance from bank accounts — v3.09.88: dùng snapshot (Source of Truth, đối chiếu sao kê)
   //   làm SỐ DƯ ĐẦU KỲ (điểm xuất phát dự báo). Quy đổi qua toDisplay → USD để chuẩn hóa mọi ccy
   //   (gồm SGD/EUR nếu có fxToUsd trên tài khoản). Phần "động" qua từng tuần do AR/AP quyết định.
-  const fx=+S.fxRate||25000;
+  const fx=fxRate();
   const bankBal=AccountingService.bankAccounts()
     .filter(a=>a.isActive!==false)
     .reduce((s,a)=>{
@@ -75382,7 +75393,7 @@ function renderAgingReport(){
   const buckets=['current','0-30','31-60','61-90','>90','no_due'];
   const labels={current:'Chưa đến hạn','0-30':'1-30 ngày','31-60':'31-60 ngày','61-90':'61-90 ngày','>90':'>90 ngày',no_due:'Chưa có hạn'};
   const colors={current:'var(--good)','0-30':'var(--ink)','31-60':'var(--warn)','61-90':'var(--accent)','>90':'var(--bad)',no_due:'var(--muted)'};
-  const fx=+S.fxRate||25000;
+  const fx=fxRate();
 
   const renderTable=(items, type)=>{
     // Aggregate
@@ -75479,7 +75490,7 @@ function renderTopCustomers(){
   if(!block) return;
   const yrEl=document.getElementById('rep-top-cust-year');
   const yr=yrEl?+yrEl.value:new Date().getFullYear();
-  const fx=+S.fxRate||25000;
+  const fx=fxRate();
 
   // Aggregate revenue by customer (USD equivalent)
   const byCust={};
@@ -75605,7 +75616,7 @@ function renderCostBreakdown(){
   if(!block) return;
   const yr=+(document.getElementById('rep-cost-year')?.value||new Date().getFullYear());
   const seg=document.getElementById('rep-cost-segment')?.value||'';
-  const fx=+S.fxRate||25000;
+  const fx=fxRate();
 
   // v3.01.37: MA TRẬN CHI PHÍ — hàng = loại chi phí, cột = mỗi tàu công ty + mỗi dự án O&M + Khác + Tổng.
   // Bỏ so sánh năm (YoY). Gồm cả chưa duyệt (trừ rejected), bỏ CapEx/PO (apCountsInPL).
@@ -75717,7 +75728,7 @@ function renderCostBreakdown(){
    Dùng đúng colKeyOf + bộ lọc của renderCostBreakdown để liệt kê chính xác phiếu cấu thành ô. */
 function showCostMatrixDetail(catEnc, colKey, yr, seg){
   const cat=decodeURIComponent(catEnc);
-  const fx=+S.fxRate||25000;
+  const fx=fxRate();
   // Tái dựng cột (giống renderCostBreakdown)
   const vessels=(isViewer()? VesselService.vessels().filter(v=>viewerCanSeeVessel(v.id)) : S.vessels)||[];
   const omProjects=(S.projects||[]).filter(p=>(p.isOM||p.segment==='OM')&&(!isViewer()||viewerCanSeeProject(p.id)));
@@ -77528,7 +77539,7 @@ function _cfTaxForecastInWindow(start, end){
   const cur = new Date(start);
   cur.setDate(20);
   if(cur < start) cur.setMonth(cur.getMonth()+1);
-  const fx = +S.fxRate || 25000;
+  const fx = fxRate();
   while(cur < end){
     // Tháng được nộp thuế = tháng TRƯỚC của cur (vd cur=20/6 → nộp thuế T5)
     const taxMonth = new Date(cur.getFullYear(), cur.getMonth()-1, 1);
@@ -80464,7 +80475,7 @@ function _periodicDebtRows(kind, scopeOverride){
 }
 function _periodicConv(kind, amt, ccy){
   // AR quy VND cố định (như sổ AR); AP quy theo đơn vị hiển thị (như sổ AP)
-  if(kind==='ar') return (typeof _toVndFixed==='function')?_toVndFixed(amt,ccy||'VND'):amt;
+  if(kind==='ar') return (typeof _toVndFixed==='function')?_toVndFixed(amt,ccy||'VND',arguments[3]):amt;   // v3.17.23: nhận fxToUsd
   return toDisplay(amt, ccy||'USD');
 }
 function _periodicConvLabel(kind){ return kind==='ar'?'VND':(S.displayCcy||'USD'); }
@@ -80478,9 +80489,9 @@ function _periodicByPartner(kind){
     if(!map[k]) map[k]={partner:k,count:0,tot:0,paid:0,rem:0,oldest:''};
     const m=map[k];
     m.count++;
-    m.tot+=_periodicConv(kind,+r.amountGross||+r.amount||0,r.ccy);
-    m.paid+=_periodicConv(kind,arPaidTotal(r),r.ccy);
-    m.rem+=_periodicConv(kind,arRemaining(r),r.ccy);
+    m.tot+=_periodicConv(kind,+r.amountGross||+r.amount||0,r.ccy,r.fxToUsd);
+    m.paid+=_periodicConv(kind,arPaidTotal(r),r.ccy,r.fxToUsd);
+    m.rem+=_periodicConv(kind,arRemaining(r),r.ccy,r.fxToUsd);
     const d=r.dueDate||r.issueDate||'';
     if(d && (!m.oldest||d<m.oldest)) m.oldest=d;
   });
@@ -80502,7 +80513,7 @@ function _periodicAgingByPartner(kind){
   _periodicDebtRows(kind).forEach(r=>{
     const k=r.partner||'(không tên)';
     if(!map[k]) map[k]={partner:k,b:[0,0,0,0,0],rem:0};
-    const v=_periodicConv(kind,arRemaining(r),r.ccy);
+    const v=_periodicConv(kind,arRemaining(r),r.ccy,r.fxToUsd);
     map[k].b[_periodicAgingBucket(r)]+=v;
     map[k].rem+=v;
   });
@@ -80896,7 +80907,7 @@ function renderPeriodic(){
     let _approvedRem=0,_pendingRem=0;
     if(_scope==='all'){
       _periodicDebtRows(kind).forEach(r=>{
-        const v=_periodicConv(kind,arRemaining(r),r.ccy);
+        const v=_periodicConv(kind,arRemaining(r),r.ccy,r.fxToUsd);
         if(wfStatus(r)==='approved') _approvedRem+=v; else _pendingRem+=v;
       });
     }
@@ -83579,7 +83590,7 @@ function excelConfirmImport(){
         date: d.paidDate || d.issueDate || todayISO(),
         amount: paidAmt,
         note: d.paidNote || 'Import lịch sử',
-        fxRate: ccy === 'USD' ? (S.fxRate || 25000) : 0,
+        fxRate: ccy === 'USD' ? fxRate() : 0,   // v3.17.23
         _importedFromExcel: true
       });
     }
@@ -86356,8 +86367,9 @@ function openSalaryProfileCard(empId, _ret, viewVerId){
      KADAM, USD/ngày=15 hiện 394.500đ, Số ngày phụ cấp=14 hiện 368.200đ vì bị coi là TIỀN nhân tỷ giá).
      _spFmt hiển thị ĐÚNG NGUYÊN TỆ của thẻ, không quy đổi, không phụ thuộc cấu hình hiển thị toàn hệ thống. */
   const _spFmt=(val,ccy)=>{ val=+val||0; const c=String(ccy||'VND').toUpperCase();
-    return c==='USD' ? '$'+val.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})
-                      : Math.round(val).toLocaleString('vi-VN')+'₫'; };
+    if(c==='USD') return '$'+val.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+    if(c==='VND') return Math.round(val).toLocaleString('vi-VN')+'₫';
+    return fmtCcy(val,c); };   // v3.17.23: ccy khác → nguyên tệ + mã (tái dùng fmtCcy), không gắn ₫
   const tl=list.slice().reverse().map(v=>{
     const live=cur&&cur.id===v.id;
     const lockUse=_spVersionUsedByLockedPeriod(v);
