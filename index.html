@@ -3802,7 +3802,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.17.62';
+const APP_VERSION='3.17.64';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -41388,6 +41388,7 @@ function renderApprovalList(){
     let ops=_opLvlOk
       ? ((typeof opPendingForMe==='function')?opPendingForMe({}):[]).filter(t=>opWfStatus(t)===_apprLvl)
       : [];
+    const _opsPreFilter=ops.length;   /* v3.17.63: phát hiện phiếu bị ẩn bởi bộ lọc chung */
     try{
       const _pf=((document.getElementById('appr-partner')||{}).value||'').trim().toLowerCase();
       const _af=_unformatNumber((document.getElementById('appr-amt')||{}).value||'');
@@ -41400,18 +41401,23 @@ function renderApprovalList(){
       if(_fd) ops=ops.filter(t=>String(t.date||'')>=_fd);
       if(_td) ops=ops.filter(t=>String(t.date||'')<=_td);
     }catch(e){}
+    if(_opLvlOk && _opsPreFilter>ops.length){
+      const _hid=_opsPreFilter-ops.length;
+      const _hidLk=((typeof opPendingForMe==='function')?opPendingForMe({}):[]).filter(t=>opWfStatus(t)===_apprLvl&&t._locked).length;
+      opBatch+=`<div style="font-size:10.5px;color:var(--warn);padding:4px 10px;border:1px dashed var(--warn);border-radius:8px;margin-bottom:6px">⚠ ${_hid} phiếu chi hộ${_hidLk?(' (có phiếu kỳ khóa 🔒)'):''} đang bị ẨN bởi bộ lọc đối tác/số tiền/ngày phía trên — bấm ↺ RESET để thấy đủ. (v3.17.63)</div>`;
+    }
     if(ops.length){
       window._opBatchIds=ops.map(t=>t.id);
       opBatch=`<div style="border:1.5px solid #2a5a8c;border-radius:10px;padding:8px 10px;background:rgba(42,90,140,.04)">
         <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;font-weight:700;margin-bottom:4px">
           <span>🚢 CHI HỘ CHỦ TÀU — tàu quản lý hộ (${ops.length})</span>
-          <span><label style="font-size:11px;font-weight:400"><input type="checkbox" id="opb-all" checked onclick="document.querySelectorAll('[data-opb]').forEach(c=>c.checked=this.checked)"> tick hết</label>
+          <span><label style="font-size:11px;font-weight:400"><input type="checkbox" id="opb-all" checked onclick="document.querySelectorAll('[data-opb]').forEach(c=>c.checked=this.checked); updateApprovalSummary()"> tick hết</label>
           <span style="font-size:10px;color:var(--muted);margin-left:8px">duyệt bằng nút Duyệt CHUNG bên dưới — AP + chi hộ vào cùng một lệnh (v3.17.55)</span></span></div>
         ${ops.map(t=>{ const st=opWfStatus(t); const meta=OP_WF_STATES[st]||{};
           const lk=t._locked?' <span title="Kỳ chủ tàu đã khóa — CHI PHÍ khóa, CÔNG NỢ vẫn duyệt/thanh toán (v3.17.62)" style="font-size:10px">🔒</span>':'';
           const rem=(typeof opNccRemaining==='function'&&typeof opIsNccPayable==='function'&&opIsNccPayable(t))?opNccRemaining(t):(+t.amount||0);
           return `<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;padding:5px 4px;border-bottom:1px dotted var(--rule);font-size:12px">
-            <span><input type="checkbox" data-opb="${esc(t.id)}" checked> 🚢 <b>${esc(opVesselName_(t.vesselId)||'')}</b> · ${esc((t.vendor||t.desc||'').slice(0,42))} <span class="ds-need">${esc(meta.short||st)}</span>${lk}${!t.payApproved?'<span class="ds-need" style="color:var(--warn)">chờ lệnh chi</span>':''}</span>
+            <span><input type="checkbox" data-opb="${esc(t.id)}" checked onchange="updateApprovalSummary()"> 🚢 <b>${esc(opVesselName_(t.vesselId)||'')}</b> · ${esc((t.vendor||t.desc||'').slice(0,42))} <span class="ds-need">${esc(meta.short||st)}</span>${lk}${!t.payApproved?'<span class="ds-need" style="color:var(--warn)">chờ lệnh chi</span>':''}</span>
             <span style="white-space:nowrap;display:flex;gap:6px;align-items:center"><b style="font-family:var(--font-mono)">${(+rem).toLocaleString('vi-VN')} ${esc(t.ccy||'VND')}</b>
               ${!t.payApproved?`<button class="btn-ghost" style="font-size:10px;padding:1px 8px" onclick="approveOpPayment('${esc(t.id)}')">✓ Lệnh chi</button>`:''}
               <button class="btn-ghost" style="font-size:10px;padding:1px 6px" onclick="showOpTxDetail('${esc(t.id)}')">👁</button></span></div>`; }).join('')}

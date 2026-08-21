@@ -1,5 +1,5 @@
 {
-  "version": "3.17.62",
-  "swVersion": "v3.17.62",
-  "notes": "v3.17.62: Sửa đúng nguyên tắc kỳ chủ tàu đã khóa theo chỉ đạo: khóa sổ chỉ khóa phần chi phí gồm số tiền giá trị báo cáo tỷ giá loại phiếu, còn công nợ nhà cung cấp vẫn mở. Phiếu thuộc kỳ khóa nay vẫn vào hàng đợi phê duyệt, vẫn trình ký duyệt từng bước, từ chối, ghi đợt thanh toán, nhập đợt chi cũ và bổ sung nguồn tiền bình thường, có nhãn ổ khóa nhỏ ghi rõ chi phí khóa công nợ mở; màn khôi phục vết cấp một cũng nhận phiếu kỳ khóa. Các đường sửa giá trị, xóa phiếu, hủy khoản trong kỳ khóa vẫn bị chặn như cũ. Câu chú thích phiếu kỳ khóa không duyệt được đã gỡ. Nền v3.17.61 giữ nguyên. Sau khi lên bản này tải lại trang một lần."
+  "version": "3.17.64",
+  "swVersion": "v3.17.64",
+  "notes": "v3.17.64: Gỡ cơ chế nhớ tick chi hộ bền vững của bản trước theo chỉ đạo, vì tick lưu lại gây ảnh hưởng lọc ở các tab khác; danh sách chi hộ trở lại nếp cũ mặc định tick hết mỗi lần vẽ, bỏ tick chỉ có hiệu lực trong lần thao tác hiện tại. Giữ nguyên dòng cảnh báo vàng khi có phiếu chi hộ gồm phiếu kỳ khóa đang bị ẩn bởi bộ lọc đối tác số tiền ngày kèm nhắc bấm nút đặt lại, và toàn bộ nguyên tắc kỳ khóa chỉ khóa chi phí công nợ vẫn mở của bản 3.17.62. Sau khi lên bản này tải lại trang một lần."
 }
