@@ -1,5 +1,5 @@
 {
-  "version": "3.17.55",
-  "swVersion": "v3.17.55",
-  "notes": "v3.17.55: Cấp một cấp hai chọn và duyệt trong một lệnh duy nhất: tick mười bút toán phải trả và năm phiếu chi hộ rồi bấm nút duyệt chung, phải trả xử lý theo lô như cũ xong app tự duyệt bước kế các phiếu chi hộ đã tick trong cùng lượt; chỉ tick chi hộ không tick phải trả thì nút duyệt chung vẫn chạy phần chi hộ. Nút duyệt riêng của khối chi hộ gỡ bỏ, thay bằng dòng nhắc dùng nút duyệt chung. Mỗi loại vẫn đi đúng máy trạng thái và chốt quyền của mình. Nền v3.17.54 giữ nguyên. Sau khi lên bản này tải lại trang một lần."
+  "version": "3.17.60",
+  "swVersion": "v3.17.60",
+  "notes": "v3.17.60: Màn khôi phục cho các phiếu chi hộ kế toán trưởng cấp một đã duyệt ở bản trước nhưng trạng thái tụt về kế toán kiểm hoặc ký cấp một: liệt kê phiếu chưa khóa có vết trong lịch sử từng được trình lên cấp hai, hiện rõ ai ký lúc nào, kế toán hoặc admin tick và bấm chuyển thì phiếu về thẳng chờ thanh toán cấp hai, giữ nguyên chữ ký cũ, ghi vết khôi phục và audit; phiếu kỳ khóa hoặc không vết bị bỏ qua, app không tự chuyển phiếu nào. Đồng thời sửa thiếu sót cũ: màn rà soát nguồn tiền chi hộ của bản 3.17.44 chưa từng có nút vào; nay hai nút rà nguồn tiền và khôi phục vết cấp một đặt gom bên phải đầu tab thu chi hộ. Nền v3.17.59 giữ nguyên. Sau khi lên bản này tải lại trang một lần."
 }
