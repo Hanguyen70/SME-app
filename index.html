@@ -3802,7 +3802,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.17.60';
+const APP_VERSION='3.17.62';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -10665,7 +10665,7 @@ function wfStatus(r){return (r&&r.status)||'draft';}
 function opL1RestoreCandidates(){
   const out=[];
   try{ VesselService.opTransactions().forEach(t=>{
-    if(!t||t._deleted||t.type!=='OUT'||t._locked) return;
+    if(!t||t._deleted||t.type!=='OUT') return;   /* v3.17.62: kỳ khóa không chặn công nợ */
     const st=(typeof opWfStatus==='function')?opWfStatus(t):(t.ncStatus||'');
     if(st!=='pending_acc'&&st!=='pending_l1') return;
     const h=(t._ncHist||[]).filter(x=>x&&x.to==='pending_l2');
@@ -10693,7 +10693,7 @@ function opL1RestoreApply(){
   if(!ids.length){ toast('Chưa tick phiếu nào','warn'); return; }
   let n=0;
   commitMutation(()=>{ ids.forEach(id=>{ const t=VesselService.opTransactions().find(x=>x&&x.id===id);
-      if(!t||t._locked) return;
+      if(!t) return;   /* v3.17.62: kỳ khóa không chặn công nợ */
       const st=(typeof opWfStatus==='function')?opWfStatus(t):(t.ncStatus||'');
       if(st!=='pending_acc'&&st!=='pending_l1') return;
       if(!((t._ncHist||[]).some(x=>x&&x.to==='pending_l2'))) return;
@@ -10729,7 +10729,7 @@ function opPendingForMe(opts){
                  : false;
     const vmIds=(CURRENT_USER&&Array.isArray(CURRENT_USER.assignedOpVesselIds))?CURRENT_USER.assignedOpVesselIds:null;
     VesselService.opTransactions().forEach(t=>{
-      if(!t||t._deleted||t.type!=='OUT'||t._locked) return;
+      if(!t||t._deleted||t.type!=='OUT') return;   /* v3.17.62: kỳ khóa KHÔNG chặn công nợ */
       const st=(typeof opWfStatus==='function')?opWfStatus(t):(t.ncStatus||'draft');
       if(!/^pending_/.test(st)) return;
       if(opts.level && st!==opts.level) return;
@@ -41252,12 +41252,10 @@ function renderApprovalList(){
 
   const tEl=document.getElementById('appr-table');
   if(!tEl) return;
-  if(!candidates.length){
-    tEl.innerHTML='<div class="empty" style="padding:20px;text-align:center;color:var(--muted)">Không có bút toán nào chờ duyệt phù hợp bộ lọc</div>';
-    document.getElementById('appr-select-all').checked=false;
-    updateApprovalSummary();
-    return;
-  }
+  /* v3.17.61: KHÔNG return sớm khi AP rỗng — khối CHI HỘ vẫn phải render (ảnh Sếp: chip L1/Chờ TT
+     trống trơn vì nhánh này chặn trước khối chi hộ). AP rỗng → cờ, thông điệp trống ghép ở cuối. */
+  const _apEmpty=!candidates.length;
+  if(_apEmpty){ try{ document.getElementById('appr-select-all').checked=false; }catch(e){} }
   // v3.06.08: THIẾT KẾ LẠI dạng CARD (giống "Lệnh chi chờ duyệt"). Giữ checkbox chọn + duyệt hàng loạt.
   candidates.forEach(c=>{c._r=c.record;});
   const _apprLvl=(document.getElementById('appr-level')||{}).value;
@@ -41380,11 +41378,16 @@ function renderApprovalList(){
        cấp KT kiểm không hiện khối (3.17.54). */
     /* v3.17.59 (Sếp): máy ADMIN thấy HẾT và thao tác HẾT — admin: mọi phiếu pending_* bất kể chip;
        NV giữ khớp cấp v3.17.58 (chip L1 → pending_l1, chip L2 → pending_l2, KT kiểm không hiện). */
-    let ops=isAdmin()
-      ? ((typeof opPendingForMe==='function')?opPendingForMe({}):[])
-      : ((_apprLvl==='pending_l1'||_apprLvl==='pending_l2')
-          ? ((typeof opPendingForMe==='function')?opPendingForMe({}):[]).filter(t=>opWfStatus(t)===_apprLvl)
-          : []);
+    /* v3.17.61 (Sếp, ảnh 3 chip): PHIẾU HIỂN THỊ ĐÚNG THEO TRẠNG THÁI — mỗi chip chỉ hiện phiếu
+       đúng bước của chip đó, KỂ CẢ ADMIN (thấy hết = mỗi bước có nhà ở đúng chip, không dồn một chỗ):
+       chip KT kiểm → pending_acc (admin/KT bấm Duyệt chung để trình ký L1), chip L1 → pending_l1,
+       chip Chờ TT → pending_l2. NV giữ nếp 3.17.54/58: chỉ L1/L2, KT kiểm ở tab Thu-Chi hộ. */
+    const _opLvlOk = isAdmin()
+      ? (_apprLvl==='pending_acc'||_apprLvl==='pending_l1'||_apprLvl==='pending_l2')
+      : (_apprLvl==='pending_l1'||_apprLvl==='pending_l2');
+    let ops=_opLvlOk
+      ? ((typeof opPendingForMe==='function')?opPendingForMe({}):[]).filter(t=>opWfStatus(t)===_apprLvl)
+      : [];
     try{
       const _pf=((document.getElementById('appr-partner')||{}).value||'').trim().toLowerCase();
       const _af=_unformatNumber((document.getElementById('appr-amt')||{}).value||'');
@@ -41405,25 +41408,29 @@ function renderApprovalList(){
           <span><label style="font-size:11px;font-weight:400"><input type="checkbox" id="opb-all" checked onclick="document.querySelectorAll('[data-opb]').forEach(c=>c.checked=this.checked)"> tick hết</label>
           <span style="font-size:10px;color:var(--muted);margin-left:8px">duyệt bằng nút Duyệt CHUNG bên dưới — AP + chi hộ vào cùng một lệnh (v3.17.55)</span></span></div>
         ${ops.map(t=>{ const st=opWfStatus(t); const meta=OP_WF_STATES[st]||{};
+          const lk=t._locked?' <span title="Kỳ chủ tàu đã khóa — CHI PHÍ khóa, CÔNG NỢ vẫn duyệt/thanh toán (v3.17.62)" style="font-size:10px">🔒</span>':'';
           const rem=(typeof opNccRemaining==='function'&&typeof opIsNccPayable==='function'&&opIsNccPayable(t))?opNccRemaining(t):(+t.amount||0);
           return `<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;padding:5px 4px;border-bottom:1px dotted var(--rule);font-size:12px">
-            <span><input type="checkbox" data-opb="${esc(t.id)}" checked> 🚢 <b>${esc(opVesselName_(t.vesselId)||'')}</b> · ${esc((t.vendor||t.desc||'').slice(0,42))} <span class="ds-need">${esc(meta.short||st)}</span>${!t.payApproved?'<span class="ds-need" style="color:var(--warn)">chờ lệnh chi</span>':''}</span>
+            <span><input type="checkbox" data-opb="${esc(t.id)}" checked> 🚢 <b>${esc(opVesselName_(t.vesselId)||'')}</b> · ${esc((t.vendor||t.desc||'').slice(0,42))} <span class="ds-need">${esc(meta.short||st)}</span>${lk}${!t.payApproved?'<span class="ds-need" style="color:var(--warn)">chờ lệnh chi</span>':''}</span>
             <span style="white-space:nowrap;display:flex;gap:6px;align-items:center"><b style="font-family:var(--font-mono)">${(+rem).toLocaleString('vi-VN')} ${esc(t.ccy||'VND')}</b>
               ${!t.payApproved?`<button class="btn-ghost" style="font-size:10px;padding:1px 8px" onclick="approveOpPayment('${esc(t.id)}')">✓ Lệnh chi</button>`:''}
               <button class="btn-ghost" style="font-size:10px;padding:1px 6px" onclick="showOpTxDetail('${esc(t.id)}')">👁</button></span></div>`; }).join('')}
       </div>`;
       /* v3.17.56: nói rõ vì sao "không thấy" — đếm phiếu ở bước KT kiểm (xử tại Thu-Chi hộ) + phiếu kỳ khóa */
       try{ let nAcc=0,nLock=0; VesselService.opTransactions().forEach(t=>{ if(!t||t._deleted||t.type!=='OUT')return;
-          if(isAdmin() && !t._locked) return;   /* v3.17.59: admin đã thấy mọi phiếu pending trong khối — chỉ còn báo kỳ khóa */
+          if(isAdmin() && !t._locked && _apprLvl==='pending_acc') return;   /* v3.17.61: admin đứng chip KT kiểm đã thấy các phiếu này trong khối */
           const st=(typeof opWfStatus==='function')?opWfStatus(t):(t.ncStatus||'');
-          if(t._locked && /^pending_/.test(st)) nLock++; else if(st==='pending_acc') nAcc++; });
-        if(nAcc||nLock) opBatch+=`<div style="font-size:10px;color:var(--muted);padding:4px 10px">${nAcc?('· '+nAcc+' phiếu chi hộ đang bước KT KIỂM — xử lý tại tab Thu-Chi hộ / mobile. '):''}${nLock?('· '+nLock+' phiếu thuộc kỳ chủ tàu ĐÃ KHÓA — không duyệt được.'):''}</div>`;
+          if(st==='pending_acc') nAcc++; });
+        /* v3.17.62: phiếu kỳ khóa đã vào danh sách duyệt bình thường (chỉ khóa CHI PHÍ, công nợ mở) — bỏ câu 'không duyệt được' */
+        if(nAcc) opBatch+=`<div style="font-size:10px;color:var(--muted);padding:4px 10px">· ${nAcc} phiếu chi hộ đang bước KT KIỂM — xử lý tại tab Thu-Chi hộ / mobile.</div>`;
       }catch(e){}
     } else window._opBatchIds=[];
   }catch(e){ console.warn('[appr-op-batch]',e&&e.message); }
-  tEl.innerHTML=`<div style="display:flex;flex-direction:column;gap:8px">${opBatch}${cards}</div>`;
+  const _emptyMsg=_apEmpty?('<div class="empty" style="padding:'+(opBatch?'10px':'20px')+';text-align:center;color:var(--muted)">Không có bút toán '+(opBatch?'AP':'nào')+' chờ duyệt phù hợp bộ lọc</div>'):'';
+  tEl.innerHTML=`<div style="display:flex;flex-direction:column;gap:8px">${opBatch}${_apEmpty?_emptyMsg:cards}</div>`;
+  // v3.17.61: KHÔNG return khi AP rỗng — khối dưới còn bật nút Duyệt/Trình theo tick chi hộ (v3.17.57).
   // Update select-all checkbox state
-  const allChecked=candidates.every(c=>APPROVAL_SELECTED.has(c.id));
+  const allChecked=candidates.length>0 && candidates.every(c=>APPROVAL_SELECTED.has(c.id));
   document.getElementById('appr-select-all').checked=allChecked;
   // v3.06.33: hiện nút "Trình Thanh toán" / "Duyệt chi (L2)" theo cấp đang xem + quyền
   try{
@@ -61737,7 +61744,8 @@ function _opCanAdvance(t, toState){
 function opWfAdvance(id, toState){
   const t=VesselService.opTransactions().find(x=>x.id===id);
   /* v3.12.77 (nguyên tắc Sếp): ĐÃ KHÓA SỔ = chủ tàu ĐÃ XÁC NHẬN → KHÔNG sửa được gì trên phiếu. */
-  if(t && t._locked){ toast('🔒 Kỳ đã khóa (chủ tàu đã xác nhận) — không thao tác được trên phiếu này','bad'); return; }
+  /* v3.17.62 (Sếp): KỲ KHÓA chỉ khóa CHI PHÍ (amount/reportedValue/fx...) — CÔNG NỢ NCC vẫn MỞ:
+     trình ký, duyệt, thanh toán, nguồn tiền được phép (các hàm này chỉ ghi ncStatus/payments/bank — có test bất biến). */
   if(!t){ toast('Phiếu đã bị xóa','warn'); closeModal(); renderAll(); return; }
   if(!OP_WF_STATES[toState]){ toast('Trạng thái không hợp lệ','bad'); return; }
   if(!_opCanAdvance(t, toState)){ toast('Bạn không có quyền duyệt bước này','bad'); return; }
@@ -61759,7 +61767,8 @@ function opWfAdvance(id, toState){
 function opWfReject(id){
   const t=VesselService.opTransactions().find(x=>x.id===id);
   /* v3.12.77 (nguyên tắc Sếp): ĐÃ KHÓA SỔ = chủ tàu ĐÃ XÁC NHẬN → KHÔNG sửa được gì trên phiếu. */
-  if(t && t._locked){ toast('🔒 Kỳ đã khóa (chủ tàu đã xác nhận) — không thao tác được trên phiếu này','bad'); return; }
+  /* v3.17.62 (Sếp): KỲ KHÓA chỉ khóa CHI PHÍ (amount/reportedValue/fx...) — CÔNG NỢ NCC vẫn MỞ:
+     trình ký, duyệt, thanh toán, nguồn tiền được phép (các hàm này chỉ ghi ncStatus/payments/bank — có test bất biến). */
   if(!t){ toast('Phiếu đã bị xóa','warn'); closeModal(); renderAll(); return; }
   const state=OP_WF_STATES[opWfStatus(t)]||OP_WF_STATES.draft;
   if(!_opCanAdvance(t, state.next)){ toast('Bạn không có quyền từ chối ở bước này','bad'); return; }
@@ -61820,7 +61829,8 @@ function opBankSrcApply(ix){
   const it=(window._opBankSrcItems||[])[ix]; if(!it) return;
   const sel=document.getElementById('obs-'+ix); const v=sel?sel.value:'';
   if(!v){ toast('Chọn nguồn tiền trước','warn'); return; }
-  if(it.t._locked){ toast('🔒 Kỳ đã khóa (chủ tàu đã xác nhận) — không sửa phiếu này','bad'); return; }
+  /* v3.17.62 (Sếp): KỲ KHÓA chỉ khóa CHI PHÍ (amount/reportedValue/fx...) — CÔNG NỢ NCC vẫn MỞ:
+     trình ký, duyệt, thanh toán, nguồn tiền được phép (các hàm này chỉ ghi ncStatus/payments/bank — có test bất biến). */
   commitMutation(()=>{
     const tgt=it.p||it.t;
     if(v==='CASH'){ if(it.p) tgt.method='cash'; else tgt.payMethod='cash'; delete tgt.bankAccountId; }
@@ -61836,8 +61846,8 @@ function opBankSrcApply(ix){
 function opAddOldPayment(id){
   const t=VesselService.opTransactions().find(x=>x.id===id); if(!t){ toast('Không tìm thấy phiếu','bad'); return; }
   /* v3.12.77 (nguyên tắc Sếp): ĐÃ KHÓA SỔ = chủ tàu ĐÃ XÁC NHẬN → KHÔNG sửa được gì trên phiếu. */
-  if(t._locked){ toast('🔒 Kỳ đã khóa (chủ tàu đã xác nhận) — không nhập thêm đợt chi vào phiếu này','bad'); return; }
-  if(!assertOwnerReportWritable(t)) return;
+  /* v3.17.62 (Sếp): KỲ KHÓA chỉ khóa CHI PHÍ (amount/reportedValue/fx...) — CÔNG NỢ NCC vẫn MỞ:
+     trình ký, duyệt, thanh toán, nguồn tiền được phép (các hàm này chỉ ghi ncStatus/payments/bank — có test bất biến). */
   if(!opIsNccPayable(t)){ toast('Chỉ áp dụng cho phiếu chi hộ là công nợ NCC','bad'); return; }
   if(!(isAdmin()||canConfirmPayment()||canCheckAcc())){ toast('Bạn không có quyền nhập đợt chi cũ','bad'); return; }
   const ccy=t.ccy||'VND';

@@ -1,5 +1,5 @@
 {
-  "version": "3.17.60",
-  "swVersion": "v3.17.60",
-  "notes": "v3.17.60: Màn khôi phục cho các phiếu chi hộ kế toán trưởng cấp một đã duyệt ở bản trước nhưng trạng thái tụt về kế toán kiểm hoặc ký cấp một: liệt kê phiếu chưa khóa có vết trong lịch sử từng được trình lên cấp hai, hiện rõ ai ký lúc nào, kế toán hoặc admin tick và bấm chuyển thì phiếu về thẳng chờ thanh toán cấp hai, giữ nguyên chữ ký cũ, ghi vết khôi phục và audit; phiếu kỳ khóa hoặc không vết bị bỏ qua, app không tự chuyển phiếu nào. Đồng thời sửa thiếu sót cũ: màn rà soát nguồn tiền chi hộ của bản 3.17.44 chưa từng có nút vào; nay hai nút rà nguồn tiền và khôi phục vết cấp một đặt gom bên phải đầu tab thu chi hộ. Nền v3.17.59 giữ nguyên. Sau khi lên bản này tải lại trang một lần."
+  "version": "3.17.62",
+  "swVersion": "v3.17.62",
+  "notes": "v3.17.62: Sửa đúng nguyên tắc kỳ chủ tàu đã khóa theo chỉ đạo: khóa sổ chỉ khóa phần chi phí gồm số tiền giá trị báo cáo tỷ giá loại phiếu, còn công nợ nhà cung cấp vẫn mở. Phiếu thuộc kỳ khóa nay vẫn vào hàng đợi phê duyệt, vẫn trình ký duyệt từng bước, từ chối, ghi đợt thanh toán, nhập đợt chi cũ và bổ sung nguồn tiền bình thường, có nhãn ổ khóa nhỏ ghi rõ chi phí khóa công nợ mở; màn khôi phục vết cấp một cũng nhận phiếu kỳ khóa. Các đường sửa giá trị, xóa phiếu, hủy khoản trong kỳ khóa vẫn bị chặn như cũ. Câu chú thích phiếu kỳ khóa không duyệt được đã gỡ. Nền v3.17.61 giữ nguyên. Sau khi lên bản này tải lại trang một lần."
 }
