@@ -3794,7 +3794,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.17.23';
+const APP_VERSION='3.17.25';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -18908,12 +18908,15 @@ const PAY_PIT_H1_2026 = {
     {upTo:Infinity,  div:0.65, sub:9850000}
   ]
 };
-/* Kỳ 'YYYY-MM' → bộ tham số PIT cần áp, hoặc null nếu giữ nguyên profile. */
+/* Kỳ 'YYYY-MM' → bộ tham số PIT cần áp, hoặc null nếu giữ nguyên profile.
+   v3.17.24 (Sếp 21/8 — SỬA LẠI HIỂU SAI): GTGC + biểu thuế mới áp dụng THEO LUẬT từ kỳ 01/01/2026
+   (NQ 110/2025 · Luật TNCN 2025). BỎ ghi đè H1 của v3.14.96 — TOÀN BỘ 2026 dùng bộ MỚI trong profile
+   (15,5tr/6,2tr + 5 bậc). Các kỳ T1–T6 đã khấu trừ theo mức cũ: phần chênh (khấu trừ thừa) xử lý ở
+   QUYẾT TOÁN TNCN NĂM, không sửa tiền đã chi. PAY_PIT_H1_2026 giữ làm tư liệu đối chiếu quyết toán. */
 function _payPitSetFor(periodStr){
-  const p = String(periodStr||'');
-  if(!/^2026-(0[1-9]|1[0-2])$/.test(p)) return null;   // ngoài 2026 → không can thiệp
-  return (p <= '2026-06') ? PAY_PIT_H1_2026 : null;    // H2 dùng bộ sẵn có trong profile
+  return null;
 }
+void PAY_PIT_H1_2026;   // giữ tham chiếu — dùng cho đối chiếu quyết toán, không áp vào kỳ nào
 function _payProfForPeriod(profile, period){
   let base=null;
   try{ base = PayrollService.profileByKey(profile) || defaultPayProfiles()[profile]; }catch(e){}
@@ -19019,7 +19022,7 @@ function _paySyncPaidStatus(){
 }
 function payStatusChip(s){ const m=PAY_STATUS_META[s]||PAY_STATUS_META.draft; const[bg,fg]=m.chip.split(','); return `<span class="ds-need" style="background:var(--paper-3);color:${fg}">${m.icon} ${m.label}</span>`; }
 /* v3.12.07 PHÂN QUYỀN LƯƠNG (chỉ đạo Sếp): HR/TP HR KHÔNG tính/xem/duyệt bảng lương — chỉ KT (canCheckAcc/L1) và KTT (canApproveL2), CEO/admin. */
-function payCanViewPayroll(){ return isAdmin() || !!(CURRENT_USER&&(CURRENT_USER.isCEO||CURRENT_USER.isPayrollAcc||CURRENT_USER.canCheckAcc||CURRENT_USER.canApproveL1||CURRENT_USER.canApproveL2||CURRENT_USER.canViewPayroll)); }  /* v3.12.34: isPayrollAcc trực tiếp; v3.12.38: + cờ canViewPayroll (HR/Trưởng BP HR được admin bật riêng) */
+function payCanViewPayroll(){ return isAdmin() || !!(CURRENT_USER&&(CURRENT_USER.isCEO||CURRENT_USER.canSignHr/*v3.17.25 Sếp: TP HR full lương*/||CURRENT_USER.isPayrollAcc||CURRENT_USER.canCheckAcc||CURRENT_USER.canApproveL1||CURRENT_USER.canApproveL2||CURRENT_USER.canViewPayroll)); }  /* v3.12.34: isPayrollAcc trực tiếp; v3.12.38: + cờ canViewPayroll (HR/Trưởng BP HR được admin bật riêng) */
 function payCanApprovePeriod(){ return isAdmin() || !!(CURRENT_USER&&(CURRENT_USER.isPayrollAcc||CURRENT_USER.canCheckAcc||CURRENT_USER.canApproveL1)); }  /* v3.12.07 bỏ canSignHr; v3.12.34 thêm isPayrollAcc trực tiếp */
 /* v3.12.38 (lệnh Sếp 22/7) — QUYỀN FULL NGHIỆP VỤ LƯƠNG: chính sách, tham số, kỹ thuật lương,
    tính lương, sửa + các điểm quyết toán nhạy cảm (khóa/amendment/khóa hồ sơ).
@@ -19029,7 +19032,8 @@ function payCanApprovePeriod(){ return isAdmin() || !!(CURRENT_USER&&(CURRENT_US
 function isPayrollAdmin(){
   if(isAdmin()) return true;
   const u=CURRENT_USER; if(!u) return false;
-  return !!(u.isPayrollAcc            // KT tiền lương
+  return !!(u.canSignHr              // v3.17.25 (Sếp): Trưởng phòng HR — full nghiệp vụ lương (chính sách/khóa/amendment); duyệt kỳ & 4-mắt vẫn giữ riêng
+         || u.isPayrollAcc            // KT tiền lương
          || u.canApproveL1            // KTT (duyệt L1)
          || u.canApproveL2            // KTT (duyệt L2)
          || u.canManageUsers);        // Sub-admin/KTT
@@ -87368,7 +87372,7 @@ function salaryReconcileOpen(){
   if(!(hrmCanSeeAll()||salaryProfileCanEdit())){ toast('Chỉ BGĐ/HCNS/KTT/Admin','bad'); return; }
   toast('Chức năng Đối chiếu Thẻ lương đang được hoàn thiện — bản kế tiếp','warn');
 }
-function salaryProfileCanEdit(){ return isAdmin() || canApproveL1(); }   // KTT + Admin (chốt thiết kế)
+function salaryProfileCanEdit(){ return isAdmin() || canApproveL1() || canSignHr(); }   // KTT + Admin · v3.17.25 (Sếp): + Trưởng phòng HR — toàn quyền Thẻ lương
 function _spList(empId){ return (S.salaryProfiles||[]).filter(x=>x.empId===empId).sort((a,b)=>(a.effectiveFrom||'').localeCompare(b.effectiveFrom||'')); }
 /* Bản hiệu lực tại kỳ 'YYYY-MM': effectiveFrom ≤ kỳ, mới nhất */
 /* v3.14.28: parse chế độ PATCH PC dự án — mỗi dòng: MSNV/Họ tên · Hiệu lực từ · PC dự án */
