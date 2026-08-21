@@ -1,5 +1,5 @@
 {
-  "version": "3.17.43",
-  "swVersion": "v3.17.43",
-  "notes": "v3.17.43: Kiểm tra hai loại phiếu phải trả theo nguyên tắc nhiều đợt và vá chỗ sót cuối: màn phê duyệt trên điện thoại trước hiển thị tổng hóa đơn, nay hiển thị đúng số đề nghị thanh toán đợt này như bản để bàn, phiếu chi nhiều đợt có dòng phụ ghi tổng phiếu để đối chiếu. Số còn phải trả của cả phiếu thường lẫn phiếu dự kiến đều giảm dần sau mỗi đợt theo cùng một công thức gốc hiệu lực đã có từ hai bản trước. Nền v3.17.42 giữ nguyên. Sau khi lên bản này tải lại trang một lần."
+  "version": "3.17.48",
+  "swVersion": "v3.17.48",
+  "notes": "v3.17.48: Ô tổng dư nợ vay chỉ thống kê dòng kỳ hạn ngân hàng khi thực có dư nợ: ngân hàng không có vay ngắn, trung hay dài hạn thì dòng đó ẩn, giống dòng tổ chức cá nhân đã ẩn khi bằng không từ trước. Cách phân loại giữ nguyên quy tắc đã chốt: chỉ khoản vay ngân hàng mới tách theo kỳ hạn, khoản vay tổ chức và cá nhân luôn nằm dòng riêng mọi kỳ hạn. Nền v3.17.47 giữ nguyên."
 }
