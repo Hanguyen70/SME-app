@@ -3798,7 +3798,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.17.51';
+const APP_VERSION='3.17.55';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -41314,14 +41314,28 @@ function renderApprovalList(){
      gọi ĐÚNG máy trạng thái op (không trộn id vào APPROVAL_SELECTED của AP). */
   let opBatch='';
   try{
-    const ops=(typeof opPendingForMe==='function')?opPendingForMe({}):[];
+    /* v3.17.54 (Sếp): (1) tab Phê duyệt CHỈ nhận chi hộ ĐÃ QUA KT KIỂM (pending_l1/l2) — phiếu
+       đang KT kiểm ở lại tab Thu-Chi hộ + mobile; (2) DÙNG CHUNG BỘ LỌC với AP: đối tác, số tiền,
+       từ/đến ngày áp cho cả chi hộ. */
+    let ops=((typeof opPendingForMe==='function')?opPendingForMe({}):[])
+      .filter(t=>{ const st=opWfStatus(t); return st==='pending_l1'||st==='pending_l2'; });
+    try{
+      const _pf=((document.getElementById('appr-partner')||{}).value||'').trim().toLowerCase();
+      const _af=_unformatNumber((document.getElementById('appr-amt')||{}).value||'');
+      const _fd=(document.getElementById('appr-from')||{}).value||'';
+      const _td=(document.getElementById('appr-to')||{}).value||'';
+      if(_pf) ops=ops.filter(t=>((t.vendor||'')+' '+(t.desc||'')).toLowerCase().includes(_pf));
+      if(_af>0) ops=ops.filter(t=>{ const rem=(typeof opNccRemaining==='function'&&typeof opIsNccPayable==='function'&&opIsNccPayable(t))?opNccRemaining(t):(+t.amount||0); return Math.abs(rem-_af)<=0.5||Math.abs((+t.amount||0)-_af)<=0.5; });
+      if(_fd) ops=ops.filter(t=>String(t.date||'')>=_fd);
+      if(_td) ops=ops.filter(t=>String(t.date||'')<=_td);
+    }catch(e){}
     if(ops.length){
       window._opBatchIds=ops.map(t=>t.id);
       opBatch=`<div style="border:1.5px solid #2a5a8c;border-radius:10px;padding:8px 10px;background:rgba(42,90,140,.04)">
         <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;font-weight:700;margin-bottom:4px">
           <span>🚢 CHI HỘ CHỦ TÀU — tàu quản lý hộ (${ops.length})</span>
           <span><label style="font-size:11px;font-weight:400"><input type="checkbox" id="opb-all" checked onclick="document.querySelectorAll('[data-opb]').forEach(c=>c.checked=this.checked)"> tick hết</label>
-          <button class="btn-primary" style="font-size:11px;padding:3px 12px;margin-left:8px" onclick="opBatchAdvance()">✓ Duyệt bước kế các phiếu đã tick</button></span></div>
+          <span style="font-size:10px;color:var(--muted);margin-left:8px">duyệt bằng nút Duyệt CHUNG bên dưới — AP + chi hộ vào cùng một lệnh (v3.17.55)</span></span></div>
         ${ops.map(t=>{ const st=opWfStatus(t); const meta=OP_WF_STATES[st]||{};
           const rem=(typeof opNccRemaining==='function'&&typeof opIsNccPayable==='function'&&opIsNccPayable(t))?opNccRemaining(t):(+t.amount||0);
           return `<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;padding:5px 4px;border-bottom:1px dotted var(--rule);font-size:12px">
@@ -41464,7 +41478,9 @@ function approvalBulkApprove(skipL1){
   if(((document.getElementById('appr-level')||{}).value)==='approved'){ toast('Chế độ xem lại — không thao tác trên bút toán đã duyệt','bad'); return; }  // v3.03.08
   const lvl=document.getElementById('appr-level').value;
   const ids=[...APPROVAL_SELECTED];
-  if(!ids.length){toast('Chưa chọn bút toán nào','bad');return;}
+  const _opTicked=[...document.querySelectorAll('[data-opb]:checked')].length;   /* v3.17.55 */
+  if(!ids.length && !_opTicked){toast('Chưa chọn bút toán nào','bad');return;}
+  if(!ids.length && _opTicked){ opBatchAdvance(); return; }   /* chỉ tick chi hộ → duyệt chi hộ */
   // Verify permission
   if(lvl==='pending_acc' && !canCheckAcc()){toast('Bạn không có quyền KT viên kiểm hồ sơ','bad');return;}
   if(lvl==='pending_l1' && !canApproveL1()){toast('Bạn không có quyền duyệt L1','bad');return;}
@@ -41584,6 +41600,7 @@ function approvalBulkApprove(skipL1){
       APPROVAL_SELECTED.clear();
       renderAll();
       if(fail>0){ try{ console.warn('[phê duyệt] '+fail+' phiếu fail:', _failWhy); }catch(e){} }
+      try{ if(document.querySelectorAll('[data-opb]:checked').length) opBatchAdvance(); }catch(e){}   /* v3.17.55: CÙNG MỘT LỆNH — duyệt nốt chi hộ đã tick */
       if(fail===0){ toast(`✓ Đã xử lý ${ok} bút toán`,'good'); }
       else if(ok>0){ toast(`✓ Xử lý ${ok} · ${fail} KHÔNG được: `+_failWhy.slice(0,2).join('; ')+(_failWhy.length>2?'…':''),'warn'); }
       else { toast(`⚠ Không xử lý được phiếu nào (${fail}): `+_failWhy.slice(0,2).join('; ')+(_failWhy.length>2?'…':''),'bad'); }
@@ -78234,7 +78251,7 @@ function pledgeCatalogOpen(){
     return `<tr style="${rel?'opacity:.5':''}">
       <td style="padding:6px 8px;font-family:var(--font-mono);font-size:11px">${hrmEsc(pg.code||'')}</td>
       <td style="padding:6px 8px;font-size:12px;white-space:nowrap">${PLEDGE_KINDS[pg.kind]||pg.kind||''}</td>
-      <td style="padding:6px 8px"><b>${hrmEsc(pg.name||'')}</b>${pg.note?`<div style="font-size:10px;color:var(--muted)">${hrmEsc(pg.note)}</div>`:''}</td>
+      <td style="padding:6px 8px"><b>${hrmEsc(pg.name||'')}</b>${(pg.attachments&&pg.attachments.length)?` <span style="font-size:10px;color:var(--accent)" title="Chứng thư/hồ sơ đính kèm">📎${pg.attachments.length}</span>`:''}${pg.note?`<div style="font-size:10px;color:var(--muted)">${hrmEsc(pg.note)}</div>`:''}</td>
       <td style="padding:6px 8px;text-align:right;font-family:var(--font-mono)">${f(+pg.value||0)} ${hrmEsc(pg.ccy||'VND')}</td>
       <td style="padding:6px 8px;font-size:11px">${hrmEsc(pg.bankRecv||'')}</td>
       <td style="padding:6px 8px;max-width:230px">${chips}</td>
@@ -78265,9 +78282,22 @@ function pledgeForm(id){
     <div class="form-grid" style="grid-template-columns:2fr 1fr 1.3fr">
       <div class="field"><label>Giá trị *</label><input type="text" inputmode="decimal" id="pg-value" value="${pg?(+pg.value||0):''}"></div>
       <div class="field"><label>CCY</label><select id="pg-ccy"><option ${pg&&pg.ccy==='VND'?'selected':''}>VND</option><option ${pg&&pg.ccy==='USD'?'selected':''}>USD</option></select></div>
-      <div class="field"><label>NH nhận thế chấp</label><input id="pg-bank" value="${hrmEsc(pg?pg.bankRecv:'')}" placeholder="VCB CN VT"></div>
+      <div class="field"><label>NH nhận thế chấp</label><select id="pg-bank">${(()=>{ /* v3.17.53 (Sếp): dropdown NH có sẵn — gom từ TK ngân hàng + khế ước vay, khử trùng */
+        const set=new Set();
+        try{ AccountingService.bankAccounts().forEach(a=>{ const n=(a.bankName||a.label||'').trim(); if(n) set.add(n); }); }catch(e){}
+        try{ AccountingService.loans().forEach(l=>{ if((l.lenderType||'bank')==='bank'){ const n=(l.bankName||'').trim(); if(n) set.add(n); } }); }catch(e){}
+        const curV=(pg&&pg.bankRecv||'').trim(); if(curV) set.add(curV);
+        return '<option value="">— chọn NH —</option>'+[...set].sort((a,b)=>a.localeCompare(b,'vi')).map(n=>`<option ${curV===n?'selected':''}>${hrmEsc(n)}</option>`).join('');
+      })()}</select></div>
     </div>
-    <div class="field"><label>Ghi chú (chứng thư định giá, GCN…)</label><input id="pg-note" value="${hrmEsc(pg?pg.note:'')}"></div>`,
+    <div class="field"><label>Ghi chú (chứng thư định giá, GCN…)</label><input id="pg-note" value="${hrmEsc(pg?pg.note:'')}"></div>
+    ${pg?`<div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--rule)">
+      <div style="font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:4px">📎 Chứng thư / hồ sơ đính kèm (Drive)</div>
+      <div id="pg-att-list">${(pg.attachments||[]).map((a,ix)=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px dotted var(--rule)"><a href="${hrmEsc(a.url||'#')}" target="_blank">📄 ${hrmEsc(a.name||'')}</a><span style="font-size:10px;color:var(--muted)">${hrmEsc((a.uploadedAt||'').slice(0,10))} · ${hrmEsc(a.uploadedBy||'')}</span></div>`).join('')||'<div style="font-size:11px;color:var(--muted)">Chưa có file</div>'}</div>
+      <input type="file" id="pg-att-file" accept=".pdf,image/*" style="display:none" onchange="pledgeAttachUpload('${hrmEsc(pg.id)}',this)">
+      <button class="btn-ghost" style="font-size:11px;margin-top:5px" onclick="document.getElementById('pg-att-file').click()">📤 Tải chứng thư / PDF lên</button>
+      <span id="pg-att-status" style="font-size:11px;margin-left:6px"></span>
+    </div>`:`<div style="font-size:11px;color:var(--muted);margin-top:6px">💾 Lưu TSBĐ trước, sau đó mở lại ✏️ để tải chứng thư/PDF đính kèm.</div>`}`,
     `<button class="btn-ghost" onclick="pledgeCatalogOpen()">← Quay lại</button><button class="btn-primary" onclick="pledgeSave('${hrmEsc(id||'')}')">💾 Lưu</button>`);
 }
 function pledgeSave(id){
@@ -78304,6 +78334,35 @@ function pledgeAssignSave(id){
       if(b.checked&&!has){ l.pledgeIds.push(id); touchRecord(l); }
       else if(!b.checked&&has){ l.pledgeIds=l.pledgeIds.filter(x=>x!==id); touchRecord(l); } });
   },{action:'pledge_assign',fields:['loans'],onOk:()=>{ try{logAuditEvent('pledge_assign',{pledgeId:id,actor:actorName()});}catch(e){} toast('✓ Đã lưu gán','good'); pledgeCatalogOpen(); }});
+}
+/* v3.17.52 (Sếp): đính chứng thư/PDF theo TỪNG TSBĐ — tái dùng đường upload_attachment sẵn có
+   (GAS Drive, mẫu _darUploadOriginal), lưu metadata vào pg.attachments[] qua commitMutation + audit. */
+async function pledgeAttachUpload(id, inputEl){
+  if(!pledgeCanEdit()){ toast('Chỉ KT/KTT/Admin','bad'); return; }
+  const file=inputEl&&inputEl.files&&inputEl.files[0]; if(!file) return;
+  if(file.size>20*1024*1024){ toast('File > 20MB — không tải','bad'); return; }
+  const cfg=getAuthConfig(); if(!cfg||!cfg.scriptUrl){ toast('Chưa cấu hình Apps Script URL','bad'); return; }
+  const st=document.getElementById('pg-att-status');
+  if(st){ st.style.color='var(--accent)'; st.textContent='⏳ Đang tải "'+file.name+'"…'; }
+  try{
+    const b64=await new Promise((res,rej)=>{ const rd=new FileReader(); rd.onload=()=>res(String(rd.result).split(',')[1]); rd.onerror=rej; rd.readAsDataURL(file); });
+    const pg0=_pledges().find(x=>x.id===id);
+    const nice=((pg0&&pg0.code)?pg0.code+'_':'TSBD_')+file.name;
+    const resp=await fetch(cfg.scriptUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({
+      action:'upload_attachment', fileBase64:b64, mimeType:file.type||'application/pdf',
+      fileName:nice, sub:'TSBD', viewers:(typeof _attachViewerEmails==='function'?_attachViewerEmails():[]) })});
+    const data=await resp.json();
+    if(!data||!data.ok) throw new Error((data&&data.error)||'upload lỗi');
+    commitMutation(()=>{ const pg=(S.pledges||[]).find(x=>x&&x.id===id); if(!pg) return;
+      pg.attachments=Array.isArray(pg.attachments)?pg.attachments:[];
+      pg.attachments.push({ id:data.file.id, name:data.file.name, url:data.file.url, size:data.file.size,
+        mimeType:data.file.mimeType, uploadedAt:new Date().toISOString(), uploadedBy:actorName() });
+      pg.updatedAt=new Date().toISOString();
+    },{action:'pledge_attach',fields:['loans'],onOk:()=>{ try{logAuditEvent('pledge_attach',{pledgeId:id,file:data.file.name,actor:actorName()});}catch(e){}
+      if(st){ st.style.color='var(--good)'; st.textContent='✓ Đã đính "'+data.file.name+'"'; }
+      toast('✓ Đã đính chứng thư vào TSBĐ','good'); pledgeForm(id); }});
+  }catch(e){ if(st){ st.style.color='var(--bad)'; st.textContent='⚠ '+(e&&e.message||'lỗi tải'); } toast('Tải file lỗi: '+(e&&e.message||''),'bad'); }
+  finally{ try{ inputEl.value=''; }catch(e){} }
 }
 function pledgeRelease(id){
   const pg=_pledges().find(x=>x.id===id); if(!pg) return;

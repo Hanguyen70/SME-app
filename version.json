@@ -1,5 +1,5 @@
 {
-  "version": "3.17.51",
-  "swVersion": "v3.17.51",
-  "notes": "v3.17.51: Chi hộ chủ tàu chuyển hẳn vào cùng danh sách bút toán chờ duyệt theo lệnh: khối chi hộ nằm ngay đầu danh sách lô với ô tick từng phiếu, tick hết mặc định, một nút duyệt bước kế cho các phiếu đã tick, kế toán trưởng và cấp một cấp hai thao tác như lệnh phải trả thường; mỗi dòng gắn rõ tên tàu quản lý hộ, kèm nút duyệt lệnh chi và xem phiếu; từng phiếu tiến đúng một bước theo máy trạng thái chi hộ hiện hành nên mọi chốt quyền và khóa kỳ chủ tàu giữ nguyên; khối riêng phía trên tab đã gỡ. Nền v3.17.50 giữ nguyên. Sau khi lên bản này tải lại trang một lần."
+  "version": "3.17.55",
+  "swVersion": "v3.17.55",
+  "notes": "v3.17.55: Cấp một cấp hai chọn và duyệt trong một lệnh duy nhất: tick mười bút toán phải trả và năm phiếu chi hộ rồi bấm nút duyệt chung, phải trả xử lý theo lô như cũ xong app tự duyệt bước kế các phiếu chi hộ đã tick trong cùng lượt; chỉ tick chi hộ không tick phải trả thì nút duyệt chung vẫn chạy phần chi hộ. Nút duyệt riêng của khối chi hộ gỡ bỏ, thay bằng dòng nhắc dùng nút duyệt chung. Mỗi loại vẫn đi đúng máy trạng thái và chốt quyền của mình. Nền v3.17.54 giữ nguyên. Sau khi lên bản này tải lại trang một lần."
 }
