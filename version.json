@@ -1,5 +1,5 @@
 {
-  "version": "3.17.25",
-  "swVersion": "v3.17.25",
-  "notes": "v3.17.25: Mở toàn bộ nghiệp vụ lương cho Trưởng phòng Nhân sự theo lệnh. Ba cổng được thêm quyền: xem và thao tác đầy đủ trong kỳ lương, tạo và sửa Thẻ lương cùng nhập hàng loạt, và nhóm quyền quản trị lương gồm chính sách, tham số, khóa kỳ, hồ sơ quyết toán. Giữ nguyên hai chốt an toàn: duyệt kỳ lương vẫn thuộc kế toán qua luồng chuyển kế toán ký ba cấp, và duyệt thay đổi cấu hình lương bốn mắt vẫn chỉ Ban Giám đốc và Admin. Nền v3.17.24 giữ nguyên. Sau khi lên bản này tài khoản Trưởng phòng Nhân sự đăng nhập lại để nhận quyền."
+  "version": "3.17.26",
+  "swVersion": "v3.17.26",
+  "notes": "v3.17.26: Danh mục phòng ban chuyển về dashboard Nhân sự: thêm nút Phòng Ban trên màn HRM, chỉ Trưởng phòng Nhân sự và Admin thấy, bấm mở thẳng danh mục để tạo mới, sửa, ẩn hiện phòng ban như quyền đã cấp từ trước. Đồng thời các trường chọn Phòng ban trong app tự ẩn những phòng không còn nhân viên đang làm việc, gồm phòng chưa từng có người và phòng mà toàn bộ nhân viên đã chấm dứt hợp đồng; riêng form gán người vào phòng như hồ sơ nhân viên và tài khoản người dùng vẫn thấy đủ cả phòng trống để còn xếp người vào phòng mới lập, và bản ghi cũ đang gán phòng nào thì phòng đó vẫn hiện để không mất lựa chọn. Nền v3.17.25 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần."
 }

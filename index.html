@@ -3614,6 +3614,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
         <button class="btn-ghost" id="hrm-btn-scc" onclick="sccOpen()" title="Kiểm tra dữ liệu Thẻ lương — chỉ đọc, không sửa gì">🔎 Kiểm tra dữ liệu</button>
         <!-- v3.15.12 (Sếp 11/8): CHÍNH SÁCH LƯƠNG là mục CHUNG của toàn công ty (thuế, bảo hiểm,
              lương tối thiểu vùng, công đoàn) → chuyển hẳn về Nhân sự, không nằm trong Payroll Dashboard nữa. -->
+        <button class="btn-ghost" id="hrm-btn-dept" onclick="hrmOpenDeptCatalog()" title="Danh mục Phòng/Ban — Trưởng phòng NS tạo mới / sửa / ẩn-hiện (chuyển từ Danh mục về Nhân sự — v3.17.26)" style="display:none">🏢 Phòng/Ban</button>
         <button class="btn-ghost" id="hrm-btn-policy" onclick="payrollPolicyUI()" title="Chính sách chung: thuế TNCN, bảo hiểm, lương tối thiểu vùng, công đoàn — áp theo kỳ hiệu lực">⚖️ Chính sách lương</button>
       </div>
     </div>
@@ -3794,7 +3795,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.17.25';
+const APP_VERSION='3.17.26';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -7710,7 +7711,7 @@ function userEditorModal(initial,idx){
           <label>Phòng/Ban <span style="font-weight:400;color:var(--muted)">(tùy chọn)</span></label>
           <select id="user-department" style="padding:8px 10px;border:1px solid var(--rule);background:var(--paper);font-size:13px">
             <option value="">— Không gán phòng ban —</option>
-            ${activeDepartments().map(d=>`<option value="${esc(d.id)}" ${initial.departmentId===d.id?'selected':''}>${esc(hrDeptDisplay(d.code,d.name))}</option>`).join('')}
+            ${activeDepartments({includeEmpty:true}).map(d=>`<option value="${esc(d.id)}" ${initial.departmentId===d.id?'selected':''}>${esc(hrDeptDisplay(d.code,d.name))}</option>`).join('')}
           </select>
         </div>
         <div class="field">
@@ -14343,6 +14344,8 @@ function applyRoleUI(){
   if(poBtn) poBtn.style.display = canCheckAcc() ? '' : 'none';
   // v3.09.36: ẩn các nút/lọc không cần với NV thường ở tab Phải trả.
   //   - Phiếu lương: chỉ người có quyền xem lương (CEO/BOD/Trưởng NS/NVNS/Admin).
+  const hrmDeptBtn=document.getElementById('hrm-btn-dept');   // v3.17.26: danh mục Phòng/Ban về dashboard Nhân sự
+  if(hrmDeptBtn) hrmDeptBtn.style.display = (isAdmin()||(typeof canSignHr==='function'&&canSignHr())) ? '' : 'none';
   const apPayrollBtn=document.getElementById('ap-payroll-btn');
   if(apPayrollBtn) apPayrollBtn.style.display = (typeof canViewPayroll==='function' && canViewPayroll()) ? '' : 'none';
   //   - Lọc "Mọi người nhập": NV thường chỉ thấy phiếu mình → lọc theo người nhập vô nghĩa.
@@ -31081,8 +31084,21 @@ function suggestDeptNameEn(code, nameVi){
 /* v3.16.75 (Sếp): quản lý phòng ban chuyển về Trưởng phòng NS (canSignHr) — admin vẫn toàn quyền.
    Ẩn = archived (giữ dữ liệu), CHỈ ẩn được khi không còn NV nào gán. Nơi CHỌN dùng activeDepartments;
    nơi HIỂN THỊ tên record cũ giữ full list nên tên không mất. */
-function activeDepartments(){
-  return (typeof HRService!=='undefined'?HRService.departments():[]).filter(d=>d && !d.archived);
+function activeDepartments(opts){
+  /* v3.17.26 (Sếp): phòng ban KHÔNG còn NV đang làm việc (chưa từng có NV, hoặc toàn bộ đã chấm dứt
+     HĐLĐ / inactive) → TỰ ẨN khỏi các trường gọi Phòng/ban — không cần chờ TP NS bấm ẩn tay.
+     opts.includeEmpty=true: form GÁN người vào phòng (hồ sơ NV, user) vẫn thấy đủ phòng chưa có người
+     — không thì không bao giờ staff được phòng mới lập. opts.keepId: giữ phòng đang gán của bản ghi cũ. */
+  const all=(typeof HRService!=='undefined'?HRService.departments():[]).filter(d=>d && !d.archived);
+  if(opts && opts.includeEmpty) return all;
+  let emps=[]; try{ emps=(typeof HRService!=='undefined'&&HRService.employees)?HRService.employees():(S.employees||[]); }catch(e){ emps=(S&&S.employees)||[]; }
+  const liveCodes=new Set(); (emps||[]).forEach(e=>{ if(e && e.status!=='inactive' && e.dept) liveCodes.add(String(e.dept)); });
+  return all.filter(d=>liveCodes.has(String(d.code)) || (opts&&opts.keepId&&d.id===opts.keepId));
+}
+function hrmOpenDeptCatalog(){
+  if(!(isAdmin()||canSignHr())){ toast('Chỉ Trưởng phòng NS / admin','bad'); return; }
+  try{ navigateToPage('catalog'); }catch(e){}
+  try{ catalogSwitchTab('departments'); }catch(e){}
 }
 function _deptUsedCount(id){
   try{ const cfg=getAuthConfig(); return ((cfg&&cfg.users)||[]).filter(u=>u&&u.departmentId===id).length; }catch(e){ return 0; }
