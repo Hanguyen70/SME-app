@@ -1024,7 +1024,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
       <button class="nav-sub-item" data-page="payables"><span class="sub-dot"></span><span class="nav-ic">📤</span> Phải trả (Tổng AP)</button>
       <button class="nav-sub-item" data-page="op_input" id="nav-op-input"><span class="sub-dot"></span><span class="nav-ic">🔁</span> <span id="nav-op-input-label">Thu-Chi hộ tàu QL</span></button>
       <!-- v3.02.95: Tạm ứng NV = trang riêng (tách khỏi op_input) -->
-      <button class="nav-sub-item" data-page="advances" id="nav-advances"><span class="sub-dot"></span><span class="nav-ic">💸</span> 💸 Tạm ứng NV</button>
+      <button class="nav-sub-item" data-page="advances" id="nav-advances"><span class="sub-dot"></span><span class="nav-ic">💸</span> Tạm ứng NV</button>
     </div>
   </div>
   <div class="nav-group" id="nav-group-expenses" style="display:none" data-legacy="true">
@@ -3621,11 +3621,10 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
 
     <!-- View: Dashboard -->
     <div id="hrm-view-dash">
+      <!-- v3.17.28 (Sếp duyệt MẪU Dashboard TPNS — thay TOÀN BỘ dashboard cũ): kybar giữ, còn lại theo mẫu -->
       <div id="hrm-dash-kybar" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px"></div>
-      <div id="hrm-dash-cards" class="dash-kpi-row" style="margin-bottom:16px"></div>
-      <div id="hrm-dash-today" style="margin-bottom:12px"></div>
-      <div id="hrm-dash-alerts" style="margin-bottom:16px"></div>
-      <div id="hrm-dash-breakdown"></div>
+      <div id="hrm-dash-kpis" style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;margin-bottom:12px"></div>
+      <div id="hrm-dash-grid" style="display:grid;grid-template-columns:1.25fr 1fr 1fr;gap:10px"></div>
     </div>
 
     <!-- View: Danh sách -->
@@ -3795,7 +3794,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.17.27';
+const APP_VERSION='3.17.43';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -12951,6 +12950,10 @@ function helpDetectRole(){
   if(CURRENT_USER.canApproveL1 || CURRENT_USER.canApproveL2 || CURRENT_USER.canManageUsers) return 'ktt';
   // NV KT: có quyền KT Kiểm hồ sơ
   if(CURRENT_USER.canCheckAcc) return 'nvkt';
+  /* v3.17.39 (Sếp, màn chào TP HR bị gọi "NV Nhập liệu"): vai Nhân sự nhận diện trước nhánh mặc định.
+     TP NS (canSignHr) và NV NS (isNVNS/isHrStaff) — mô tả đúng việc, không dính hóa đơn công nợ. */
+  if(CURRENT_USER.canSignHr) return 'hrhead';
+  if(CURRENT_USER.isNVNS || CURRENT_USER.isHrStaff) return 'hrstaff';
   /* v3.15.63: tài khoản TÀU phải nhận diện TRƯỚC nhánh NV Kho — nó có tab 'inventory' nên
      trước đây màn chào gọi con tàu là "NV Kho", mô tả sai hẳn công việc trên buồng lái. */
   if(typeof whIsVesselSideUser==='function' && whIsVesselSideUser()) return 'vessel';
@@ -13418,6 +13421,8 @@ function showWelcomeModal(userKey, flag){
     nvkt: {icon:'📝', title:'NV Kế toán', focus:'Kiểm tra chứng từ hóa đơn (KT Kiểm) + xuất bảng kê thuế VAT'},
     vessel: {icon:'⚓', title:'Tài khoản tàu', focus:'Nhận hàng về kho tàu · xuất dùng từ tồn có thật · đề xuất điều chuyển khi hết · kiểm kê kho'},
     nvkho: {icon:'📦', title:'NV Kho', focus:'Quản lý kho vật tư, tài sản cố định, công cụ dụng cụ'},
+    hrhead: {icon:'👥', title:'Trưởng phòng Nhân sự', focus:'Toàn quyền nghiệp vụ nhân sự + lương: hồ sơ, chấm công, Thẻ lương, Kỳ lương, chính sách, phòng ban — duyệt kỳ thuộc Kế toán, thay đổi lương chờ BOD (4 mắt)'},
+    hrstaff: {icon:'📇', title:'Nhân viên Nhân sự', focus:'Hồ sơ nhân sự + chấm công theo phân quyền'},
     nv: {icon:'✎', title:'NV Nhập liệu', focus:'Nhập hóa đơn nhà cung cấp (Phải trả) vào tab 04 Công nợ'}
   }[role] || {icon:'✎', title:'Nhân viên', focus:'Sử dụng các tab được phân quyền'};
   const displayName = isAdmin() ? 'Admin' : (CURRENT_USER && CURRENT_USER.name) || 'NV';
@@ -19141,7 +19146,7 @@ function openPayrollPeriods(){
   const body=`
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
       <div style="font-size:13px;color:var(--muted)">Mỗi kỳ = 1 tháng × 1 nhóm lương. Tính cả bảng (preview), khóa kỳ sau khi duyệt.</div>
-      <div style="display:flex;gap:6px"><button class="btn-sec" style="font-size:13px" onclick="payDashboard()">📊 Dashboard</button><!-- v3.14.58 (Sếp 07/8): GỠ nút ⚖ Pháp nhân kỳ — công cụ migration một-lần đã xong vai trò (mọi kỳ có companyId; kỳ mới bắt buộc chọn pháp nhân khi tạo). Hàm meMigrationOpen GIỮ: health check vẫn dẫn vào được nếu phát sinh kỳ thiếu pháp nhân. --><button class="btn-primary" style="font-size:13px" onclick="payPeriodCreate()">+ Tạo kỳ lương</button></div>
+      <div style="display:flex;gap:6px"><!-- v3.17.35 (Sếp): bỏ nút 📊 Dashboard khỏi Kỳ lương — Sổ lương + Chi phí lương năm đã đứng ngoài, dashboard riêng hết vai trò lối tắt --><button class="btn-sec" style="font-size:13px" onclick="openSalaryLedger()" title="Sổ theo dõi lương nhân sự — thẻ lương từng người (v3.17.34: chuyển ra cạnh Tạo kỳ lương theo lệnh)">💳 Sổ lương</button><button class="btn-sec" style="font-size:13px" onclick="payYearCostReport()" title="Sổ Chi phí Lương Năm — GROSS + 21,5% BHXH cty">📊 Chi phí lương năm</button><!-- v3.14.58 (Sếp 07/8): GỠ nút ⚖ Pháp nhân kỳ — công cụ migration một-lần đã xong vai trò (mọi kỳ có companyId; kỳ mới bắt buộc chọn pháp nhân khi tạo). Hàm meMigrationOpen GIỮ: health check vẫn dẫn vào được nếu phát sinh kỳ thiếu pháp nhân. --><button class="btn-primary" style="font-size:13px" onclick="payPeriodCreate()">+ Tạo kỳ lương</button></div>
     </div>
     <table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:var(--rule);text-align:left">
       <th style="padding:6px 8px">Kỳ</th><th style="padding:6px 8px">Nhóm</th><th style="padding:6px 8px">Pháp nhân</th><th style="padding:6px 8px;text-align:center">Số NV</th><th style="padding:6px 8px;text-align:right">Tổng thực lĩnh</th><th style="padding:6px 8px">Trạng thái</th><th style="padding:6px 8px"></th>
@@ -19591,7 +19596,7 @@ function payDashboard(){
     <table style="width:100%;border-collapse:collapse;font-size:13px;border:1px solid var(--rule)"><thead><tr style="background:var(--rule);text-align:left">
       <th style="padding:5px 8px">Nhóm</th><th style="padding:5px 8px;text-align:center">NV</th><th style="padding:5px 8px;text-align:right">Quỹ lương</th><th style="padding:5px 8px;text-align:right">TNCN</th><th style="padding:5px 8px;text-align:right">BHXH</th><th style="padding:5px 8px;text-align:right">Thực chi</th>
     </tr></thead><tbody>${profRows}</tbody></table>`;
-  openModal('📊 Payroll Dashboard', body, `<button class="btn-ghost" onclick="openPayrollPeriods()">← Kỳ lương</button><!-- v3.15.12: nút ⚖️ Chính sách đã chuyển sang Nhân sự (mục chung toàn công ty) --><button class="btn-ghost" onclick="if(typeof FLAG_SALARY_PROFILE!=='undefined'&&FLAG_SALARY_PROFILE){openSalaryLedger()}else{toast('Tính năng Thẻ lương chưa bật (flag_salary_profile)','warn')}" title="Sổ theo dõi lương nhân sự — báo cáo quản trị từ Thẻ lương (quỹ NET cố định đăng ký)">📒 Sổ lương</button><button class="btn-primary" onclick="payYearCostReport()" title="Tổng CHI PHÍ LƯƠNG năm theo bộ phận — gross + BHXH công ty (21,5% nền) — từ kỳ lương thực tế">📊 Chi phí lương năm</button>`);
+  openModal('📊 Payroll Dashboard', body, `<button class="btn-ghost" onclick="openPayrollPeriods()">← Kỳ lương</button><!-- v3.15.12: nút ⚖️ Chính sách đã chuyển sang Nhân sự (mục chung toàn công ty) -->`);
 }
 /* ═══════════════════════════════════════════════════════════════════════════
    v3.15.20 (Sếp 11/8) — SỔ CHI PHÍ LƯƠNG NĂM (báo cáo mẫu Excel "1/ Tổng chi phí lương năm").
@@ -25189,7 +25194,10 @@ function pitSettlementOpen(){
   /* GĐ3 PRODUCTION WIRING — ANNUAL ENGINE MỚI là nguồn chính thức quyết toán năm.
      Flow: aggregate → KTT quyết phương thức → snapshot → finalize → thẻ lazy → lock → amendment → export.
      Đường cũ _pitSettleBuild/_payPit KHÔNG còn gọi từ đây (chỉ shadow comparator — xem pitShadowCompare). */
-  if(!isAdmin() && !canCheckAcc()){ toast('Chỉ admin/kế toán','bad'); return; }
+  /* v3.17.40 (Sếp: "Mở quyết toán thuế với HRM"): cửa vào mở theo isPayrollAdmin (đã gồm TP NS từ
+     v3.17.25 + KTT/KT tiền lương). Các thao tác ghi bên trong (khóa/amendment/quyết phương thức)
+     vốn đã gate isPayrollAdmin nên tự thông — chỉ cửa này còn kẹt gate cũ admin/canCheckAcc. */
+  if(!isAdmin() && !canCheckAcc() && !(typeof isPayrollAdmin==='function'&&isPayrollAdmin())){ toast('Chỉ TP Nhân sự / KT / KTT / Admin','bad'); return; }
   const year=prompt('Quyết toán TNCN năm:', String(new Date().getFullYear()-((new Date().getMonth()<3)?1:0)));
   if(!year || !/^\d{4}$/.test(year.trim())) return;
   pitSettlementRender(year.trim());
@@ -31097,7 +31105,12 @@ function activeDepartments(opts){
 }
 function hrmOpenDeptCatalog(){
   if(!(isAdmin()||canSignHr())){ toast('Chỉ Trưởng phòng NS / admin','bad'); return; }
+  /* v3.17.31 (Sếp: "TP HR chưa mở được"): TP HR không có tab 'catalog' → navigateToPage chặn +
+     redirect im lặng (guard v3.16.47). Cấp vé một lượt: cờ pending cho canAccessTab nhận đúng
+     chuyến đi này; nav Danh mục vẫn ẩn với TP HR (applyRoleUI gọi canAccessTab lúc KHÔNG có vé). */
+  window._catalogDeptOnlyPending=true;
   try{ navigateToPage('catalog'); }catch(e){}
+  window._catalogDeptOnlyPending=false;
   window._catalogDeptOnly=true;   // v3.17.27: sau navigate (navigate xóa cờ) — chỉ hiện Phòng/Ban
   try{ catalogSwitchTab('departments'); }catch(e){}
 }
@@ -39688,11 +39701,35 @@ function arPaidTotal(r){return (+r.amount||0)-arRemaining(r);}
    - dueAmount = 0/trống → nghĩa là TRẢ HẾT phần còn lại = arRemaining(r) (tổng − đã trả).
    Dùng NHẤT QUÁN ở mọi cấp trình ký / dòng kê duyệt để cấp sau thấy đúng số cấp trước đề nghị,
    KHÔNG hiển thị tổng giá trị hóa đơn. */
+/* v3.17.41 (Sếp, ảnh phiếu đã tất toán vẫn mồi 8.750.000: "app lấy giá trị thanh toán sai vị trí —
+   toàn bộ phiếu nhiều đợt"): GỐC LỖI — r.dueAmount là SỐ ĐỀ XUẤT CHO 1 ĐỢT, nhưng sau khi ghi đợt chi
+   KHÔNG AI TIÊU THỤ nó → đề xuất cũ nằm ỳ trên phiếu, form lần sau mồi lại số đợt trước, "còn lại sau
+   đợt này" ra ÂM dù đã tất toán. Helper thuần: gọi ngay SAU khi push 1 đợt chi. */
+/* v3.17.42 (Sếp chốt nguyên tắc): SỐ CÒN PHẢI TRẢ của phiếu AP dự kiến = GỐC HIỆU LỰC − Σ đợt đã trả.
+   Gốc hiệu lực: có settleValue (đã chốt quyết toán) → dùng nó; chưa chốt nhưng đã nhập GIÁ TRỊ THỰC HIỆN
+   (actualValue) → dùng nó; còn lại → giá dự kiến (amount). KHÔNG ghi đè amount — giữ vết + P&L điều chỉnh
+   chênh như hiện hành. Giá "giảm theo mỗi đợt" là số CÒN PHẢI TRẢ hiển thị, đúng xác nhận của Sếp. */
+function apRemainingEff(r){
+  if(!r) return 0;
+  const base=(r.settleValue!=null && r.settleValue!=='')?(+r.settleValue||0)
+           :((r.actualValue!=null && r.actualValue!=='')?(+r.actualValue||0):(+r.amount||0));
+  const paid=(r.payments||[]).reduce((t,x)=>t+(+x.amount||0),0);
+  return base-paid;
+}
+function apDueConsume(r, paidAmt){
+  if(!r) return;
+  try{
+    const rem=apRemainingEff(r);
+    if(rem<=0.001){ r.dueAmount=0; return; }
+    const due=+r.dueAmount||0; if(due<=0) return;
+    r.dueAmount=+Math.max(0, Math.min(due-(+paidAmt||0), rem)).toFixed(2);
+  }catch(e){}
+}
 function apDueThisAmount(r){
   if(!r) return 0;
   const due=+r.dueAmount||0;
-  if(due>0.001) return due;
-  const rem=arRemaining(r);
+  const rem=(typeof apRemainingEff==='function')?apRemainingEff(r):arRemaining(r);   /* v3.17.42: gốc hiệu lực */
+  if(due>0.001) return Math.min(due, Math.max(rem,0));
   return rem>0?rem:0;
 }
 
@@ -49504,7 +49541,7 @@ function apBatchPaySaveOne(batchId, orderId){
       const _pb=r._payBankId||'', _pm=(r._payMethod==='transfer')?'bank':(r._payMethod||'');
       if((_pb&&_pb!==bankAccountId)||(_pm&&_pm!==method)){ pay.adjustedFromPlan=true; pay.plannedBankId=_pb; pay.plannedMethod=r._payMethod||''; }
       if(first){ if(_bf>0)pay.bankFee=_bf; if(_of>0)pay.otherFee=_of; if(_fn)pay.feeNote=_fn; if(_bf>0||_of>0)pay.feeCcy=((g('bp1-feeccy')||{}).value)||'VND'; first=false; }
-      r.payments=r.payments||[]; r.payments.push(pay);
+      r.payments=r.payments||[]; r.payments.push(pay); apDueConsume(r, +pay.amount||0);   /* v3.17.41 */
       try{ touchRecord(r); }catch(e){ r.updatedAt=nowIso; }
       // v3.15.19: giải ngân — không trừ TK (tiền từ hạn mức thẳng NCC); tự gom khế ước nháp
       if(method==='loan' && bankAccountId){
@@ -51751,8 +51788,9 @@ function _arEditorBody(r,isPayable){
       <div class="form-grid">
         <div class="field"><label>Ngày hóa đơn</label><input type="date" id="ar-issue" value="${r.issueDate||todayISO()}" ${lockedAttr}></div>
         <div class="field"><label>Hạn thanh toán</label><input type="date" id="ar-due" value="${r.dueDate||''}" ${lockedAttr}></div>
-        ${isPayable?`<div class="field"><label>Giá trị thanh toán đợt này</label><input type="number" id="ar-due-amount" step="any" value="${r.dueAmount||0}" placeholder="Số tiền chi đợt này" oninput="_arRecalcRemain()" ${lockedAttr}></div>
-        <div class="field"><label>Giá trị còn lại (sau khi trừ đã trả & đợt này)</label><input type="text" id="ar-remain-display" readonly style="background:var(--paper-2);font-weight:600"></div>
+        ${isPayable?`<div class="field"><label>Giá trị thanh toán đợt này</label><input type="number" id="ar-due-amount" step="any" value="${(()=>{const _rm=(r.id&&typeof arRemaining==='function')?arRemaining(r):null; const _d=+r.dueAmount||0; return _rm==null?_d:(_rm<=0.001?0:Math.min(_d,_rm));})()}" placeholder="Số tiền chi đợt này" oninput="_arRecalcRemain()" ${lockedAttr}></div>
+        <!-- v3.17.42 (Sếp: "mục này nên bỏ — dễ hiểu lầm"): ô "Giá trị còn lại (sau đợt này)" GỠ —
+             trùng khối TIẾN ĐỘ THANH TOÁN bên dưới và từng hiện số ÂM gây hoang mang. -->
         <input type="hidden" id="ar-due-month" value="${r.dueMonth||''}">`:''}
       </div>
     </div>
@@ -52239,8 +52277,8 @@ function _paymentProgressBlock(r, isPayable){
   const orders=isPayable?(_apOrders(r)||[]).filter(o=>o.status!=='paid'):[];  // đợt đang đi duyệt (chưa thành payment)
   const paidTotal=payments.reduce((s,p)=>s+(+p.amount||0),0);
   const pendingTotal=orders.reduce((s,o)=>s+(+o.amount||0),0);
-  const rem=(typeof arRemaining==='function')?arRemaining(r):(gross-paidTotal);
-  const fullyPaid = gross>0 && rem<=0.001;
+  const rem=isPayable&&(typeof apRemainingEff==='function')?apRemainingEff(r):((typeof arRemaining==='function')?arRemaining(r):(gross-paidTotal));   /* v3.17.42 */
+  const fullyPaid = (gross>0||rem<0.001) && rem<=0.001;
   const fmtA=(n)=> (+n||0).toLocaleString((ccy==='USD'||ccy==='EUR')?'en-US':'vi-VN',(ccy==='USD'||ccy==='EUR')?{minimumFractionDigits:2,maximumFractionDigits:2}:{maximumFractionDigits:0});
   const methLabel=(m,bankId)=>{
     const bk=bankId?(AccountingService.bankAccounts().find(a=>a.id===bankId)):null;
@@ -56103,7 +56141,7 @@ function _apOrderAutoPay(r, o){
     method, recordedBy:actorName(), recordedAt:new Date().toISOString(),
     _fromOrder:o.id, _autoOrderPay:true };
   if(bankAccountId) pay.bankAccountId=bankAccountId;
-  r.payments.push(pay);
+  r.payments.push(pay); apDueConsume(r, +pay.amount||0);   /* v3.17.41 */
   // Cập nhật số dư tài khoản ngân hàng (AP trả → trừ), giống saveArPayment.
   if(bankAccountId){
     const acc=AccountingService.bankAccounts().find(a=>a.id===bankAccountId);
@@ -56623,7 +56661,7 @@ function addArPayment(kind,id){
     ${_cnNote}
     <div class="form-grid" style="grid-template-columns:1fr 1fr 1fr">
       <div class="field"><label>Ngày ${kind==='ap'?'trả':'thu'}</label><input type="date" id="pay-date" value="${todayISO()}"></div>
-      <div class="field"><label>Giá trị (${r.ccy})</label><input type="number" id="pay-amount" value="${rem}" max="${rem}" step="any" oninput="payRecalcVnd()"></div>
+      <div class="field"><label>Giá trị (${r.ccy})</label><input type="number" id="pay-amount" value="${(typeof apDueThisAmount==='function')?apDueThisAmount(r):rem}" max="${rem}" step="any" oninput="payRecalcVnd()" title="Mồi theo SỐ ĐỢT đề xuất (v3.17.42) — sửa được, tối đa = còn lại"></div>
       <div class="field">${(()=>{
         // v3.03.41: ngoại tệ ≠ USD/VND → ô tỷ giá là (1 ccy = ? VND), prefill từ fxToUsd × fxRate.
         if(isUsd){
@@ -56776,7 +56814,7 @@ function saveArPayment(kind,id){
   if(_bf>0||_of>0) pay.feeCcy=((document.getElementById('pay-feeccy')||{}).value)||'VND';   /* v3.11.77: KT — phí NH thực thu VNĐ, không ép theo tiền phiếu */
   const _doPay=()=>{
   r.payments=r.payments||[];
-  r.payments.push(pay);
+  r.payments.push(pay); apDueConsume(r, +pay.amount||0);   /* v3.17.41 */
   // v3.02.50: nếu đang ghi chi cho 1 LỆNH đã duyệt → đánh dấu lệnh 'paid'
   if(_apPayOrderCtx && _apPayOrderCtx.id===id){
     const o=(r.paymentOrders||[]).find(x=>x.id===_apPayOrderCtx.orderId);
@@ -56918,7 +56956,7 @@ function arQuickReceive(id){
     <div class="form-grid" style="grid-template-columns:1fr 1fr">
       <div class="field" style="grid-column:span 2"><label>Số tiền nhận lần này * <span style="color:var(--muted);text-transform:none;font-weight:400;font-size:10px">(mặc định = số còn lại; có thể giảm để thu 1 phần)</span></label>
         <div style="display:flex;gap:6px;align-items:stretch">
-          <input type="number" id="qr-amount" data-ccy="${esc(r.ccy||'VND')}" value="${rem}" step="any" min="0.01" max="${rem}" style="flex:1;font-family:var(--font-mono);text-align:right">
+          <input type="number" id="qr-amount" data-ccy="${esc(r.ccy||'VND')}" value="${(typeof apDueThisAmount==='function')?apDueThisAmount(r):rem}" step="any" min="0.01" max="${rem}" style="flex:1;font-family:var(--font-mono);text-align:right">
           <button type="button" class="btn-sec" onclick="document.getElementById('qr-amount').value=${rem};_qrUpdateMode()" style="font-size:11px;white-space:nowrap" title="Reset về số còn lại">↺ Thu đủ</button>
         </div>
         <div id="qr-mode-hint" style="font-size:10px;color:var(--muted);font-style:normal;margin-top:3px"></div>
@@ -57030,7 +57068,7 @@ function arSaveQuickReceive(id){
   if(bankAccountId) pay.bankAccountId=bankAccountId;
   commitMutation(()=>{
   r.payments=r.payments||[];
-  r.payments.push(pay);
+  r.payments.push(pay); apDueConsume(r, +pay.amount||0);   /* v3.17.41 */
   // Ghi tăng số dư tài khoản ngân hàng (chỉ khi chuyển khoản)
   if(acc){
     acc.balance=(+acc.balance||0) + _arPayAmountInCcy(pay, r.ccy, acc.ccy||'USD');
@@ -60448,7 +60486,7 @@ function opConfirmApPay(apId){
     </div>
     <div class="form-grid" style="grid-template-columns:1fr 1fr">
       <div class="field"><label>Ngày trả</label><input type="text" id="oap-date" value="${todayISO()}" placeholder="YYYY-MM-DD"></div>
-      <div class="field"><label>Số tiền đợt này (${ccy})</label><input type="number" id="oap-amount" value="${Math.round(rem)}" max="${rem}" step="any"></div>
+      <div class="field"><label>Số tiền đợt này (${ccy})</label><input type="number" id="oap-amount" value="${Math.round((typeof apDueThisAmount==='function')?apDueThisAmount(r):rem)}" max="${rem}" step="any"></div>
       <div class="field"><label>Tiền phí</label><select id="oap-feeccy"><option value="VND" selected>VND</option>${ccy&&ccy!=='VND'?`<option value="${ccy}">${ccy} (theo phiếu)</option>`:''}${(ccy!=='USD')?`<option value="USD">USD</option>`:''}</select></div>
       <div class="field"><label>Phí ngân hàng</label><input type="number" id="oap-bankfee" value="0" step="any"></div>
       <div class="field"><label>Phí khác</label><input type="number" id="oap-otherfee" value="0" step="any"></div>
@@ -60478,7 +60516,7 @@ function opSaveApPay(apId){
   if(otherFee>0) pay.otherFee=otherFee;
   if(bankFee>0||otherFee>0) pay.feeCcy=((document.getElementById('oap-feeccy')||{}).value)||'VND';   /* v3.11.77 */
   if(bankId) pay.bankAccountId=bankId;
-  r.payments=r.payments||[]; r.payments.push(pay);
+  r.payments=r.payments||[]; r.payments.push(pay); apDueConsume(r, +pay.amount||0);   /* v3.17.41 */
   // trừ tài khoản NH (gồm phí) nếu qua NH
   if(bankId){
     const acc=AccountingService.bankAccounts().find(a=>a.id===bankId);
@@ -84861,6 +84899,8 @@ function canAccessTab(tabId){
   //   (một cổng cho mỗi concern). Trước đây NV nhóm HR (không phải trưởng BP) đủ quyền làm việc
   //   BÊN TRONG module nhưng không thấy menu (whitelist NV không có 'hrm'). Tick tay tab 'hrm'
   //   vẫn giữ hiệu lực — không ai mất quyền.
+  /* v3.17.31: vé một lượt vào Danh mục ở chế độ CHỈ PHÒNG/BAN (từ nút 🏢 trên HRM) — TP NS */
+  if(tabId==='catalog' && window._catalogDeptOnlyPending && (CURRENT_USER.canSignHr)) return true;
   if(tabId==='hrm'){
     return ((typeof hrmCanSeeAll==='function') && hrmCanSeeAll()) || (CURRENT_USER.tabs||[]).includes('hrm');
   }
@@ -84887,6 +84927,13 @@ function canAccessTab(tabId){
      tàu (bộ tab tàu vẫn tuyệt đối), TRƯỚC 2 nhánh cấp ngầm. Thư viện giữ cho VM. */
   /* v3.16.60 (Sếp): trang tổng quan riêng cho Vessel Manager — chỉ VM (và admin) truy cập. */
   if(tabId==='vm_dashboard'){ return isVesselManager(); }
+  /* v3.17.30 (Sếp, ảnh nav TP HR): vai HR THUẦN (cờ NS, không cờ kế toán) — ẨN 'Phải thu' khỏi nav,
+     chỉ hiện khi admin TICK TAY (đúng công thức VM v3.16.53). Phải trả + Tạm ứng giữ nguyên theo lệnh. */
+  if(CURRENT_ROLE!=='admin' && tabId==='receivables'
+     && (CURRENT_USER.canSignHr || CURRENT_USER.isNVNS || CURRENT_USER.isHrStaff)
+     && !(CURRENT_USER.canCheckAcc || CURRENT_USER.canApproveL1 || CURRENT_USER.canApproveL2 || CURRENT_USER.isPayrollAcc || CURRENT_USER.isBOD || CURRENT_USER.isCEO)){
+    return (CURRENT_USER.tabs||[]).includes('receivables');
+  }
   if(isVesselManager() && CURRENT_ROLE!=='admin'
      && (tabId==='payables' || tabId==='receivables' || tabId==='advances')){
     return (CURRENT_USER.tabs||[]).includes(tabId);
@@ -86112,7 +86159,7 @@ function tbNsDownloadBlank(){
 function tbNsImportFile(input){
   var file=input.files&&input.files[0]; input.value='';
   if(!file) return;
-  if(typeof salaryProfileCanEdit==='function' && !salaryProfileCanEdit()){ toast('Chỉ KTT/Admin được import Thông báo NS (tạo thẻ lương)','bad'); return; }
+  if(typeof salaryProfileCanEdit==='function' && !salaryProfileCanEdit()){ toast('Chỉ TP Nhân sự / KTT / Admin được import Thông báo NS (tạo thẻ lương)','bad'); return; }
   file.arrayBuffer().then(function(buf){ return tbNsReadPdf(new Uint8Array(buf)); })
   .then(function(raw){
     var o=_tbNsParse(raw), errs=_tbNsValidate(o);
@@ -87119,7 +87166,7 @@ function spImportParse_(aoa, empBySmart, empByName){
   return out;
 }
 window.spImportOpen=function(){
-  if(!salaryProfileCanEdit()){ toast('Chỉ KTT/Admin','bad'); return; }
+  if(!salaryProfileCanEdit()){ toast('Chỉ TP Nhân sự / KTT / Admin','bad'); return; }   /* v3.17.36: cập nhật danh sách vai sau v3.17.25 */
   if(typeof XLSX==='undefined'){ toast('Thư viện Excel chưa sẵn sàng','bad'); return; }
   var inp=document.createElement('input'); inp.type='file'; inp.accept='.xlsx,.xls';
   inp.onchange=function(){
@@ -87162,7 +87209,7 @@ window.spImportOpen=function(){
             return '<tr'+(x.dup?' style="opacity:.5"':'')+'><td>'+esc(x.smartId)+'</td><td>'+esc(x.name)+'</td><td>'+x.eff+'</td><td>'+x.engine+'</td><td style="font-size:10px">'+main+'</td><td style="text-align:right">'+Number(x.data.bhxhBase||0).toLocaleString('vi-VN')+'</td><td>'+(x.data.dependents||0)+'</td><td>'+(x.dup?'BỎ QUA':'TẠO')+'</td></tr>'; }).join('')
           +'</table></div><div style="font-size:10.5px;color:var(--muted);margin-top:6px">Chỉ TẠO phiên bản mới — không sửa/xóa bản cũ · dây hiệu lực tự đóng · kỳ ĐÃ KHÓA không bị ảnh hưởng · kỳ chưa khóa tự STALE để tính lại</div></div>';
         window._spImp=fresh;
-        openModal('📥 Import thẻ lương hồi tố — xem trước', h,
+        openModal('📥 Import thẻ lương (tạo mới / hồi tố) — xem trước', h,
           '<button class="btn-ghost" onclick="window._spImp=null;closeModal()">✖ Hủy</button>'
           +(fresh.length?'<button class="btn-primary" onclick="spImportGo()">✓ Tạo '+fresh.length+' phiên bản</button>':''));
       }catch(err){ toast('Lỗi đọc file: '+err.message,'warn'); }
@@ -87583,7 +87630,7 @@ window.__wipeAllSalaryProfiles = function(){
     }, onFail:function(r){ console.error('✗ XOÁ THẤT BẠI:', (r&&r.error)||'lỗi không rõ — dữ liệu KHÔNG đổi, thử lại.'); }});
 };
 function salaryProfileDeleteVersion(vid){
-  if(!salaryProfileCanEdit()){ toast('Chỉ KTT/Admin','bad'); return; }
+  if(!salaryProfileCanEdit()){ toast('Chỉ TP Nhân sự / KTT / Admin','bad'); return; }   /* v3.17.36 */
   const v=(S.salaryProfiles||[]).find(x=>x.id===vid); if(!v) return;
   if(_spVersionUsedByLockedPeriod(v)){ toast('Phiên bản đã dùng cho kỳ lương ĐÃ KHÓA — không được xóa (giữ lịch sử)','bad'); return; }
   if(!confirm('Xóa phiên bản V'+v.version+' (hiệu lực '+v.effectiveFrom+')? Chỉ nên xóa bản tạo nhầm chưa dùng.')) return;
@@ -88007,8 +88054,11 @@ const SALARY_CARD_CHECKS=[
    if(seen[ms]) out.push(sccRR('SC23','BLOCK',e.id,'smartId',ms,'TRÙNG mã với '+seen[ms],'Sửa 1 trong 2 mã'));
    seen[ms]=e.id;}); return out;}}
 ];
-function sccCanOpen_(){ /* v3.13.61: bỏ nhánh OR pfCanViewBoard_ (PF đã khai tử) — chỉ còn admin */
-  try{ return (typeof isAdmin==='function'&&isAdmin()); }catch(e){ return false; } }
+function sccCanOpen_(){ /* v3.13.61: bỏ nhánh PF. v3.17.37 (Sếp: "chưa mở cho HRM"): gate cũ chỉ còn
+   admin trong khi toast hứa "Phạm vi HR/KT/Admin" — mở đúng lời hứa: admin + toàn bộ vai xem lương
+   (payCanViewPayroll đã gồm TP NS từ v3.17.25, KT/KTT/CEO). SCC là công cụ CHỈ ĐỌC. */
+  try{ return (typeof isAdmin==='function'&&isAdmin())
+        || (typeof payCanViewPayroll==='function'&&payCanViewPayroll()); }catch(e){ return false; } }
 function sccRun(month, engineFilter){
   var all=(typeof HRService!=='undefined'&&HRService.employees)?(HRService.employees()||[]):[];
   var emps=all.filter(function(e){ if(!e) return false;
@@ -89020,153 +89070,144 @@ function hrmShowBhxhDetail(){
   openModal('🛡 Chi tiết BHXH — kỳ '+P, body, `<button class="btn-sec" onclick="closeModal()">Đóng</button>`);
   try{ setModalWide(true); }catch(e){}
 }
+/* v3.17.33 (Sếp: "khi mở: liệt kê danh sách cần bổ sung, cập nhật"): bấm KPI 'Thẻ lương cần xử lý'
+   → mở DANH SÁCH NV thiếu thẻ hiệu lực kỳ, mỗi dòng bấm mở thẳng thẻ để tạo/cập nhật. Tái dùng
+   salaryProfileAt + openSalaryProfileCard + hrDeptDisplay; gate như mọi cửa thẻ lương. */
+function hrmSpMissOpen(P){
+  if(_hrStaffNoSalary()){ toast('Vai Hồ sơ & Chấm công không xem Thẻ lương','bad'); return; }
+  if(!(hrmCanSeeAll()||salaryProfileCanEdit())){ toast('Chỉ BGĐ/HCNS/KTT/Admin','bad'); return; }
+  P=P||_hrmDashPeriodCur();
+  const miss=hrmVisibleEmps().filter(e=>e.status!=='inactive').filter(e=>{ try{ return !salaryProfileAt(e.id,P); }catch(err){ return false; } });
+  if(!miss.length){ toast('Kỳ '+P+': mọi NV đang làm đều có thẻ lương hiệu lực','good'); return; }
+  const rows=miss.map(e=>{ let dept=e.dept||'—'; try{ dept=hrDeptDisplay(e.dept)||dept; }catch(err){}
+    return `<tr style="cursor:pointer" title="Bấm mở Thẻ lương để tạo/cập nhật" onclick="closeModal();openSalaryProfileCard('${hrmEsc(e.id)}')">
+      <td style="padding:6px 8px;font-family:monospace;font-size:12px;white-space:nowrap">${hrmEsc(e.smartId||'')}</td>
+      <td style="padding:6px 8px"><b>${hrmEsc(e.fullName||e.name||'')}</b><div style="font-size:10px;color:var(--muted)">${hrmEsc(e.title||'')}</div></td>
+      <td style="padding:6px 8px;font-size:12px">${hrmEsc(dept)}</td>
+      <td style="padding:6px 8px;text-align:right"><button class="btn-sec" style="font-size:11px;padding:2px 10px" onclick="event.stopPropagation();closeModal();openSalaryProfileCard('${hrmEsc(e.id)}')">💳 Mở thẻ</button></td></tr>`; }).join('');
+  openModal('💳 Thẻ lương cần bổ sung / cập nhật — kỳ '+hrmEsc(P)+' ('+miss.length+' NV)',
+    `<div style="font-size:12px;color:var(--muted);margin-bottom:8px">NV đang làm việc chưa có Thẻ lương hiệu lực tại kỳ <b>${hrmEsc(P)}</b> — kỳ lương sẽ bỏ sót các NV này. Bấm dòng để mở thẻ, tạo phiên bản hiệu lực đúng kỳ. Nhiều người cùng lúc: bấm 📥 Import thẻ (Excel) bên dưới — dùng <b>mẫu thẻ ĐẦY ĐỦ</b> (mẫu PATCH PC dự án không tạo được thẻ cho NV chưa có thẻ).</div>
+     <div class="tbl-scroll" style="max-height:380px;overflow:auto"><table style="width:100%;border-collapse:collapse">
+       <thead><tr style="background:var(--rule);text-align:left;font-size:11px"><th style="padding:6px 8px">MSNV</th><th style="padding:6px 8px">Họ tên</th><th style="padding:6px 8px">Phòng/Tàu</th><th style="padding:6px 8px"></th></tr></thead>
+       <tbody>${rows}</tbody></table></div>`,
+    `<button class="btn-ghost" onclick="closeModal()">Đóng</button>
+     <button class="btn-primary" onclick="spImportOpen()" title="Import Excel tạo thẻ cho NV chưa có thẻ (mẫu ĐẦY ĐỦ) hoặc bổ sung phiên bản hồi tố — luồng sẵn có v3.13.53, chỉ đổi tên cho đúng bản chất (v3.17.36)">📥 Import thẻ (Excel)</button>
+     <button class="btn-ghost" onclick="closeModal();openSalaryLedger()">💳 Sổ lương</button>
+     <button class="btn-ghost" onclick="closeModal();sccOpen()">🔎 SCC kiểm tra sâu</button>`);
+}
 function hrmRenderDash(){
-  const box=document.getElementById('hrm-dash-cards'); if(!box) return;
+  /* v3.17.28 — GIAO DIỆN LÀ MẪU ĐÃ DUYỆT (MAU_Dashboard_TPNS.html). Dashboard cũ BỎ.
+     Chỉ TÁI DÙNG tính năng sẵn có: hrmVisibleEmps, _hrmDashPayAgg, hrContractDueOpen, hrmSwitchView,
+     openPayrollPeriods/Engine, sccOpen, hrmOpenDeptCatalog, hrmUpdateMenu, salaryProfileAt,
+     activeDepartments, hrDeptDisplay, PAY_STATUS_FLOW/META, payChangeRequests, hrReqOpen. */
+  const kpiBox=document.getElementById('hrm-dash-kpis');
+  const grid=document.getElementById('hrm-dash-grid');
+  if(!kpiBox||!grid) return;
   const emps=hrmVisibleEmps().filter(e=>e.status!=='inactive');
   const total=emps.length;
   const nOffice=emps.filter(e=>e.type==='office').length;
   const nCrew=emps.filter(e=>e.type==='crew').length;
-  const nExpert=emps.filter(e=>e.type==='expert').length;
-  const nExpertOM=emps.filter(e=>e.type==='expert_om').length;
-
-  // v3.11.03 (Sếp duyệt): DASHBOARD trục CHẤM CÔNG → LƯƠNG theo kỳ (_hrmDashPeriod).
-  //   Chấm công KHÔNG chấm tại app — chỉ theo dõi bảng đã IMPORT. KPI hồ sơ giữ ở alerts cuối trang.
+  const nOM=emps.filter(e=>e.type==='expert'||e.type==='expert_om').length;
   const _dLeft=(v)=>{ if(!v)return null; const d=new Date(v); if(isNaN(d))return null; return Math.ceil((d-new Date())/86400000); };
-  let hdExpiring=0; emps.forEach(e=>{ const d=_dLeft(e.contractEndDate); if(d!==null && d<=45) hdExpiring++; });
-  const CERT=[['certExpiry',60],['visaExpiry',60],['wpExpiry',90],['passportExpiry',180]];
-  let certExpiring=0; emps.forEach(e=>{ if(CERT.some(([f,w])=>{ const d=_dLeft(e[f]); return d!==null && d<=w; })) certExpiring++; });
-  const onLeave=emps.filter(e=>e.onLeave===true || e.leaveStatus==='on_leave').length;
-  let payPending=0; try{ payPending=(S.payChangeRequests||[]).filter(r=>r && r.status==='pending').length; }catch(e){}
+  let hd30=0,hd60=0; const hdList=[];
+  emps.forEach(e=>{ const d=_dLeft(e.contractEndDate); if(d===null) return;
+    if(d<=30){hd30++; hdList.push({e,d});} else if(d<=60){hd60++; hdList.push({e,d});} });
+  hdList.sort((a,b)=>a.d-b.d);
+  let certExpiring=0; [['certExpiry',60],['visaExpiry',60],['wpExpiry',90],['passportExpiry',180]].forEach(([f,w])=>{ emps.forEach(e=>{ const d=_dLeft(e[f]); if(d!==null&&d<=w) certExpiring++; }); });
+  const onLeave=emps.filter(e=>e.onLeave===true||e.leaveStatus==='on_leave').length;
   let missingDocs=0; emps.forEach(e=>{ if(!e.idNumber && !e.cccd && !e.nationalId) missingDocs++; });
-
+  let payPending=0; try{ payPending=(S.payChangeRequests||[]).filter(r=>r&&r.status==='pending').length; }catch(e){}
   const _seeAll=hrmCanSeeAll();
   const P=_hrmDashPeriodCur();
   let A=null; if(_seeAll){ try{ A=_hrmDashPayAgg(P); }catch(e){ console.warn('[hrm-dash-agg]',e&&e.message); } }
-  const nOM=nExpert+nExpertOM;
-
-  const card=(label,val,dot,onclk,sub,btn)=>`<div class="dash-kpi" ${onclk?`onclick="${onclk}"`:''} style="border-left-color:${dot};${onclk?'cursor:pointer':''}"${onclk?' title="Bấm để xem chi tiết"':''}>
-    <div class="dash-kpi-lab"><span style="width:9px;height:9px;border-radius:50%;background:${dot};display:inline-block;margin-right:5px"></span>${label}${btn||''}</div>
-    <div class="dash-kpi-num" style="font-size:24px;color:${dot};white-space:nowrap">${val}</div>
-    ${sub?`<div style="font-size:11px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${sub}</div>`:''}</div>`;
-
-  // thanh chọn kỳ — chỉ HR/quản lý
-  try{
-    const kb=document.getElementById('hrm-dash-kybar');
+  // thẻ lương thiếu hiệu lực kỳ P (tái dùng salaryProfileAt)
+  let spMiss=0; if(_seeAll){ try{ emps.forEach(e=>{ if(!salaryProfileAt(e.id,P)) spMiss++; }); }catch(e){} }
+  // thanh chọn kỳ — giữ nguyên
+  try{ const kb=document.getElementById('hrm-dash-kybar');
     if(kb) kb.innerHTML=_seeAll?`<span style="font-size:13px;color:var(--muted)">Kỳ theo dõi chấm công – lương:</span>
       <button class="btn-ghost" style="padding:2px 10px" onclick="hrmDashPeriodShift(-1)">‹</button>
       <b style="font-family:monospace;font-size:14px">${hrmEsc(P)}</b>
       <button class="btn-ghost" style="padding:2px 10px" onclick="hrmDashPeriodShift(1)">›</button>
       <span style="font-size:11px;color:var(--muted)">· chấm công cập nhật từ import file, không chấm tại app</span>`:'';
   }catch(e){}
-
-  if(_seeAll && A){
-    const attDot=A.attGot===0?'#c0392b':(A.attGot<A.attExpected?'#d98324':'#27ae60');
-    const payDot=A.nPeriods===0?'#c0392b':(A.allPaid?'#27ae60':'#d98324');
-    const _btn=(fn,lbl)=>`<button class="btn-ghost" style="font-size:10px;padding:1px 8px;margin-left:6px;border:1px solid var(--rule);border-radius:10px" onclick="event.stopPropagation();${fn}()">${lbl}</button>`;
-    box.innerHTML =
-      card('Tổng nhân sự (đang làm)', total, '#3a7bd5', `hrmDashCardClick('')`,
-        `Văn phòng ${nOffice} · Thuyền viên ${nCrew} · O&M ${nOM}`) +
-      card('HĐ sắp hết hạn', hdExpiring, hdExpiring>0?'#c0392b':'#27ae60', `hrContractDueOpen()`,
-        'bấm: gia hạn / chấm dứt / điều động nhanh') +   /* v3.12.06: admin cũng cần nút này */
-      card('Chấm công kỳ (import)', A.attGot+'/'+A.attExpected+' bảng', attDot, `hrmSwitchView('att')`,
-        A.attMissing.length?('Thiếu: '+hrmEsc(A.attMissing.join(', '))):'Đã nhận đủ bảng công') +
-      (payCanViewPayroll()
-        ? card('Kỳ lương', A.nPeriods+'/'+A.profTotal+' kỳ', payDot, `openPayrollPeriods()`, hrmEsc(A.payLine)) +
-          card('Thuế TNCN kỳ', fmtCcy(A.pit,'VND'), '#8b5a2b', `hrmShowPitDetail()`,
-            'khấu trừ bảng lương VND — hiện ngay khi kỳ đã Tính (mọi trạng thái)',
-            _btn('hrmShowPitDetail','Chi tiết')
-            /* v3.15.26 (Sếp 11/8): 🧾 Quyết toán TNCN chuyển từ modal Khoản thu/chi ra đây — pitSettlementOpen tự kiểm quyền admin/KT
-               v3.15.27: 🗂 Hồ sơ thuế năm chuyển theo — trọn cụm thuế 1 chỗ: Chi tiết kỳ → Hồ sơ năm → Quyết toán */
-            +`<button class="btn-ghost" style="font-size:10px;padding:1px 8px;margin-left:4px;border:1px solid var(--rule);border-radius:10px" onclick="event.stopPropagation();taxYearProfilesOpen()" title="Hồ sơ thuế năm đa nguồn thu nhập — đầu vào phương thức quyết toán (ủy quyền/tự quyết toán)">🗂 Hồ sơ năm</button>`
-            +`<button class="btn-ghost" style="font-size:10px;padding:1px 8px;margin-left:4px;border:1px solid var(--rule);border-radius:10px" onclick="event.stopPropagation();pitSettlementOpen()" title="Quyết toán thuế TNCN năm từ các kỳ đã khóa (Annual Engine)">🧾 Quyết toán</button>`) +
-          card('BHXH kỳ (NV + Cty)', fmtCcy(A.insEmp+A.insCo,'VND'), '#2a5a8c', `hrmShowBhxhDetail()`,
-            `NV ${fmtCcy(A.insEmp,'VND')} · Cty ${fmtCcy(A.insCo,'VND')}`,
-            _btn('hrmShowBhxhDetail','Chi tiết')
-            /* v3.15.26: 🛡 BHXH biến động chuyển ra đây — truyền KỲ THEO DÕI P, siEventsOpen tự kiểm quyền admin/KT/HR */
-            +`<button class="btn-ghost" style="font-size:10px;padding:1px 8px;margin-left:4px;border:1px solid var(--rule);border-radius:10px" onclick="event.stopPropagation();siEventsOpen('${P}')" title="BHXH: quét biến động tăng/giảm/điều chỉnh kỳ ${P} + xuất D02-LT">🛡 Biến động</button>`)
-        : '');  /* v3.12.07: số liệu lương trên Dashboard NS chỉ KT/KTT/CEO — HR không thấy */
-  } else {
-    // NV thường: tối giản — hồ sơ của mình, không khối lương
-    box.innerHTML =
-      card('Tổng nhân sự (đang làm)', total, '#3a7bd5', `hrmDashCardClick('')`,
-        `Văn phòng ${nOffice} · Thuyền viên ${nCrew} · O&M ${nOM}`) +
-      card('HĐ sắp hết hạn', hdExpiring, hdExpiring>0?'#c0392b':'#27ae60', `hrContractDueOpen()`, 'bấm: gia hạn / chấm dứt / điều động nhanh') +
-      card('Chứng chỉ sắp hết hạn', certExpiring, certExpiring>0?'#c0392b':'#27ae60');
-  }
-
-  // ALERTS hồ sơ (giữ, cuối trang) + "📌 Hôm nay" = việc pipeline chấm công–lương của kỳ
-  try{
-    const alHost=document.getElementById('hrm-dash-alerts');
-    if(alHost){
-      const al=[];
-      if(hdExpiring>0)   al.push({level:hdExpiring>3?'d':'w', text:`${hdExpiring} hợp đồng lao động sắp/đã hết hạn (≤45 ngày)`});
-      if(certExpiring>0) al.push({level:certExpiring>5?'d':'w', text:`${certExpiring} nhân sự có chứng chỉ/visa/WP sắp hết hạn`});
-      if(missingDocs>0)  al.push({level:'w', text:`${missingDocs} hồ sơ thiếu số CCCD/căn cước`});
-      if(payPending>0)   al.push({level:'w', text:`${payPending} thay đổi lương chờ duyệt (4 mắt)`});
-      alHost.innerHTML = (typeof DASH!=='undefined') ? DASH.alerts(al) : '';
-      const todayHost=document.getElementById('hrm-dash-today');
-      if(todayHost){
-        const items=[];
-        if(_seeAll && A){
-          if(A.attMissing.length) items.push({t:`${A.attMissing.length} bảng công chưa import`, f:`hrmSwitchView('att')`});
-          if(A.tsSubmitted>0) items.push({t:`${A.tsSubmitted} chấm công tàu chờ duyệt`, f:`hrmSwitchView('crew')`});
-          if(A.nDraftSub>0) items.push({t:`${A.nDraftSub} kỳ lương đang xử lý`, f:`openPayrollPeriods()`});
-          if(A.profMissing.length) items.push({t:`Chưa tạo kỳ: ${A.profMissing.join(', ')}`, f:`openPayrollPeriods()`});
-        }
-        if(payPending>0) items.push({t:`${payPending} duyệt thay đổi lương`, f:''});
-        if(onLeave>0) items.push({t:`${onLeave} đang nghỉ phép`, f:''});
-        todayHost.innerHTML = items.length
-          ? `<div class="dash-panel" style="margin-top:0"><div style="font-size:13px;font-weight:700;margin-bottom:6px">📌 Hôm nay${_seeAll?(' — kỳ '+hrmEsc(P)):''}</div><div style="display:flex;flex-wrap:wrap;gap:8px">${items.map(x=>`<span ${x.f?`onclick="${x.f}" `:''}style="font-size:13px;background:var(--paper-2,rgba(0,0,0,.04));border:1px solid var(--rule);border-radius:14px;padding:4px 12px;${x.f?'cursor:pointer':''}">${hrmEsc(x.t)}</span>`).join('')}</div></div>`
-          : '';
-      }
+  const esc_=hrmEsc;
+  const K=(l,v,sub,color,onclk)=>`<div ${onclk?`onclick="${onclk}"`:''} ${sub?`title="${String(sub).replace(/<[^>]*>/g,'').replace(/"/g,'&quot;')}"`:''} style="min-width:0;border:1px solid var(--rule);border-radius:4px;padding:8px 10px;background:var(--paper-3);${onclk?'cursor:pointer':''}">
+    <div style="font-size:9px;letter-spacing:.06em;color:${color||'var(--muted)'};text-transform:uppercase;font-weight:700">${l}</div>
+    <div style="font-family:var(--font-mono);font-size:20px;font-weight:700;margin:1px 0;color:${color||'var(--ink)'}">${v}</div>
+    <div style="font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${sub||''}</div></div>`;
+  kpiBox.innerHTML =
+    K('Đang làm việc', total, `VP ${nOffice} · Tàu ${nCrew} · Chuyên gia ${nOM}`, '', `hrmDashCardClick('')`) +
+    K('HĐLĐ sắp hết hạn', hd30+hd60, `≤30 ngày: ${hd30} · ≤60 ngày: ${hd60}`, (hd30+hd60)>0?'var(--bad)':'var(--good)', `hrContractDueOpen()`) +
+    (_seeAll&&A?K('Chấm công '+esc_(P.slice(5)), A.attGot+'/'+A.attExpected, A.attMissing.length?('thiếu '+A.attMissing.length+' nhóm: '+esc_(A.attMissing[0])+(A.attMissing.length>1?'…':'')):'đã nhận đủ bảng công', A.attGot<A.attExpected?'var(--warn)':'var(--good)', `hrmSwitchView('att')`):'') +
+    (_seeAll&&A?K('Kỳ lương '+esc_(P.slice(5)), A.nPeriods+'/'+A.profTotal, esc_(A.payLine||'chưa tạo kỳ'), A.nPeriods===0?'var(--bad)':(A.allPaid?'var(--good)':'var(--warn)'), `openPayrollPeriods()`):'') +
+    (_seeAll?K('Thẻ lương cần xử lý', spMiss, 'thiếu thẻ hiệu lực kỳ '+esc_(P), spMiss>0?'var(--warn)':'var(--good)', `hrmSpMissOpen('${esc_(P)}')`):'') +
+    K('Chờ BOD duyệt', payPending, 'thay đổi lương (4 mắt)', payPending>0?'var(--warn)':'var(--muted)', '');
+  // ===== 3 PANEL theo mẫu =====
+  /* v3.17.31 (Sếp): dòng nào cũng BẤM ĐƯỢC để xem nhanh chi tiết — thêm tham số onclk */
+  const row=(l,r,onclk)=>`<div ${onclk?`onclick="${onclk}" title="Bấm xem chi tiết"`:''} style="display:flex;justify-content:space-between;gap:8px;padding:7px 12px;border-bottom:1px dotted var(--rule);font-size:12px;align-items:center;${onclk?'cursor:pointer':''}"><span>${l}</span><span>${r}</span></div>`;
+  const chip=(t,cls)=>{const c={bad:'background:#fdecea;color:var(--bad);border-color:#f5c6c0',warn:'background:#fff5e5;color:var(--warn);border-color:#ecd9b0',good:'background:#e8f6ee;color:var(--good);border-color:#bfe3cd',mut:'background:#f1f3f5;color:var(--muted)'}[cls]||'';return `<span style="display:inline-block;font-size:10px;padding:1px 7px;border-radius:9px;border:1px solid var(--rule);${c}">${t}</span>`;};
+  const panel=(title,go,body,btns)=>`<div style="border:1px solid var(--rule);border-radius:4px;background:var(--paper)">
+    <div style="font-size:11px;letter-spacing:.05em;text-transform:uppercase;margin:0;padding:8px 12px;border-bottom:1px solid var(--rule);background:var(--paper-3);display:flex;justify-content:space-between;align-items:center;font-weight:700">${title}${go||''}</div>
+    ${body}${btns?`<div style="padding:8px 12px;display:flex;gap:6px;flex-wrap:wrap">${btns}</div>`:''}</div>`;
+  const go=(fn,lbl)=>`<span style="font-size:10px;font-weight:400;color:var(--accent);cursor:pointer;text-transform:none" onclick="${fn}">${lbl} →</span>`;
+  const bt=(fn,lbl,pri)=>`<button class="${pri?'btn-primary':'btn-sec'}" style="font-size:11px;padding:4px 10px" onclick="${fn}">${lbl}</button>`;
+  // Panel 1 — ⚡ Việc cần làm (gộp today+alerts cũ, xếp ưu tiên)
+  let todo='';
+  hdList.slice(0,3).forEach(x=>{ todo+=row(`🔴 Gia hạn HĐLĐ <b>${esc_(x.e.name||x.e.smartId||'')}</b>`, chip('còn '+x.d+' ngày','bad'), `hrmViewEmployee('${esc_(x.e.id)}')`); });
+  if(_seeAll&&A&&A.attMissing.length) todo+=row(`🟠 Nạp BCC nhóm <b>${esc_(A.attMissing.join(', '))}</b> kỳ ${esc_(P)}`, chip('chấm công','warn'), `hrmSwitchView('att')`);
+  if(_seeAll&&A&&A.tsSubmitted>0) todo+=row(`🟠 ${A.tsSubmitted} chấm công tàu chờ duyệt`, chip('điều động','warn'), `hrmSwitchView('crew')`);
+  if(_seeAll&&spMiss>0) todo+=row(`🟠 ${spMiss} NV thiếu Thẻ lương hiệu lực kỳ ${esc_(P)}`, chip('thẻ lương','warn'), `hrmSpMissOpen('${esc_(P)}')`);
+  if(missingDocs>0) todo+=row(`🟡 ${missingDocs} hồ sơ thiếu số CCCD/căn cước`, chip('hồ sơ','mut'), `hrmSwitchView('list')`);
+  if(certExpiring>0) todo+=row(`🟡 ${certExpiring} chứng chỉ/visa/WP sắp hết hạn`, chip('chứng chỉ','mut'), `hrContractDueOpen()`);
+  try{ const hidden=activeDepartments({includeEmpty:true}).length-activeDepartments().length;
+    if(hidden>0) todo+=row(`🟡 ${hidden} phòng không còn NV — đã tự ẩn khỏi dropdown`, chip('phòng ban','mut'), (isAdmin()||canSignHr())?`hrmOpenDeptCatalog()`:''); }catch(e){}
+  if(!todo) todo=row('✅ Không có việc tồn đọng','');
+  const p1=panel('⚡ Việc cần làm', go(`hrContractDueOpen()`,'HĐLĐ'), todo,
+    bt('hrmUpdateMenu()','✦ Cập nhật nhân sự',1)+((isAdmin()||canSignHr())?bt('hrmOpenDeptCatalog()','🏢 Phòng/Ban'):'')+bt("hrmSwitchView('list')",'📇 Hồ sơ NV')+bt("hrmSwitchView('att')",'🕐 Chấm công')+bt('hrReqOpen()','📨 Đề xuất NS'));
+  // Panel 2 — 📅 Kỳ lương (pipeline PAY_STATUS_FLOW)
+  let p2='';
+  if(_seeAll&&A){
+    const FLOW=['draft','validated','preview','submitted','approved','paid'];
+    const periods=(S.payrollPeriods||[]).filter(x=>x&&!x._deleted&&x.period===P);
+    let curIdx=-1; periods.forEach(x=>{ const ix=FLOW.indexOf(x.status||'draft'); const eff=ix<0?FLOW.length-1:ix; if(curIdx<0||eff<curIdx) curIdx=eff; });
+    const stepLbl={draft:'Nháp',validated:'Kiểm tra',preview:'Xem trước',submitted:'Chuyển KT',approved:'KT–L1–L2 ký',paid:'Đã chi'};
+    const flow='<div style="display:flex;gap:4px;align-items:center;padding:10px 12px;flex-wrap:wrap">'+FLOW.map((st,ix)=>{
+      const cls=(curIdx<0)?'':(ix<curIdx?'done':(ix===curIdx?'cur':''));
+      const style=cls==='done'?'background:#e8f6ee;color:var(--good);border-color:#bfe3cd':cls==='cur'?'background:#fff5e5;color:var(--warn);border-color:#ecd9b0;font-weight:700':'background:#f1f3f5;color:var(--muted)';
+      return `<span style="font-size:10px;padding:3px 8px;border-radius:9px;border:1px solid var(--rule);${style}">${stepLbl[st]}</span>`;
+    }).join('→')+'</div>';
+    let body=flow;
+    body+=row('Kỳ đã tạo',`<b class="num" style="font-family:var(--font-mono)">${A.nPeriods}/${A.profTotal}</b>${A.profMissing.length?` <span style="font-size:10px;color:var(--warn)">thiếu ${esc_(A.profMissing.join(', '))}</span>`:''}`,`openPayrollPeriods()`);
+    if(payCanViewPayroll()){
+      /* v3.17.38 (Sếp: "2 mục này ở đâu?"): đưa đủ cụm thuế + BHXH của dashboard cũ (v3.15.26) về đây —
+         Chi tiết (bấm số) · 🧾 Quyết toán · 🛡 Biến động BHXH; 🗂 Hồ sơ thuế năm đã có ở hàng nút dưới. */
+      body+=row('Thuế TNCN kỳ <span style="font-size:9px;color:var(--accent);cursor:pointer;border:1px solid var(--rule);border-radius:9px;padding:0 6px" onclick="pitSettlementOpen()">🧾 Quyết toán</span>',`<span class="num" style="font-family:var(--font-mono);font-weight:700;cursor:pointer" title="Chi tiết khấu trừ kỳ" onclick="hrmShowPitDetail()">${fmtCcy(A.pit,'VND')}</span>`);
+      body+=row(`BHXH kỳ (NV + Cty) <span style="font-size:9px;color:var(--accent);cursor:pointer;border:1px solid var(--rule);border-radius:9px;padding:0 6px" onclick="siEventsOpen('${esc_(P)}')">🛡 Biến động</span>`,`<span class="num" style="font-family:var(--font-mono);font-weight:700;cursor:pointer" title="Chi tiết NV/Cty" onclick="hrmShowBhxhDetail()">${fmtCcy(A.insEmp+A.insCo,'VND')}</span>`);
     }
-  }catch(e){ console.warn('[hrm-alerts]',e&&e.message); }
-
-  // v3.08.38: nút phân loại lại — hữu ích khi dữ liệu import chưa phân nhóm đúng
-  //   (vd tất cả đang là 'Văn phòng'). Đoán lại theo phòng ban + chức danh.
-  const dashWrap=document.getElementById('hrm-view-dash');
-  if(dashWrap && !document.getElementById('hrm-reclass-bar')){
-    const bar=document.createElement('div'); bar.id='hrm-reclass-bar';
-    bar.style.cssText='margin:-6px 0 14px;font-size:13px';
-    dashWrap.insertBefore(bar, document.getElementById('hrm-dash-breakdown'));
+    body+=row('GTGC áp dụng',`<span class="num" style="font-family:var(--font-mono)">15,5tr / 6,2tr · 5 bậc</span> ${chip('luật 2026','good')}`);
+    p2=panel('📅 Kỳ lương '+esc_(P), go('openPayrollPeriods()','mở Kỳ lương'), body,
+      bt('openPayrollEngine()','🧮 Payroll Engine',1)+bt('openSalaryLedger()','💳 Sổ lương / Thẻ lương')+bt('sccOpen()','🔎 SCC kiểm thẻ')+bt('taxYearProfileOpen&&taxYearProfileOpen()','🗂 Hồ sơ thuế năm'));
   }
-  const bar=document.getElementById('hrm-reclass-bar');
-  if(bar){
-    // đếm có bao nhiêu NV sẽ đổi nhóm nếu đoán lại
-    let wouldChange=0;
-    emps.forEach(e=>{ const g=_hrmGuessType(e.dept,e.title||e.position); const cur=e.type||'office';
-      // v3.10.25: KHÔNG coi là "nhầm" khi guess hạ cấp expert_om/expert → office/crew
-      //   (CN Quảng Ngãi gồm cả chuyên gia lẫn NV thường, guess không phân biệt được — giữ phân loại thủ công).
-      const isDowngradeExpert=(cur==='expert_om'||cur==='expert')&&(g==='office'||g==='crew');
-      if(g!==cur && !isDowngradeExpert && e.typeConfirmed!==true) wouldChange++; });
-    if(wouldChange>0 && hrmCanSeeAll()){
-      bar.innerHTML=`<div style="background:#fff7ec;border:1px solid #f0d9b5;border-radius:8px;padding:8px 12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <span>⚠ Có <b>${wouldChange}</b> nhân sự có thể đang xếp nhầm nhóm (theo phòng ban / chức danh).</span>
-        <button class="btn-sec" style="font-size:13px" onclick="hrmReclassifyPreview()">🔧 Phân loại lại</button></div>`;
-    } else { bar.innerHTML=''; }
-  }
-
-  // Breakdown theo phòng ban + theo tàu
-  const bd=document.getElementById('hrm-dash-breakdown'); if(!bd) return;
-  const byDept={}; emps.filter(e=>e.type==='office').forEach(e=>{ const code=hrDeptCanon(e.dept); const k=code?hrDeptDisplay(code):'(chưa rõ)'; byDept[k]=(byDept[k]||0)+1; });  // v3.10.95: group theo MÃ
-  const byVessel={}; emps.filter(e=>e.type==='crew').forEach(e=>{ const k=hrmVesselName(e.linkVesselId)||'(chưa gán tàu)'; byVessel[k]=(byVessel[k]||0)+1; });
-
-  function tableBlock(title, obj){
-    const rows=Object.keys(obj).sort((a,b)=>obj[b]-obj[a]);
-    if(!rows.length) return `<div style="flex:1;min-width:240px"><h3 style="font-size:13px;margin:0 0 8px">${title}</h3><div style="color:var(--muted);font-size:13px">Chưa có dữ liệu.</div></div>`;
-    const max=Math.max(...rows.map(r=>obj[r]));
-    return `<div style="flex:1;min-width:240px"><h3 style="font-size:13px;margin:0 0 8px">${title}</h3>`+
-      rows.map(r=>`<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:13px">
-        <div style="width:120px;text-align:right;color:var(--muted)">${hrmEsc(r)}</div>
-        <div style="flex:1;background:var(--rule);border-radius:4px;height:16px;position:relative">
-          <div style="width:${Math.round(obj[r]/max*100)}%;background:#3a7bd5;height:100%;border-radius:4px"></div></div>
-        <div style="width:28px;font-weight:600">${obj[r]}</div></div>`).join('')+`</div>`;
-  }
-  bd.innerHTML=`<div style="display:flex;gap:24px;flex-wrap:wrap;background:#fffdf8;border:1px solid var(--rule);border-radius:12px;padding:16px">
-    ${tableBlock('Theo phòng ban (văn phòng)', byDept)}
-    ${tableBlock('Theo tàu (thuyền viên)', byVessel)}</div>`;
-  /* ═══ v3.12.05 H5 — KHỐI QUẢN TRỊ NS (chỉ đọc) ═══ */
-  try{ _hrmDashGovernance(bd); }catch(e){}
+  // Panel 3 — 👥 Biến động kỳ + 🏢 Cơ cấu (nguồn hồ sơ + activeDepartments)
+  const inP=v=>v&&String(v).slice(0,7)===P;
+  const allEmps=hrmVisibleEmps();
+  const nIn=allEmps.filter(e=>inP(e.startDate)).length;
+  const nOut=allEmps.filter(e=>e.status==='inactive'&&inP(e.lastWorkDay)).length;
+  let body3=row('➕ Vào làm',`<b class="num" style="font-family:var(--font-mono);color:var(--good)">${nIn}</b>`,`hrmSwitchView('list')`)
+    +row('➖ Chấm dứt HĐLĐ',`<b class="num" style="font-family:var(--font-mono);color:var(--bad)">${nOut}</b>`,`hrmSwitchView('list')`)
+    +row('🌴 Đang nghỉ phép',`<b class="num" style="font-family:var(--font-mono)">${onLeave}</b>`,`hrmSwitchView('list')`)
+    +'<div style="border-top:1px solid var(--rule)"></div>';
+  try{
+    const byDept={}; emps.forEach(e=>{ const k=e.dept||'—'; byDept[k]=(byDept[k]||0)+1; });
+    const ents=Object.entries(byDept).sort((a,b)=>b[1]-a[1]);
+    const top=ents.slice(0,4), rest=ents.slice(4).reduce((t,x)=>t+x[1],0);
+    const mx=Math.max(1,...top.map(x=>x[1]));
+    const bar=(lbl,v)=>row(`<span style="flex:0 0 92px">${esc_(lbl)}</span><span style="display:inline-block;width:110px;height:8px;border-radius:4px;background:#e6eaef;overflow:hidden;vertical-align:middle"><span style="display:block;height:100%;width:${Math.round(v*100/mx)}%;background:var(--accent)"></span></span>`,`<b class="num" style="font-family:var(--font-mono)">${v}</b>`);
+    top.forEach(([k,v])=>{ let lbl=k; try{ lbl=hrDeptDisplay(k)||k; }catch(e){} body3+=bar(lbl,v); });
+    if(rest>0) body3+=bar('Khác ('+ents.slice(4).length+' phòng)',rest);
+  }catch(e){}
+  const p3=panel('👥 Biến động '+esc_(P.slice(5))+' · 🏢 Cơ cấu','',body3,'');
+  grid.innerHTML=p1+(p2||'')+p3;
 }
 function _hrmDashGovernance(bd){
   if(!bd) return;
@@ -89426,6 +89467,7 @@ function hrmRenderList(){
       <td style="padding:7px 8px;white-space:nowrap;text-align:right">
         <button class="btn-ghost" style="padding:3px 8px;font-size:13px" onclick="hrmViewEmployee('${e.id}')">👁</button>
         ${(hrmCanSeeAll()||hrmMyEmpIds().includes(e.id))?`<button class="btn-ghost" style="padding:3px 8px;font-size:13px" onclick="hrmEditEmployee('${e.id}')">✏️</button>`:''}
+        ${(!_hrStaffNoSalary()&&(hrmCanSeeAll()||salaryProfileCanEdit()))?`<button class="btn-ghost" style="padding:3px 8px;font-size:13px" title="Thẻ lương" onclick="openSalaryProfileCard('${e.id}')">💳</button>`:''}
       </td></tr>`;
   }
   const _tableHead=`<thead><tr style="background:var(--rule);text-align:left">
@@ -89646,7 +89688,7 @@ function hrmViewEmployee(id){
 
   openModal(`Hồ sơ — ${e.fullName} · ${e.smartId}`,
     basic+work+bank+docsSec+histSec+future,
-    `<button class="btn-ghost" onclick="closeModal()">Đóng</button>${((S.companies||[]).length>1)?`<button class="btn-sec" onclick="empEntityOpen('${e.id}')" title="Quan hệ NV–pháp nhân + nơi đóng BHXH (đa pháp nhân GĐ1)">🏛 Pháp nhân</button>`:''}${(typeof FLAG_SALARY_PROFILE!=='undefined'&&FLAG_SALARY_PROFILE)?`<button class="btn-sec" onclick="openSalaryProfileCard('${e.id}')">💳 Thẻ lương</button>`:''}<button class="btn-primary" onclick="closeModal();hrmEditEmployee('${e.id}')">✏️ Sửa</button>`);
+    `<button class="btn-ghost" onclick="closeModal()">Đóng</button>${(!_hrStaffNoSalary()&&(hrmCanSeeAll()||salaryProfileCanEdit()))?`<button class="btn-sec" onclick="openSalaryProfileCard('${e.id}')" title="Thẻ lương của nhân viên này — xem/tạo/sửa theo quyền (v3.17.32)">💳 Thẻ lương</button>`:''}${((S.companies||[]).length>1)?`<button class="btn-sec" onclick="empEntityOpen('${e.id}')" title="Quan hệ NV–pháp nhân + nơi đóng BHXH (đa pháp nhân GĐ1)">🏛 Pháp nhân</button>`:''}${(typeof FLAG_SALARY_PROFILE!=='undefined'&&FLAG_SALARY_PROFILE)?`<button class="btn-sec" onclick="openSalaryProfileCard('${e.id}')">💳 Thẻ lương</button>`:''}<button class="btn-primary" onclick="closeModal();hrmEditEmployee('${e.id}')">✏️ Sửa</button>`);
 }
 
 /* ============================================================
@@ -90560,9 +90602,12 @@ function renderMobileApproval(){
     const head=`<div style="font-size:16px;font-weight:700;padding:8px 4px 12px">🧾 Chờ tôi xử lý (${rows.length})</div>`;
     const cards=rows.map(r=>{
       const st=wfStatus(r);
-      const amt=(typeof fmtCcy==='function')
-        ? fmtCcy(r.amountGross||r.amount||0, r.ccy||'VND')
-        : (r.amountGross||r.amount||0);
+      /* v3.17.43 (Sếp: phiếu trình duyệt phải thể hiện SỐ ĐỀ NGHỊ ĐỢT NÀY — đồng bộ mobile với
+         desktop v3.06.84): đợt >0 → số đợt (kèm dòng phụ tổng phiếu); không đợt → còn lại. */
+      const _due=(typeof apDueThisAmount==='function')?apDueThisAmount(r):(+r.amountGross||+r.amount||0);
+      const _tot=+r.amountGross||+r.amount||0;
+      const amt=(typeof fmtCcy==='function')?fmtCcy(_due, r.ccy||'VND'):_due;
+      const amtSub=(Math.abs(_due-_tot)>1 && typeof fmtCcy==='function')?`<div style="font-size:10px;color:var(--muted)">đợt này · tổng phiếu ${fmtCcy(_tot, r.ccy||'VND')}</div>`:'';
       const who=esc(r.partner||r.vendor||r.desc||'—');
       const code=esc(r.docNo||r.invoiceNo||r.id||'');
       const when=(r.updatedAt||r.issueDate||'').toString().slice(0,16).replace('T',' ');
@@ -90573,7 +90618,7 @@ function renderMobileApproval(){
         </div>
         <div style="font-weight:700;font-size:16px">${who}</div>
         <div style="display:flex;justify-content:space-between;align-items:baseline">
-          <span style="font-size:16px;font-weight:700;color:var(--accent)">${amt}</span>
+          <span style="font-size:16px;font-weight:700;color:var(--accent)">${amt}${amtSub}</span>
           <span style="font-size:11px;color:var(--muted)">${when}</span>
         </div>
       </div>`;

@@ -1,5 +1,5 @@
 {
-  "version": "3.17.27",
-  "swVersion": "v3.17.27",
-  "notes": "v3.17.27: Bấm nút Phòng Ban trên dashboard Nhân sự nay chỉ mở đúng danh mục phòng ban: các thẻ danh mục khác như user, tàu, dự án, loại chi phí đều ẩn, bấm nhầm cũng bị ép về phòng ban, đúng quy định ẩn khỏi giao diện những việc mình không làm. Vào Danh mục theo đường menu bình thường vẫn thấy đầy đủ như cũ. Nền v3.17.26 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần."
+  "version": "3.17.43",
+  "swVersion": "v3.17.43",
+  "notes": "v3.17.43: Kiểm tra hai loại phiếu phải trả theo nguyên tắc nhiều đợt và vá chỗ sót cuối: màn phê duyệt trên điện thoại trước hiển thị tổng hóa đơn, nay hiển thị đúng số đề nghị thanh toán đợt này như bản để bàn, phiếu chi nhiều đợt có dòng phụ ghi tổng phiếu để đối chiếu. Số còn phải trả của cả phiếu thường lẫn phiếu dự kiến đều giảm dần sau mỗi đợt theo cùng một công thức gốc hiệu lực đã có từ hai bản trước. Nền v3.17.42 giữ nguyên. Sau khi lên bản này tải lại trang một lần."
 }
