@@ -3802,7 +3802,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.17.64';
+const APP_VERSION='3.17.68';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -10663,25 +10663,38 @@ function wfStatus(r){return (r&&r.status)||'draft';}
    lên pending_l2 — KT/Admin xem vết (ai, lúc nào), tick, bấm chuyển về Chờ TT (L2). Giữ chữ ký cũ,
    ghi vết khôi phục + audit. App không tự chuyển. */
 function opL1RestoreCandidates(){
-  const out=[];
+  /* v3.17.65 (Sếp: 'sao chuyển có 1 khoản?'): mở rộng — nhiều phiếu KTT đã duyệt ở bản cũ KHÔNG có
+     vết to:'pending_l2' trong _ncHist (luồng cũ ghi khác). Nay xét 2 nhóm vết:
+       · l2: từng lên pending_l2 → khôi phục về Chờ TT (L2)
+       · l1: mới có vết qua KT kiểm (to:'pending_l1') → khôi phục về Trình ký L1
+     Kèm đếm noTrace: phiếu tụt mà KHÔNG vết nào — không tự khôi phục được, KT trình lại tay. */
+  const out=[]; let noTrace=0;
   try{ VesselService.opTransactions().forEach(t=>{
-    if(!t||t._deleted||t.type!=='OUT') return;   /* v3.17.62: kỳ khóa không chặn công nợ */
+    if(!t||t._deleted||t.type!=='OUT') return;   /* kỳ khóa không chặn công nợ (v3.17.62) */
     const st=(typeof opWfStatus==='function')?opWfStatus(t):(t.ncStatus||'');
     if(st!=='pending_acc'&&st!=='pending_l1') return;
-    const h=(t._ncHist||[]).filter(x=>x&&x.to==='pending_l2');
-    if(h.length) out.push({t, last:h[h.length-1]});
+    const h2=(t._ncHist||[]).filter(x=>x&&x.to==='pending_l2');
+    const h1=(t._ncHist||[]).filter(x=>x&&x.to==='pending_l1');
+    if(h2.length) out.push({t, grp:'l2', to:'pending_l2', last:h2[h2.length-1]});
+    else if(st==='pending_acc'&&h1.length) out.push({t, grp:'l1', to:'pending_l1', last:h1[h1.length-1]});
+    else noTrace++;
   }); }catch(e){}
+  out._noTrace=noTrace;
   return out;
 }
 function opL1RestoreOpen(){
   if(!(isAdmin()||canApproveL1()||canCheckAcc())){ toast('Chỉ KT/KTT/Admin','bad'); return; }
   const list=opL1RestoreCandidates();
-  if(!list.length){ toast('✓ Không có phiếu nào từng lên L2 mà bị tụt trạng thái','good'); return; }
-  const rows=list.map((it,ix)=>`<label style="display:flex;justify-content:space-between;gap:8px;padding:6px 4px;border-bottom:1px dotted var(--rule);font-size:12px;align-items:center">
-      <span><input type="checkbox" data-oplr="${hrmEsc(it.t.id)}" checked> 🚢 <b>${hrmEsc(opVesselName_(it.t.vesselId)||'')}</b> · ${hrmEsc((it.t.vendor||it.t.desc||'').slice(0,40))}
+  if(!list.length){ toast('✓ Không có phiếu tụt trạng thái nào còn vết duyệt để khôi phục'+(list._noTrace?(' — '+list._noTrace+' phiếu tụt KHÔNG có vết (KT trình lại tay)'):''),'good'); return; }
+  const _row=(it)=>`<label style="display:flex;justify-content:space-between;gap:8px;padding:6px 4px;border-bottom:1px dotted var(--rule);font-size:12px;align-items:center">
+      <span><input type="checkbox" data-oplr="${hrmEsc(it.t.id)}" data-oplr-to="${it.to}" checked> 🚢 <b>${hrmEsc(opVesselName_(it.t.vesselId)||'')}</b> · ${hrmEsc((it.t.vendor||it.t.desc||'').slice(0,40))}${it.t._locked?' 🔒':''}
         <span class="ds-need">${hrmEsc((OP_WF_STATES[opWfStatus(it.t)]||{}).short||'')}</span>
-        <div style="font-size:10px;color:var(--muted)">vết L1: ${hrmEsc(it.last.by||'')} · ${hrmEsc(String(it.last.at||'').slice(0,16).replace('T',' '))}</div></span>
-      <b style="font-family:var(--font-mono);font-size:11px;white-space:nowrap">${(+it.t.amount||0).toLocaleString('vi-VN')} ${hrmEsc(it.t.ccy||'VND')}</b></label>`).join('');
+        <div style="font-size:10px;color:var(--muted)">vết: ${hrmEsc(it.last.by||'')} · ${hrmEsc(String(it.last.at||'').slice(0,16).replace('T',' '))}</div></span>
+      <b style="font-family:var(--font-mono);font-size:11px;white-space:nowrap">${(+it.t.amount||0).toLocaleString('vi-VN')} ${hrmEsc(it.t.ccy||'VND')}</b></label>`;
+  const g2=list.filter(x=>x.grp==='l2'), g1=list.filter(x=>x.grp==='l1');
+  const rows=(g2.length?`<div style="font-size:11px;font-weight:700;margin:4px 0 2px">↥ Từng lên L2 (KTT/L1 đã ký) — khôi phục về <b>Chờ TT (L2)</b> (${g2.length})</div>${g2.map(_row).join('')}`:'')
+    +(g1.length?`<div style="font-size:11px;font-weight:700;margin:10px 0 2px">↥ Mới có vết QUA KT KIỂM — khôi phục về <b>Trình ký L1</b> (${g1.length})</div>${g1.map(_row).join('')}`:'')
+    +(list._noTrace?`<div style="font-size:10.5px;color:var(--warn);margin-top:8px">⚠ Còn ${list._noTrace} phiếu tụt trạng thái KHÔNG có vết duyệt nào trong lịch sử — app không tự khôi phục (đúng nguyên tắc), KT mở từng phiếu trình lại.</div>`:'');
   openModal('⇧ Khôi phục phiếu KTT/L1 đã duyệt ('+list.length+')',
     `<div style="font-size:11px;color:var(--muted);margin-bottom:6px">Các phiếu dưới đây có VẾT đã được trình lên L2 (KTT/L1 ký) ở bản trước nhưng trạng thái hiện tụt về bước sớm hơn. Tick và bấm chuyển — phiếu về thẳng <b>Chờ TT (L2)</b>, giữ nguyên chữ ký cũ trong lịch sử, có audit. App không tự chuyển phiếu nào.</div>
      <div style="max-height:360px;overflow:auto">${rows}</div>`,
@@ -10689,20 +10702,22 @@ function opL1RestoreOpen(){
      <button class="btn-primary" onclick="opL1RestoreApply()">⇧ Chuyển các phiếu đã tick về Chờ TT (L2)</button>`);
 }
 function opL1RestoreApply(){
-  const ids=[...document.querySelectorAll('[data-oplr]:checked')].map(c=>c.getAttribute('data-oplr'));
-  if(!ids.length){ toast('Chưa tick phiếu nào','warn'); return; }
+  const boxes=[...document.querySelectorAll('[data-oplr]:checked')];
+  if(!boxes.length){ toast('Chưa tick phiếu nào','warn'); return; }
   let n=0;
-  commitMutation(()=>{ ids.forEach(id=>{ const t=VesselService.opTransactions().find(x=>x&&x.id===id);
-      if(!t) return;   /* v3.17.62: kỳ khóa không chặn công nợ */
+  commitMutation(()=>{ boxes.forEach(c=>{ const id=c.getAttribute('data-oplr'); const to=c.getAttribute('data-oplr-to')||'pending_l2';
+      const t=VesselService.opTransactions().find(x=>x&&x.id===id);
+      if(!t) return;   /* kỳ khóa không chặn công nợ (v3.17.62) */
       const st=(typeof opWfStatus==='function')?opWfStatus(t):(t.ncStatus||'');
       if(st!=='pending_acc'&&st!=='pending_l1') return;
-      if(!((t._ncHist||[]).some(x=>x&&x.to==='pending_l2'))) return;
-      t.ncStatus='pending_l2';
+      if(!((t._ncHist||[]).some(x=>x&&x.to===to))) return;   /* vết phải khớp đích khôi phục */
+      if(to==='pending_l1'&&st!=='pending_acc') return;
+      t.ncStatus=to;
       t._ncHist=t._ncHist||[];
-      t._ncHist.push({from:st, to:'pending_l2', by:actorName(), at:new Date().toISOString(), note:'khôi phục vết L1 (v3.17.60)'});
+      t._ncHist.push({from:st, to:to, by:actorName(), at:new Date().toISOString(), note:'khôi phục vết duyệt (v3.17.65)'});
       touchRecord(t); n++; });
   },{action:'op_l1_restore',fields:['opTransactions'],onOk:()=>{ try{logAuditEvent('op_l1_restore',{count:n,actor:actorName()});}catch(e){}
-      toast('✓ Đã chuyển '+n+' phiếu về Chờ TT (L2) — giữ chữ ký cũ','good'); closeModal(); renderAll(); }});
+      toast('✓ Đã khôi phục '+n+' phiếu về đúng bước theo vết duyệt — giữ chữ ký cũ','good'); closeModal(); renderAll(); }});
 }
 /* v3.17.51: duyệt LÔ chi hộ — từng phiếu tick tiến ĐÚNG 1 bước theo máy trạng thái sẵn có. */
 function opBatchAdvance(){
@@ -10715,6 +10730,7 @@ function opBatchAdvance(){
     opWfAdvance(id, nx);
     const t2=VesselService.opTransactions().find(x=>x&&x.id===id);
     if(t2 && ((typeof opWfStatus==='function')?opWfStatus(t2):t2.ncStatus)!==st) n++;   /* v3.17.58: đếm thật */
+    try{ OP_SELECTED.delete(id); }catch(e){}   /* v3.17.67 */
   }catch(e){} });
   toast(n>0?('✓ Đã chuyển bước '+n+' phiếu chi hộ'):('⚠ Không phiếu chi hộ nào chuyển được — kiểm tra quyền bước hiện tại'), n>0?'good':'warn');
 }
@@ -40552,6 +40568,7 @@ function renderQnExpense(){renderDeptExpense('qex','qn_expense','page-qn_expense
 
 // Selected IDs across renders (keep persistence within session)
 let APPROVAL_SELECTED=new Set();
+let OP_SELECTED=new Set();   /* v3.17.67 (Sếp): tick chi hộ theo nguyên tắc AP — mặc định TẮT, tick thì GIỮ qua chip/tab */
 let _apprInitialized=false;  // v3.01.07: đã auto-chọn-tất-cả lần đầu chưa
 
 /* Build the full list of pending records matching current filter.
@@ -40833,7 +40850,7 @@ function updateApprovalSummary(){
   // v3.06.50: cập nhật nhãn nút Trình Thanh toán (L1) / Duyệt chi (L2) theo số phiếu đã tích
   try{
     const _lvl=(document.getElementById('appr-level')||{}).value;
-    const _selN=APPROVAL_SELECTED.size;
+    const _selN=(function(){ try{ const _c=approvalGetCandidates(); let n=0; _c.forEach(x=>{ if(APPROVAL_SELECTED.has(x.id)) n++; }); return n; }catch(e){ return APPROVAL_SELECTED.size; } })();   /* v3.17.66: đếm theo phiếu ĐÚNG CẤP đang hiện — hết cảnh 'chưa chọn gì mà nút (12)' */
     const _opSel=document.querySelectorAll('[data-opb]:checked').length;   /* v3.17.57 */
     const _selEff=_selN+_opSel;
     const b1=document.getElementById('appr-btn-l1order'), b2=document.getElementById('appr-btn-l2order');
@@ -41411,13 +41428,13 @@ function renderApprovalList(){
       opBatch=`<div style="border:1.5px solid #2a5a8c;border-radius:10px;padding:8px 10px;background:rgba(42,90,140,.04)">
         <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;font-weight:700;margin-bottom:4px">
           <span>🚢 CHI HỘ CHỦ TÀU — tàu quản lý hộ (${ops.length})</span>
-          <span><label style="font-size:11px;font-weight:400"><input type="checkbox" id="opb-all" checked onclick="document.querySelectorAll('[data-opb]').forEach(c=>c.checked=this.checked); updateApprovalSummary()"> tick hết</label>
+          <span><label style="font-size:11px;font-weight:400"><input type="checkbox" id="opb-all" ${ops.length&&ops.every(t=>OP_SELECTED.has(t.id))?'checked':''} onclick="document.querySelectorAll('[data-opb]').forEach(c=>{c.checked=this.checked; this.checked?OP_SELECTED.add(c.dataset.opb):OP_SELECTED.delete(c.dataset.opb);}); updateApprovalSummary()"> tick hết</label>
           <span style="font-size:10px;color:var(--muted);margin-left:8px">duyệt bằng nút Duyệt CHUNG bên dưới — AP + chi hộ vào cùng một lệnh (v3.17.55)</span></span></div>
         ${ops.map(t=>{ const st=opWfStatus(t); const meta=OP_WF_STATES[st]||{};
           const lk=t._locked?' <span title="Kỳ chủ tàu đã khóa — CHI PHÍ khóa, CÔNG NỢ vẫn duyệt/thanh toán (v3.17.62)" style="font-size:10px">🔒</span>':'';
           const rem=(typeof opNccRemaining==='function'&&typeof opIsNccPayable==='function'&&opIsNccPayable(t))?opNccRemaining(t):(+t.amount||0);
           return `<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;padding:5px 4px;border-bottom:1px dotted var(--rule);font-size:12px">
-            <span><input type="checkbox" data-opb="${esc(t.id)}" checked onchange="updateApprovalSummary()"> 🚢 <b>${esc(opVesselName_(t.vesselId)||'')}</b> · ${esc((t.vendor||t.desc||'').slice(0,42))} <span class="ds-need">${esc(meta.short||st)}</span>${lk}${!t.payApproved?'<span class="ds-need" style="color:var(--warn)">chờ lệnh chi</span>':''}</span>
+            <span><input type="checkbox" data-opb="${esc(t.id)}" ${OP_SELECTED.has(t.id)?'checked':''} onchange="this.checked?OP_SELECTED.add(this.dataset.opb):OP_SELECTED.delete(this.dataset.opb); updateApprovalSummary()"> 🚢 <b>${esc(opVesselName_(t.vesselId)||'')}</b> · ${esc((t.vendor||t.desc||'').slice(0,42))} <span class="ds-need">${esc(meta.short||st)}</span>${lk}${!t.payApproved?'<span class="ds-need" style="color:var(--warn)">chờ lệnh chi</span>':''}</span>
             <span style="white-space:nowrap;display:flex;gap:6px;align-items:center"><b style="font-family:var(--font-mono)">${(+rem).toLocaleString('vi-VN')} ${esc(t.ccy||'VND')}</b>
               ${!t.payApproved?`<button class="btn-ghost" style="font-size:10px;padding:1px 8px" onclick="approveOpPayment('${esc(t.id)}')">✓ Lệnh chi</button>`:''}
               <button class="btn-ghost" style="font-size:10px;padding:1px 6px" onclick="showOpTxDetail('${esc(t.id)}')">👁</button></span></div>`; }).join('')}
@@ -41434,6 +41451,16 @@ function renderApprovalList(){
   }catch(e){ console.warn('[appr-op-batch]',e&&e.message); }
   const _emptyMsg=_apEmpty?('<div class="empty" style="padding:'+(opBatch?'10px':'20px')+';text-align:center;color:var(--muted)">Không có bút toán '+(opBatch?'AP':'nào')+' chờ duyệt phù hợp bộ lọc</div>'):'';
   tEl.innerHTML=`<div style="display:flex;flex-direction:column;gap:8px">${opBatch}${_apEmpty?_emptyMsg:cards}</div>`;
+  /* v3.17.66: dọn Set chọn — bỏ id của phiếu đã duyệt/từ chối/đã xóa (không đụng phiếu pending ở
+     cấp khác, để chuyển chip không mất tick — đúng nếp đã chốt). */
+  try{ const _all=new Map(); (S.payables||[]).forEach(r=>r&&_all.set(r.id,r)); (S.receivables||[]).forEach(r=>r&&_all.set(r.id,r));
+    [...APPROVAL_SELECTED].forEach(id=>{ const r=_all.get(id);
+      if(!r || ['approved','rejected'].includes((typeof wfStatus==='function')?wfStatus(r):(r.status||''))) APPROVAL_SELECTED.delete(id); });
+  }catch(e){}
+  try{ const _om=new Map(); VesselService.opTransactions().forEach(t=>t&&_om.set(t.id,t));   /* v3.17.67: dọn Set chi hộ */
+    [...OP_SELECTED].forEach(id=>{ const t=_om.get(id);
+      if(!t||t._deleted||!/^pending_/.test((typeof opWfStatus==='function')?opWfStatus(t):(t.ncStatus||''))) OP_SELECTED.delete(id); });
+  }catch(e){}
   // v3.17.61: KHÔNG return khi AP rỗng — khối dưới còn bật nút Duyệt/Trình theo tick chi hộ (v3.17.57).
   // Update select-all checkbox state
   const allChecked=candidates.length>0 && candidates.every(c=>APPROVAL_SELECTED.has(c.id));
@@ -41447,7 +41474,7 @@ function renderApprovalList(){
     const b3=document.getElementById('appr-btn-skipl1');   // v3.11.53
     if(b3) b3.style.display=(_lvl==='pending_acc' && (canCheckAcc()||isAdmin()))?'':'none';
     // v3.06.50: nhãn nút hiện số phiếu ĐÃ TÍCH CHỌN (chỉ các phiếu này vào Phiếu trình thanh toán)
-    const _selN=APPROVAL_SELECTED.size;
+    const _selN=(function(){ try{ const _c=approvalGetCandidates(); let n=0; _c.forEach(x=>{ if(APPROVAL_SELECTED.has(x.id)) n++; }); return n; }catch(e){ return APPROVAL_SELECTED.size; } })();   /* v3.17.66: đếm theo phiếu ĐÚNG CẤP đang hiện — hết cảnh 'chưa chọn gì mà nút (12)' */
     const _opSel=document.querySelectorAll('[data-opb]:checked').length;   /* v3.17.57 */
     const _selEff=_selN+_opSel;
     if(b1 && _lvl==='pending_l1'){ b1.textContent=_selN>0?`📋 Trình Thanh toán (${_selN})`:'📋 Trình Thanh toán'; b1.disabled=_selEff===0; b1.style.opacity=_selEff===0?'0.55':'1'; }
@@ -82362,6 +82389,14 @@ function openApprovalOrderPdf(level){
   //   dính từ lần lọc trước làm 3 phiếu đã tích bị loại → báo sai "Không có phiếu nào ở cấp L2".
   const _apprSrc=scopedView(S.payables||[],'ap').filter(r=>r && !r._cashClear);
   let rows=_apprSrc.filter(r=>wfStatus(r)===want && APPROVAL_SELECTED.has(r.id));
+  /* v3.17.68 (Sếp, ảnh 'Không duyệt được phiếu chi hộ'): phiếu CHI HỘ tick ở khối 🚢 không đi PDF
+     lệnh chi AP — trước đây bấm nút này chỉ tra AP nên chi hộ bị bỏ rơi + toast nhắc tick dù đã tick.
+     Nay: chuyển bước các phiếu chi hộ đã tick NGAY tại đây (máy trạng thái op, đếm thật), rồi tiếp
+     phần AP nếu có. */
+  let _opDone=0;
+  try{ const _opTicked=document.querySelectorAll('[data-opb]:checked').length;
+    if(_opTicked>0 && typeof opBatchAdvance==='function'){ _opDone=_opTicked; opBatchAdvance(); }
+  }catch(e){}
   // v3.11.17 FLAG_BATCH_UNIFIED (Sếp duyệt PA-1): PHIẾU NHIỀU DÒNG = 1 ROW trong màn Trình TT —
   //   HT chi/NH chọn 1 lần áp cả phiếu, duyệt NGUYÊN TỬ cả phiếu (apprOrderApproveAll nhánh _batchGroup).
   if(FLAG_BATCH_UNIFIED){
@@ -82418,6 +82453,7 @@ function openApprovalOrderPdf(level){
       if(nScope) parts.push(nScope+' phiếu AP ngoài phạm vi quyền hoặc đã tất toán');
       if(parts.length){ toast('Không trình được vì: '+parts.join(' · '),'warn'); return; }
     }
+    if(_opDone>0) return;   /* v3.17.68: đã xử phiếu chi hộ tick — không AP nào kèm thì xong, không nhắc sai */
     toast('Hãy TÍCH CHỌN các phiếu cần '+(isL1?'trình thanh toán (L2)':'duyệt chi')+' ở danh sách trước, rồi bấm lại.','warn'); return;
   }
   _apPayOrderState={ sel:{}, method:{}, bank:{}, _rows:rows, _orderLevel:level };

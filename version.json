@@ -1,5 +1,5 @@
 {
-  "version": "3.17.64",
-  "swVersion": "v3.17.64",
-  "notes": "v3.17.64: Gỡ cơ chế nhớ tick chi hộ bền vững của bản trước theo chỉ đạo, vì tick lưu lại gây ảnh hưởng lọc ở các tab khác; danh sách chi hộ trở lại nếp cũ mặc định tick hết mỗi lần vẽ, bỏ tick chỉ có hiệu lực trong lần thao tác hiện tại. Giữ nguyên dòng cảnh báo vàng khi có phiếu chi hộ gồm phiếu kỳ khóa đang bị ẩn bởi bộ lọc đối tác số tiền ngày kèm nhắc bấm nút đặt lại, và toàn bộ nguyên tắc kỳ khóa chỉ khóa chi phí công nợ vẫn mở của bản 3.17.62. Sau khi lên bản này tải lại trang một lần."
+  "version": "3.17.68",
+  "swVersion": "v3.17.68",
+  "notes": "v3.17.68: Sửa lỗi không duyệt được phiếu chi hộ bằng nút trình thanh toán và duyệt chi: hai nút này trước đây chỉ tra các bút toán công nợ đã tick nên phiếu chi hộ tick ở khối tàu quản lý hộ bị bỏ rơi và app còn nhắc tích chọn dù đã tick. Nay bấm nút thì các phiếu chi hộ đã tick được chuyển bước ngay theo máy trạng thái riêng với đếm chuyển thật, phần công nợ nếu có tick vẫn vào màn lệnh chi như cũ, còn nếu chỉ tick chi hộ thì xử xong là dừng không hiện nhắc sai. Chi hộ không đi vào phiếu lệnh chi in vì thanh toán chi hộ ghi tại sổ thu chi hộ theo luồng riêng. Nền v3.17.67 giữ nguyên. Sau khi lên bản này tải lại trang một lần."
 }
