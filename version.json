@@ -1,5 +1,5 @@
 {
-  "version": "3.17.26",
-  "swVersion": "v3.17.26",
-  "notes": "v3.17.26: Danh mục phòng ban chuyển về dashboard Nhân sự: thêm nút Phòng Ban trên màn HRM, chỉ Trưởng phòng Nhân sự và Admin thấy, bấm mở thẳng danh mục để tạo mới, sửa, ẩn hiện phòng ban như quyền đã cấp từ trước. Đồng thời các trường chọn Phòng ban trong app tự ẩn những phòng không còn nhân viên đang làm việc, gồm phòng chưa từng có người và phòng mà toàn bộ nhân viên đã chấm dứt hợp đồng; riêng form gán người vào phòng như hồ sơ nhân viên và tài khoản người dùng vẫn thấy đủ cả phòng trống để còn xếp người vào phòng mới lập, và bản ghi cũ đang gán phòng nào thì phòng đó vẫn hiện để không mất lựa chọn. Nền v3.17.25 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần."
+  "version": "3.17.27",
+  "swVersion": "v3.17.27",
+  "notes": "v3.17.27: Bấm nút Phòng Ban trên dashboard Nhân sự nay chỉ mở đúng danh mục phòng ban: các thẻ danh mục khác như user, tàu, dự án, loại chi phí đều ẩn, bấm nhầm cũng bị ép về phòng ban, đúng quy định ẩn khỏi giao diện những việc mình không làm. Vào Danh mục theo đường menu bình thường vẫn thấy đầy đủ như cũ. Nền v3.17.26 giữ nguyên. Sau khi lên bản này nên tải lại trang một lần."
 }

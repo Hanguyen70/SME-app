@@ -3795,7 +3795,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.17.26';
+const APP_VERSION='3.17.27';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -31098,6 +31098,7 @@ function activeDepartments(opts){
 function hrmOpenDeptCatalog(){
   if(!(isAdmin()||canSignHr())){ toast('Chỉ Trưởng phòng NS / admin','bad'); return; }
   try{ navigateToPage('catalog'); }catch(e){}
+  window._catalogDeptOnly=true;   // v3.17.27: sau navigate (navigate xóa cờ) — chỉ hiện Phòng/Ban
   try{ catalogSwitchTab('departments'); }catch(e){}
 }
 function _deptUsedCount(id){
@@ -31765,10 +31766,17 @@ function hardDeleteRevenueType(id){
 let CATALOG_CURRENT_TAB = 'departments';
 
 function catalogSwitchTab(tab){
+  /* v3.17.27 (Sếp: "click Phòng ban tại Nhân sự → MỞ TOÀN BỘ DANH MỤC" — sai quy định ẩn việc không
+     làm): chế độ CHỈ PHÒNG/BAN khi vào từ dashboard Nhân sự — ép tab departments, ẨN các subtab khác.
+     Vào Danh mục theo đường nav bình thường thì đầy đủ như cũ (navigateToPage xóa cờ). */
+  if(window._catalogDeptOnly && tab!=='departments') tab='departments';
   CATALOG_CURRENT_TAB = tab;
   document.querySelectorAll('#catalog-subtabs .nsnn-subtab').forEach(b => {
     const isActive = b.textContent.toLowerCase().includes(_catalogTabKeyword(tab));
     b.classList.toggle('active', isActive);
+    const _isDept=/catalogSwitchTab\('departments'\)/.test(b.getAttribute('onclick')||'');
+    if(window._catalogDeptOnly){ b.style.display=_isDept?'':'none'; }
+    else if(b.id!=='cat-tab-btn-users'){ b.style.display=''; }   // users giữ logic hiện/ẩn riêng
   });
   document.querySelectorAll('.catalog-tab-content').forEach(el => {
     el.style.display = 'none';
@@ -34586,6 +34594,7 @@ function _applyNavV2(){
   }
 }
 function navigateToPage(pageId){
+  if(pageId==='catalog') window._catalogDeptOnly=false;   // v3.17.27: vào Danh mục đường thường → đầy đủ
   /* v3.16.47: áp lại sau mỗi lần chuyển trang — nav có phần dựng động (submenu tàu, nhóm),
      nếu chỉ áp một lần lúc đăng nhập thì mục mới dựng sẽ hiện lại dù không có quyền. */
   try{ applyNavPermissions(); }catch(e){}
