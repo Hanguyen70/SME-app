@@ -1,5 +1,5 @@
 {
-  "version": "3.17.92",
-  "swVersion": "v3.17.92",
-  "notes": "v3.17.92 sắp xếp thông minh hàng đợi Chờ Thanh Toán: lệnh/phiếu được L2 duyệt gần nhất tự lên trên cùng (AP theo giờ duyệt lệnh, chi hộ theo vết duyệt L2 mới nhất), cùng mốc gom theo tên nhà cung cấp; mỗi dòng gắn thêm nhãn giờ L2 duyệt trong diễn giải để KT đối chiếu. Chỉ đổi thứ tự hiển thị, không ảnh hưởng số liệu. Sau khi lên bản này tải lại trang một lần."
+  "version": "3.17.93",
+  "swVersion": "v3.17.93",
+  "notes": "v3.17.93 vá quyền vào tab Phê duyệt cho kế toán: từ v3.17.77 thanh nav đã mở cho KT thanh toán và KT được cấp tab, nhưng hàm kiểm tra quyền chung vẫn chỉ nhận KT kiểm/L1/L2 nên tab bị ẩn lại và bị đẩy ra khi bấm vào; nay đồng bộ hai tầng. Kèm v3.17.92 sắp xếp thông minh hàng đợi Chờ Thanh Toán (lệnh L2 duyệt gần nhất lên trên). Sau khi lên bản này tải lại trang một lần."
 }

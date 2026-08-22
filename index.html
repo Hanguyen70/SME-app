@@ -3806,7 +3806,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.17.92';
+const APP_VERSION='3.17.93';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -10988,14 +10988,14 @@ function bkPendingRows(){
       if(!((t._ncHist||[]).some(h=>h&&h.to==='approved'))) return;   /* vết máy trạng thái bước L2 */
       const rem=(typeof opNccRemaining==='function')?opNccRemaining(t):(+t.amount||0);
       if(rem<=0.001) return;
-      let _l2=''; (t._ncHist||[]).forEach(h=>{ if(h&&h.to==='approved'&&h.at&&h.at>_l2) _l2=h.at; });   /* v3.17.92: mốc L2 duyệt gần nhất */
+      let _l2=''; (t._ncHist||[]).forEach(h=>{ if(h&&h.to==='approved'&&h.at&&h.at>_l2) _l2=h.at; });   /* v3.17.93: mốc L2 duyệt gần nhất */
       rows.push({kind:'op', t, id:'op:'+t.id, label:(t.vendor||t.desc||''), lock:!!t._locked, l2At:_l2||t.updatedAt||'',
         desc:'🚢 '+((typeof opVesselName_==='function'&&opVesselName_(t.vesselId))||'')+(t.invoiceNo?(' · HĐ '+t.invoiceNo):''),
         amt:rem, ccy:t.ccy||'VND',
         defMethod:(t.payMethod==='cash')?'CASH':'', defBank:t.bankAccountId||''});
     });
   }catch(e){}
-  /* v3.17.92 (Sếp): SẮP XẾP THÔNG MINH — lệnh L2 duyệt GẦN NHẤT lên trên cùng (theo mốc giờ L2:
+  /* v3.17.93 (Sếp): SẮP XẾP THÔNG MINH — lệnh L2 duyệt GẦN NHẤT lên trên cùng (theo mốc giờ L2:
      AP = o.approvedL2At, phiếu-không-lệnh = r.approvedL2At, chi hộ = _ncHist to:'approved' mới nhất).
      Cùng mốc → nhóm theo NCC để KT gom bảng kê. Gắn nhãn 'L2 dd/MM HH:mm' vào diễn giải để đối chiếu. */
   rows.forEach(x=>{ const d=x.l2At?new Date(x.l2At):null; if(d&&!isNaN(d)) x.desc=(x.desc||'')+' · L2 '+String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); });
@@ -86045,8 +86045,12 @@ function canAccessTab(tabId){
   if(tabId==='projects') return _isKTTorBOD;
   if(tabId==='plan') return !!CURRENT_USER.isBOD;
   if(tabId==='rates') return !!CURRENT_USER.isBOD;
-  if(tabId==='approval') return canCheckAcc()||canApproveL1()||canApproveL2();
-  if(tabId==='mobile_approval') return (typeof FLAG_MOBILE_APPROVAL!=='undefined'&&FLAG_MOBILE_APPROVAL) && (canCheckAcc()||canApproveL1()||canApproveL2());
+  /* v3.17.93 (Sếp: 'KT có quyền vào tab Phê duyệt chưa?'): ĐỒNG BỘ với applyNavPermissions v3.17.77 —
+     trước đây hàm này CHỈ nhận KT kiểm/L1/L2 nên KT thanh toán (canConfirmPayment) và KT được cấp
+     tab 'approval' qua whitelist bị vòng ép [data-page] ẩn lại + navigateToPage đá ra. */
+  const _apprOk=canCheckAcc()||canApproveL1()||canApproveL2()||canConfirmPayment()||(CURRENT_USER.tabs||[]).includes('approval');
+  if(tabId==='approval') return _apprOk;
+  if(tabId==='mobile_approval') return (typeof FLAG_MOBILE_APPROVAL!=='undefined'&&FLAG_MOBILE_APPROVAL) && _apprOk;
   if(tabId==='advances') return true;  // v3.02.96: Tạm ứng NV — mở cho MỌI NV đăng nhập (tạo tạm ứng của mình; duyệt vẫn cần KTT/Admin + SOD)
   if(tabId==='cashflow') return canCheckAcc()||canApproveL1()||canApproveL2();  // v1.37.1: KT viên + L1 + L2 + admin
   // v3.07.46: Ngân hàng + NSNN = SỔ TỔNG HỢP chung → chỉ KT/KTT/L1/L2/admin/BOD.
