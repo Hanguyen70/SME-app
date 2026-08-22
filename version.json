@@ -1,5 +1,5 @@
 {
-  "version": "3.17.81",
-  "swVersion": "v3.17.81",
-  "notes": "v3.17.81 sửa lỗi bấm không được ba chip mới chờ thanh toán phí phát sinh khế ước: chip gán giá trị vào ô chọn cấp ẩn nhưng ô này thiếu ba lựa chọn tương ứng nên trình duyệt giữ nguyên giá trị cũ và màn không chuyển; đã bổ sung ba lựa chọn vào ô chọn kèm kiểm thử đối chiếu mọi chip đều phải có lựa chọn tương ứng để lỗi loại này không lọt lại. Sau khi lên bản này tải lại trang một lần."
+  "version": "3.17.82",
+  "swVersion": "v3.17.82",
+  "notes": "v3.17.82 sửa lỗi phiếu công nợ đã duyệt chi cấp hai không hiện ở chờ thanh toán: danh sách chờ thanh toán và khối cần đề xuất đợt đọc sai tên trường mảng lệnh chi nên không thấy lệnh đã duyệt, chỉ chi hộ hiện đúng; nay đọc qua helper chuẩn của mảng lệnh, phiếu duyệt cấp hai xong xuất hiện ngay ở chờ thanh toán và khối cần đề xuất không còn đếm những phiếu đã có lệnh sống. Kèm kiểm thử dòng chảy thật với lệnh đã duyệt trên trường dữ liệu đúng. Sau khi lên bản này tải lại trang một lần."
 }

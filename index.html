@@ -3806,7 +3806,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.17.81';
+const APP_VERSION='3.17.82';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -10867,7 +10867,7 @@ function apNeedProposeRows(){
     if(!r||r._deleted||r._cashClear) return;
     const rem=(typeof apRemainingEff==='function')?apRemainingEff(r):0;
     if(rem<=0.001) return;
-    const hasOrder=((r.payOrders||[]).some(o=>o&&(o.status==='pending_l1'||o.status==='pending_l2'||(o.status==='approved'&&!o._paymentApplied))));
+    const hasOrder=(_apOrders(r).some(o=>o&&(o.status==='pending_l1'||o.status==='pending_l2'||(o.status==='approved'&&!o._paymentApplied))));   /* v3.17.82 */
     if(hasOrder) return;
     out.push({r, rem});
   }); }catch(e){}
@@ -10890,7 +10890,7 @@ function bkPendingRows(){
   const rows=[];
   try{
     scopedView(S.payables||[],'ap').filter(r=>r&&!r._cashClear&&!r._deleted).forEach(r=>{
-      (r.payOrders||[]).forEach(o=>{
+      _apOrders(r).forEach(o=>{   /* v3.17.82: đúng trường paymentOrders qua helper chuẩn */
         if(!o||o.status!=='approved'||o._paymentApplied) return;
         rows.push({kind:'ap', r, o, id:'ap:'+r.id+':'+o.id, label:(r.partner||r.vendor||''),
           desc:(r.invoiceNo?('HĐ '+r.invoiceNo):'')+(o.note?(' · '+o.note):''), amt:+o.amount||0, ccy:o.ccy||r.ccy||'VND',
