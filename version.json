@@ -1,5 +1,5 @@
 {
-  "version": "3.17.86",
-  "swVersion": "v3.17.86",
-  "notes": "v3.17.86 sửa lọc thiếu ở chờ thanh toán: danh sách nay đồng nguồn với hàng đợi chờ chi tiền của sổ phải trả gồm hai nhóm, nhóm lệnh chi có dấu duyệt cấp hai như bản trước và nhóm bổ sung là phiếu trạng thái đã duyệt còn nợ không có lệnh sống tức đường duyệt theo phiếu bốn cấp, số chi bằng số thanh toán đợt này đã duyệt cùng phiếu nếu có không thì bằng còn nợ, số cố định vì đã qua duyệt; xác nhận nhóm này ghi đợt qua lõi mới đúng khuôn ghi chi hiện hành gồm trừ đề xuất khớp lệnh trừ số dư tài khoản và giải ngân gom khế ước nháp. Sau khi lên bản này tải lại trang một lần huy hiệu chờ thanh toán sẽ khớp hàng đợi chờ chi tiền."
+  "version": "3.17.87",
+  "swVersion": "v3.17.87",
+  "notes": "v3.17.87 chỉnh màn chờ thanh toán theo yêu cầu: bố cục lưới năm cột thẳng hàng có tiêu đề cột, tên nhà cung cấp hiện đủ trên một dòng riêng kèm diễn giải dòng dưới không còn bị che, ô nguồn tiền và số chi đợt này thẳng cột; dùng chung hai ô lọc của dòng danh sách bút toán chờ duyệt gồm lọc tên nhà cung cấp và lọc số tiền đích danh dung sai một đồng, có dòng cảnh báo số khoản đang bị ẩn bởi bộ lọc và tick đã chọn vẫn giữ khi đổi lọc theo nguyên tắc đã chốt. Sau khi lên bản này tải lại trang một lần."
 }
