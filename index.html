@@ -2772,7 +2772,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
 
   <div class="section collapsible">
     <div class="section-head">
-      <div class="section-title"><span class="tag">∑</span>Danh sách bút toán chờ duyệt</div>
+      <div class="section-title"><span class="tag">∑</span><span id="appr-list-title">Danh sách bút toán chờ duyệt</span></div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <input type="text" id="appr-partner" list="appr-partner-suggestions" placeholder="🔎 Lọc tên NCC…" oninput="renderApprovalList()" autocomplete="off" style="padding:5px 9px;border:1px solid var(--rule);font-size:11px;width:160px">
         <datalist id="appr-partner-suggestions"></datalist>
@@ -2789,7 +2789,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
   <div class="section" style="background:var(--paper-2);padding:18px 20px;margin-top:14px;border:1px solid var(--rule)">
     <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;justify-content:space-between">
       <div id="appr-action-summary" style="font-size:13px;color:var(--ink)">Chọn bút toán để hiện chi tiết</div>
-      <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <div style="display:flex;gap:10px;flex-wrap:wrap" id="appr-action-btns">
         <button class="btn-primary" onclick="openApprovalOrderPdf('l1')" id="appr-btn-l1order" title="Trình Thanh toán: xem lại các bút toán đã trình, sửa hình thức chi / ngân hàng, rồi duyệt L1 → chuyển L2 (hoặc in PDF)" style="background:var(--good);display:none">📋 Trình Thanh toán</button>
         <button class="btn-primary" onclick="openApprovalOrderPdf('l2')" id="appr-btn-l2order" title="Duyệt chi (L2): xem lại các bút toán chờ duyệt chi, sửa hình thức chi / ngân hàng, rồi duyệt L2" style="background:var(--good);display:none">📋 Duyệt chi (L2)</button>
         <button class="btn-primary" style="background:var(--good)" onclick="approvalBulkApprove()" id="appr-btn-approve">✓ Duyệt các bút toán đã chọn</button>
@@ -3806,7 +3806,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.17.93';
+const APP_VERSION='3.18.00';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -5327,11 +5327,15 @@ function buildCfgToSync(localCfg){
    Nguyên tắc: KHÔNG replace — MERGE theo (name+email). Union 2 bên; trùng → giữ updatedAt mới hơn;
    chỉ LOẠI user bị xóa CÓ CHỦ Ý (có trong deletedNames). Giống mergeByID của State.
    Trả về mảng users đã gộp. Không mutate tham số đầu vào. */
-function mergeCfgUsers(localUsers, cloudUsers, deletedNames){
+/* v3.18.00 (Sếp: 'cấp/đổi quyền NV không lưu'): (a) KHÓA GỘP = name (duy nhất, saveUser đã chặn trùng) —
+   trước gộp theo name|email nên admin sửa email NV là sinh 2 bản ghi, _findUser bắt bản CŨ theo tên →
+   quyền cũ; (b) preferCloudOnTie: lúc KÉO (máy NV) cloud là bản admin vừa đẩy → HÒA mốc giờ cloud thắng;
+   lúc ĐẨY (máy admin vừa sửa) giữ như cũ local thắng. */
+function mergeCfgUsers(localUsers, cloudUsers, deletedNames, preferCloudOnTie){
   const L=Array.isArray(localUsers)?localUsers:[];
   const C=Array.isArray(cloudUsers)?cloudUsers:[];
   const delSet=new Set((Array.isArray(deletedNames)?deletedNames:[]).map(x=>String(x||'').toLowerCase()));
-  const keyOf=(u)=>((u&&(u.name||'')).toLowerCase())+'|'+((u&&(u.email||'')).toLowerCase());
+  const keyOf=(u)=>((u&&(u.name||'')).toLowerCase());
   const out=[]; const seen=new Map();
   // nền: local trước (ưu tiên giữ bản đang có trên máy)
   L.forEach(u=>{ if(!u) return; const k=keyOf(u); if(seen.has(k)) return; seen.set(k, out.length); out.push(u); });
@@ -5343,7 +5347,7 @@ function mergeCfgUsers(localUsers, cloudUsers, deletedNames){
       const idx=seen.get(k); const lu=out[idx];
       const lt=Date.parse(lu&&lu.updatedAt||'')||0;
       const ct=Date.parse(cu.updatedAt||'')||0;
-      if(ct>lt) out[idx]=cu;   // cloud mới hơn → thay
+      if(ct>lt || (preferCloudOnTie && ct>=lt)) out[idx]=cu;   // cloud mới hơn (hoặc hòa khi kéo) → thay
     }
   });
   // loại user bị xóa CÓ CHỦ Ý (theo name)
@@ -5385,6 +5389,9 @@ async function pushCfgToCloud(adminPassword, extraUserPasswords){
     const res0=await fetch(cfg.scriptUrl+'?action=load&key=auth', {method:'GET'});
     const data0=await res0.json();
     cloudReadOk=true;  // đọc + parse JSON thành công
+    /* v3.18.00: cloud có thể trả payload_gz — đọc thô data0.payload sẽ tưởng cloud TRỐNG → sinh master
+       key mới, mất wrap toàn bộ NV. Chuẩn hóa qua decodeCloudPayload như pull. */
+    try{ if(data0.ok && !data0.payload && data0.gz && data0.payload_gz){ data0.payload=await decodeCloudPayload(data0); } }catch(_){}
     if(data0.ok && data0.payload && data0.payload.v===2){
       cloudHasCfg=true;
     }
@@ -5482,7 +5489,7 @@ async function pushCfgToCloud(adminPassword, extraUserPasswords){
       const cloudCfg=await decryptCfgWithMasterKey({iv:cloudPayloadForMerge.iv, ct:cloudPayloadForMerge.ct}, existingMasterKey);
       const cloudUsers=Array.isArray(cloudCfg.users)?cloudCfg.users:[];
       const localUsers=Array.isArray(cfg.users)?cfg.users:[];
-      const keyOf=(u)=>((u && (u.name||'')).toLowerCase())+'|'+((u && (u.email||'')).toLowerCase());
+      const keyOf=(u)=>((u && (u.name||'')).toLowerCase());   /* v3.18.00: khóa = name, đồng bộ mergeCfgUsers */
       const localMap=new Map(localUsers.map(u=>[keyOf(u),u]));
       let added=0, kept=0;
       cloudUsers.forEach(cu=>{
@@ -5733,7 +5740,14 @@ async function pullCfgFromCloud(scriptUrl, userName, password){
     if(_local && Array.isArray(_local.users)){
       const _del=[].concat(Array.isArray(_local._deletedUserNames)?_local._deletedUserNames:[],
                            Array.isArray(window._deletedUserNames)?window._deletedUserNames:[]);
-      cfg.users=mergeCfgUsers(_local.users, cfg.users, _del);
+      const _cloudUsers=cfg.users;
+      cfg.users=mergeCfgUsers(_local.users, _cloudUsers, _del, true);   /* v3.18.00: kéo → hòa thì cloud thắng */
+      /* v3.18.00: bản ghi của CHÍNH NGƯỜI ĐANG ĐĂNG NHẬP đã xác thực hash trên cloud ở trên → luôn lấy
+         bản cloud (MK/quyền admin vừa đẩy), không để bản local cũ hơn/hòa giữ lại. */
+      try{ const _q=String(userName||'').toLowerCase();
+        const _cu=(_cloudUsers||[]).find(x=>x&&((x.name||'').toLowerCase()===_q||(x.email||'').toLowerCase()===_q));
+        if(_cu){ const _i=cfg.users.findIndex(x=>x&&(x.name||'').toLowerCase()===(_cu.name||'').toLowerCase()); if(_i>=0) cfg.users[_i]=_cu; else cfg.users.push(_cu); }
+      }catch(_){}
       /* v3.16.73 FIX: cfg từ cloud KHÔNG mang _deletedUserNames (cờ local) → nếu ghi đè thì mất,
          lần pull sau merge không loại được NV đã xóa → NV "sống lại". Bảo toàn danh sách đã xóa
          (gộp local + window, khử trùng) vào cfg mới trước khi lưu. */
@@ -5811,20 +5825,14 @@ async function selfWrapInCloudCfg(userName, password){
     // v3.09.59 (ADR-009): MERGE user-record local vào payload cloud → NV mới (tạo local, chưa push)
     //   được đẩy lên cloud CÙNG wrap. Sửa lỗi "đăng nhập được (có wrap) nhưng mất khỏi danh sách
     //   (user-record không lên cloud)". Trước đây chỉ push wraps, giữ payload.users cloud cũ.
-    let _mergedUsers=payload.users;
-    try{
-      const _localCfg=getAuthConfig();
-      if(_localCfg && Array.isArray(_localCfg.users)){
-        const _del=[].concat(Array.isArray(_localCfg._deletedUserNames)?_localCfg._deletedUserNames:[],
-                             Array.isArray(window._deletedUserNames)?window._deletedUserNames:[]);
-        _mergedUsers=mergeCfgUsers(Array.isArray(payload.users)?payload.users:[], _localCfg.users, _del);
-      }
-    }catch(e){ console.warn('[selfWrap] merge users lỗi (giữ users cloud):', e&&e.message); _mergedUsers=payload.users; }
+    /* v3.18.00: BỎ đẩy payload.users dạng PLAINTEXT (kèm hash/salt/wrap) — không ai đọc trường này
+       (pull chỉ đọc iv/ct), chỉ là lộ dữ liệu. Bản ghi NV chỉ lên cloud qua pushCfgToCloud (mã hóa). */
+    const _mergedUsers=undefined;
     // Push back (v3.03.100: retry 1 lần nếu lỗi mạng để wrap chắc chắn lên cloud)
     const _pushWrap=async()=>fetch(cfg.scriptUrl, {
       method:'POST',
       headers:{'Content-Type':'text/plain'},
-      body:JSON.stringify({action:'save', key:'auth', payload:{...payload, users:_mergedUsers, wraps}})
+      body:JSON.stringify({action:'save', key:'auth', payload:(()=>{ const _p={...payload, wraps}; delete _p.users; return _p; })()})
     });
     try{
       await _pushWrap();
@@ -9840,6 +9848,9 @@ async function resetUserPw(idx){
     if(u.email && u.email.toLowerCase().endsWith('@'+COMPANY_EMAIL_DOMAIN.toLowerCase())){
       u.mustUseEmail=true;
     }
+    /* v3.18.00 (Sếp: 'đổi MK cho NV không lưu kể cả đã đẩy cloud'): GỐC LỖI — reset MK không đóng dấu
+       updatedAt → bản local máy NV và bản cloud HÒA mốc giờ → merge lúc kéo giữ bản cũ (hash cũ). */
+    try{ touchRecord(u); }catch(e){ u.updatedAt=new Date().toISOString(); }
     setAuthConfig(cfg);
     // v3.04.03: khóa pull cfg ghi đè local trong 12s — bảo vệ MK vừa tạo khỏi bị cfg cloud cũ đè
     _cfgResetGuardUntil = Date.now() + 12000;
@@ -10988,14 +10999,14 @@ function bkPendingRows(){
       if(!((t._ncHist||[]).some(h=>h&&h.to==='approved'))) return;   /* vết máy trạng thái bước L2 */
       const rem=(typeof opNccRemaining==='function')?opNccRemaining(t):(+t.amount||0);
       if(rem<=0.001) return;
-      let _l2=''; (t._ncHist||[]).forEach(h=>{ if(h&&h.to==='approved'&&h.at&&h.at>_l2) _l2=h.at; });   /* v3.17.93: mốc L2 duyệt gần nhất */
+      let _l2=''; (t._ncHist||[]).forEach(h=>{ if(h&&h.to==='approved'&&h.at&&h.at>_l2) _l2=h.at; });   /* v3.18.00: mốc L2 duyệt gần nhất */
       rows.push({kind:'op', t, id:'op:'+t.id, label:(t.vendor||t.desc||''), lock:!!t._locked, l2At:_l2||t.updatedAt||'',
         desc:'🚢 '+((typeof opVesselName_==='function'&&opVesselName_(t.vesselId))||'')+(t.invoiceNo?(' · HĐ '+t.invoiceNo):''),
         amt:rem, ccy:t.ccy||'VND',
         defMethod:(t.payMethod==='cash')?'CASH':'', defBank:t.bankAccountId||''});
     });
   }catch(e){}
-  /* v3.17.93 (Sếp): SẮP XẾP THÔNG MINH — lệnh L2 duyệt GẦN NHẤT lên trên cùng (theo mốc giờ L2:
+  /* v3.18.00 (Sếp): SẮP XẾP THÔNG MINH — lệnh L2 duyệt GẦN NHẤT lên trên cùng (theo mốc giờ L2:
      AP = o.approvedL2At, phiếu-không-lệnh = r.approvedL2At, chi hộ = _ncHist to:'approved' mới nhất).
      Cùng mốc → nhóm theo NCC để KT gom bảng kê. Gắn nhãn 'L2 dd/MM HH:mm' vào diễn giải để đối chiếu. */
   rows.forEach(x=>{ const d=x.l2At?new Date(x.l2At):null; if(d&&!isNaN(d)) x.desc=(x.desc||'')+' · L2 '+String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); });
@@ -11019,17 +11030,47 @@ function renderBkPayList(tEl){
      Chỉ AP (chi hộ là tiền chủ tàu — không giải ngân vay công ty). */
   const bkOpt=(sel,allowGn)=>'<option value="">— chọn TK —</option>'+bks.map(a=>`<option value="${esc(a.id)}" ${sel===a.id?'selected':''}>🏦 ${esc((a.bankName||'')+' ·'+(a.accountNo||'').slice(-9))}</option>`).join('')+`<option value="CASH" ${sel==='CASH'?'selected':''}>💵 Tiền mặt</option>`+(allowGn?bks.map(a=>`<option value="LOAN:${esc(a.id)}" ${sel===('LOAN:'+a.id)?'selected':''}>🏛 GN — ${esc((a.bankName||'')+' ·'+(a.accountNo||'').slice(-9))}</option>`).join(''):'');
   const _gridCols='22px 58px minmax(0,1fr) 215px 150px';
-  const body=('<div style="display:grid;grid-template-columns:'+_gridCols+';gap:6px;align-items:center;padding:2px 4px;font-size:9.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px"><span></span><span>Loại</span><span>Nhà cung cấp · diễn giải</span><span>Nguồn tiền</span><span style="text-align:right">Số chi đợt này</span></div>')
-    +rows.map((x,ix)=>`<div style="display:grid;grid-template-columns:${_gridCols};gap:6px;align-items:center;padding:6px 4px;border-bottom:1px dotted var(--rule);font-size:12px">
+  /* v3.18.00 (Sếp: 'Sen Việt 20 dòng → chọn TK 1 lần'): GOM KHỐI THEO NCC ngay màn Chờ TT. Khối ≥2 khoản:
+     1 dòng đầu = tên NCC · n khoản · 1 ô Nguồn tiền áp cho CẢ khối · tổng; các khoản con thụt vào, gập mặc
+     định, bung ra tick/sửa số đợt từng dòng như cũ. id bk-src-ix/bk-amt-ix giữ nguyên → bkSummary/bkConfirm
+     không đổi. Thứ tự khối theo mốc L2 mới nhất (v3.17.92) của khoản đầu tiên. */
+  const _gk=(x)=>String(x.label||'').trim().toLowerCase();
+  const _grpN={}; rows.forEach(x=>{ const k=_gk(x); _grpN[k]=(_grpN[k]||0)+1; });
+  const _rowHtml=(x,ix,inGrp)=>`<div class="${inGrp?('bk-child bk-g-'+_grpIdOf(x)):''}" style="display:grid;grid-template-columns:${_gridCols};gap:6px;align-items:center;padding:6px 4px${inGrp?' 6px 18px;background:rgba(28,122,77,.03)':''};border-bottom:1px dotted var(--rule);font-size:12px${inGrp?';display:none':''}">
       <input type="checkbox" data-bk="${esc(x.id)}" onchange="bkSummary()">
       <span class="ds-need" style="${x.kind==='op'?'color:#1c4e7c':''}">${x.kind==='op'?'CHI HỘ':'AP'}${x.lock?' 🔒':''}</span>
       <span style="min-width:0"><b style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(x.label)}">${esc(x.label)}</b><span style="display:block;color:var(--muted);font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(x.desc)}">${esc(x.desc)}</span></span>
       <span style="white-space:nowrap;display:flex;gap:6px;align-items:center">
-        <select id="bk-src-${ix}" data-bksrc="${esc(x.id)}" onchange="bkSummary()" style="width:100%;font-size:11px">${bkOpt(x.defMethod==='CASH'?'CASH':x.defBank, x.kind==='ap')}</select></span>
+        <select id="bk-src-${ix}" data-bksrc="${esc(x.id)}" onchange="bkSummary()" style="width:100%;font-size:11px">${bkOpt(x.defMethod==='CASH'?'CASH':x.defBank, true)}</select></span>   <!-- v3.18.00 (Sếp): chi hộ cũng GIẢI NGÂN như AP — tiền đi từ TK/hạn mức công ty -->
       <span style="text-align:right;white-space:nowrap">
         ${x.kind==='op'
           ?`<input id="bk-amt-${ix}" value="${(+x.amt||0).toLocaleString('vi-VN')}" onchange="bkSummary()" title="Chi hộ: L2 duyệt CẢ PHIẾU — KT sửa số ĐỢT này, kẹp ≤ còn nợ ${(+x.amt||0).toLocaleString('vi-VN')} (v3.17.85)" style="width:110px;text-align:right;font-family:var(--font-mono);font-size:11px"> <span style="font-size:10px">${esc(x.ccy)}</span>`
-          :`<b style="font-family:var(--font-mono);font-size:11px" title="AP: số theo LỆNH đã duyệt L2 — KT đổi nguồn, không đổi số">${(+x.amt||0).toLocaleString('vi-VN')} ${esc(x.ccy)}</b>`}</span></div>`).join('');
+          :`<b style="font-family:var(--font-mono);font-size:11px" title="AP: số theo LỆNH đã duyệt L2 — KT đổi nguồn, không đổi số">${(+x.amt||0).toLocaleString('vi-VN')} ${esc(x.ccy)}</b>`}</span></div>`;
+  const _grpIds=new Map(); let _gi=0; const _grpIdOf=(x)=>{ const k=_gk(x); if(!_grpIds.has(k)) _grpIds.set(k,++_gi); return _grpIds.get(k); };
+  const _seenG=new Set();
+  let body='<div style="display:grid;grid-template-columns:'+_gridCols+';gap:6px;align-items:center;padding:2px 4px;font-size:9.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px"><span></span><span>Loại</span><span>Nhà cung cấp · diễn giải</span><span>Nguồn tiền</span><span style="text-align:right">Số chi đợt này</span></div>';
+  rows.forEach((x,ix)=>{
+    const k=_gk(x);
+    if((_grpN[k]||0)<2){ body+=_rowHtml(x,ix,false); return; }
+    const g=_grpIdOf(x);
+    if(!_seenG.has(k)){ _seenG.add(k);
+      const members=rows.map((y,iy)=>({y,iy})).filter(o=>_gk(o.y)===k);
+      const tot=members.reduce((a,o)=>a+(+o.y.amt||0),0);
+      const allAp=members.every(o=>o.y.kind==='ap');
+      const ccys=[...new Set(members.map(o=>o.y.ccy||'VND'))];
+      const nAp=members.filter(o=>o.y.kind!=='op').length, nOp=members.length-nAp;
+      const def=members[0].y; const defSel=def.defMethod==='CASH'?'CASH':def.defBank;
+      const sameDef=members.every(o=>(o.y.defMethod==='CASH'?'CASH':o.y.defBank)===defSel);
+      body+=`<div class="bk-ghead" style="display:grid;grid-template-columns:${_gridCols};gap:6px;align-items:center;padding:7px 4px;border-bottom:1px solid var(--rule);background:rgba(28,122,77,.07);font-size:12px">
+      <input type="checkbox" data-bkg="${g}" onchange="document.querySelectorAll('.bk-g-${g} [data-bk]').forEach(c=>c.checked=this.checked); bkSummary()" title="Tick/bỏ tick cả khối">
+      <span class="ds-need" title="${nAp} AP · ${nOp} chi hộ">${nAp&&nOp?'AP+CH':(nOp?'CHI HỘ':'AP')} <span style="font-size:10px;color:var(--muted)">×${members.length}</span></span>
+      <span style="min-width:0"><b style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(x.label)}">🧩 ${esc(x.label)}</b><span style="display:block;color:var(--muted);font-size:10.5px"><a href="javascript:void(0)" onclick="bkGrpToggle(${g},this)" style="color:#1c7a4d">▸ ${members.length} khoản — bung ra</a>${ccys.length>1?' · <span style="color:var(--warn)">⚠ nhiều tiền tệ ('+esc(ccys.join('/'))+')</span>':''}</span></span>
+      <span style="white-space:nowrap;display:flex;gap:6px;align-items:center">
+        <select data-bkgsrc="${g}" onchange="document.querySelectorAll('.bk-g-${g} select[data-bksrc]').forEach(s=>{ s.value=this.value; }); bkSummary()" title="Nguồn tiền áp cho CẢ ${members.length} khoản của ${esc(x.label)}" style="width:100%;font-size:11px;font-weight:600">${bkOpt(sameDef?defSel:'', true)}</select></span>
+      <span style="text-align:right;white-space:nowrap"><b style="font-family:var(--font-mono);font-size:11.5px" title="Tổng khối">${tot.toLocaleString('vi-VN')} ${ccys.length===1?esc(ccys[0]):''}</b></span></div>`;
+    }
+    body+=_rowHtml(x,ix,true);
+  });
   tEl.innerHTML=`<div style="border:1.5px solid #1c7a4d;border-radius:10px;padding:10px 12px">
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:6px">
       <b style="font-size:13px">💸 CHỜ THANH TOÁN (${rows.length})</b>
@@ -11048,8 +11089,16 @@ function renderBkPayList(tEl){
   window._bkRows=rows;
   bkSummary();
 }
+function bkGrpToggle(g,a){
+  const kids=document.querySelectorAll('.bk-g-'+g); if(!kids.length) return;
+  const open=kids[0].style.display==='none';
+  kids.forEach(k=>{ k.style.display=open?'grid':'none'; });
+  if(a) a.textContent=(open?'▾ ':'▸ ')+kids.length+' khoản — '+(open?'gập lại':'bung ra');
+}
 function bkSummary(){
   const rows=window._bkRows||[]; const el=document.getElementById('bk-sum'); const go=document.getElementById('bk-go');
+  /* v3.18.00: đồng bộ ô tick khối theo các khoản con (tất cả / một phần / không) */
+  try{ document.querySelectorAll('[data-bkg]').forEach(gc=>{ const g=gc.getAttribute('data-bkg'); const ks=[...document.querySelectorAll('.bk-g-'+g+' [data-bk]')]; const n=ks.filter(c=>c.checked).length; gc.checked=n>0&&n===ks.length; gc.indeterminate=n>0&&n<ks.length; }); }catch(e){}
   let n=0, tBank=0, tCash=0, tGn=0;
   document.querySelectorAll('[data-bk]:checked').forEach(c=>{
     const x=rows.find(r=>r.id===c.getAttribute('data-bk')); if(!x) return;
@@ -11086,15 +11135,22 @@ function bkConfirm(){
   }
   if(!picks.length){ toast('Chưa tick khoản nào','warn'); return; }
   const date=((document.getElementById('bk-date')||{}).value)||todayISO();
+  /* v3.18.00 (Sếp): MỖI LOẠI TIỀN 1 BẢNG KÊ — ngoại tệ lập bảng chi ngoại tệ riêng (VND, USD, EUR…). */
+  const _ccyList=[...new Set(picks.map(pk=>pk.x.ccy||'VND'))].sort((a,b)=>a==='VND'?-1:b==='VND'?1:a.localeCompare(b));
+  const _nBk=_ccyList.length;
   const bkId=bkNextNo(date);
-  if(!confirm('Xác nhận thanh toán '+picks.length+' khoản ngày '+date+'?\n\nNgân hàng sẽ TRỪ TIỀN tại thời điểm này. Lập bảng kê '+bkId+'.')) return;
-  let nOk=0; const sheetRows=[]; const totals={bank:{},cash:0,gn:{}}; let grand=0;
+  if(!confirm('Xác nhận thanh toán '+picks.length+' khoản ngày '+date+'?\n\nNgân hàng sẽ TRỪ TIỀN tại thời điểm này. Lập '+(_nBk>1?(_nBk+' bảng kê theo tiền tệ ('+_ccyList.join(', ')+') từ '):'bảng kê ')+bkId+'.')) return;
+  let nOk=0; const _sheets=[]; let _firstId=bkId;
   commitMutation(()=>{
-    picks.forEach(pk=>{ const x=pk.x;
+    _ccyList.forEach((_ccy,_ci)=>{
+    const sheetRows=[]; const totals={bank:{},cash:0,gn:{}}; let grand=0;
+    const _bkId=bkNextNo(date); if(_ci===0) _firstId=_bkId;
+    const bkId=_bkId;
+    picks.filter(pk=>(pk.x.ccy||'VND')===_ccy).forEach(pk=>{ const x=pk.x;
       const isGn=pk.src.indexOf('LOAN:')===0;
       const srcBank=isGn?pk.src.slice(5):pk.src;
       const method=isGn?'loan':((pk.src==='CASH')?'cash':'bank');
-      if(isGn && x.kind!=='ap'){ return; }   /* GN chỉ AP */
+      /* v3.18.00: GN cho cả chi hộ (trước chặn 'GN chỉ AP') — _opPayApply xử lý method loan + kuDraft */
       const proposed={method:x.defMethod==='CASH'?'cash':'bank', bankId:x.defBank||''};
       const changed=(method!==proposed.method)||(method!=='cash'&&proposed.bankId!==srcBank);
       if(x.kind==='ap'){
@@ -11117,25 +11173,52 @@ function bkConfirm(){
       else if(method==='loan') totals.gn[srcBank]=(totals.gn[srcBank]||0)+_v;
       else totals.bank[srcBank]=(totals.bank[srcBank]||0)+_v;
     });
+    if(!sheetRows.length) return;
     S.paymentSheets=S.paymentSheets||[];
-    S.paymentSheets.push({id:bkId, date, rows:sheetRows, totals, grand, by:actorName(), at:new Date().toISOString()});
+    S.paymentSheets.push({id:bkId, date, ccy:_ccy, rows:sheetRows, totals, grand, by:actorName(), at:new Date().toISOString()});
+    _sheets.push({id:bkId, ccy:_ccy, n:sheetRows.length, grand});
+    });
   },{action:'bk_create', fields:['payables','opTransactions','bankAccounts','loans','paymentSheets'], onOk:()=>{
-    try{ logAuditEvent('bk_create',{bkId, count:nOk, grand, actor:actorName()}); }catch(e){}
-    toast('✓ Đã thanh toán '+nOk+' khoản · lập bảng kê '+bkId,'good'); renderAll();
-    try{ bkView(bkId); }catch(e){}
+    try{ logAuditEvent('bk_create',{bkIds:_sheets.map(x=>x.id), count:nOk, sheets:_sheets, actor:actorName()}); }catch(e){}
+    toast('✓ Đã thanh toán '+nOk+' khoản · lập '+_sheets.length+' bảng kê: '+_sheets.map(x=>x.id+' ('+x.ccy+')').join(', '),'good'); renderAll();
+    try{ bkView(_firstId); }catch(e){}
   }});
 }
-function bkGroupsHtml(bk){
+/* v3.18.00 (Sếp: 'lọc thông minh khi lập bảng kê'): GOM THEO NCC trong cùng nhóm nguồn tiền (cùng TK
+   ngân hàng / tiền mặt / cùng TK giải ngân). Cùng NCC ≥2 khoản → 1 dòng tên + tổng; diễn giải liệt kê
+   số HĐ các khoản gộp. bk.rows LƯU CHI TIẾT nguyên vẹn (sổ) — chỉ gom khi HIỂN THỊ/in/xuất. Lệnh ngân
+   hàng lập 1 UNC/NCC đúng thực tế chuyển khoản. detail=true → xem từng khoản như cũ. */
+function bkGroupRows(rows){
+  const map=new Map(); const out=[];
+  (rows||[]).forEach(x=>{ if(!x) return;
+    const k=String(x.label||'').trim().toLowerCase();
+    if(!k){ out.push(x); return; }
+    let g=map.get(k);
+    if(!g){ g={label:x.label, refType:x.refType, lock:false, changed:false, amount:0, ccy:x.ccy, n:0, items:[]}; map.set(k,g); out.push(g); }
+    g.n++; g.amount+=(+x.amount||0); g.items.push(x);
+    if(x.lock) g.lock=true; if(x.changed) g.changed=true;
+    if(g.refType!==x.refType) g.refType='mix';
+  });
+  out.forEach(g=>{ if(!g.items) return;
+    if(g.n===1){ const x=g.items[0]; g.desc=x.desc||''; g.refType=x.refType; return; }
+    const inv=g.items.map(x=>{ const m=/HĐ\s*([^·]+)/.exec(x.desc||''); return m?m[1].trim():''; }).filter(Boolean);
+    g.desc='Gộp '+g.n+' khoản'+(inv.length?(' · HĐ '+inv.join(', ')):'');
+  });
+  return out;
+}
+function bkGroupsHtml(bk, detail){
   const bks=AccountingService.bankAccounts();
   const nameOf=(bid)=>{ const a=bks.find(z=>z.id===bid); return a?((a.bankName||'')+' ·'+(a.accountNo||'').slice(-9)):bid; };
-  const row=(x,i)=>`<tr><td>${i}</td><td>${x.refType==='op'?('CHI HỘ'+(x.lock?' 🔒':'')):'AP'}</td><td>${esc(x.label)}</td><td>${esc(x.desc||'')}${x.changed?' <span style="color:var(--warn)" title="KT đổi nguồn so với đề xuất">↺</span>':''}</td><td style="text-align:right;font-family:var(--font-mono)">${(+x.amount||0).toLocaleString('vi-VN')}</td></tr>`;
+  const _rows=(arr)=>detail?arr:bkGroupRows(arr);   /* v3.18.00 */
+  const kindLbl=(x)=>x.refType==='op'?('CHI HỘ'+(x.lock?' 🔒':'')):(x.refType==='mix'?'AP+CH':'AP');
+  const row=(x,i)=>`<tr><td>${i}</td><td>${kindLbl(x)}${x.n>1?' <span style="font-size:10px;color:var(--muted)">×'+x.n+'</span>':''}</td><td>${esc(x.label)}</td><td>${esc(x.desc||'')}${x.changed?' <span style="color:var(--warn)" title="KT đổi nguồn so với đề xuất">↺</span>':''}</td><td style="text-align:right;font-family:var(--font-mono)">${(+x.amount||0).toLocaleString('vi-VN')}</td></tr>`;
   let i=0, h='';
   const bankIds=Object.keys(bk.totals.bank||{});
   if(bankIds.length){
     h+='<div style="font-weight:700;background:#123a5c;color:#fff;border-radius:6px;padding:4px 10px;margin:10px 0 4px;font-size:11.5px">PHẦN I — THANH TOÁN QUA NGÂN HÀNG</div>';
     bankIds.forEach(bid=>{
       h+='<div style="font-weight:700;font-size:11px;background:var(--chip,#eef3f7);border-radius:5px;padding:3px 8px;margin:6px 0 2px">'+esc(nameOf(bid))+'</div><table style="width:100%;border-collapse:collapse;font-size:11.5px">';
-      bk.rows.filter(x=>x.group==='bank'&&x.bankId===bid).forEach(x=>{ i++; h+=row(x,i); });
+      _rows(bk.rows.filter(x=>x.group==='bank'&&x.bankId===bid)).forEach(x=>{ i++; h+=row(x,i); });
       h+='<tr><td colspan="4" style="font-weight:700;background:rgba(18,58,92,.06)">Cộng '+esc(nameOf(bid))+'</td><td style="text-align:right;font-weight:700;font-family:var(--font-mono);background:rgba(18,58,92,.06)">'+(bk.totals.bank[bid]||0).toLocaleString('vi-VN')+'</td></tr></table>';
     });
     const sumB=bankIds.reduce((a,b)=>a+(bk.totals.bank[b]||0),0);
@@ -11144,7 +11227,7 @@ function bkGroupsHtml(bk){
   const cashRows=bk.rows.filter(x=>x.group==='cash');
   if(cashRows.length){
     h+='<div style="font-weight:700;background:#123a5c;color:#fff;border-radius:6px;padding:4px 10px;margin:10px 0 4px;font-size:11.5px">PHẦN II — TIỀN MẶT</div><table style="width:100%;border-collapse:collapse;font-size:11.5px">';
-    cashRows.forEach(x=>{ i++; h+=row(x,i); });
+    _rows(cashRows).forEach(x=>{ i++; h+=row(x,i); });
     h+='<tr><td colspan="4" style="font-weight:700;background:rgba(18,58,92,.06)">CỘNG TIỀN MẶT</td><td style="text-align:right;font-weight:700;font-family:var(--font-mono);background:rgba(18,58,92,.06)">'+(bk.totals.cash||0).toLocaleString('vi-VN')+'</td></tr></table>';
   }
   const gnIds=Object.keys(bk.totals.gn||{});
@@ -11152,22 +11235,24 @@ function bkGroupsHtml(bk){
     h+='<div style="font-weight:700;background:#7a3b8f;color:#fff;border-radius:6px;padding:4px 10px;margin:10px 0 4px;font-size:11.5px">PHẦN III — GIẢI NGÂN TỪ TK VAY · ghi tăng TÍN DỤNG, chờ KUNN</div>';
     gnIds.forEach(bid=>{
       h+='<div style="font-weight:700;font-size:11px;background:#f5ecf8;border-radius:5px;padding:3px 8px;margin:6px 0 2px">'+esc(nameOf(bid))+'</div><table style="width:100%;border-collapse:collapse;font-size:11.5px">';
-      bk.rows.filter(x=>x.group==='gn'&&x.bankId===bid).forEach(x=>{ i++; h+=row(x,i); });
+      _rows(bk.rows.filter(x=>x.group==='gn'&&x.bankId===bid)).forEach(x=>{ i++; h+=row(x,i); });
       h+='<tr><td colspan="4" style="font-weight:700;background:#faf4fc">Cộng GN — '+esc(nameOf(bid))+'</td><td style="text-align:right;font-weight:700;font-family:var(--font-mono);background:#faf4fc">'+(bk.totals.gn[bid]||0).toLocaleString('vi-VN')+'</td></tr></table>';
     });
     const sumG=gnIds.reduce((a,b)=>a+(bk.totals.gn[b]||0),0);
     h+='<div style="text-align:right;font-weight:800;font-size:12px;padding:4px 2px;color:#7a3b8f">CỘNG GIẢI NGÂN ('+gnIds.length+' TK vay): <span style="font-family:var(--font-mono)">'+sumG.toLocaleString('vi-VN')+'</span></div>';
   }
-  h+='<div style="border-top:2.5px double #123a5c;margin-top:8px;padding-top:6px;display:flex;justify-content:space-between;font-weight:800"><span>TỔNG CỘNG'+(typeof _numToVnWords==='function'?(' — <i style="font-weight:400;font-size:11px">'+esc(_numToVnWords(bk.grand))+'</i>'):'')+'</span><span style="font-family:var(--font-mono)">'+(+bk.grand||0).toLocaleString('vi-VN')+'</span></div>';
+  h+='<div style="border-top:2.5px double #123a5c;margin-top:8px;padding-top:6px;display:flex;justify-content:space-between;font-weight:800"><span>TỔNG CỘNG'+(typeof _numToVnWords==='function'?(' — <i style="font-weight:400;font-size:11px">'+esc(_numToVnWords(bk.grand))+'</i>'):'')+'</span><span style="font-family:var(--font-mono)">'+(+bk.grand||0).toLocaleString('vi-VN')+(bk.ccy?(' '+esc(bk.ccy)):'')+'</span></div>';
   h+='<div style="text-align:right;margin-top:16px;font-size:11px"><b>NGƯỜI LẬP</b><br><span style="color:var(--muted)">'+esc(bk.by||'')+' · '+esc(String(bk.at||'').slice(0,16).replace('T',' '))+'</span></div>';
   return h;
 }
-function bkView(id){
+function bkView(id, detail){
   const bk=(S.paymentSheets||[]).find(b=>b&&b.id===id); if(!bk){ toast('Không thấy bảng kê','warn'); return; }
-  openModal('📄 BẢNG KÊ THANH TOÁN NGÀY '+bk.date+' — '+bk.id,
-    '<div style="font-size:11px;color:var(--muted);margin-bottom:4px">'+bk.rows.length+' khoản · lập bởi '+esc(bk.by||'')+' · chứng từ lưu vĩnh viễn, không sửa</div>'
-    +'<div style="max-height:440px;overflow:auto">'+bkGroupsHtml(bk)+'</div>',
+  window._bkViewDetail=!!detail;   /* v3.18.00: PDF/Excel theo chế độ đang xem */
+  openModal('📄 BẢNG KÊ '+(bk.ccy&&bk.ccy!=='VND'?('CHI NGOẠI TỆ ('+bk.ccy+') '):'THANH TOÁN ')+'NGÀY '+bk.date+' — '+bk.id,
+    '<div style="font-size:11px;color:var(--muted);margin-bottom:4px">'+bk.rows.length+' khoản · lập bởi '+esc(bk.by||'')+' · chứng từ lưu vĩnh viễn, không sửa · '+(detail?'đang xem TỪNG KHOẢN':'đã GỘP theo NCC cùng nguồn tiền')+'</div>'
+    +'<div style="max-height:440px;overflow:auto">'+bkGroupsHtml(bk, !!detail)+'</div>',
     '<button class="btn-ghost" onclick="closeModal()">Đóng</button>'
+    +'<button class="btn-ghost" onclick="bkView(\''+esc(bk.id)+'\','+(detail?'false':'true')+')">'+(detail?'🧩 Gộp theo NCC':'🔍 Từng khoản')+'</button>'
     +'<button class="btn-sec" onclick="bkPdf(\''+esc(bk.id)+'\')">⬇ PDF</button>'
     +'<button class="btn-sec" onclick="bkExcel(\''+esc(bk.id)+'\')">⬇ Excel</button>'
     +'<button class="btn-sec" onclick="bkLibraryOpen()">🗂 Thư viện</button>');
@@ -11185,9 +11270,9 @@ function bkPdf(id){
     <div style="display:flex;justify-content:space-between;border-bottom:2.5px double #123a5c;padding-bottom:6px;margin-bottom:8px">
       <div style="font-size:10.5px;line-height:1.4"><b>CÔNG TY CP HÀNG HẢI VÀ NĂNG LƯỢNG CÁ NGỰA</b><br>Seahorse Marine &amp; Energy JSC — Vũng Tàu</div>
       <div style="font-size:10.5px;text-align:right">Số: <b style="font-family:Consolas">${esc(bk.id)}</b><br>Ngày chi: ${esc(bk.date)}</div></div>
-    <div style="text-align:center;font-size:15px;font-weight:700;color:#123a5c;letter-spacing:.5px;margin:6px 0 2px">BẢNG KÊ THANH TOÁN NGÀY ${esc(bk.date)}</div>
+    <div style="text-align:center;font-size:15px;font-weight:700;color:#123a5c;letter-spacing:.5px;margin:6px 0 2px">BẢNG KÊ ${bk.ccy&&bk.ccy!=='VND'?('CHI NGOẠI TỆ ('+esc(bk.ccy)+') '):'THANH TOÁN '}NGÀY ${esc(bk.date)}</div>
     <div style="text-align:center;font-size:10.5px;color:#666;margin-bottom:10px">${bk.rows.length} khoản · lập bởi ${esc(bk.by||'')}</div>
-    ${bkGroupsHtml(bk)}
+    ${bkGroupsHtml(bk, !!window._bkViewDetail)}
   </body></html>`);
   w.document.close();
   try{ logAuditEvent('bk_pdf',{bkId:id,actor:actorName()}); }catch(e){}
@@ -11196,23 +11281,24 @@ function bkExcel(id){
   const bk=(S.paymentSheets||[]).find(b=>b&&b.id===id); if(!bk){ toast('Không thấy bảng kê','warn'); return; }
   const bks=AccountingService.bankAccounts();
   const nameOf=(bid)=>{ const a=bks.find(z=>z.id===bid); return a?((a.bankName||'')+' ·'+(a.accountNo||'').slice(-9)):bid; };
-  const aoa=[['CÔNG TY CP HÀNG HẢI VÀ NĂNG LƯỢNG CÁ NGỰA — SMEJSC'],['BẢNG KÊ THANH TOÁN NGÀY '+bk.date],['Số: '+bk.id+' · lập bởi '+(bk.by||'')],[]];
+  const aoa=[['CÔNG TY CP HÀNG HẢI VÀ NĂNG LƯỢNG CÁ NGỰA — SMEJSC'],['BẢNG KÊ '+(bk.ccy&&bk.ccy!=='VND'?('CHI NGOẠI TỆ ('+bk.ccy+') '):'THANH TOÁN ')+'NGÀY '+bk.date],['Số: '+bk.id+' · lập bởi '+(bk.by||'')],[]];
   let i=0;
-  const emit=(x)=>{ i++; aoa.push([i, x.refType==='op'?('CHI HỘ'+(x.lock?' 🔒':'')):'AP', x.label, x.desc||'', +x.amount||0, x.ccy||'VND']); };
+  const _rows=(arr)=>window._bkViewDetail?arr:bkGroupRows(arr);   /* v3.18.00: gộp NCC như màn xem */
+  const emit=(x)=>{ i++; aoa.push([i, (x.refType==='op'?('CHI HỘ'+(x.lock?' 🔒':'')):(x.refType==='mix'?'AP+CH':'AP'))+(x.n>1?(' ×'+x.n):''), x.label, x.desc||'', +x.amount||0, x.ccy||'VND']); };
   const hdr=()=>aoa.push(['#','Loại','Đối tượng','Diễn giải · HĐ','Số tiền','CCY']);
   const bankIds=Object.keys(bk.totals.bank||{});
   if(bankIds.length){ aoa.push(['PHẦN I — THANH TOÁN QUA NGÂN HÀNG']);
     bankIds.forEach(bid=>{ aoa.push([nameOf(bid)]); hdr();
-      bk.rows.filter(x=>x.group==='bank'&&x.bankId===bid).forEach(emit);
+      _rows(bk.rows.filter(x=>x.group==='bank'&&x.bankId===bid)).forEach(emit);
       aoa.push(['','','','Cộng '+nameOf(bid), bk.totals.bank[bid]||0]); });
     aoa.push(['','','','CỘNG NGÂN HÀNG ('+bankIds.length+' TK)', bankIds.reduce((a,b)=>a+(bk.totals.bank[b]||0),0)]); aoa.push([]); }
   const cashRows=bk.rows.filter(x=>x.group==='cash');
-  if(cashRows.length){ aoa.push(['PHẦN II — TIỀN MẶT']); hdr(); cashRows.forEach(emit);
+  if(cashRows.length){ aoa.push(['PHẦN II — TIỀN MẶT']); hdr(); _rows(cashRows).forEach(emit);
     aoa.push(['','','','CỘNG TIỀN MẶT', bk.totals.cash||0]); aoa.push([]); }
   const gnIds=Object.keys(bk.totals.gn||{});
   if(gnIds.length){ aoa.push(['PHẦN III — GIẢI NGÂN TỪ TK VAY (ghi tăng tín dụng · chờ KUNN)']);
     gnIds.forEach(bid=>{ aoa.push([nameOf(bid)]); hdr();
-      bk.rows.filter(x=>x.group==='gn'&&x.bankId===bid).forEach(emit);
+      _rows(bk.rows.filter(x=>x.group==='gn'&&x.bankId===bid)).forEach(emit);
       aoa.push(['','','','Cộng GN — '+nameOf(bid), bk.totals.gn[bid]||0]); });
     aoa.push(['','','','CỘNG GIẢI NGÂN', gnIds.reduce((a,b)=>a+(bk.totals.gn[b]||0),0)]); aoa.push([]); }
   aoa.push(['','','','TỔNG CỘNG', +bk.grand||0]);
@@ -41716,6 +41802,19 @@ function _apprValidIdsAtLevel(){
   return ids;
 }
 
+/* v3.18.00: giao diện theo CHIP — tiêu đề danh sách, thanh nút đáy, ô Chọn tất cả. Chip nghiệp vụ
+   riêng (Chờ TT / Phí / KUNN / Đã duyệt) có nút ngay trong khối → ẩn cả thanh nút duyệt AP. */
+function _apprApplyChipUI(lvl){
+  const titles={pending_acc:'Danh sách bút toán chờ KT kiểm', pending_l1:'Danh sách bút toán chờ trình ký (L1)', pending_l2:'Danh sách bút toán chờ duyệt chi (L2)',
+    bk_pay:'Danh sách khoản chờ thanh toán — lập bảng kê', fee:'Phí ngân hàng phát sinh sau chuyển', kunn:'Khế ước nhận nợ chờ hoàn thiện', approved:'Bút toán đã duyệt (xem lại)'};
+  const t=document.getElementById('appr-list-title'); if(t) t.textContent=titles[lvl]||'Danh sách bút toán chờ duyệt';
+  const special=(lvl==='bk_pay'||lvl==='fee'||lvl==='kunn'||lvl==='approved');
+  const bar=document.getElementById('appr-action-btns'); if(bar) bar.style.display=special?'none':'';
+  const sa=document.getElementById('appr-select-all'); if(sa){ const lb=sa.closest('label'); if(lb) lb.style.display=(lvl==='bk_pay'||lvl==='fee'||lvl==='kunn')?'none':''; }
+  const sum=document.getElementById('appr-action-summary');
+  if(sum && special){ sum.innerHTML='<span style="color:var(--muted)">'+(lvl==='bk_pay'?'Tick khoản và chọn nguồn tiền trong khối 💸 rồi bấm Xác nhận thanh toán':lvl==='fee'?'Ghi phí ngay trên từng dòng trong khối phí':lvl==='kunn'?'Hoàn thiện khế ước bằng nút ✎ trong khối':'Chế độ xem lại — không thao tác')+'</span>'; }
+  const mb=document.getElementById('appr-pit-section'); if(mb && special) mb.style.display='none';
+}
 /* v3.11.52: chips chọn hàng đợi duyệt (thay ô select Cấp duyệt) — set vào select ẩn appr-level */
 function _apprSetLevel(v){
   const sel=document.getElementById('appr-level'); if(sel){ sel.value=v; }
@@ -41965,6 +42064,10 @@ function renderApprovalList(){
        đang KT kiểm ở lại tab Thu-Chi hộ + mobile; (2) DÙNG CHUNG BỘ LỌC với AP: đối tác, số tiền,
        từ/đến ngày áp cho cả chi hộ. */
     const _apprLvl=((document.getElementById('appr-level')||{}).value)||'';
+    /* v3.18.00 (Sếp, ảnh chip Phí phát sinh còn nút 'Trình Thanh toán (2)'): các chip bk_pay/fee/kunn
+       return sớm → KHÔNG chạy khối ẩn/hiện nút theo cấp ở cuối hàm → thanh nút + tiêu đề + chọn-tất-cả
+       DÍNH theo chip trước. Đồng bộ giao diện theo chip TRƯỚC mọi nhánh return. */
+    try{ _apprApplyChipUI(_apprLvl); }catch(e){}
     if(_apprLvl==='bk_pay'){ try{ renderBkPayList(tEl); }catch(e){ console.warn('[bk]',e); tEl.innerHTML='<div style="padding:14px;color:var(--bad,#b3402e);font-size:12px">⚠ Màn này gặp lỗi: '+esc(e.message||e)+' — chụp màn hình gửi hỗ trợ (v'+APP_VERSION+')</div>'; } window._opBatchIds=[]; updateApprovalSummary(); return; }   /* v3.17.71 */
     if(_apprLvl==='fee'){ try{ renderFeeList(tEl); }catch(e){ console.warn('[fee]',e); tEl.innerHTML='<div style="padding:14px;color:var(--bad,#b3402e);font-size:12px">⚠ Màn này gặp lỗi: '+esc(e.message||e)+' — chụp màn hình gửi hỗ trợ (v'+APP_VERSION+')</div>'; } window._opBatchIds=[]; updateApprovalSummary(); return; }   /* v3.17.74 GĐ A */
     if(_apprLvl==='kunn'){ try{ renderKunnList(tEl); }catch(e){ console.warn('[kunn]',e); tEl.innerHTML='<div style="padding:14px;color:var(--bad,#b3402e);font-size:12px">⚠ Màn này gặp lỗi: '+esc(e.message||e)+' — chụp màn hình gửi hỗ trợ (v'+APP_VERSION+')</div>'; } window._opBatchIds=[]; updateApprovalSummary(); return; }   /* v3.17.76 GĐ C */
@@ -43569,7 +43672,7 @@ function bankLedgerRows(accId){
         "showOpTxDetail('"+t.id+"')");
     }
     (t.payments||[]).forEach(p=>{
-      if(!p || p.bankAccountId!==accId) return;
+      if(!p || p.bankAccountId!==accId || p.method==='loan') return;   /* v3.18.00: giải ngân chi hộ không chạm TK */
       push(p.date,'CHI HỘ',t.id,(t.vendor||t.desc||'').slice(0,50),0,
         _arPayAmountInCcy({amount:p.amount,fxRate:(+S.fxRate||0)}, p.ccy||t.ccy||'VND', accCcy),
         _bankLedgerFeeInAcc(p, p.ccy||t.ccy||'VND', accCcy),
@@ -46344,15 +46447,41 @@ function renderBanking(){
             </tr>
           </thead>
           <tbody>`;
-      facilities.forEach(f=>{
+      /* v3.18.00 (Sếp): GOM THEO NGÂN HÀNG — dòng đầu = NH · tổng hạn mức · tổng đã vay · còn · % · số khoản,
+         bấm ▸ gập/bung các hạn mức con (mặc định bung). Cùng NH xếp cạnh nhau, NH theo tên A→Z, trong NH
+         theo năm giảm dần. Quy đổi tổng NH về ccy chủ đạo của NH (đa số hạn mức); khác ccy → FX. */
+      const _byBank={}; facilities.forEach(f=>{ const k=(f.bankName||'').trim().toUpperCase()||'(?)'; (_byBank[k]=_byBank[k]||[]).push(f); });
+      const _bankKeys=Object.keys(_byBank).sort((a,b)=>a.localeCompare(b,'vi'));
+      const _fxB=fxRate(); const _cv=(v,from,to)=>{ if(from===to) return v; const u=(from==='USD')?v:v/_fxB; return (to==='USD')?u:u*_fxB; };
+      window._cfacOpen=window._cfacOpen||{};
+      _bankKeys.forEach((bk,bi)=>{
+        const fs=_byBank[bk].slice().sort((a,b)=>(+b.year||0)-(+a.year||0)||String(a.contractNo||'').localeCompare(String(b.contractNo||'')));
+        const _ccyCnt={}; fs.forEach(f=>{ const c=f.ccy||'VND'; _ccyCnt[c]=(_ccyCnt[c]||0)+1; });
+        const mainCcy=Object.entries(_ccyCnt).sort((a,b)=>b[1]-a[1])[0][0];
+        let tL=0,tD=0,nL=0; fs.forEach(f=>{ tL+=_cv(+f.limit||0,f.ccy||'VND',mainCcy); tD+=_cv(+f.drawn||0,f.ccy||'VND',mainCcy); nL+=(+f.nLoans||0); });
+        const tR=Math.max(0,tL-tD), tU=tL>0?Math.min(100,tD/tL*100):0;
+        const tColor=tU>80?'var(--bad)':(tU>50?'var(--accent)':'var(--teal)');
+        const open=(window._cfacOpen[bk]!==false);
+        if(fs.length>1 || true){
+          h += `<tr class="cfac-bank-head" style="background:var(--paper-3);cursor:pointer" onclick="cfacBankToggle('${esc(bk).replace(/'/g,'&#39;')}')" title="Bấm để gập/bung các hạn mức của ${esc(fs[0].bankName||'')}">
+          <td><span class="cfac-chev" style="display:inline-block;width:12px;font-size:10px;color:var(--muted)">${open?'▾':'▸'}</span> <b>${esc(fs[0].bankName||'')}</b> <span style="font-size:10px;color:var(--muted)">(${fs.length} hạn mức)</span></td>
+          <td></td>
+          <td class="ds-t-sub" style="font-family:var(--font-mono);text-align:right"><b>${fmtCcy(tL, mainCcy)}</b></td>
+          <td class="ds-t-sub" style="font-family:var(--font-mono);text-align:right;color:var(--bad)">${fmtCcy(tD, mainCcy)}</td>
+          <td class="ds-t-sub" style="font-family:var(--font-mono);text-align:right;color:var(--teal)"><b>${fmtCcy(tR, mainCcy)}</b></td>
+          <td class="ds-t-sub" style="font-family:var(--font-mono);color:${tColor};font-weight:700">${_negU(tU.toFixed(1))}%</td>
+          <td class="ds-t-sub" style="font-family:var(--font-mono)">${nL}</td>
+          <td></td><td class="col-action"></td></tr>`;
+        }
+      fs.forEach(f=>{
         const util = f.utilization;
         const utilColor = util>80?'var(--bad)':(util>50?'var(--accent)':'var(--teal)');
         const expDate = f.expiryDate||'';
         const daysToExpiry = expDate ? Math.floor((new Date(expDate).getTime() - Date.now())/86400000) : null;
         const expWarn = daysToExpiry!==null && daysToExpiry<60 ? '⚠ ' : '';
         const expStyle = daysToExpiry!==null && daysToExpiry<30 ? 'color:var(--bad);font-weight:700' : (daysToExpiry!==null && daysToExpiry<60 ? 'color:var(--accent)' : '');
-        h += `<tr>
-          <td><b>${esc(f.bankName)}</b>${f.contractNo?`<br><span style="font-size:10px;color:var(--muted)" class="ds-t-sub" style="font-family:var(--font-mono)">${esc(f.contractNo)}</span>`:''}</td>
+        h += `<tr class="cfac-row cfac-b-${bi}" data-cfac-bank="${esc(bk).replace(/"/g,'&quot;')}" style="${open?'':'display:none'}">
+          <td style="padding-left:26px"><span style="font-size:10px;color:var(--muted)" class="ds-t-sub">${esc(f.contractNo||'(không số HĐ)')}</span></td>
           <td class="ds-t-sub" style="font-family:var(--font-mono)">${f.year}</td>
           <td class="ds-t-sub" style="font-family:var(--font-mono)" style="text-align:right"><b>${fmtCcy(f.limit, f.ccy)}</b></td>
           <td class="ds-t-sub" style="font-family:var(--font-mono)" style="text-align:right;color:var(--bad)">${fmtCcy(f.drawn, f.ccy)}</td>
@@ -46364,6 +46493,7 @@ function renderBanking(){
             <button class="icon-btn" title="Sửa" onclick="openCreditFacilityForm('${f.id}')">✎</button>
           </td>
         </tr>`;
+      });
       });
       h += '</tbody></table>';
       cfBox.innerHTML = h;
@@ -46504,7 +46634,11 @@ function renderBanking(){
         byLender[ld].push(l);
       });
       // Sắp xếp lender theo tổng dư nợ giảm dần
+      /* v3.18.00 (Sếp: 'NH cùng loại xếp cạnh nhau, không rời rạc'): xếp theo LOẠI chủ nợ trước
+         (🏦 NH → 🏢 cty VN → 🌍 nước ngoài → 💼 khác), trong loại theo dư nợ giảm dần. */
+      const _lenderRank=(name, ls)=>{ const ic=_lenderIcon(name); const isBank=(ls||[]).some(l=>l&&l.lenderType==='bank')||ic==='🏦'; return isBank?0:(ic==='🏢'?1:(ic==='🌍'?2:3)); };
       const lenderEntries = Object.entries(byLender).sort((a,b)=>{
+        const ra=_lenderRank(a[0],a[1]), rb=_lenderRank(b[0],b[1]); if(ra!==rb) return ra-rb;
         const totA = a[1].reduce((s,l)=>s+toDisplay(loanRemainingPrincipal(l), l.ccy||'VND'),0);
         const totB = b[1].reduce((s,l)=>s+toDisplay(loanRemainingPrincipal(l), l.ccy||'VND'),0);
         return totB - totA;
@@ -46535,9 +46669,9 @@ function renderBanking(){
         const _lenderB64=(()=>{ try{ return btoa(unescape(encodeURIComponent(lender))); }catch(e){ return lender; } })();
         // v2.99.14: Dùng <details> native — đóng mặc định, click thanh để mở
         html += `<details class="loan-lender-group" style="margin:14px 0 0;border:1px solid var(--rule);border-radius:3px;background:var(--paper)">
-          <summary style="font-family:var(--font-display);font-size:13px;font-weight:700;padding:10px 14px;background:var(--paper-3);border-left:4px solid var(--ink);color:var(--ink);cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;user-select:none">
-            <span style="display:flex;align-items:center;gap:8px"><span class="loan-lender-chevron" style="font-size:10px;width:12px;display:inline-block;color:var(--muted)">▶</span> ${icon} ${esc(lender)} <span style="font-weight:400;color:var(--muted);font-size:11px">(${lenderLoans.length} khoản)</span></span>
-            <span style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+          <summary style="font-family:var(--font-display);font-size:13px;font-weight:700;padding:10px 14px;background:var(--paper-3);border-left:4px solid var(--ink);color:var(--ink);cursor:pointer;list-style:none;display:grid;grid-template-columns:minmax(160px,1fr) 130px minmax(300px,auto) 250px;align-items:center;gap:10px;user-select:none"><!-- v3.18.00 (Sếp): cột cố định → các thanh NH THẲNG HÀNG -->
+            <span style="display:flex;align-items:center;gap:8px;min-width:0"><span class="loan-lender-chevron" style="font-size:10px;width:12px;display:inline-block;color:var(--muted)">▶</span> ${icon} ${esc(lender)} <span style="font-weight:400;color:var(--muted);font-size:11px">(${lenderLoans.length} khoản)</span></span>
+            <span style="display:contents">
               <label onclick="event.stopPropagation()" title="Bật: app tự ghi giảm gốc + chi phí lãi NGAY khi kỳ tới ngày đáo hạn. Tắt: KT tự tích xác nhận." style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;cursor:pointer;color:${_autoOn?'var(--teal)':'var(--muted)'}">
                 <input type="checkbox" ${_autoOn?'checked':''} onclick="event.stopPropagation();toggleLoanAuto('${_lenderB64}')" style="cursor:pointer"> 🔄 Auto tự thu
               </label>
@@ -46546,9 +46680,9 @@ function renderBanking(){
                 const _st=_creditLenderInterestStats(lenderLoans,_Y);
                 const _fmtByCcy=f=>Object.entries(_st.byCcy).filter(([_,b])=>f(b)>0).map(([c,b])=>`${_locN(f(b),c)} ${c}`).join(' + ');
                 const _p=_fmtByCcy(b=>b.paidY), _d=_fmtByCcy(b=>b.dueY);
-                return (_p||_d)?`<span style="font-size:11px;font-weight:600" title="Tổng LÃI năm ${_Y} theo lịch trả nợ — đã trả (kỳ có ngày trả) · còn phải trả (kỳ chưa trả)">Lãi ${_Y}: <span style="color:var(--good)">đã trả ${_p||'0'}</span> · <span style="color:var(--warn)">còn ${_d||'0'}</span></span>`:'';
+                return (_p||_d)?`<span style="font-size:11px;font-weight:600;white-space:nowrap" title="Tổng LÃI năm ${_Y} theo lịch trả nợ — đã trả (kỳ có ngày trả) · còn phải trả (kỳ chưa trả)">Lãi ${_Y}: <span style="color:var(--good)">đã trả ${_p||'0'}</span> · <span style="color:var(--warn)">còn ${_d||'0'}</span></span>`:'<span></span>';
               })()}
-              <span style="font-size:13px;color:var(--warn);font-weight:600">Còn nợ: ${lenderRemTxt}</span>
+              <span style="font-size:13px;color:var(--warn);font-weight:600;text-align:right;white-space:nowrap">Còn nợ: ${lenderRemTxt}</span>
             </span>
           </summary>
           <div style="padding:6px 8px 10px">`;
@@ -46769,6 +46903,16 @@ function loanRemainingPrincipal(loan){
   return Math.max(0, total - paid);
 }
 
+/* v3.18.00: gập/bung nhóm hạn mức theo NH — nhớ trạng thái trong phiên (window._cfacOpen). */
+function cfacBankToggle(bk){
+  window._cfacOpen=window._cfacOpen||{};
+  const open=!(window._cfacOpen[bk]!==false);
+  window._cfacOpen[bk]=open;
+  document.querySelectorAll('tr.cfac-row').forEach(tr=>{ if(tr.getAttribute('data-cfac-bank')===bk) tr.style.display=open?'':'none'; });
+  document.querySelectorAll('tr.cfac-bank-head').forEach(tr=>{ if((tr.getAttribute('title')||'').indexOf(bk)<0) return; });
+  const heads=[...document.querySelectorAll('tr.cfac-bank-head')];
+  heads.forEach(tr=>{ const on=tr.getAttribute('onclick')||''; if(on.indexOf("cfacBankToggle('"+bk.replace(/'/g,'&#39;')+"')")>=0||on.indexOf("cfacBankToggle('"+bk+"')")>=0){ const c=tr.querySelector('.cfac-chev'); if(c) c.textContent=open?'▾':'▸'; } });
+}
 /* v2.85.0: Tổng hợp hạn mức tín dụng theo từng facility.
    Trả về mảng các facility kèm: drawn (đã vay = tổng principal của các loans liên kết),
    remaining (còn được vay = limit - drawn), nLoans (số khoản vay đang dùng hạn mức này). */
@@ -47352,16 +47496,23 @@ function whKuGroupPick(items, pickedIdx){
   if(ccys.length>1) return {ok:false, reason:'Các món đã chọn có '+ccys.length+' loại tiền ('+ccys.join(' · ')+') — mỗi khế ước chỉ một loại tiền'};
   return {ok:true, picked, lender:lenders[0], ccy:ccys[0], total:picked.reduce((s,it)=>s+(+it.amount||0),0)};
 }
+/* v3.18.00: đợt GIẢI NGÂN nằm ở CẢ payables (AP) lẫn opTransactions (chi hộ). Quét chung qua helper —
+   item mang src:'ap'|'op' để các màn KUNN tìm lại đúng bản ghi. */
+function _loanPayScan(fn){
+  (S.payables||[]).forEach(r=>{ (r&&r.payments||[]).forEach((p,idx)=>{ if(p&&p.method==='loan') fn(r,p,idx,'ap'); }); });
+  (S.opTransactions||[]).forEach(t=>{ if(!t||t._deleted) return; (t.payments||[]).forEach((p,idx)=>{ if(p&&p.method==='loan') fn(t,p,idx,'op'); }); });
+}
+function _loanPayRec(it){ return it.src==='op' ? (S.opTransactions||[]).find(x=>x&&x.id===it.recId) : (S.payables||[]).find(x=>x&&x.id===it.recId); }
 function kuDraftItemsAll(){
   const drafts=AccountingService.loans().filter(l=>l && l.kuDraft && l.status!=='closed');
   const byId={}; drafts.forEach(d=>byId[d.id]=d);
   const items=[];
-  (S.payables||[]).forEach(r=>{ (r&&r.payments||[]).forEach((p,idx)=>{
-    if(p && p.method==='loan' && p.linkedLoanId && byId[p.linkedLoanId]){
+  _loanPayScan((r,p,idx,src)=>{
+    if(p.linkedLoanId && byId[p.linkedLoanId]){
       const d=byId[p.linkedLoanId];
-      items.push({recId:r.id, idx, loanId:d.id, lender:(d.lender||d.bankName||'').trim(), date:p.date||'', partner:r.partner||'', invoiceNo:r.invoiceNo||'', amount:+p.amount||0, ccy:r.ccy||d.ccy||'VND'});
+      items.push({recId:r.id, idx, src, loanId:d.id, lender:(d.lender||d.bankName||'').trim(), date:p.date||'', partner:(src==='op'?'🚢 ':'')+(r.partner||r.vendor||''), invoiceNo:r.invoiceNo||'', amount:+p.amount||0, ccy:(src==='op'?(p.ccy||r.ccy):r.ccy)||d.ccy||'VND'});
     }
-  });});
+  });
   items.sort((a,b)=>(a.lender+a.date).localeCompare(b.lender+b.date));
   return {drafts, items};
 }
@@ -47410,7 +47561,7 @@ function kuDraftOrganizeSave(){
         createdAt:new Date().toISOString(), createdBy:actorName() };
       AccountingService.addLoan(dest);
       g.picked.forEach(it=>{
-        const r=(S.payables||[]).find(x=>x.id===it.recId);
+        const r=_loanPayRec(it);   /* v3.18.00: AP hoặc chi hộ */
         const pmt=r && (r.payments||[])[it.idx];
         if(pmt && pmt.linkedLoanId===it.loanId){ pmt.linkedLoanId=dest.id; try{ touchRecord(r); }catch(e){} }
       });
@@ -47419,7 +47570,7 @@ function kuDraftOrganizeSave(){
       srcIds.forEach(sid=>{
         const src=AccountingService.loans().find(x=>x.id===sid); if(!src) return;
         let rem=0, cnt=0;
-        (S.payables||[]).forEach(r=>{ (r&&r.payments||[]).forEach(pp=>{ if(pp&&pp.method==='loan'&&pp.linkedLoanId===sid){ rem+=(+pp.amount||0); cnt++; } }); });
+        _loanPayScan((r,pp)=>{ if(pp.linkedLoanId===sid){ rem+=(+pp.amount||0); cnt++; } });   /* v3.18.00 */
         if(cnt===0){ S.loans=AccountingService.loans().filter(x=>x.id!==sid); }
         else { src.principal=rem; try{ touchRecord(src); }catch(e){} }
       });
@@ -47427,7 +47578,7 @@ function kuDraftOrganizeSave(){
     }
     try{ logAuditEvent('ku_draft_organize',{to:dest.id, count:g.picked.length, total:g.total, lender:g.lender, actor:actorName()}); }catch(e){}
     window._kuOrgDestId=dest.id;
-  }, {action:'ku_draft_organize', fields:['loans','payables'], onOk:()=>{
+  }, {action:'ku_draft_organize', fields:['loans','payables','opTransactions'], onOk:()=>{
     closeModal(); renderBanking();
     toast('✓ Khế ước '+g.picked.length+' món · '+g.total.toLocaleString('vi-VN')+' '+g.ccy+' — bấm ✎ điền số KUNN · lãi suất · kỳ hạn','good');
     try{ editLoan(window._kuOrgDestId); }catch(e){}
@@ -47441,10 +47592,10 @@ function kuDraftSplit(loanId){
   const lender=(src.lender||src.bankName||'').trim();
   // gom các payment giải ngân đang gắn nháp này
   const items=[];
-  (S.payables||[]).forEach(r=>{ (r&&r.payments||[]).forEach((p,idx)=>{
-    if(p && p.method==='loan' && p.linkedLoanId===loanId)
-      items.push({recId:r.id, idx, date:p.date||'', partner:r.partner||'', invoiceNo:r.invoiceNo||'', amount:+p.amount||0, ccy:r.ccy||'VND'});
-  });});
+  _loanPayScan((r,p,idx,src)=>{   /* v3.18.00 */
+    if(p.linkedLoanId===loanId)
+      items.push({recId:r.id, idx, src, date:p.date||'', partner:(src==='op'?'🚢 ':'')+(r.partner||r.vendor||''), invoiceNo:r.invoiceNo||'', amount:+p.amount||0, ccy:(src==='op'?(p.ccy||r.ccy):r.ccy)||'VND'});
+  });
   if(!items.length){ toast('Nháp này không còn phiếu nào gắn vào','warn'); return; }
   const others=AccountingService.loans().filter(x=>x && x.kuDraft && x.id!==loanId && x.status!=='closed' && (x.lender||x.bankName||'').trim()===lender);
   const destOpts=`<option value="__new__">➕ Khế ước nháp MỚI (cùng NH)</option>`+
@@ -47493,7 +47644,7 @@ function kuDraftSplitSave(loanId, n){
       if(!dest || !dest.kuDraft) throw new Error('Khế ước đích không còn ở trạng thái nháp');
     }
     picked.forEach(it=>{
-      const r=(S.payables||[]).find(x=>x.id===it.recId);
+      const r=_loanPayRec(it);   /* v3.18.00 */
       const p=r && (r.payments||[])[it.idx];
       if(p && p.linkedLoanId===loanId){ p.linkedLoanId=dest.id; try{ touchRecord(r); }catch(e){} }
     });
@@ -47501,7 +47652,7 @@ function kuDraftSplitSave(loanId, n){
     dest.principal=(+dest.principal||0)+total;
     try{ touchRecord(src); touchRecord(dest); }catch(e){}
     try{ logAuditEvent('ku_draft_split',{from:loanId, to:dest.id, count:picked.length, total, actor:actorName()}); }catch(e){}
-  }, {action:'ku_draft_split', fields:['loans','payables'], onOk:()=>{
+  }, {action:'ku_draft_split', fields:['loans','payables','opTransactions'], onOk:()=>{
     closeModal(); renderBanking();
     toast('✂ Đã tách '+picked.length+' phiếu ('+total.toLocaleString('vi-VN')+' '+(src.ccy||'')+') sang khế ước khác','good');
   }, onFail:(rr)=>{ if(err) err.textContent='⚠ '+(rr.error||''); }});
@@ -57787,10 +57938,10 @@ function arQuickReceive(id){
           <option value="cash">Tiền mặt</option>
         </select>
       </div>
-      <div class="field" id="qr-bank-wrap" style="grid-column:span 2"><label>Tài khoản ngân hàng nhận tiền <span style="color:var(--muted);text-transform:none;font-weight:400;font-size:10px">(không bắt buộc — bỏ trống nếu nhập lịch sử thu cũ và không nhớ TK)</span></label>
+      <div class="field" id="qr-bank-wrap" style="grid-column:span 2"><label>Tài khoản ngân hàng nhận tiền *</label>
         ${accts.length
           ? `<select id="qr-bank">${acctOpts}</select>
-             <div style="font-size:10px;color:var(--muted);font-style:normal;margin-top:3px">💡 Có chọn TK → app tự ghi tăng số dư. Bỏ trống → chỉ ghi nhận thu, KHÔNG cộng vào số dư TK (dùng cho thu trong quá khứ).</div>`
+             <label style="font-size:10px;color:var(--muted);font-style:normal;margin-top:3px;display:block"><input type="checkbox" id="qr-legacy"> 🕰 Thu CŨ trước khi dùng app — không gắn TK, không cập nhật Sổ NH (v3.18.00: bình thường BẮT BUỘC chọn TK để tiền thu về đúng Sổ ngân hàng)</label>`
           : `<div style="font-size:13px;color:var(--bad);padding:6px 0">⚠ Chưa có tài khoản ngân hàng nào. Vào tab Ngân hàng thêm tài khoản trước, hoặc chọn hình thức Tiền mặt.</div>`}
       </div>
       <div class="field" style="grid-column:span 2"><label>Ghi chú</label><input type="text" id="qr-note" placeholder="VD: chuyển khoản VCB · UNC 12345 · Đợt 1/3"></div>
@@ -57862,14 +58013,17 @@ function arSaveQuickReceive(id){
   // v1.88.0/v2.99.12: Chuyển khoản → khuyến nghị chọn TK nhưng KHÔNG bắt buộc 
   // (cho phép ghi nhận lịch sử thu cũ, KTT có thể không nhớ TK nào)
   let acc=null;
+  const _legacy=!!((document.getElementById('qr-legacy')||{}).checked);
   if(method==='cash'){
     bankAccountId='';
   } else {
     if(bankAccountId){
       acc=AccountingService.bankAccounts().find(a=>a.id===bankAccountId);
       if(!acc){if(err)err.textContent='Tài khoản ngân hàng không hợp lệ';return;}
+    } else if(!_legacy){
+      /* v3.18.00 (Sếp: 'phải thu đang nằm rời — khi thu phải cập nhật TK NH'): chuyển khoản BẮT BUỘC TK */
+      if(err)err.textContent='Chuyển khoản — chọn TÀI KHOẢN NHẬN TIỀN để Sổ ngân hàng ghi THU (hoặc tick "Thu cũ" nếu nhập lịch sử)';return;
     }
-    // Không chọn TK vẫn cho lưu — chỉ không cập nhật số dư TK
   }
   const rem=arRemaining(r);
   if(rem<=0.0001){if(err)err.textContent='Khoản này đã thu đủ';return;}
@@ -57884,12 +58038,14 @@ function arSaveQuickReceive(id){
     recordedAt:new Date().toISOString()
   };
   if(bankAccountId) pay.bankAccountId=bankAccountId;
+  if(_legacy && !bankAccountId && method!=='cash') pay._legacySrc=true;   /* v3.18.00: đánh dấu thu cũ không TK — màn Rà bỏ qua */
   commitMutation(()=>{
   r.payments=r.payments||[];
   r.payments.push(pay); apDueConsume(r, +pay.amount||0); apOrderConsume(r, +pay.amount||0);   /* v3.17.41+45 */
   // Ghi tăng số dư tài khoản ngân hàng (chỉ khi chuyển khoản)
   if(acc){
     acc.balance=(+acc.balance||0) + _arPayAmountInCcy(pay, r.ccy, acc.ccy||'USD');
+    try{ touchRecord(acc); }catch(e){ acc.updatedAt=new Date().toISOString(); }   /* v3.18.00: thiếu dấu → sync đè số dư cũ */
   }
   try{ touchRecord(r); }catch(e){}
   }, {action:'ar_quick_receive', fields:['receivables','bankAccounts'], onOk:()=>{
@@ -62329,6 +62485,11 @@ function _opNccPanel(t, ccy){
   </div>`;
 }
 
+/* v3.18.00: tách hàm — confirm nhiều dòng không nhét vào onclick. */
+function opWfRestoreApprove(id){
+  if(!confirm('Phục hồi phiếu TỪ CHỐI và DUYỆT CHI (L2) ngay?\n\nPhiếu sẽ vào Chờ Thanh Toán.')) return;
+  opWfAdvance(id,'approved');
+}
 /* v3.07.49: nút workflow + thanh toán cho foot modal chi tiết phiếu chi hộ. */
 function _opNccFootButtons(t){
   let b='';
@@ -62341,7 +62502,7 @@ function _opNccFootButtons(t){
      nhưng L2/Admin có THẨM QUYỀN phục hồi & duyệt thẳng: rejected → approved (Chờ Thanh Toán),
      ghi vết _ncHist from rejected + audit. Chỉ hiện cho canApproveL2/Admin. */
   if(st==='rejected' && (isAdmin()||canApproveL2())){
-    b+=`<button class="btn-pri" onclick="if(confirm('Phục hồi phiếu TỪ CHỐI và DUYỆT CHI (L2) ngay?\n\nPhiếu sẽ vào Chờ Thanh Toán.')){opWfAdvance('${t.id}','approved')}" title="Thẩm quyền L2: phục hồi phiếu bị từ chối và duyệt chi" style="background:var(--good)">→ Duyệt chi (L2) — phục hồi</button>`;
+    b+=`<button class="btn-pri" onclick="opWfRestoreApprove('${t.id}')" title="Thẩm quyền L2: phục hồi phiếu bị từ chối và duyệt chi" style="background:var(--good)">→ Duyệt chi (L2) — phục hồi</button>`;   /* v3.18.00: gỡ confirm inline có \n thật trong onclick → SyntaxError dòng 1 (ảnh Sếp) */
   }
   // Nút từ chối (trả về) — người duyệt từ pending_* 
   if(['pending_acc','pending_l1','pending_l2'].includes(st) && _opCanAdvance(t, state.next)){
@@ -62438,18 +62599,22 @@ function opBankSrcReview(){
         items.push({t, p, ix, amt:+p.amount||0, date:p.date||''});
     });
   });
-  if(!items.length){ toast('✓ Mọi khoản chi hộ đã có nguồn tiền — Sổ NH đủ dữ liệu','good'); return; }
+  /* v3.18.00 (Sếp): PHẢI THU nằm rời — đợt thu chuyển khoản KHÔNG gắn TK → không lên Sổ NH. Rà chung. */
+  (S.receivables||[]).forEach(r=>{ if(!r||r._deleted) return;
+    (r.payments||[]).forEach((p,ix)=>{ if(p && +p.amount>0 && !p.bankAccountId && p.method!=='cash' && !p._legacySrc) items.push({ar:r, p, ix, amt:+p.amount||0, date:p.date||''}); });
+  });
+  if(!items.length){ toast('✓ Mọi khoản chi hộ / thu phải thu đã có nguồn tiền — Sổ NH đủ dữ liệu','good'); return; }
   const opts='<option value="">— chọn nguồn —</option><option value="CASH">💵 Tiền mặt/Quỹ</option><option value="LEGACY">🕰 Nguồn lịch sử không rõ</option>'
     +bks.map(a=>`<option value="${hrmEsc(a.id)}">🏦 ${hrmEsc(a.label||a.bankName||'')} ${hrmEsc(a.accNo||'')}</option>`).join('');
   const rows=items.map((it,ix)=>`<tr>
     <td style="padding:5px 8px;font-size:11px;white-space:nowrap">${hrmEsc(it.date)}</td>
-    <td style="padding:5px 8px;font-size:12px">${hrmEsc((it.t.vendor||it.t.desc||'').slice(0,40))}<div style="font-size:10px;color:var(--muted)">${hrmEsc(opVesselName_(it.t.vesselId))}${it.p?' · đợt':' · phiếu paid'}</div></td>
-    <td style="padding:5px 8px;text-align:right;font-family:var(--font-mono)">${(+it.amt).toLocaleString('vi-VN')} ${hrmEsc(it.t.ccy||'VND')}</td>
+    <td style="padding:5px 8px;font-size:12px">${it.ar?('<span class="ds-need" data-dot="good" style="font-size:10px">THU</span> '+hrmEsc((it.ar.partner||'').slice(0,40))+'<div style="font-size:10px;color:var(--muted)">Phải thu'+(it.ar.invoiceNo?(' · HĐ '+hrmEsc(it.ar.invoiceNo)):'')+'</div>'):(hrmEsc((it.t.vendor||it.t.desc||'').slice(0,40))+'<div style="font-size:10px;color:var(--muted)">'+hrmEsc(opVesselName_(it.t.vesselId))+(it.p?' · đợt':' · phiếu paid')+'</div>')}</td>
+    <td style="padding:5px 8px;text-align:right;font-family:var(--font-mono)">${it.ar?'+':''}${(+it.amt).toLocaleString('vi-VN')} ${hrmEsc((it.ar?it.ar.ccy:it.t.ccy)||'VND')}</td>
     <td style="padding:5px 8px"><select id="obs-${ix}" style="max-width:220px">${opts}</select></td>
     <td style="padding:5px 8px"><button class="btn-sec" style="font-size:11px;padding:2px 10px" onclick="opBankSrcApply(${ix})">Áp dụng</button></td></tr>`).join('');
   window._opBankSrcItems=items;
-  openModal('🏦 Rà soát nguồn tiền CHI HỘ ('+items.length+' khoản thiếu)',
-    `<div style="font-size:12px;color:var(--muted);margin-bottom:8px">Các khoản chi hộ đã chi nhưng CHƯA khai tiền đi từ đâu — Sổ ngân hàng đang thiếu các dòng này nên số dư chưa đúng. Chọn nguồn từng dòng rồi bấm Áp dụng; app không tự đoán.</div>
+  openModal('🏦 Rà soát nguồn tiền CHI HỘ + THU PHẢI THU ('+items.length+' khoản thiếu)',
+    `<div style="font-size:12px;color:var(--muted);margin-bottom:8px">Khoản chi hộ đã chi / khoản phải thu đã thu nhưng CHƯA khai TK ngân hàng — Sổ ngân hàng đang thiếu các dòng này nên số dư chưa đúng. Chọn nguồn từng dòng rồi bấm Áp dụng; app không tự đoán. Dòng THU gắn TK sẽ ghi TĂNG số dư.</div>
      <div class="tbl-scroll" style="max-height:400px;overflow:auto"><table style="width:100%;border-collapse:collapse">
        <thead><tr style="background:var(--rule);text-align:left;font-size:11px"><th style="padding:5px 8px">Ngày</th><th style="padding:5px 8px">NCC / Tàu</th><th style="padding:5px 8px;text-align:right">Số tiền</th><th style="padding:5px 8px">Nguồn tiền</th><th></th></tr></thead>
        <tbody>${rows}</tbody></table></div>`,
@@ -62463,13 +62628,22 @@ function opBankSrcApply(ix){
   /* v3.17.62 (Sếp): KỲ KHÓA chỉ khóa CHI PHÍ (amount/reportedValue/fx...) — CÔNG NỢ NCC vẫn MỞ:
      trình ký, duyệt, thanh toán, nguồn tiền được phép (các hàm này chỉ ghi ncStatus/payments/bank — có test bất biến). */
   commitMutation(()=>{
+    if(it.ar){   /* v3.18.00: đợt THU phải thu — gắn TK → + số dư TK (Sổ NH tự lấy qua bankAccountId) */
+      const p=it.p;
+      if(v==='CASH'){ p.method='cash'; delete p.bankAccountId; }
+      else if(v==='LEGACY'){ p._legacySrc=true; }
+      else { p.bankAccountId=v; p.method='bank';
+        const acc=AccountingService.bankAccounts().find(a=>a.id===v);
+        if(acc){ try{ acc.balance=(+acc.balance||0)+_arPayAmountInCcy(p, it.ar.ccy, acc.ccy||'USD'); touchRecord(acc); }catch(e){} } }
+      touchRecord(it.ar); return;
+    }
     const tgt=it.p||it.t;
     if(v==='CASH'){ if(it.p) tgt.method='cash'; else tgt.payMethod='cash'; delete tgt.bankAccountId; }
     else if(v==='LEGACY'){ tgt._legacySrc=true; }
     else { tgt.bankAccountId=v; if(it.p) tgt.method='bank'; else tgt.payMethod='bank'; }
     touchRecord(it.t);
-  }, {action:'op_bank_src_fix', fields:['opTransactions'], onOk:()=>{
-    try{ logAuditEvent('op_bank_src_fix',{txId:it.t.id, part:it.p?'payment':'record', src:v, actor:actorName()}); }catch(e){}
+  }, {action:'op_bank_src_fix', fields:['opTransactions','receivables','bankAccounts'], onOk:()=>{
+    try{ logAuditEvent('op_bank_src_fix',{txId:(it.ar?it.ar.id:it.t.id), part:it.ar?'ar_payment':(it.p?'payment':'record'), src:v, actor:actorName()}); }catch(e){}
     toast('✓ Đã gắn nguồn tiền','good');
     const btn=document.querySelector('#obs-'+ix); if(btn){ const tr=btn.closest('tr'); if(tr) tr.style.opacity='.4'; }
   }});
@@ -62538,12 +62712,14 @@ function _opPayApply(t,p){
   t.payments=t.payments||[];
   const _pay={date:p.date, amount:p.amt, ccy:p.ccy, note:p.note||'', by:actorName(), at:new Date().toISOString()};
   if(p.src==='CASH'){ _pay.method='cash'; }
+  else if(String(p.src||'').indexOf('LOAN:')===0){ _pay.bankAccountId=p.src.slice(5); _pay.method='loan'; }   /* v3.18.00: giải ngân chi hộ — không chạm TK, gom kuDraft */
   else { _pay.bankAccountId=p.src; _pay.method='bank'; }
   if(+p.bf>0) _pay.bankFee=+p.bf;
   if(+p.of>0) _pay.otherFee=+p.of;
   if(p.fn) _pay.feeNote=p.fn;
   if(p.bkId) _pay._bkId=p.bkId;   // vết bảng kê
   t.payments.push(_pay);
+  if(_pay.method==='loan' && _pay.bankAccountId){ try{ _kuDraftAttach({ccy:t.ccy||'VND'}, _pay, _pay.bankAccountId); }catch(e){ console.warn('[op kuDraft]',e); } }   /* v3.18.00 */
   if(opNccRemaining(t)<=0.001){
     t.paid=true; t.paidDate=t.paidDate||p.date; t.paidBy=t.paidBy||actorName(); t.paidAt=new Date().toISOString();
   }
@@ -86045,7 +86221,7 @@ function canAccessTab(tabId){
   if(tabId==='projects') return _isKTTorBOD;
   if(tabId==='plan') return !!CURRENT_USER.isBOD;
   if(tabId==='rates') return !!CURRENT_USER.isBOD;
-  /* v3.17.93 (Sếp: 'KT có quyền vào tab Phê duyệt chưa?'): ĐỒNG BỘ với applyNavPermissions v3.17.77 —
+  /* v3.18.00 (Sếp: 'KT có quyền vào tab Phê duyệt chưa?'): ĐỒNG BỘ với applyNavPermissions v3.17.77 —
      trước đây hàm này CHỈ nhận KT kiểm/L1/L2 nên KT thanh toán (canConfirmPayment) và KT được cấp
      tab 'approval' qua whitelist bị vòng ép [data-page] ẩn lại + navigateToPage đá ra. */
   const _apprOk=canCheckAcc()||canApproveL1()||canApproveL2()||canConfirmPayment()||(CURRENT_USER.tabs||[]).includes('approval');

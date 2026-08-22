@@ -1,5 +1,5 @@
 {
-  "version": "3.17.93",
-  "swVersion": "v3.17.93",
-  "notes": "v3.17.93 vá quyền vào tab Phê duyệt cho kế toán: từ v3.17.77 thanh nav đã mở cho KT thanh toán và KT được cấp tab, nhưng hàm kiểm tra quyền chung vẫn chỉ nhận KT kiểm/L1/L2 nên tab bị ẩn lại và bị đẩy ra khi bấm vào; nay đồng bộ hai tầng. Kèm v3.17.92 sắp xếp thông minh hàng đợi Chờ Thanh Toán (lệnh L2 duyệt gần nhất lên trên). Sau khi lên bản này tải lại trang một lần."
+  "version": "3.18.00",
+  "swVersion": "v3.18.00",
+  "notes": "v3.18.00 tab Phê duyệt: chuyển chip (Chờ Thanh Toán / Phí phát sinh / KUNN / Đã duyệt) nay đổi đúng tiêu đề danh sách, ẩn thanh nút duyệt của chip trước (hết cảnh 'Trình Thanh toán (2)' dính lại khi đang ở chip Phí), ẩn ô Chọn tất cả không liên quan. Kèm v3.17.99: tab Ngân hàng: bảng Hạn mức tín dụng gom theo ngân hàng (dòng tổng mỗi ngân hàng, bấm ▸ gập/bung các hạn mức con, cùng ngân hàng xếp cạnh nhau, trong ngân hàng theo năm); danh sách Tín dụng & Vay xếp chủ nợ theo loại (ngân hàng trước, rồi công ty, nước ngoài, khác) và thanh tiêu đề các chủ nợ canh thẳng cột (Auto tự thu · Lãi năm · Còn nợ). Kèm v3.17.98: (1) Phải thu nối Sổ ngân hàng: ghi nhận thu chuyển khoản bắt buộc chọn tài khoản nhận tiền (tick 'Thu cũ' nếu nhập lịch sử); màn 🏦 Rà nguồn tiền liệt kê thêm các đợt thu phải thu chưa gắn tài khoản để gắn bù, gắn xong số dư và Sổ NH cập nhật. (2) Chi hộ được giải ngân từ tài khoản vay như phải trả, tự gom vào khế ước nháp chờ KUNN; màn chia khế ước nhận cả đợt chi hộ. (3) Mỗi loại tiền tệ lập một bảng kê riêng (bảng chi ngoại tệ USD/EUR… tách khỏi VND). Kèm v3.17.92–97. Sau khi lên bản này tải lại trang một lần."
 }
