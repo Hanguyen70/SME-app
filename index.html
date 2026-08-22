@@ -3806,7 +3806,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.17.90';
+const APP_VERSION='3.17.91';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -61393,7 +61393,7 @@ function confirmOpPayment(id){
   const body=`
     <div style="font-size:13px;color:var(--muted);margin-bottom:10px">
       <b>${v?v.name:'?'}</b> · ${t.type==='IN'?'Thu hộ':'Chi hộ'} · ${esc(t.desc) || '—'}<br>
-      Số tiền gốc: <b>${fmtFull(t.amount,ccy)}</b>
+      Số tiền gốc: <b>${fmtFull(t.amount, t.ccy||ccy)}</b> <span style="font-size:10px">(${esc(t.ccy||ccy)})</span>
     </div>
     ${t.type==='OUT' ? `
     <!-- v1.40.1: 3 trường chứng từ cho Chi hộ -->

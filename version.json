@@ -1,5 +1,5 @@
 {
-  "version": "3.17.90",
-  "swVersion": "v3.17.90",
-  "notes": "v3.17.90 hai chỉnh trên modal chi tiết phiếu chi hộ: phiếu hồ sơ bị từ chối nay hiện nút duyệt chi cấp hai phục hồi dành riêng cấp hai và admin, bấm kèm xác nhận thì phiếu phục hồi và duyệt thẳng vào chờ thanh toán với vết lịch sử từ từ chối và audit đầy đủ, máy trạng thái vẫn không tự nâng phiếu từ chối; gỡ nút nhập đợt chi cũ bị trùng lặp hai lần trên cùng modal. Sau khi lên bản này tải lại trang một lần."
+  "version": "3.17.91",
+  "swVersion": "v3.17.91",
+  "notes": "v3.17.91 sửa lỗi hiển thị số tiền gốc trên hộp xác nhận đã thanh toán của phiếu chi hộ: trước đây lấy tiền tệ của tàu thay vì tiền tệ của phiếu nên phiếu tiền đồng trên tàu hạch toán đô la bị nhân tỷ giá thành số nghìn tỷ; nay hiển thị đúng nguyên tệ của phiếu kèm mã tiền tệ, chỉ là lỗi hiển thị không ảnh hưởng số liệu ghi sổ. Sau khi lên bản này tải lại trang một lần."
 }
