@@ -1,5 +1,5 @@
 {
-  "version": "3.17.91",
-  "swVersion": "v3.17.91",
-  "notes": "v3.17.91 sửa lỗi hiển thị số tiền gốc trên hộp xác nhận đã thanh toán của phiếu chi hộ: trước đây lấy tiền tệ của tàu thay vì tiền tệ của phiếu nên phiếu tiền đồng trên tàu hạch toán đô la bị nhân tỷ giá thành số nghìn tỷ; nay hiển thị đúng nguyên tệ của phiếu kèm mã tiền tệ, chỉ là lỗi hiển thị không ảnh hưởng số liệu ghi sổ. Sau khi lên bản này tải lại trang một lần."
+  "version": "3.17.92",
+  "swVersion": "v3.17.92",
+  "notes": "v3.17.92 sắp xếp thông minh hàng đợi Chờ Thanh Toán: lệnh/phiếu được L2 duyệt gần nhất tự lên trên cùng (AP theo giờ duyệt lệnh, chi hộ theo vết duyệt L2 mới nhất), cùng mốc gom theo tên nhà cung cấp; mỗi dòng gắn thêm nhãn giờ L2 duyệt trong diễn giải để KT đối chiếu. Chỉ đổi thứ tự hiển thị, không ảnh hưởng số liệu. Sau khi lên bản này tải lại trang một lần."
 }
