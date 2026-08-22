@@ -3802,7 +3802,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.17.79';
+const APP_VERSION='3.17.80';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -41622,6 +41622,7 @@ function _apprRenderLevelChips(){
   box.innerHTML=defs.map(([v,label])=>{ const c=_cnt(v); label=c>0?(label+' ('+c+')'):label;
     return `<button class="btn-sec" onclick="_apprSetLevel('${v}')" style="font-size:12px;padding:6px 12px;border-radius:16px;${v===cur?'background:var(--ink);color:var(--paper);border-color:var(--ink);font-weight:700':''}">${label}</button>`;
   }).join('');
+  box.innerHTML+=`<span style="margin-left:auto;align-self:center;font-size:9.5px;color:var(--muted);font-family:var(--font-mono)" title="Bản đang chạy trên máy này">v${APP_VERSION}</span>`;   /* v3.17.80: tem xác minh bản */
 }
 function renderApprovalList(){
   _apprRenderLevelChips();
@@ -41827,9 +41828,9 @@ function renderApprovalList(){
        đang KT kiểm ở lại tab Thu-Chi hộ + mobile; (2) DÙNG CHUNG BỘ LỌC với AP: đối tác, số tiền,
        từ/đến ngày áp cho cả chi hộ. */
     const _apprLvl=((document.getElementById('appr-level')||{}).value)||'';
-    if(_apprLvl==='bk_pay'){ try{ renderBkPayList(tEl); }catch(e){ console.warn('[bk]',e); tEl.innerHTML=''; } window._opBatchIds=[]; updateApprovalSummary(); return; }   /* v3.17.71 */
-    if(_apprLvl==='fee'){ try{ renderFeeList(tEl); }catch(e){ console.warn('[fee]',e); tEl.innerHTML=''; } window._opBatchIds=[]; updateApprovalSummary(); return; }   /* v3.17.74 GĐ A */
-    if(_apprLvl==='kunn'){ try{ renderKunnList(tEl); }catch(e){ console.warn('[kunn]',e); tEl.innerHTML=''; } window._opBatchIds=[]; updateApprovalSummary(); return; }   /* v3.17.76 GĐ C */
+    if(_apprLvl==='bk_pay'){ try{ renderBkPayList(tEl); }catch(e){ console.warn('[bk]',e); tEl.innerHTML='<div style="padding:14px;color:var(--bad,#b3402e);font-size:12px">⚠ Màn này gặp lỗi: '+esc(e.message||e)+' — chụp màn hình gửi hỗ trợ (v'+APP_VERSION+')</div>'; } window._opBatchIds=[]; updateApprovalSummary(); return; }   /* v3.17.71 */
+    if(_apprLvl==='fee'){ try{ renderFeeList(tEl); }catch(e){ console.warn('[fee]',e); tEl.innerHTML='<div style="padding:14px;color:var(--bad,#b3402e);font-size:12px">⚠ Màn này gặp lỗi: '+esc(e.message||e)+' — chụp màn hình gửi hỗ trợ (v'+APP_VERSION+')</div>'; } window._opBatchIds=[]; updateApprovalSummary(); return; }   /* v3.17.74 GĐ A */
+    if(_apprLvl==='kunn'){ try{ renderKunnList(tEl); }catch(e){ console.warn('[kunn]',e); tEl.innerHTML='<div style="padding:14px;color:var(--bad,#b3402e);font-size:12px">⚠ Màn này gặp lỗi: '+esc(e.message||e)+' — chụp màn hình gửi hỗ trợ (v'+APP_VERSION+')</div>'; } window._opBatchIds=[]; updateApprovalSummary(); return; }   /* v3.17.76 GĐ C */
     /* v3.17.58: khối chi hộ KHỚP CẤP đang xem — chip L1 chỉ pending_l1, chip L2 chỉ pending_l2;
        cấp KT kiểm không hiện khối (3.17.54). */
     /* v3.17.59 (Sếp): máy ADMIN thấy HẾT và thao tác HẾT — admin: mọi phiếu pending_* bất kể chip;

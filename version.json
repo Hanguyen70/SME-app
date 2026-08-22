@@ -1,5 +1,5 @@
 {
-  "version": "3.17.79",
-  "swVersion": "v3.17.79",
-  "notes": "v3.17.79 sửa lỗi nghiêm trọng thanh chọn cấp tab phê duyệt trống từ bản 3.17.76: lệnh trả về xuống dòng trước chuỗi giao diện khiến trình duyệt tự chèn dấu chấm phẩy làm mọi chip thành rỗng, tab phê duyệt mất bộ chọn cấp và rơi về bố cục mặc định chỉ hiện trình ký; nay đã vá và thêm kiểm thử vẽ thanh chip thật với dữ liệu giả để lỗi loại này không lọt được nữa. Toàn bộ tính năng các bản trước giữ nguyên: bảy chip theo vai với huy hiệu đếm việc, tick giữ khi đổi bộ lọc nhà cung cấp, bảng kê thanh toán, phí phát sinh, khế ước. Sau khi lên bản này tải lại trang một lần."
+  "version": "3.17.80",
+  "swVersion": "v3.17.80",
+  "notes": "v3.17.80: Thêm tem phiên bản nhỏ ngay cạnh thanh chip tab phê duyệt để xác minh tức thì máy đang chạy bản nào, và ba màn mới chờ thanh toán phí phát sinh khế ước khi gặp lỗi sẽ hiện thông báo lỗi đỏ kèm số bản thay vì trống trơn. Kiểm tra render thật cả ba màn với dữ liệu mẫu đều tốt; hiện tượng ô tính năng không mở trên máy admin nhiều khả năng do bộ nhớ đệm còn giữ bản cũ dính lỗi thanh chip, cần tải bản này và làm mới trang đúng cách. Sau khi lên bản này tải lại trang một lần, nếu chip vẫn trống thì đóng hết thẻ trình duyệt mở lại hoặc nhấn làm mới cứng."
 }
