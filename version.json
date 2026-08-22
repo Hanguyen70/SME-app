@@ -1,5 +1,5 @@
 {
-  "version": "3.17.78",
-  "swVersion": "v3.17.78",
-  "notes": "v3.17.78: Giữ tick chọn khi đổi bộ lọc nhà cung cấp để phê duyệt một lần nhiều nhà cung cấp theo chỉ đạo: tick nay tính theo đúng cấp đang xem bất chấp bộ lọc, dòng tóm tắt và số trên nút đếm cả phiếu đã tick đang bị bộ lọc ẩn kèm ghi chú rõ vẫn được duyệt, nút duyệt chung và trình thanh toán xử lý cả phiếu chi hộ đã tick đang ẩn qua bộ nhớ chọn; bộ nhớ chọn công nợ vốn đã giữ tick, lỗi chỉ nằm ở bộ đếm bản 3.17.66 đếm theo phiếu đang hiện và hành động chi hộ đọc màn hình. Không liên quan việc bỏ tích vĩnh viễn của bản 3.17.64 vì cơ chế đó đã thay bằng bộ nhớ chọn theo nguyên tắc công nợ ở bản 3.17.67. Sau khi lên bản này tải lại trang một lần."
+  "version": "3.17.79",
+  "swVersion": "v3.17.79",
+  "notes": "v3.17.79 sửa lỗi nghiêm trọng thanh chọn cấp tab phê duyệt trống từ bản 3.17.76: lệnh trả về xuống dòng trước chuỗi giao diện khiến trình duyệt tự chèn dấu chấm phẩy làm mọi chip thành rỗng, tab phê duyệt mất bộ chọn cấp và rơi về bố cục mặc định chỉ hiện trình ký; nay đã vá và thêm kiểm thử vẽ thanh chip thật với dữ liệu giả để lỗi loại này không lọt được nữa. Toàn bộ tính năng các bản trước giữ nguyên: bảy chip theo vai với huy hiệu đếm việc, tick giữ khi đổi bộ lọc nhà cung cấp, bảng kê thanh toán, phí phát sinh, khế ước. Sau khi lên bản này tải lại trang một lần."
 }

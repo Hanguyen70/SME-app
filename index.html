@@ -3802,7 +3802,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.17.78';
+const APP_VERSION='3.17.79';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -41617,9 +41617,11 @@ function _apprRenderLevelChips(){
     if(v==='pending_acc'){ try{ n+=(typeof apNeedProposeRows==='function')?apNeedProposeRows().length:0; }catch(e){} }
     else { try{ scopedView(S.payables||[],'ap').forEach(r=>{ if(r&&!r._deleted&&!r._cashClear&&(typeof wfStatus==='function')&&wfStatus(r)===v) n++; }); }catch(e){} }
     return n; }catch(e){ return 0; } };
-  box.innerHTML=defs.map(([v,label])=>{ const c=_cnt(v); label=c>0?(label+' ('+c+')'):label; return 
-    `<button class="btn-sec" onclick="_apprSetLevel('${v}')" style="font-size:12px;padding:6px 12px;border-radius:16px;${v===cur?'background:var(--ink);color:var(--paper);border-color:var(--ink);font-weight:700':''}">${label}</button>`
-  ; }).join('');
+  /* v3.17.79 HOTFIX: 3.17.76 viết `return` XUỐNG DÒNG trước template → ASI chèn ';' → mọi chip
+     thành undefined → thanh chip RỖNG, mất bộ chọn cấp (ảnh Sếp). return cùng dòng + test render THẬT. */
+  box.innerHTML=defs.map(([v,label])=>{ const c=_cnt(v); label=c>0?(label+' ('+c+')'):label;
+    return `<button class="btn-sec" onclick="_apprSetLevel('${v}')" style="font-size:12px;padding:6px 12px;border-radius:16px;${v===cur?'background:var(--ink);color:var(--paper);border-color:var(--ink);font-weight:700':''}">${label}</button>`;
+  }).join('');
 }
 function renderApprovalList(){
   _apprRenderLevelChips();
