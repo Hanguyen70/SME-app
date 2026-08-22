@@ -1,5 +1,5 @@
 {
-  "version": "3.17.82",
-  "swVersion": "v3.17.82",
-  "notes": "v3.17.82 sửa lỗi phiếu công nợ đã duyệt chi cấp hai không hiện ở chờ thanh toán: danh sách chờ thanh toán và khối cần đề xuất đợt đọc sai tên trường mảng lệnh chi nên không thấy lệnh đã duyệt, chỉ chi hộ hiện đúng; nay đọc qua helper chuẩn của mảng lệnh, phiếu duyệt cấp hai xong xuất hiện ngay ở chờ thanh toán và khối cần đề xuất không còn đếm những phiếu đã có lệnh sống. Kèm kiểm thử dòng chảy thật với lệnh đã duyệt trên trường dữ liệu đúng. Sau khi lên bản này tải lại trang một lần."
+  "version": "3.17.84",
+  "swVersion": "v3.17.84",
+  "notes": "v3.17.84 chốt đúng nguồn của chờ thanh toán theo chỉ đạo: danh sách chỉ nhận từ nguồn duyệt cấp hai. Lệnh công nợ phải mang dấu ký cấp hai mới vào, các lệnh trạng thái duyệt từ lịch sử không có dấu cấp hai bị loại và phiếu tương ứng quay về khối cần đề xuất đợt để trình lại đúng luồng; phiếu chi hộ phải có trạng thái thô đã duyệt do cấp hai bấm kèm vết máy trạng thái lên bước đó, không nhận trạng thái tự lành. Giữ nguyên lớp lọc phiếu còn nợ và màn rà lệnh treo của bản trước. Sau khi lên bản này tải lại trang một lần."
 }

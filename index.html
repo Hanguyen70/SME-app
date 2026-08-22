@@ -3806,7 +3806,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.17.82';
+const APP_VERSION='3.17.84';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -10867,7 +10867,7 @@ function apNeedProposeRows(){
     if(!r||r._deleted||r._cashClear) return;
     const rem=(typeof apRemainingEff==='function')?apRemainingEff(r):0;
     if(rem<=0.001) return;
-    const hasOrder=(_apOrders(r).some(o=>o&&(o.status==='pending_l1'||o.status==='pending_l2'||(o.status==='approved'&&!o._paymentApplied))));   /* v3.17.82 */
+    const hasOrder=(_apOrders(r).some(o=>o&&(o.status==='pending_l1'||o.status==='pending_l2'||(o.status==='approved'&&!o._paymentApplied&&(o.approvedL2At||o.approvedL2By)))));   /* v3.17.84: lệnh không dấu L2 không tính là sống — phiếu về CẦN ĐỀ XUẤT trình lại */
     if(hasOrder) return;
     out.push({r, rem});
   }); }catch(e){}
@@ -10885,15 +10885,63 @@ function renderApNeedProposeBlock(){
       <span style="white-space:nowrap;display:flex;gap:6px;align-items:center"><b style="font-family:var(--font-mono);font-size:11px">còn ${(+x.rem||0).toLocaleString('vi-VN')} ${esc(x.r.ccy||'VND')}</b>
         <button class="btn-sec" style="font-size:11px;padding:3px 10px" onclick="apProposeOrder('${esc(x.r.id)}')">📝 Đề xuất đợt</button></span></div>`).join('')}</div>`;
 }
+/* v3.17.83: 🧹 RÀ LỆNH TREO — lệnh approved chưa dấu ĐÃ CHI nhưng PHIẾU ĐÃ HẾT NỢ (chi tay bản cũ
+   không đóng dấu). KT xem, tick, ĐÓNG thủ công (status='paid' + vết legacy + audit) — app không tự sửa. */
+function bkStaleOrders(){
+  const out=[];
+  try{ scopedView(S.payables||[],'ap').forEach(r=>{ if(!r||r._deleted||r._cashClear) return;
+    const rem=(typeof apRemainingEff==='function')?apRemainingEff(r):0;
+    if(rem>0.001) return;
+    _apOrders(r).forEach(o=>{ if(o&&o.status==='approved'&&!o._paymentApplied) out.push({r,o}); });
+  }); }catch(e){}
+  return out;
+}
+function bkStaleOrdersOpen(){
+  if(!bkCanUse()){ toast('Chỉ KT/KTT/Admin','bad'); return; }
+  const list=bkStaleOrders();
+  if(!list.length){ toast('✓ Không còn lệnh treo nào (phiếu hết nợ)','good'); return; }
+  const rows=list.map((x,ix)=>`<label style="display:flex;justify-content:space-between;gap:8px;padding:6px 4px;border-bottom:1px dotted var(--rule);font-size:12px;align-items:center">
+      <span><input type="checkbox" data-bkstale="${esc(x.r.id)}::${esc(x.o.id)}" checked> <b>${esc(String(x.r.partner||'').slice(0,32))}</b>
+        <span style="color:var(--muted);font-size:10.5px">${x.r.invoiceNo?('HĐ '+esc(x.r.invoiceNo)+' · '):''}lệnh duyệt ${esc(String(x.o.approvedL2At||x.o.approvedAt||'').slice(0,10))} — phiếu ĐÃ HẾT NỢ</span></span>
+      <b style="font-family:var(--font-mono);font-size:11px">${(+x.o.amount||0).toLocaleString('vi-VN')} ${esc(x.o.ccy||x.r.ccy||'VND')}</b></label>`).join('');
+  openModal('🧹 RÀ LỆNH TREO ('+list.length+')',
+    `<div style="font-size:11px;color:var(--muted);margin-bottom:6px">Các lệnh chi đã duyệt nhưng đợt chi tay thời kỳ trước KHÔNG đóng dấu ngược vào lệnh, trong khi phiếu đã trả đủ. Tick và bấm Đóng — lệnh chuyển "đã chi" kèm vết dọn lịch sử + audit, KHÔNG sinh thêm đợt tiền nào. App không tự đóng lệnh nào.</div>
+     <div style="max-height:380px;overflow:auto">${rows}</div>`,
+    `<button class="btn-ghost" onclick="closeModal()">Đóng cửa sổ</button>
+     <button class="btn-primary" onclick="bkStaleOrdersClose()">🧹 Đóng các lệnh đã tick</button>`);
+}
+function bkStaleOrdersClose(){
+  const picks=[...document.querySelectorAll('[data-bkstale]:checked')].map(c=>c.getAttribute('data-bkstale'));
+  if(!picks.length){ toast('Chưa tick lệnh nào','warn'); return; }
+  let n=0;
+  commitMutation(()=>{ picks.forEach(k=>{ const [rid,oid]=k.split('::');
+      const r=(S.payables||[]).find(x=>x&&x.id===rid); if(!r) return;
+      const o=_apOrders(r).find(x=>x&&x.id===oid); if(!o||o.status!=='approved'||o._paymentApplied) return;
+      const rem=(typeof apRemainingEff==='function')?apRemainingEff(r):0; if(rem>0.001) return;
+      o.status='paid'; o._paymentApplied=true; o._legacyClosed='v3.17.83 rà lệnh treo — phiếu hết nợ, chi tay bản cũ không đóng dấu';
+      o.paidAt=o.paidAt||new Date().toISOString();
+      touchRecord(r); n++; });
+  },{action:'ap_order_stale_close', fields:['payables'], onOk:()=>{
+    try{ logAuditEvent('ap_order_stale_close',{count:n,actor:actorName()}); }catch(e){}
+    toast('✓ Đã đóng '+n+' lệnh treo — không sinh đợt tiền nào','good'); closeModal(); renderAll();
+  }});
+}
 function bkCanUse(){ return isAdmin()||canConfirmPayment()||canCheckAcc(); }
 function bkPendingRows(){
   const rows=[];
   try{
     scopedView(S.payables||[],'ap').filter(r=>r&&!r._cashClear&&!r._deleted).forEach(r=>{
+      /* v3.17.83 (Sếp: '19 lệnh không lệnh nào vừa duyệt'): lệnh approved TREO từ lịch sử (chi tay
+         không đóng dấu lệnh / chi khác số nên apOrderConsume không khớp). Danh sách 💸 chỉ nhận lệnh
+         khi PHIẾU CÒN NỢ HIỆU LỰC > 0; số đề xuất chi = min(lệnh, còn nợ). Lệnh treo phiếu-hết-nợ →
+         màn 🧹 Rà lệnh treo để KT tự đóng — app không tự sửa. */
+      const _rem=(typeof apRemainingEff==='function')?apRemainingEff(r):0;
       _apOrders(r).forEach(o=>{   /* v3.17.82: đúng trường paymentOrders qua helper chuẩn */
         if(!o||o.status!=='approved'||o._paymentApplied) return;
+        if(!(o.approvedL2At||o.approvedL2By)) return;   /* v3.17.84 (Sếp): 💸 CHỈ từ nguồn DUYỆT L2 — lệnh approved lịch sử KHÔNG dấu L2 bị loại, trình lại đúng luồng */
+        if(_rem<=0.001) return;   /* phiếu đã hết nợ — lệnh treo, xử tại màn Rà */
         rows.push({kind:'ap', r, o, id:'ap:'+r.id+':'+o.id, label:(r.partner||r.vendor||''),
-          desc:(r.invoiceNo?('HĐ '+r.invoiceNo):'')+(o.note?(' · '+o.note):''), amt:+o.amount||0, ccy:o.ccy||r.ccy||'VND',
+          desc:(r.invoiceNo?('HĐ '+r.invoiceNo):'')+(o.note?(' · '+o.note):''), amt:Math.min(+o.amount||0,_rem), ccy:o.ccy||r.ccy||'VND',
           defMethod:((o._payMethod||r._payMethod)==='cash')?'CASH':'', defBank:o._payBankId||r._payBankId||''});
       });
     });
@@ -10901,7 +10949,8 @@ function bkPendingRows(){
   try{
     VesselService.opTransactions().forEach(t=>{
       if(!t||t._deleted||t.type!=='OUT') return;
-      if(((typeof opWfStatus==='function')?opWfStatus(t):t.ncStatus)!=='approved') return;
+      if((t.ncStatus||'')!=='approved') return;   /* v3.17.84: trạng thái THÔ do L2 bấm, không nhận tự-lành */
+      if(!((t._ncHist||[]).some(h=>h&&h.to==='approved'))) return;   /* vết máy trạng thái bước L2 */
       const rem=(typeof opNccRemaining==='function')?opNccRemaining(t):(+t.amount||0);
       if(rem<=0.001) return;
       rows.push({kind:'op', t, id:'op:'+t.id, label:(t.vendor||t.desc||''), lock:!!t._locked,
@@ -10933,6 +10982,7 @@ function renderBkPayList(tEl){
         <label><input type="checkbox" onclick="document.querySelectorAll('[data-bk]').forEach(c=>c.checked=this.checked); bkSummary()"> tick hết</label>
         Ngày chi <input type="date" id="bk-date" value="${todayISO()}" style="font-size:11px">
         <button class="btn-ghost" style="font-size:11px" onclick="bkLibraryOpen()">🗂 Thư viện bảng kê</button>
+        <button class="btn-ghost" style="font-size:11px" onclick="bkStaleOrdersOpen()" title="Lệnh đã duyệt nhưng phiếu đã hết nợ (chi tay bản cũ không đóng dấu lệnh) — KT rà và đóng thủ công (v3.17.83)">🧹 Rà lệnh treo${(typeof bkStaleOrders==='function'&&bkStaleOrders().length)?(' ('+bkStaleOrders().length+')'):''}</button>
       </span></div>
     ${rows.length?body:'<div class="empty" style="padding:14px;text-align:center;color:var(--muted)">Không có khoản nào chờ thanh toán</div>'}
     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;flex-wrap:wrap;gap:8px">
