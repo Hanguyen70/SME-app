@@ -1,5 +1,5 @@
 {
-  "version": "3.17.87",
-  "swVersion": "v3.17.87",
-  "notes": "v3.17.87 chỉnh màn chờ thanh toán theo yêu cầu: bố cục lưới năm cột thẳng hàng có tiêu đề cột, tên nhà cung cấp hiện đủ trên một dòng riêng kèm diễn giải dòng dưới không còn bị che, ô nguồn tiền và số chi đợt này thẳng cột; dùng chung hai ô lọc của dòng danh sách bút toán chờ duyệt gồm lọc tên nhà cung cấp và lọc số tiền đích danh dung sai một đồng, có dòng cảnh báo số khoản đang bị ẩn bởi bộ lọc và tick đã chọn vẫn giữ khi đổi lọc theo nguyên tắc đã chốt. Sau khi lên bản này tải lại trang một lần."
+  "version": "3.17.90",
+  "swVersion": "v3.17.90",
+  "notes": "v3.17.90 hai chỉnh trên modal chi tiết phiếu chi hộ: phiếu hồ sơ bị từ chối nay hiện nút duyệt chi cấp hai phục hồi dành riêng cấp hai và admin, bấm kèm xác nhận thì phiếu phục hồi và duyệt thẳng vào chờ thanh toán với vết lịch sử từ từ chối và audit đầy đủ, máy trạng thái vẫn không tự nâng phiếu từ chối; gỡ nút nhập đợt chi cũ bị trùng lặp hai lần trên cùng modal. Sau khi lên bản này tải lại trang một lần."
 }

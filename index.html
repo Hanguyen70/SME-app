@@ -3806,7 +3806,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.17.87';
+const APP_VERSION='3.17.90';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -10971,8 +10971,12 @@ function bkPendingRows(){
         if(!o||o.status!=='approved'||o._paymentApplied) return;
         if(!(o.approvedL2At||o.approvedL2By)) return;   /* v3.17.84 (Sếp): 💸 CHỈ từ nguồn DUYỆT L2 — lệnh approved lịch sử KHÔNG dấu L2 bị loại, trình lại đúng luồng */
         if(_rem<=0.001) return;   /* phiếu đã hết nợ — lệnh treo, xử tại màn Rà */
+        /* v3.17.89 (Sếp: 'phải là giá trị thanh toán đợt này'): số chi = dueAmount phiếu nếu KT đã
+           đề xuất (>0), kẹp ≤ lệnh và ≤ còn nợ; không có dueAmount thì theo lệnh kẹp còn nợ. */
+        const _dueL=(typeof apDueThisAmount==='function')?(+apDueThisAmount(r)||0):0;
+        const _amtL=_dueL>0?Math.min(_dueL, +o.amount||_dueL, _rem):Math.min(+o.amount||0,_rem);
         rows.push({kind:'ap', r, o, id:'ap:'+r.id+':'+o.id, label:(r.partner||r.vendor||''),
-          desc:(r.invoiceNo?('HĐ '+r.invoiceNo):'')+(o.note?(' · '+o.note):''), amt:Math.min(+o.amount||0,_rem), ccy:o.ccy||r.ccy||'VND',
+          desc:(r.invoiceNo?('HĐ '+r.invoiceNo):'')+(o.note?(' · '+o.note):''), amt:_amtL, ccy:o.ccy||r.ccy||'VND',
           defMethod:((o._payMethod||r._payMethod)==='cash')?'CASH':'', defBank:o._payBankId||r._payBankId||''});
       });
     });
@@ -11088,7 +11092,7 @@ function bkConfirm(){
       const proposed={method:x.defMethod==='CASH'?'cash':'bank', bankId:x.defBank||''};
       const changed=(method!==proposed.method)||(method!=='cash'&&proposed.bankId!==srcBank);
       if(x.kind==='ap'){
-        _apOrderAutoPay(x.r, x.o, {date, bankId:(method==='cash')?'':srcBank, method, bkId});
+        _apOrderAutoPay(x.r, x.o, {date, bankId:(method==='cash')?'':srcBank, method, bkId, amt:x.amt});   /* v3.17.89 */
         if(!x.o._paymentApplied) return;
         x.o.status='paid'; x.o.paidAt=new Date().toISOString();
         try{ touchRecord(x.r); }catch(e){}
@@ -41792,21 +41796,36 @@ function renderApprovalList(){
     });
     const byOriginList=Object.entries(byOrigin).map(([k,v])=>`${k}: ${v}`).join(' · ')||'—';
     const lvl=document.getElementById('appr-level').value;
-    const lvlLabel=lvl==='pending_acc'?'Chờ KT kiểm':lvl==='pending_l1'?'Trình ký':lvl==='approved'?'Đã duyệt':'Chờ thanh toán';
+    const lvlLabel=lvl==='pending_acc'?'Chờ KT kiểm':lvl==='pending_l1'?'Trình ký':lvl==='approved'?'Đã duyệt':lvl==='bk_pay'?'Chờ Thanh Toán':lvl==='fee'?'Phí phát sinh':lvl==='kunn'?'KUNN chờ':'Duyệt chi (L2)';
+    /* v3.17.88 (Sếp: 'không thống kê?'): KPI cho chip mới — đồng nguồn với chính màn đang hiện. */
+    let _kN=candidates.length, _kTotal=null, _kBy=null;
+    if(lvl==='bk_pay'){ try{ const _r=(typeof bkPendingRows==='function')?bkPendingRows():[];
+        const _pf=((document.getElementById('appr-partner')||{}).value||'').trim().toLowerCase();
+        const _aRaw=(document.getElementById('appr-amt')||{}).value; const _aT=(_aRaw!==''&&_aRaw!=null)?_unformatNumber(_aRaw):null;
+        let _rr=_r; if(_pf) _rr=_rr.filter(x=>((x.label||'')+' '+(x.desc||'')).toLowerCase().includes(_pf));
+        if(_aT!=null&&_aT>0) _rr=_rr.filter(x=>Math.abs((+x.amt||0)-_aT)<=1);
+        _kN=_rr.length; _kTotal=_rr.reduce((a,x)=>a+toDisplay(+x.amt||0, x.ccy||'VND'),0);
+        const _b={}; _rr.forEach(x=>{ const k=x.kind==='op'?'Chi hộ':(x.kind==='apr'?'AP (duyệt phiếu)':'AP (lệnh)'); _b[k]=(_b[k]||0)+1; });
+        _kBy=Object.entries(_b).map(([k,v])=>k+': '+v).join(' · ')||'—';
+      }catch(e){} }
+    else if(lvl==='kunn'){ try{ const _ls=((typeof AccountingService!=='undefined'&&AccountingService.loans)?AccountingService.loans():(S.loans||[])).filter(l=>l&&l.kuDraft&&l.status!=='closed');
+        _kN=_ls.length; _kTotal=_ls.reduce((a,l)=>a+toDisplay(+(l.principal||l.amount)||0, l.ccy||'VND'),0); _kBy='Khế ước nháp chờ số KUNN';
+      }catch(e){} }
+    else if(lvl==='fee'){ _kN=0; _kTotal=0; _kBy='Ghi phí sau chuyển NH — 2 chế độ'; }
     kEl.innerHTML=`
       <div class="kpi">
         <div class="kpi-label">${lvlLabel}</div>
-        <div class="kpi-value" style="color:var(--warn)">${candidates.length}</div>
-        <div class="kpi-sub">bút toán phù hợp bộ lọc</div>
+        <div class="kpi-value" style="color:var(--warn)">${_kN}</div>
+        <div class="kpi-sub">${lvl==='bk_pay'?'khoản chờ chi phù hợp bộ lọc':lvl==='kunn'?'khế ước chờ hoàn thiện':'bút toán phù hợp bộ lọc'}</div>
       </div>
       <div class="kpi">
         <div class="kpi-label">Tổng giá trị</div>
-        <div class="kpi-value" style="color:var(--accent)">${fmt(total)}</div>
+        <div class="kpi-value" style="color:var(--accent)">${fmt(_kTotal!=null?_kTotal:total)}</div>
         <div class="kpi-sub">Quy đổi sang ${S.displayCcy||'USD'}</div>
       </div>
       <div class="kpi">
         <div class="kpi-label">Phân loại</div>
-        <div class="kpi-value" style="font-size:13px;font-weight:500">${byOriginList}</div>
+        <div class="kpi-value" style="font-size:13px;font-weight:500">${_kBy!=null?_kBy:byOriginList}</div>
         <div class="kpi-sub">Theo loại bút toán</div>
       </div>
       <div class="kpi">
@@ -56915,7 +56934,8 @@ function _apOrderAutoPay(r, o, opts){
      không trừ số dư TK, _kuDraftAttach gom khế ước nháp chờ KUNN (máy 3.15.19 sẵn có). */
   if(!r||!o||o._paymentApplied) return;
   const _o=opts||{};
-  const amt=+o.amount||0; if(amt<=0) return;
+  const amt=(+_o.amt>0)?Math.min(+_o.amt, +o.amount||+_o.amt):(+o.amount||0);   /* v3.17.89: Bảng kê chi theo GIÁ TRỊ ĐỢT NÀY, kẹp ≤ lệnh */
+  if(amt<=0) return;
   r.payments=r.payments||[];
   const bid=(_o.bankId!==undefined)?_o.bankId:(o._payBankId||r._payBankId||'');
   const method=_o.method?_o.method:(((o._payMethod||r._payMethod)==='cash')?'cash':'bank');
@@ -62311,6 +62331,12 @@ function _opNccFootButtons(t){
   if(state.next && _opCanAdvance(t, state.next)){
     b+=`<button class="btn-pri" onclick="opWfAdvance('${t.id}','${state.next}')" title="Chuyển hồ sơ sang bước: ${state.nextLabel}">→ ${state.nextLabel}</button>`;
   }
+  /* v3.17.90 (Sếp: 'thiếu nút duyệt L2'): phiếu ncStatus TỪ CHỐI — máy không tự nâng (đúng),
+     nhưng L2/Admin có THẨM QUYỀN phục hồi & duyệt thẳng: rejected → approved (Chờ Thanh Toán),
+     ghi vết _ncHist from rejected + audit. Chỉ hiện cho canApproveL2/Admin. */
+  if(st==='rejected' && (isAdmin()||canApproveL2())){
+    b+=`<button class="btn-pri" onclick="if(confirm('Phục hồi phiếu TỪ CHỐI và DUYỆT CHI (L2) ngay?\n\nPhiếu sẽ vào Chờ Thanh Toán.')){opWfAdvance('${t.id}','approved')}" title="Thẩm quyền L2: phục hồi phiếu bị từ chối và duyệt chi" style="background:var(--good)">→ Duyệt chi (L2) — phục hồi</button>`;
+  }
   // Nút từ chối (trả về) — người duyệt từ pending_* 
   if(['pending_acc','pending_l1','pending_l2'].includes(st) && _opCanAdvance(t, state.next)){
     b+=`<button class="btn-sec" onclick="opWfReject('${t.id}')" title="Từ chối / trả lại hồ sơ" style="border-color:var(--bad);color:var(--bad)">✕ Từ chối</button>`;
@@ -62319,10 +62345,8 @@ function _opNccFootButtons(t){
   if((st==='pending_l2'||st==='approved') && opNccRemaining(t)>0.001 && canConfirmPayment()){
     b+=`<button class="btn-sec" onclick="closeModal();openOpNccPayment('${t.id}')" title="Ghi nhận một đợt thanh toán NCC" style="border-color:#1c3a5c;color:#1c3a5c">💰 Thanh toán NCC</button>`;
   }
-  // v3.07.55: nút nhập đợt chi CŨ (đã trả trước khi dùng app) — luôn có khi còn nợ
-  if(opNccRemaining(t)>0.001 && (isAdmin()||canConfirmPayment()||canCheckAcc())){
-    b+=`<button class="btn-sec" onclick="opAddOldPayment('${t.id}')" title="Nhập đợt đã chi trước khi dùng app (nhập bù lịch sử)" style="border-color:var(--muted);color:var(--muted)">↩ Nhập đợt chi cũ</button>`;
-  }
+  /* v3.17.90: nút nhập bù lịch sử đã có ở foot modal (site 3.07.x) — gỡ bản TRÙNG tại đây
+     (ảnh Sếp: 2 nút giống hệt cạnh nhau trên phiếu TỪ CHỐI). */
   return b;
 }
 /* Quyền chuyển bước workflow NCC: dựa trên phân quyền duyệt sẵn có của app. */
