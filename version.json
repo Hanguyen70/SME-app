@@ -1,5 +1,5 @@
 {
-  "version": "3.17.80",
-  "swVersion": "v3.17.80",
-  "notes": "v3.17.80: Thêm tem phiên bản nhỏ ngay cạnh thanh chip tab phê duyệt để xác minh tức thì máy đang chạy bản nào, và ba màn mới chờ thanh toán phí phát sinh khế ước khi gặp lỗi sẽ hiện thông báo lỗi đỏ kèm số bản thay vì trống trơn. Kiểm tra render thật cả ba màn với dữ liệu mẫu đều tốt; hiện tượng ô tính năng không mở trên máy admin nhiều khả năng do bộ nhớ đệm còn giữ bản cũ dính lỗi thanh chip, cần tải bản này và làm mới trang đúng cách. Sau khi lên bản này tải lại trang một lần, nếu chip vẫn trống thì đóng hết thẻ trình duyệt mở lại hoặc nhấn làm mới cứng."
+  "version": "3.17.81",
+  "swVersion": "v3.17.81",
+  "notes": "v3.17.81 sửa lỗi bấm không được ba chip mới chờ thanh toán phí phát sinh khế ước: chip gán giá trị vào ô chọn cấp ẩn nhưng ô này thiếu ba lựa chọn tương ứng nên trình duyệt giữ nguyên giá trị cũ và màn không chuyển; đã bổ sung ba lựa chọn vào ô chọn kèm kiểm thử đối chiếu mọi chip đều phải có lựa chọn tương ứng để lỗi loại này không lọt lại. Sau khi lên bản này tải lại trang một lần."
 }

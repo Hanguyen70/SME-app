@@ -2735,7 +2735,11 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
       <select id="appr-level" onchange="renderApprovalList()" style="display:none">
         <option value="pending_acc">Chờ KT viên kiểm</option>
         <option value="pending_l1" selected>Trình ký (chờ L1)</option>
-        <option value="pending_l2">Chờ TT</option>
+        <option value="pending_l2">Duyệt chi (L2)</option>
+        <!-- v3.17.81 HOTFIX: chip mới gán value vào select này — THIẾU option nên trình duyệt giữ giá trị cũ, bấm chip không tác dụng -->
+        <option value="bk_pay">💸 Chờ Thanh Toán</option>
+        <option value="fee">🧾 Phí phát sinh</option>
+        <option value="kunn">⏳ KUNN</option>
         <option value="approved">✓ Đã duyệt</option>
       </select>
       <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
@@ -3802,7 +3806,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.17.80';
+const APP_VERSION='3.17.81';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
