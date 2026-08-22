@@ -1,5 +1,5 @@
 {
-  "version": "3.17.68",
-  "swVersion": "v3.17.68",
-  "notes": "v3.17.68: Sửa lỗi không duyệt được phiếu chi hộ bằng nút trình thanh toán và duyệt chi: hai nút này trước đây chỉ tra các bút toán công nợ đã tick nên phiếu chi hộ tick ở khối tàu quản lý hộ bị bỏ rơi và app còn nhắc tích chọn dù đã tick. Nay bấm nút thì các phiếu chi hộ đã tick được chuyển bước ngay theo máy trạng thái riêng với đếm chuyển thật, phần công nợ nếu có tick vẫn vào màn lệnh chi như cũ, còn nếu chỉ tick chi hộ thì xử xong là dừng không hiện nhắc sai. Chi hộ không đi vào phiếu lệnh chi in vì thanh toán chi hộ ghi tại sổ thu chi hộ theo luồng riêng. Nền v3.17.67 giữ nguyên. Sau khi lên bản này tải lại trang một lần."
+  "version": "3.17.78",
+  "swVersion": "v3.17.78",
+  "notes": "v3.17.78: Giữ tick chọn khi đổi bộ lọc nhà cung cấp để phê duyệt một lần nhiều nhà cung cấp theo chỉ đạo: tick nay tính theo đúng cấp đang xem bất chấp bộ lọc, dòng tóm tắt và số trên nút đếm cả phiếu đã tick đang bị bộ lọc ẩn kèm ghi chú rõ vẫn được duyệt, nút duyệt chung và trình thanh toán xử lý cả phiếu chi hộ đã tick đang ẩn qua bộ nhớ chọn; bộ nhớ chọn công nợ vốn đã giữ tick, lỗi chỉ nằm ở bộ đếm bản 3.17.66 đếm theo phiếu đang hiện và hành động chi hộ đọc màn hình. Không liên quan việc bỏ tích vĩnh viễn của bản 3.17.64 vì cơ chế đó đã thay bằng bộ nhớ chọn theo nguyên tắc công nợ ở bản 3.17.67. Sau khi lên bản này tải lại trang một lần."
 }

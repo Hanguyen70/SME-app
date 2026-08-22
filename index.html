@@ -3802,7 +3802,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.17.68';
+const APP_VERSION='3.17.78';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -10410,8 +10410,8 @@ const OP_WF_STATES={
   draft:       {label:'Nháp',          short:'Nháp',     chip:'',          next:'pending_acc', nextLabel:'Chuyển KT'},
   pending_acc: {label:'Chờ KT kiểm',   short:'KT kiểm',  chip:'chip-warn', next:'pending_l1',  nextLabel:'Trình ký L1'},
   pending_l1:  {label:'Trình ký L1',   short:'Ký L1',    chip:'chip-warn', next:'pending_l2',  nextLabel:'Trình ký L2'},
-  pending_l2:  {label:'Chờ TT', short:'Chờ TT', chip:'chip-warn', next:'approved',    nextLabel:'Đóng dấu hồ sơ'},
-  approved:    {label:'Đã đóng dấu hồ sơ', short:'Đóng dấu', chip:'chip-good', next:'',        nextLabel:''},
+  pending_l2:  {label:'Chờ duyệt chi (L2)', short:'Duyệt chi', chip:'chip-warn', next:'approved',    nextLabel:'Duyệt chi (L2)'},
+  approved:    {label:'Chờ Thanh Toán — KT chuyển', short:'Chờ TT', chip:'chip-good', next:'',        nextLabel:''},   /* v3.17.70: sau L2 = cash-flow chờ KT chi */
   rejected:    {label:'Từ chối',       short:'Từ chối',  chip:'chip-bad',  next:'',            nextLabel:''}
 };
 /* Trạng thái workflow NCC của 1 phiếu chi hộ (mặc định: draft). */
@@ -10719,9 +10719,404 @@ function opL1RestoreApply(){
   },{action:'op_l1_restore',fields:['opTransactions'],onOk:()=>{ try{logAuditEvent('op_l1_restore',{count:n,actor:actorName()});}catch(e){}
       toast('✓ Đã khôi phục '+n+' phiếu về đúng bước theo vết duyệt — giữ chữ ký cũ','good'); closeModal(); renderAll(); }});
 }
+/* ═══ v3.17.71 GĐ1 (Sếp duyệt MẪU v2 21/08): BẢNG KÊ THANH TOÁN ═══
+   Chip 💸 Chờ Thanh Toán: gom AP (lệnh chi đã duyệt L2 chờ ghi chi — hàng đợi FLAG_APO_UNIFIED)
+   + CHI HỘ (ncStatus approved, còn nợ). KT tick hàng loạt, ĐỔI NGUỒN TỪNG PHIẾU (nguyên lý: KT là
+   người CUỐI CÙNG chuỗi thanh toán), xác nhận → ghi đợt qua ĐÚNG 2 lõi sẵn có (_apOrderAutoPay /
+   _opPayApply) + sinh bảng kê BK-YYYYMMDD-NN lưu S.paymentSheets (chỉ THAM CHIẾU, không nhân đôi số).
+   GĐ1: NH + TM. GĐ2: PDF/Excel. GĐ3: GIẢI NGÂN (loan → kuDraft chờ KUNN). */
+/* ═══ v3.17.74 GĐ A (MẪU Bàn làm việc KT — Sếp duyệt): 🧾 PHÍ PHÁT SINH sau khi đã chuyển NH ═══
+   Mọi KT (chốt ①). Hai chế độ (chốt ①): ĐÍCH DANH (đợt phí mới gắn phiếu — chi hộ bắt buộc, tham
+   chiếu BK nếu có, chốt ②) qua lõi _opPayApply/_apFeeApply; THEO ĐỢT (một bút toán phí độc lập
+   S.bkBatchFees trừ thẳng TK, vết _bkId, không phân bổ). R6 giữ: ngày phí > kỳ khóa; khác tháng → hỏi. */
+/* v3.17.76 GĐ C: ⏳ KUNN — nhắc khế ước nháp tự gom từ giải ngân (máy 3.15.19), hoàn thiện tại Tín dụng. */
+function renderKunnList(tEl){
+  const loans=((typeof AccountingService!=='undefined'&&AccountingService.loans)?AccountingService.loans():(S.loans||[])).filter(l=>l&&l.kuDraft&&l.status!=='closed');
+  const bks=AccountingService.bankAccounts();
+  const bName=(bid)=>{ const a=bks.find(z=>z.id===bid); return a?((a.bankName||'')+' ·'+(a.accountNo||'').slice(-6)):(bid||''); };
+  tEl.innerHTML=`<div style="border:1.5px solid var(--rule);border-radius:10px;padding:10px 12px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><b style="font-size:13px">⏳ KHẾ ƯỚC CHỜ HOÀN THIỆN (${loans.length})</b>
+      <button class="btn-sec" style="font-size:11px" onclick="navTo('banking')">→ Mở màn Tín dụng</button></div>
+    ${loans.length?loans.map(l=>`<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;padding:5px 2px;border-bottom:1px dotted var(--rule);font-size:12px">
+      <span><b>${esc(String(l.lender||l.name||'KU nháp').slice(0,34))}</b> <span style="color:var(--muted);font-size:10.5px">${esc(l.startDate||'')} · thiếu số KUNN · lãi suất · kỳ hạn</span></span>
+      <b style="font-family:var(--font-mono);font-size:11px">${(+(l.principal||l.amount)||0).toLocaleString('vi-VN')} ${esc(l.ccy||'VND')}</b></div>`).join('')
+      :'<div class="empty" style="padding:12px;text-align:center;color:var(--muted)">✓ Không còn khế ước nháp nào</div>'}
+    <div style="font-size:10.5px;color:var(--muted);padding-top:6px">Khế ước nháp sinh tự động khi Bảng kê ghi khoản GIẢI NGÂN — KT điền số KUNN, lãi suất, kỳ hạn tại màn Tín dụng.</div></div>`;
+}
+function feeCanUse(){ return isAdmin()||canCheckAcc()||canConfirmPayment(); }
+function _apFeeApply(r,p){
+  r.payments=r.payments||[];
+  const pay={date:p.date, amount:0, ccy:r.ccy, note:p.note||'Phí phát sinh sau chuyển NH', method:'bank',
+    bankAccountId:p.bankId, recordedBy:actorName(), recordedAt:new Date().toISOString(), _feeOnly:true};
+  if(+p.bf>0) pay.bankFee=+p.bf;
+  if(+p.of>0) pay.otherFee=+p.of;
+  if(p.bkRef) pay._bkId=p.bkRef;
+  r.payments.push(pay);
+  const acc=AccountingService.bankAccounts().find(a=>a.id===p.bankId);
+  if(acc && typeof _arPayAmountInCcy==='function'){
+    const feeAmt=(+p.bf||0)+(+p.of||0);
+    if(feeAmt>0){ try{ acc.balance=(+acc.balance||0)-_arPayAmountInCcy({amount:feeAmt,fxRate:+S.fxRate||0},'VND',acc.ccy||'USD'); touchRecord(acc); }catch(e){} }
+  }
+  try{ touchRecord(r); }catch(e){}
+  return pay;
+}
+function feePendingRows(){
+  const rows=[]; const cut=new Date(Date.now()-60*864e5).toISOString().slice(0,10);
+  try{ scopedView(S.payables||[],'ap').forEach(r=>{ if(!r||r._deleted) return;
+    (r.payments||[]).forEach((pp,ix)=>{ if(!pp||pp._feeOnly||!pp.bankAccountId||pp.method==='loan') return;
+      if((pp.date||'')<cut) return;
+      rows.push({kind:'ap', r, ix, label:(r.partner||''), date:pp.date, bankId:pp.bankAccountId, amt:+pp.amount||0, ccy:r.ccy||'VND', bkRef:pp._bkId||''}); }); }); }catch(e){}
+  try{ VesselService.opTransactions().forEach(t=>{ if(!t||t._deleted||t.type!=='OUT') return;
+    (t.payments||[]).forEach((pp,ix)=>{ if(!pp||!pp.bankAccountId||(+pp.amount||0)<=0&&(+pp.bankFee||0)>0) return;
+      if(!pp.bankAccountId||(pp.date||'')<cut) return;
+      rows.push({kind:'op', t, ix, label:(t.vendor||t.desc||''), lock:!!t._locked, vessel:(typeof opVesselName_==='function'&&opVesselName_(t.vesselId))||'',
+        date:pp.date, bankId:pp.bankAccountId, amt:+pp.amount||0, ccy:t.ccy||'VND', bkRef:pp._bkId||''}); }); }); }catch(e){}
+  rows.sort((a,b)=>String(b.date||'').localeCompare(String(a.date||'')));
+  return rows.slice(0,80);
+}
+function renderFeeList(tEl){
+  if(!feeCanUse()){ tEl.innerHTML='<div class="empty" style="padding:20px;text-align:center;color:var(--muted)">Chip này dành cho KT</div>'; return; }
+  const mode=window._feeMode||'one';
+  const bks=AccountingService.bankAccounts().filter(a=>a.isActive!==false);
+  const bName=(bid)=>{ const a=bks.find(z=>z.id===bid); return a?((a.bankName||'')+' ·'+(a.accountNo||'').slice(-6)):bid; };
+  let body='';
+  if(mode==='one'){
+    const rows=feePendingRows(); window._feeRows=rows;
+    body=rows.length?rows.map((x,ix)=>`<div style="display:flex;justify-content:space-between;gap:6px;align-items:center;padding:6px 4px;border-bottom:1px dotted var(--rule);font-size:12px;flex-wrap:wrap">
+      <span style="min-width:0;flex:1"><span class="ds-need" style="${x.kind==='op'?'color:#1c4e7c':''}">${x.kind==='op'?'CHI HỘ':'AP'}</span>${x.lock?' 🔒':''}
+        <b>${esc(String(x.kind==='op'?(x.vessel+' · '):'')+String(x.label).slice(0,26))}</b>
+        <span style="color:var(--muted);font-size:10.5px">đợt ${esc(x.date||'')} · ${esc(bName(x.bankId))}${x.bkRef?(' · '+esc(x.bkRef)):''} · ${(+x.amt||0).toLocaleString('vi-VN')} ${esc(x.ccy)}</span></span>
+      <span style="white-space:nowrap;display:flex;gap:4px;align-items:center">
+        <input id="fee-bf-${ix}" placeholder="phí NH" style="width:86px;text-align:right;font-size:11px">
+        <input id="fee-of-${ix}" placeholder="phí khác" style="width:80px;text-align:right;font-size:11px">
+        <input id="fee-nt-${ix}" placeholder="ghi chú" style="width:110px;font-size:11px">
+        <button class="btn-primary" style="font-size:11px;padding:4px 10px" onclick="feeApplyOne(${ix})">Ghi</button></span></div>`).join('')
+      :'<div class="empty" style="padding:14px;text-align:center;color:var(--muted)">Không có đợt chi NH nào trong 60 ngày</div>';
+    body+='<div style="font-size:10.5px;color:var(--muted);padding:6px 2px">🎯 Phí về ĐÚNG phiếu (chi hộ bắt buộc đích danh — phí vào đúng tàu, R6 giữ). Đợt thuộc bảng kê → đợt phí mới tham chiếu BK, không sửa BK.</div>';
+  } else {
+    const bkOpts=(S.paymentSheets||[]).slice(-30).reverse().map(b=>`<option value="${esc(b.id)}">${esc(b.id)} · ${esc(b.date)} · ${b.rows.length} khoản</option>`).join('');
+    body=`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:12px;padding:6px 2px">
+      Gắn bảng kê: <select id="feeb-bk" style="font-size:11px"><option value="">— không gắn —</option>${bkOpts}</select>
+      TK trừ phí: <select id="feeb-bank" style="font-size:11px">${bks.map(a=>`<option value="${esc(a.id)}">${esc(bName(a.id))}</option>`).join('')}</select>
+      Ngày: <input type="date" id="feeb-date" value="${todayISO()}" style="font-size:11px">
+      Phí: <input id="feeb-fee" placeholder="0" style="width:100px;text-align:right;font-size:11px">
+      Ghi chú: <input id="feeb-note" placeholder="phí chuyển lô..." style="width:150px;font-size:11px">
+      <button class="btn-primary" style="font-size:11px;padding:5px 12px" onclick="feeApplyBatch()">Ghi phí lô</button></div>
+      <div style="font-size:10.5px;color:var(--muted);padding:4px 2px">📦 MỘT bút toán phí độc lập trừ thẳng TK (dòng PHÍ trong Sổ NH), vết bảng kê, KHÔNG phân bổ vào phiếu — phí công ty, không đụng báo cáo chủ tàu.</div>`;
+    const hist=(S.bkBatchFees||[]).slice(-8).reverse().map(f=>`<div style="font-size:11px;color:var(--muted);padding:3px 2px;border-bottom:1px dotted var(--rule)">${esc(f.date)} · ${esc(bName(f.bankAccountId))} · <b style="font-family:var(--font-mono)">${(+f.fee||0).toLocaleString('vi-VN')}</b>${f._bkId?(' · '+esc(f._bkId)):''}${f.note?(' · '+esc(f.note)):''} · ${esc(f.by||'')}</div>`).join('');
+    if(hist) body+='<div style="margin-top:8px"><b style="font-size:11px">Phí lô đã ghi gần đây</b>'+hist+'</div>';
+  }
+  tEl.innerHTML=`<div style="border:1.5px solid var(--rule);border-radius:10px;padding:10px 12px">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:6px">
+      <b style="font-size:13px">🧾 PHÍ PHÁT SINH — sau khi đã chuyển NH</b>
+      <span style="display:inline-flex;border:1.5px solid var(--rule);border-radius:8px;overflow:hidden">
+        <button class="btn-ghost" style="font-size:11px;border:none;border-radius:0;${mode==='one'?'background:var(--accent,#123a5c);color:#fff':''}" onclick="window._feeMode='one';renderApprovalList()">🎯 Đích danh</button>
+        <button class="btn-ghost" style="font-size:11px;border:none;border-radius:0;${mode==='batch'?'background:var(--accent,#123a5c);color:#fff':''}" onclick="window._feeMode='batch';renderApprovalList()">📦 Theo đợt</button></span></div>
+    ${body}</div>`;
+}
+function feeApplyOne(ix){
+  const x=(window._feeRows||[])[ix]; if(!x) return;
+  const bf=_unformatNumber((document.getElementById('fee-bf-'+ix)||{}).value||'');
+  const of=_unformatNumber((document.getElementById('fee-of-'+ix)||{}).value||'');
+  const nt=((document.getElementById('fee-nt-'+ix)||{}).value||'').trim();
+  if(bf<=0&&of<=0){ toast('Nhập phí NH hoặc phí khác > 0','bad'); return; }
+  const date=todayISO();
+  if(x.kind==='op'){
+    /* R6: ngày phí phải SAU kỳ khóa gần nhất của tàu; khác tháng khoản gốc → hỏi (chính sách 3.10.01/3.09.88) */
+    try{ const lockEnd=(typeof ownerLockLastDay==='function')?ownerLockLastDay(x.t.vesselId):null;
+      if(lockEnd && String(date)<=String(lockEnd)){ toast('⛔ Kỳ đã khóa tới hết '+lockEnd+' — ngày phí phải lớn hơn (R6).','bad'); return; } }catch(e){}
+    if(String(date).slice(0,7)!==String(x.t.date||'').slice(0,7)){
+      if(!confirm('⚠ Tháng phí ('+String(date).slice(0,7)+') KHÁC tháng khoản chi hộ gốc ('+String(x.t.date||'').slice(0,7)+'). Phí ghi vào báo cáo chủ tàu THÁNG PHÍ (dòng riêng). Vẫn ghi?')) return;
+    }
+  }
+  commitMutation(()=>{
+    if(x.kind==='op') _opPayApply(x.t,{date, amt:0, ccy:x.ccy, note:nt||('Phí phát sinh · đợt '+(x.date||'')), src:x.bankId, bf, of, fn:nt, bkId:x.bkRef||undefined});
+    else _apFeeApply(x.r,{date, bankId:x.bankId, bf, of, note:nt||('Phí phát sinh · đợt '+(x.date||'')), bkRef:x.bkRef||''});
+  },{action:'fee_late_add', fields:[x.kind==='op'?'opTransactions':'payables','bankAccounts'], onOk:()=>{
+    try{ logAuditEvent('fee_late_add',{mode:'one',kind:x.kind,refId:x.kind==='op'?x.t.id:x.r.id,bf,of,actor:actorName()}); }catch(e){}
+    toast('✓ Đã ghi phí '+((bf+of).toLocaleString('vi-VN'))+' vào '+(x.kind==='op'?'phiếu chi hộ':'phiếu AP'),'good'); renderAll();
+  }});
+}
+function feeApplyBatch(){
+  const bankId=((document.getElementById('feeb-bank')||{}).value||'');
+  const fee=_unformatNumber((document.getElementById('feeb-fee')||{}).value||'');
+  const date=((document.getElementById('feeb-date')||{}).value)||todayISO();
+  const bkRef=((document.getElementById('feeb-bk')||{}).value||'');
+  const note=((document.getElementById('feeb-note')||{}).value||'').trim();
+  if(!bankId){ toast('Chọn TK trừ phí','bad'); return; }
+  if(fee<=0){ toast('Nhập phí > 0','bad'); return; }
+  commitMutation(()=>{
+    S.bkBatchFees=S.bkBatchFees||[];
+    S.bkBatchFees.push({id:'PF-'+Date.now().toString(36), date, bankAccountId:bankId, fee, note, _bkId:bkRef||undefined, by:actorName(), at:new Date().toISOString()});
+    const acc=AccountingService.bankAccounts().find(a=>a.id===bankId);
+    if(acc){ try{ acc.balance=(+acc.balance||0)-_arPayAmountInCcy({amount:fee,fxRate:+S.fxRate||0},'VND',acc.ccy||'USD'); touchRecord(acc); }catch(e){} }
+  },{action:'fee_late_add', fields:['bkBatchFees','bankAccounts'], onOk:()=>{
+    try{ logAuditEvent('fee_late_add',{mode:'batch',bankId,fee,bkRef,actor:actorName()}); }catch(e){}
+    toast('✓ Đã ghi phí lô '+fee.toLocaleString('vi-VN')+' đ — Sổ NH có dòng PHÍ','good'); renderAll();
+  }});
+}
+/* ═══ v3.17.75 GĐ B: khối 📄 AP CẦN ĐỀ XUẤT ĐỢT — nhúng vào chip KT kiểm, SONG SONG tab Phải trả
+   (chốt ③) — mỗi dòng bấm 📝 mở ĐÚNG modal đề xuất hiện hành (apProposeOrder), không viết lại. */
+function apNeedProposeRows(){
+  const out=[];
+  try{ scopedView(S.payables||[],'ap').forEach(r=>{
+    if(!r||r._deleted||r._cashClear) return;
+    const rem=(typeof apRemainingEff==='function')?apRemainingEff(r):0;
+    if(rem<=0.001) return;
+    const hasOrder=((r.payOrders||[]).some(o=>o&&(o.status==='pending_l1'||o.status==='pending_l2'||(o.status==='approved'&&!o._paymentApplied))));
+    if(hasOrder) return;
+    out.push({r, rem});
+  }); }catch(e){}
+  out.sort((a,b)=>String(a.r.dueDate||'9').localeCompare(String(b.r.dueDate||'9')));
+  return out.slice(0,30);
+}
+function renderApNeedProposeBlock(){
+  if(!(isAdmin()||canCheckAcc())) return '';
+  const rows=apNeedProposeRows();
+  if(!rows.length) return '';
+  return `<div style="border:1.5px solid var(--rule);border-radius:10px;padding:8px 10px;margin-top:8px">
+    <div style="font-size:12px;font-weight:700;margin-bottom:4px">📄 AP CẦN ĐỀ XUẤT ĐỢT (${rows.length}) <span style="font-weight:400;font-size:10px;color:var(--muted)">— song song tab Phải trả (v3.17.75), cùng một máy đề xuất</span></div>
+    ${rows.map(x=>`<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;padding:4px 2px;border-bottom:1px dotted var(--rule);font-size:12px">
+      <span><b>${esc(String(x.r.partner||'').slice(0,32))}</b> <span style="color:var(--muted);font-size:10.5px">${x.r.invoiceNo?('HĐ '+esc(x.r.invoiceNo)):''}${x.r.dueDate?(' · hạn '+esc(x.r.dueDate)):''}</span></span>
+      <span style="white-space:nowrap;display:flex;gap:6px;align-items:center"><b style="font-family:var(--font-mono);font-size:11px">còn ${(+x.rem||0).toLocaleString('vi-VN')} ${esc(x.r.ccy||'VND')}</b>
+        <button class="btn-sec" style="font-size:11px;padding:3px 10px" onclick="apProposeOrder('${esc(x.r.id)}')">📝 Đề xuất đợt</button></span></div>`).join('')}</div>`;
+}
+function bkCanUse(){ return isAdmin()||canConfirmPayment()||canCheckAcc(); }
+function bkPendingRows(){
+  const rows=[];
+  try{
+    scopedView(S.payables||[],'ap').filter(r=>r&&!r._cashClear&&!r._deleted).forEach(r=>{
+      (r.payOrders||[]).forEach(o=>{
+        if(!o||o.status!=='approved'||o._paymentApplied) return;
+        rows.push({kind:'ap', r, o, id:'ap:'+r.id+':'+o.id, label:(r.partner||r.vendor||''),
+          desc:(r.invoiceNo?('HĐ '+r.invoiceNo):'')+(o.note?(' · '+o.note):''), amt:+o.amount||0, ccy:o.ccy||r.ccy||'VND',
+          defMethod:((o._payMethod||r._payMethod)==='cash')?'CASH':'', defBank:o._payBankId||r._payBankId||''});
+      });
+    });
+  }catch(e){}
+  try{
+    VesselService.opTransactions().forEach(t=>{
+      if(!t||t._deleted||t.type!=='OUT') return;
+      if(((typeof opWfStatus==='function')?opWfStatus(t):t.ncStatus)!=='approved') return;
+      const rem=(typeof opNccRemaining==='function')?opNccRemaining(t):(+t.amount||0);
+      if(rem<=0.001) return;
+      rows.push({kind:'op', t, id:'op:'+t.id, label:(t.vendor||t.desc||''), lock:!!t._locked,
+        desc:'🚢 '+((typeof opVesselName_==='function'&&opVesselName_(t.vesselId))||'')+(t.invoiceNo?(' · HĐ '+t.invoiceNo):''),
+        amt:rem, ccy:t.ccy||'VND',
+        defMethod:(t.payMethod==='cash')?'CASH':'', defBank:t.bankAccountId||''});
+    });
+  }catch(e){}
+  return rows;
+}
+function renderBkPayList(tEl){
+  if(!bkCanUse()){ tEl.innerHTML='<div class="empty" style="padding:20px;text-align:center;color:var(--muted)">Chip này dành cho KT thanh toán / KTT / Admin</div>'; return; }
+  const rows=bkPendingRows();
+  const bks=AccountingService.bankAccounts().filter(a=>a.isActive!==false);
+  /* v3.17.73 GĐ3: nhóm 🏛 GIẢI NGÂN (method='loan' — máy 3.15.19: không trừ TK, kuDraft chờ KUNN).
+     Chỉ AP (chi hộ là tiền chủ tàu — không giải ngân vay công ty). */
+  const bkOpt=(sel,allowGn)=>'<option value="">— chọn TK —</option>'+bks.map(a=>`<option value="${esc(a.id)}" ${sel===a.id?'selected':''}>🏦 ${esc((a.bankName||'')+' ·'+(a.accountNo||'').slice(-9))}</option>`).join('')+`<option value="CASH" ${sel==='CASH'?'selected':''}>💵 Tiền mặt</option>`+(allowGn?bks.map(a=>`<option value="LOAN:${esc(a.id)}" ${sel===('LOAN:'+a.id)?'selected':''}>🏛 GN — ${esc((a.bankName||'')+' ·'+(a.accountNo||'').slice(-9))}</option>`).join(''):'');
+  const body=rows.map((x,ix)=>`<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;padding:6px 4px;border-bottom:1px dotted var(--rule);font-size:12px">
+      <span style="min-width:0"><input type="checkbox" data-bk="${esc(x.id)}" onchange="bkSummary()">
+        <span class="ds-need" style="${x.kind==='op'?'color:#1c4e7c':''}">${x.kind==='op'?'CHI HỘ':'AP'}</span>${x.lock?' 🔒':''}
+        <b>${esc(String(x.label).slice(0,34))}</b> <span style="color:var(--muted);font-size:11px">${esc(String(x.desc).slice(0,44))}</span></span>
+      <span style="white-space:nowrap;display:flex;gap:6px;align-items:center">
+        <select id="bk-src-${ix}" data-bksrc="${esc(x.id)}" onchange="bkSummary()" style="max-width:210px;font-size:11px">${bkOpt(x.defMethod==='CASH'?'CASH':x.defBank, x.kind==='ap')}</select>
+        <b style="font-family:var(--font-mono);font-size:11px">${(+x.amt||0).toLocaleString('vi-VN')} ${esc(x.ccy)}</b></span></div>`).join('');
+  tEl.innerHTML=`<div style="border:1.5px solid #1c7a4d;border-radius:10px;padding:10px 12px">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:6px">
+      <b style="font-size:13px">💸 CHỜ THANH TOÁN (${rows.length})</b>
+      <span style="display:flex;gap:8px;align-items:center;font-size:11px;flex-wrap:wrap">
+        <label><input type="checkbox" onclick="document.querySelectorAll('[data-bk]').forEach(c=>c.checked=this.checked); bkSummary()"> tick hết</label>
+        Ngày chi <input type="date" id="bk-date" value="${todayISO()}" style="font-size:11px">
+        <button class="btn-ghost" style="font-size:11px" onclick="bkLibraryOpen()">🗂 Thư viện bảng kê</button>
+      </span></div>
+    ${rows.length?body:'<div class="empty" style="padding:14px;text-align:center;color:var(--muted)">Không có khoản nào chờ thanh toán</div>'}
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;flex-wrap:wrap;gap:8px">
+      <span id="bk-sum" style="font-size:11.5px;color:var(--muted)">Chưa tick khoản nào</span>
+      <button class="btn-primary" id="bk-go" onclick="bkConfirm()" disabled>💸 Xác nhận thanh toán &amp; lập BẢNG KÊ</button>
+    </div></div>`;
+  window._bkRows=rows;
+  bkSummary();
+}
+function bkSummary(){
+  const rows=window._bkRows||[]; const el=document.getElementById('bk-sum'); const go=document.getElementById('bk-go');
+  let n=0, tBank=0, tCash=0, tGn=0;
+  document.querySelectorAll('[data-bk]:checked').forEach(c=>{
+    const x=rows.find(r=>r.id===c.getAttribute('data-bk')); if(!x) return;
+    const ix=rows.indexOf(x); const src=((document.getElementById('bk-src-'+ix)||{}).value||'');
+    n++; const v=+x.amt||0;
+    if(src==='CASH') tCash+=v; else if(src.indexOf('LOAN:')===0) tGn+=v; else tBank+=v;
+  });
+  if(el) el.innerHTML=n?('Đã tick <b>'+n+'</b> khoản — 🏦 NH: <b>'+tBank.toLocaleString('vi-VN')+'</b> · 💵 TM: <b>'+tCash.toLocaleString('vi-VN')+'</b> · 🏛 GN: <b>'+tGn.toLocaleString('vi-VN')+'</b>'):'Chưa tick khoản nào';
+  if(go) go.disabled=(n===0);
+}
+function bkNextNo(date){
+  const d8=String(date||todayISO()).replace(/-/g,'');
+  const n=(S.paymentSheets||[]).filter(b=>b&&b.id&&b.id.indexOf('BK-'+d8)===0).length+1;
+  return 'BK-'+d8+'-'+String(n).padStart(2,'0');
+}
+function bkConfirm(){
+  if(!bkCanUse()){ toast('Chỉ KT thanh toán / KTT / Admin','bad'); return; }
+  const rows=window._bkRows||[];
+  const picks=[];
+  for(const c of document.querySelectorAll('[data-bk]:checked')){
+    const x=rows.find(r=>r.id===c.getAttribute('data-bk')); if(!x) continue;
+    const ix=rows.indexOf(x); const src=((document.getElementById('bk-src-'+ix)||{}).value||'');
+    if(!src){ toast('Chọn nguồn tiền (TK ngân hàng / 💵 Tiền mặt) cho TỪNG khoản đã tick — KT là người cuối cùng chuỗi thanh toán','bad'); return; }
+    picks.push({x, src});
+  }
+  if(!picks.length){ toast('Chưa tick khoản nào','warn'); return; }
+  const date=((document.getElementById('bk-date')||{}).value)||todayISO();
+  const bkId=bkNextNo(date);
+  if(!confirm('Xác nhận thanh toán '+picks.length+' khoản ngày '+date+'?\n\nNgân hàng sẽ TRỪ TIỀN tại thời điểm này. Lập bảng kê '+bkId+'.')) return;
+  let nOk=0; const sheetRows=[]; const totals={bank:{},cash:0,gn:{}}; let grand=0;
+  commitMutation(()=>{
+    picks.forEach(pk=>{ const x=pk.x;
+      const isGn=pk.src.indexOf('LOAN:')===0;
+      const srcBank=isGn?pk.src.slice(5):pk.src;
+      const method=isGn?'loan':((pk.src==='CASH')?'cash':'bank');
+      if(isGn && x.kind!=='ap'){ return; }   /* GN chỉ AP */
+      const proposed={method:x.defMethod==='CASH'?'cash':'bank', bankId:x.defBank||''};
+      const changed=(method!==proposed.method)||(method!=='cash'&&proposed.bankId!==srcBank);
+      if(x.kind==='ap'){
+        _apOrderAutoPay(x.r, x.o, {date, bankId:(method==='cash')?'':srcBank, method, bkId});
+        if(!x.o._paymentApplied) return;
+        x.o.status='paid'; x.o.paidAt=new Date().toISOString();
+        try{ touchRecord(x.r); }catch(e){}
+      } else {
+        _opPayApply(x.t, {date, amt:x.amt, ccy:x.ccy, note:'Bảng kê '+bkId, src:pk.src, bkId});
+      }
+      nOk++;
+      sheetRows.push({refType:x.kind, refId:(x.kind==='ap'?x.r.id:x.t.id), orderId:(x.kind==='ap'?x.o.id:undefined),
+        label:x.label, desc:x.desc, group:(method==='cash')?'cash':(method==='loan'?'gn':'bank'), bankId:(method==='cash')?'':srcBank,
+        amount:x.amt, ccy:x.ccy, lock:!!x.lock, proposed, changed});
+      grand+=+x.amt||0;
+      if(method==='cash') totals.cash+=+x.amt||0;
+      else if(method==='loan') totals.gn[srcBank]=(totals.gn[srcBank]||0)+(+x.amt||0);
+      else totals.bank[srcBank]=(totals.bank[srcBank]||0)+(+x.amt||0);
+    });
+    S.paymentSheets=S.paymentSheets||[];
+    S.paymentSheets.push({id:bkId, date, rows:sheetRows, totals, grand, by:actorName(), at:new Date().toISOString()});
+  },{action:'bk_create', fields:['payables','opTransactions','bankAccounts','loans','paymentSheets'], onOk:()=>{
+    try{ logAuditEvent('bk_create',{bkId, count:nOk, grand, actor:actorName()}); }catch(e){}
+    toast('✓ Đã thanh toán '+nOk+' khoản · lập bảng kê '+bkId,'good'); renderAll();
+    try{ bkView(bkId); }catch(e){}
+  }});
+}
+function bkGroupsHtml(bk){
+  const bks=AccountingService.bankAccounts();
+  const nameOf=(bid)=>{ const a=bks.find(z=>z.id===bid); return a?((a.bankName||'')+' ·'+(a.accountNo||'').slice(-9)):bid; };
+  const row=(x,i)=>`<tr><td>${i}</td><td>${x.refType==='op'?('CHI HỘ'+(x.lock?' 🔒':'')):'AP'}</td><td>${esc(x.label)}</td><td>${esc(x.desc||'')}${x.changed?' <span style="color:var(--warn)" title="KT đổi nguồn so với đề xuất">↺</span>':''}</td><td style="text-align:right;font-family:var(--font-mono)">${(+x.amount||0).toLocaleString('vi-VN')}</td></tr>`;
+  let i=0, h='';
+  const bankIds=Object.keys(bk.totals.bank||{});
+  if(bankIds.length){
+    h+='<div style="font-weight:700;background:#123a5c;color:#fff;border-radius:6px;padding:4px 10px;margin:10px 0 4px;font-size:11.5px">PHẦN I — THANH TOÁN QUA NGÂN HÀNG</div>';
+    bankIds.forEach(bid=>{
+      h+='<div style="font-weight:700;font-size:11px;background:var(--chip,#eef3f7);border-radius:5px;padding:3px 8px;margin:6px 0 2px">'+esc(nameOf(bid))+'</div><table style="width:100%;border-collapse:collapse;font-size:11.5px">';
+      bk.rows.filter(x=>x.group==='bank'&&x.bankId===bid).forEach(x=>{ i++; h+=row(x,i); });
+      h+='<tr><td colspan="4" style="font-weight:700;background:rgba(18,58,92,.06)">Cộng '+esc(nameOf(bid))+'</td><td style="text-align:right;font-weight:700;font-family:var(--font-mono);background:rgba(18,58,92,.06)">'+(bk.totals.bank[bid]||0).toLocaleString('vi-VN')+'</td></tr></table>';
+    });
+    const sumB=bankIds.reduce((a,b)=>a+(bk.totals.bank[b]||0),0);
+    h+='<div style="text-align:right;font-weight:800;font-size:12px;padding:4px 2px">CỘNG NGÂN HÀNG ('+bankIds.length+' TK): <span style="font-family:var(--font-mono)">'+sumB.toLocaleString('vi-VN')+'</span></div>';
+  }
+  const cashRows=bk.rows.filter(x=>x.group==='cash');
+  if(cashRows.length){
+    h+='<div style="font-weight:700;background:#123a5c;color:#fff;border-radius:6px;padding:4px 10px;margin:10px 0 4px;font-size:11.5px">PHẦN II — TIỀN MẶT</div><table style="width:100%;border-collapse:collapse;font-size:11.5px">';
+    cashRows.forEach(x=>{ i++; h+=row(x,i); });
+    h+='<tr><td colspan="4" style="font-weight:700;background:rgba(18,58,92,.06)">CỘNG TIỀN MẶT</td><td style="text-align:right;font-weight:700;font-family:var(--font-mono);background:rgba(18,58,92,.06)">'+(bk.totals.cash||0).toLocaleString('vi-VN')+'</td></tr></table>';
+  }
+  const gnIds=Object.keys(bk.totals.gn||{});
+  if(gnIds.length){
+    h+='<div style="font-weight:700;background:#7a3b8f;color:#fff;border-radius:6px;padding:4px 10px;margin:10px 0 4px;font-size:11.5px">PHẦN III — GIẢI NGÂN TỪ TK VAY · ghi tăng TÍN DỤNG, chờ KUNN</div>';
+    gnIds.forEach(bid=>{
+      h+='<div style="font-weight:700;font-size:11px;background:#f5ecf8;border-radius:5px;padding:3px 8px;margin:6px 0 2px">'+esc(nameOf(bid))+'</div><table style="width:100%;border-collapse:collapse;font-size:11.5px">';
+      bk.rows.filter(x=>x.group==='gn'&&x.bankId===bid).forEach(x=>{ i++; h+=row(x,i); });
+      h+='<tr><td colspan="4" style="font-weight:700;background:#faf4fc">Cộng GN — '+esc(nameOf(bid))+'</td><td style="text-align:right;font-weight:700;font-family:var(--font-mono);background:#faf4fc">'+(bk.totals.gn[bid]||0).toLocaleString('vi-VN')+'</td></tr></table>';
+    });
+    const sumG=gnIds.reduce((a,b)=>a+(bk.totals.gn[b]||0),0);
+    h+='<div style="text-align:right;font-weight:800;font-size:12px;padding:4px 2px;color:#7a3b8f">CỘNG GIẢI NGÂN ('+gnIds.length+' TK vay): <span style="font-family:var(--font-mono)">'+sumG.toLocaleString('vi-VN')+'</span></div>';
+  }
+  h+='<div style="border-top:2.5px double #123a5c;margin-top:8px;padding-top:6px;display:flex;justify-content:space-between;font-weight:800"><span>TỔNG CỘNG'+(typeof _numToVnWords==='function'?(' — <i style="font-weight:400;font-size:11px">'+esc(_numToVnWords(bk.grand))+'</i>'):'')+'</span><span style="font-family:var(--font-mono)">'+(+bk.grand||0).toLocaleString('vi-VN')+'</span></div>';
+  h+='<div style="text-align:right;margin-top:16px;font-size:11px"><b>NGƯỜI LẬP</b><br><span style="color:var(--muted)">'+esc(bk.by||'')+' · '+esc(String(bk.at||'').slice(0,16).replace('T',' '))+'</span></div>';
+  return h;
+}
+function bkView(id){
+  const bk=(S.paymentSheets||[]).find(b=>b&&b.id===id); if(!bk){ toast('Không thấy bảng kê','warn'); return; }
+  openModal('📄 BẢNG KÊ THANH TOÁN NGÀY '+bk.date+' — '+bk.id,
+    '<div style="font-size:11px;color:var(--muted);margin-bottom:4px">'+bk.rows.length+' khoản · lập bởi '+esc(bk.by||'')+' · chứng từ lưu vĩnh viễn, không sửa</div>'
+    +'<div style="max-height:440px;overflow:auto">'+bkGroupsHtml(bk)+'</div>',
+    '<button class="btn-ghost" onclick="closeModal()">Đóng</button>'
+    +'<button class="btn-sec" onclick="bkPdf(\''+esc(bk.id)+'\')">⬇ PDF</button>'
+    +'<button class="btn-sec" onclick="bkExcel(\''+esc(bk.id)+'\')">⬇ Excel</button>'
+    +'<button class="btn-sec" onclick="bkLibraryOpen()">🗂 Thư viện</button>');
+}
+/* v3.17.72 GĐ2: tải PDF (openPrintWindow — máy in sẵn có) + Excel (XLSX sẵn có). */
+function bkPdf(id){
+  const bk=(S.paymentSheets||[]).find(b=>b&&b.id===id); if(!bk){ toast('Không thấy bảng kê','warn'); return; }
+  const w=openPrintWindow(); if(!w) return;
+  w.document.write(`<html><head><meta charset="utf-8"><title>${bk.id}</title><style>
+    :root{--rule:#bbb;--muted:#666;--warn:#b3402e;--chip:#eef3f7;--font-mono:Consolas,monospace}
+    body{font:12px 'Segoe UI',sans-serif;color:#111;margin:24px}
+    table{width:100%;border-collapse:collapse} td{padding:4px 6px;border-bottom:1px dotted #ccc;font-size:11.5px}
+    @page{size:A4 portrait;margin:14mm}
+  </style></head><body>
+    <div style="display:flex;justify-content:space-between;border-bottom:2.5px double #123a5c;padding-bottom:6px;margin-bottom:8px">
+      <div style="font-size:10.5px;line-height:1.4"><b>CÔNG TY CP HÀNG HẢI VÀ NĂNG LƯỢNG CÁ NGỰA</b><br>Seahorse Marine &amp; Energy JSC — Vũng Tàu</div>
+      <div style="font-size:10.5px;text-align:right">Số: <b style="font-family:Consolas">${esc(bk.id)}</b><br>Ngày chi: ${esc(bk.date)}</div></div>
+    <div style="text-align:center;font-size:15px;font-weight:700;color:#123a5c;letter-spacing:.5px;margin:6px 0 2px">BẢNG KÊ THANH TOÁN NGÀY ${esc(bk.date)}</div>
+    <div style="text-align:center;font-size:10.5px;color:#666;margin-bottom:10px">${bk.rows.length} khoản · lập bởi ${esc(bk.by||'')}</div>
+    ${bkGroupsHtml(bk)}
+  </body></html>`);
+  w.document.close();
+  try{ logAuditEvent('bk_pdf',{bkId:id,actor:actorName()}); }catch(e){}
+}
+function bkExcel(id){
+  const bk=(S.paymentSheets||[]).find(b=>b&&b.id===id); if(!bk){ toast('Không thấy bảng kê','warn'); return; }
+  const bks=AccountingService.bankAccounts();
+  const nameOf=(bid)=>{ const a=bks.find(z=>z.id===bid); return a?((a.bankName||'')+' ·'+(a.accountNo||'').slice(-9)):bid; };
+  const aoa=[['CÔNG TY CP HÀNG HẢI VÀ NĂNG LƯỢNG CÁ NGỰA — SMEJSC'],['BẢNG KÊ THANH TOÁN NGÀY '+bk.date],['Số: '+bk.id+' · lập bởi '+(bk.by||'')],[]];
+  let i=0;
+  const emit=(x)=>{ i++; aoa.push([i, x.refType==='op'?('CHI HỘ'+(x.lock?' 🔒':'')):'AP', x.label, x.desc||'', +x.amount||0, x.ccy||'VND']); };
+  const hdr=()=>aoa.push(['#','Loại','Đối tượng','Diễn giải · HĐ','Số tiền','CCY']);
+  const bankIds=Object.keys(bk.totals.bank||{});
+  if(bankIds.length){ aoa.push(['PHẦN I — THANH TOÁN QUA NGÂN HÀNG']);
+    bankIds.forEach(bid=>{ aoa.push([nameOf(bid)]); hdr();
+      bk.rows.filter(x=>x.group==='bank'&&x.bankId===bid).forEach(emit);
+      aoa.push(['','','','Cộng '+nameOf(bid), bk.totals.bank[bid]||0]); });
+    aoa.push(['','','','CỘNG NGÂN HÀNG ('+bankIds.length+' TK)', bankIds.reduce((a,b)=>a+(bk.totals.bank[b]||0),0)]); aoa.push([]); }
+  const cashRows=bk.rows.filter(x=>x.group==='cash');
+  if(cashRows.length){ aoa.push(['PHẦN II — TIỀN MẶT']); hdr(); cashRows.forEach(emit);
+    aoa.push(['','','','CỘNG TIỀN MẶT', bk.totals.cash||0]); aoa.push([]); }
+  const gnIds=Object.keys(bk.totals.gn||{});
+  if(gnIds.length){ aoa.push(['PHẦN III — GIẢI NGÂN TỪ TK VAY (ghi tăng tín dụng · chờ KUNN)']);
+    gnIds.forEach(bid=>{ aoa.push([nameOf(bid)]); hdr();
+      bk.rows.filter(x=>x.group==='gn'&&x.bankId===bid).forEach(emit);
+      aoa.push(['','','','Cộng GN — '+nameOf(bid), bk.totals.gn[bid]||0]); });
+    aoa.push(['','','','CỘNG GIẢI NGÂN', gnIds.reduce((a,b)=>a+(bk.totals.gn[b]||0),0)]); aoa.push([]); }
+  aoa.push(['','','','TỔNG CỘNG', +bk.grand||0]);
+  if(typeof _numToVnWords==='function') aoa.push(['Bằng chữ: '+_numToVnWords(bk.grand)]);
+  aoa.push([]); aoa.push(['NGƯỜI LẬP: '+(bk.by||'')]);
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols']=[{wch:4},{wch:9},{wch:30},{wch:42},{wch:15},{wch:5}];
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'BangKe');
+  XLSX.writeFile(wb, bk.id+'.xlsx');
+  try{ logAuditEvent('bk_excel',{bkId:id,actor:actorName()}); }catch(e){}
+}
+function bkLibraryOpen(){
+  const list=(S.paymentSheets||[]).slice().sort((a,b)=>String(b.at||'').localeCompare(String(a.at||'')));
+  const rows=list.map(bk=>{ const nB=Object.values(bk.totals.bank||{}).reduce((a,v)=>a+v,0), nG=Object.values(bk.totals.gn||{}).reduce((a,v)=>a+v,0);
+    return `<tr><td style="font-family:var(--font-mono);font-size:11px">${esc(bk.id)}</td><td>${esc(bk.date)}</td><td>${bk.rows.length}</td>
+      <td style="text-align:right;font-family:var(--font-mono);font-size:11px">${(+bk.grand||0).toLocaleString('vi-VN')}</td>
+      <td style="font-size:10.5px;color:var(--muted)">${nB.toLocaleString('vi-VN')} / ${(bk.totals.cash||0).toLocaleString('vi-VN')} / ${nG.toLocaleString('vi-VN')}</td>
+      <td>${esc(bk.by||'')}</td><td><button class="btn-ghost" style="font-size:11px;padding:2px 9px" onclick="bkView('${esc(bk.id)}')">Mở</button></td></tr>`; }).join('');
+  openModal('🗂 THƯ VIỆN BẢNG KÊ ('+list.length+')',
+    list.length?('<table style="width:100%;border-collapse:collapse;font-size:12px"><tr style="font-size:10px;color:var(--muted);text-transform:uppercase"><td>Số hiệu</td><td>Ngày</td><td>Khoản</td><td style="text-align:right">Tổng</td><td>NH/TM/GN</td><td>Người lập</td><td></td></tr>'+rows+'</table>')
+      :'<div class="empty" style="padding:16px;text-align:center;color:var(--muted)">Chưa có bảng kê nào</div>',
+    '<button class="btn-ghost" onclick="closeModal()">Đóng</button>');
+}
 /* v3.17.51: duyệt LÔ chi hộ — từng phiếu tick tiến ĐÚNG 1 bước theo máy trạng thái sẵn có. */
 function opBatchAdvance(){
-  const ids=[...document.querySelectorAll('[data-opb]:checked')].map(c=>c.getAttribute('data-opb'));
+  const ids=(typeof _opSelIds==='function')?_opSelIds():[...document.querySelectorAll('[data-opb]:checked')].map(c=>c.getAttribute('data-opb'));   /* v3.17.78: gồm cả phiếu tick đang bị bộ lọc ẩn */
   if(!ids.length){ toast('Chưa tick phiếu chi hộ nào','warn'); return; }
   let n=0;
   ids.forEach(id=>{ try{ const t=VesselService.opTransactions().find(x=>x&&x.id===id); if(!t) return;
@@ -14517,8 +14912,9 @@ function applyRoleUI(){
     if(page==='dashboard'){
       b.style.display = user ? 'none' : '';
     } else if(page==='approval'){
-      // Approval tab: only visible for users with L1 or L2 (or admin)
-      const canApprove=isAdmin()||canCheckAcc()||canApproveL1()||canApproveL2();
+      /* v3.17.77 (Sếp): mở cho MỌI KT — canCheckAcc + canConfirmPayment + cấp qua whitelist tabs */
+      const canApprove=isAdmin()||canCheckAcc()||canApproveL1()||canApproveL2()||canConfirmPayment()
+        ||(allowedTabs&&allowedTabs.includes('approval'));
       b.style.display = canApprove ? '' : 'none';
     } else if(page==='fin_accounting'){
       // v3.07.61: Tài chính Kế toán — admin + KT viên (canCheckAcc) + KTT (canManageUsers). Người khác dùng giao diện cũ.
@@ -14548,7 +14944,8 @@ function applyRoleUI(){
     } else if(page==='fin_accounting'){
       b.style.display = (isAdmin() || (CURRENT_USER && (CURRENT_USER.canCheckAcc || CURRENT_USER.canManageUsers))) ? '' : 'none';
     } else if(page==='approval'){
-      const canApprove=isAdmin()||canCheckAcc()||canApproveL1()||canApproveL2();
+      const canApprove=isAdmin()||canCheckAcc()||canApproveL1()||canApproveL2()||canConfirmPayment()
+        ||(CURRENT_ROLE==='user'&&CURRENT_USER&&Array.isArray(CURRENT_USER.tabs)&&CURRENT_USER.tabs.includes('approval'));   /* v3.17.77: mở cho mọi KT + cấp qua tabs */
       b.style.display = canApprove ? '' : 'none';
     } else if(page==='op_input'){
       // v1.44.0: Sub-tab Thu/Chi hộ — only NV with assignedOpVesselIds (or admin/BOD/L2)
@@ -27483,6 +27880,8 @@ function defaultState(){
     stockCounts:[],   // v3.08.22 Phiếu kiểm kê: [{id,docNo,date,warehouseId,lines:[{code,name,unit,systemQty,countedQty,diff}],note,status,createdBy,createdAt,adjustDocId}]
     fixedAssets:[],   // TSCĐ
     tools:[],         // CCDC + MMTB
+    paymentSheets:[], // v3.17.71
+    bkBatchFees:[],   // v3.17.74 GĐ A (Sếp chốt ①②): phí NH THEO ĐỢT — {id,date,bankId,fee,note,_bkId,by,at}, trừ thẳng TK, không phân bổ (MẪU v2 Sếp duyệt): Bảng kê thanh toán {id,date,rows[],totals,grand,by,at}
     pledges:[],   // v3.17.50 (MẪU DUYỆT MAU_Danh_muc_TSBD): danh mục Tài sản bảo đảm — 1 TSBĐ ↔ N khế ước
     opVessels:[], opTransactions:[], opMgmtFees:[],  // v2.71.5: kỳ phí QL đã phát hành
     ownerReportLocks:[],  // v3.04.27: [{vesselId, period(YYYY-MM), signedBy, signedByDept, signedAt, note}] — khóa kỳ đã gửi chủ tàu
@@ -40569,6 +40968,25 @@ function renderQnExpense(){renderDeptExpense('qex','qn_expense','page-qn_expense
 // Selected IDs across renders (keep persistence within session)
 let APPROVAL_SELECTED=new Set();
 let OP_SELECTED=new Set();   /* v3.17.67 (Sếp): tick chi hộ theo nguyên tắc AP — mặc định TẮT, tick thì GIỮ qua chip/tab */
+/* v3.17.78: tick chi hộ ĐÚNG CẤP bất chấp bộ lọc — hợp nhất DOM (đang hiện) + OP_SELECTED (đã tick,
+   đang bị bộ lọc NCC ẩn) lọc theo trạng thái cấp hiện tại. Đảm bảo duyệt 1 lần nhiều NCC. */
+function _opSelIds(level){
+  const set=new Set([...document.querySelectorAll('[data-opb]:checked')].map(c=>c.getAttribute('data-opb')));
+  try{ const lv=level||((document.getElementById('appr-level')||{}).value||'');
+    if(/^pending_/.test(lv)) [...OP_SELECTED].forEach(id=>{ const t=VesselService.opTransactions().find(x=>x&&x.id===id);
+      if(t&&!t._deleted&&((typeof opWfStatus==='function')?opWfStatus(t):t.ncStatus)===lv) set.add(id); });
+  }catch(e){}
+  return [...set];
+}
+/* v3.17.78: AP tick ĐÚNG CẤP bất chấp bộ lọc (APPROVAL_SELECTED ∩ wfStatus cấp hiện tại). */
+function _apSelRecs(level){
+  const lv=level||((document.getElementById('appr-level')||{}).value||'pending_l1');
+  const out=[];
+  try{ scopedView(S.payables||[],'ap').forEach(r=>{ if(!r||r._deleted||r._cashClear) return;
+    if(((typeof wfStatus==='function')?wfStatus(r):(r.status||''))!==lv) return;
+    if(APPROVAL_SELECTED.has(r.id)) out.push(r); }); }catch(e){}
+  return out;
+}
 let _apprInitialized=false;  // v3.01.07: đã auto-chọn-tất-cả lần đầu chưa
 
 /* Build the full list of pending records matching current filter.
@@ -40775,24 +41193,26 @@ function toggleSelectAllApproval(){
 
 function updateApprovalSummary(){
   const candidates=approvalGetCandidates();
-  let selCount=0, selTotal=0;
-  candidates.forEach(c=>{
-    if(APPROVAL_SELECTED.has(c.id)){
-      selCount++;
-      // v3.06.84: hiển thị SỐ ĐỀ NGHỊ CHI ĐỢT NÀY (dueAmount>0) hoặc CÒN LẠI (khi đợt này=0),
-      //   KHÔNG phải tổng hóa đơn — để cấp duyệt thấy đúng số thực sự đề nghị thanh toán.
-      const amt=(typeof apDueThisAmount==='function')?apDueThisAmount(c.record):(+c.record.amountGross||+c.record.amount||0);
-      selTotal+=toDisplay(amt, c.record.ccy||'USD');
-    }
+  /* v3.17.78 (Sếp): đếm + tổng theo TICK ĐÚNG CẤP, BẤT CHẤP bộ lọc NCC — đổi lọc không "mất" tick,
+     duyệt một lần nhiều NCC. Hiện rõ số phiếu tick đang bị bộ lọc ẩn. */
+  const selRecs=(typeof _apSelRecs==='function')?_apSelRecs():[];
+  let selCount=selRecs.length, selTotal=0, _visSel=0;
+  candidates.forEach(c=>{ if(APPROVAL_SELECTED.has(c.id)) _visSel++; });
+  selRecs.forEach(r=>{
+    // v3.06.84: SỐ ĐỀ NGHỊ CHI ĐỢT NÀY (dueAmount>0) hoặc CÒN LẠI — không phải tổng hóa đơn.
+    const amt=(typeof apDueThisAmount==='function')?apDueThisAmount(r):(+r.amountGross||+r.amount||0);
+    selTotal+=toDisplay(amt, r.ccy||'USD');
   });
+  const _hidSel=Math.max(0, selCount-_visSel);
   const sum=document.getElementById('appr-action-summary');
   if(sum){
     if(selCount===0){
-      { const _opN2=document.querySelectorAll('[data-opb]:checked').length;   /* v3.17.58 */
+      { const _opN2=(typeof _opSelIds==='function')?_opSelIds().length:document.querySelectorAll('[data-opb]:checked').length;   /* v3.17.78 */
         sum.innerHTML=_opN2>0?('<span>Đã tick <b>'+_opN2+'</b> phiếu CHI HỘ — bấm nút Duyệt chung</span>')
                              :'<span style="color:var(--muted)">Chưa chọn bút toán nào</span>'; }
     } else {
-      sum.innerHTML=`Đã chọn <b style="color:var(--accent)">${selCount}</b> bút toán · Tổng giá trị quy đổi: <b style="font-family:var(--font-mono)">${fmt(selTotal)}</b>`;
+      const _hidNote=_hidSel>0?` <span style="color:var(--warn)">(${_hidSel} đang ẨN bởi bộ lọc — vẫn được duyệt)</span>`:'';
+      sum.innerHTML=`Đã chọn <b style="color:var(--accent)">${selCount}</b> bút toán${_hidNote} · Tổng giá trị quy đổi: <b style="font-family:var(--font-mono)">${fmt(selTotal)}</b>`;
     }
   }
   const btnApprove=document.getElementById('appr-btn-approve');
@@ -40824,7 +41244,7 @@ function updateApprovalSummary(){
     if(_allApoQ && lvl==='pending_l1')      btnApprove.textContent=`✓ Duyệt L1 ${selCount} lệnh chi đợt (trình lên L2)`;
     else if(_allApoQ && lvl==='pending_l2') btnApprove.textContent=`✓ Duyệt chi L2 ${selCount} lệnh chi đợt`;
     else btnApprove.textContent=selCount>0?`${actionIcon} ${actionVerb} ${selCount} bút toán đã chọn`:`${actionIcon} ${actionVerb} các bút toán đã chọn`;
-    const _opN=document.querySelectorAll('[data-opb]:checked').length;   /* v3.17.57: một-lệnh — chi hộ tick cũng kích hoạt nút */
+    const _opN=(typeof _opSelIds==='function')?_opSelIds().length:0;   /* v3.17.78: gồm phiếu tick bị lọc ẩn — một-lệnh — chi hộ tick cũng kích hoạt nút */
     btnApprove.disabled=(selCount+_opN)===0;
     btnApprove.style.opacity=(selCount+_opN)===0?'0.5':'1';
   }
@@ -40851,7 +41271,7 @@ function updateApprovalSummary(){
   try{
     const _lvl=(document.getElementById('appr-level')||{}).value;
     const _selN=(function(){ try{ const _c=approvalGetCandidates(); let n=0; _c.forEach(x=>{ if(APPROVAL_SELECTED.has(x.id)) n++; }); return n; }catch(e){ return APPROVAL_SELECTED.size; } })();   /* v3.17.66: đếm theo phiếu ĐÚNG CẤP đang hiện — hết cảnh 'chưa chọn gì mà nút (12)' */
-    const _opSel=document.querySelectorAll('[data-opb]:checked').length;   /* v3.17.57 */
+    const _opSel=(typeof _opSelIds==='function')?_opSelIds().length:0;   /* v3.17.78 */
     const _selEff=_selN+_opSel;
     const b1=document.getElementById('appr-btn-l1order'), b2=document.getElementById('appr-btn-l2order');
     if(b1 && _lvl==='pending_l1'){ b1.textContent=_selN>0?`📋 Trình Thanh toán (${_selN})`:'📋 Trình Thanh toán'; b1.disabled=_selEff===0; b1.style.opacity=_selEff===0?'0.55':'1'; }
@@ -41182,10 +41602,24 @@ function _apprSetLevel(v){
 function _apprRenderLevelChips(){
   const box=document.getElementById('appr-level-chips'); if(!box) return;
   const cur=(document.getElementById('appr-level')||{}).value||'pending_l1';
-  const defs=[['pending_acc','📋 Chờ KT kiểm'],['pending_l1','✍️ Trình ký (L1)'],['pending_l2','💰 Chờ TT'],['approved','✓ Đã duyệt']];
-  box.innerHTML=defs.map(([v,label])=>
+  let defs=[['pending_acc','📋 Chờ KT kiểm'],['pending_l1','✍️ Trình ký (L1)'],['pending_l2','💰 Duyệt chi (L2)'],['bk_pay','💸 Chờ Thanh Toán'],['fee','🧾 Phí phát sinh'],['kunn','⏳ KUNN'],['approved','✓ Đã duyệt']];
+  /* v3.17.71+74 (Sếp chốt ①): KT thanh toán vào tab thấy chip 💸/🧾/⏳; mọi KT thấy 🧾 */
+  if(!(isAdmin()||canCheckAcc()||canApproveL1()||canApproveL2())) defs=defs.filter(d=>['bk_pay','fee','kunn'].includes(d[0]) && (d[0]!=='bk_pay'||isAdmin()||canConfirmPayment()));   /* v3.17.77 */
+  else { if(!(isAdmin()||canConfirmPayment())) defs=defs.filter(d=>d[0]!=='bk_pay');
+         if(!(isAdmin()||canCheckAcc()||canConfirmPayment())) defs=defs.filter(d=>d[0]!=='fee'&&d[0]!=='kunn'); }
+  /* v3.17.76 GĐ C: BADGE đếm việc theo vai */
+  const _cnt=(v)=>{ try{
+    if(v==='bk_pay') return (typeof bkPendingRows==='function')?bkPendingRows().length:0;
+    if(v==='kunn') return ((typeof AccountingService!=='undefined'&&AccountingService.loans)?AccountingService.loans():(S.loans||[])).filter(l=>l&&l.kuDraft&&l.status!=='closed').length;
+    if(v==='fee'||v==='approved') return 0;
+    let n=0;
+    try{ VesselService.opTransactions().forEach(t=>{ if(t&&!t._deleted&&t.type==='OUT'&&((typeof opWfStatus==='function')?opWfStatus(t):t.ncStatus)===v) n++; }); }catch(e){}
+    if(v==='pending_acc'){ try{ n+=(typeof apNeedProposeRows==='function')?apNeedProposeRows().length:0; }catch(e){} }
+    else { try{ scopedView(S.payables||[],'ap').forEach(r=>{ if(r&&!r._deleted&&!r._cashClear&&(typeof wfStatus==='function')&&wfStatus(r)===v) n++; }); }catch(e){} }
+    return n; }catch(e){ return 0; } };
+  box.innerHTML=defs.map(([v,label])=>{ const c=_cnt(v); label=c>0?(label+' ('+c+')'):label; return 
     `<button class="btn-sec" onclick="_apprSetLevel('${v}')" style="font-size:12px;padding:6px 12px;border-radius:16px;${v===cur?'background:var(--ink);color:var(--paper);border-color:var(--ink);font-weight:700':''}">${label}</button>`
-  ).join('');
+  ; }).join('');
 }
 function renderApprovalList(){
   _apprRenderLevelChips();
@@ -41391,6 +41825,9 @@ function renderApprovalList(){
        đang KT kiểm ở lại tab Thu-Chi hộ + mobile; (2) DÙNG CHUNG BỘ LỌC với AP: đối tác, số tiền,
        từ/đến ngày áp cho cả chi hộ. */
     const _apprLvl=((document.getElementById('appr-level')||{}).value)||'';
+    if(_apprLvl==='bk_pay'){ try{ renderBkPayList(tEl); }catch(e){ console.warn('[bk]',e); tEl.innerHTML=''; } window._opBatchIds=[]; updateApprovalSummary(); return; }   /* v3.17.71 */
+    if(_apprLvl==='fee'){ try{ renderFeeList(tEl); }catch(e){ console.warn('[fee]',e); tEl.innerHTML=''; } window._opBatchIds=[]; updateApprovalSummary(); return; }   /* v3.17.74 GĐ A */
+    if(_apprLvl==='kunn'){ try{ renderKunnList(tEl); }catch(e){ console.warn('[kunn]',e); tEl.innerHTML=''; } window._opBatchIds=[]; updateApprovalSummary(); return; }   /* v3.17.76 GĐ C */
     /* v3.17.58: khối chi hộ KHỚP CẤP đang xem — chip L1 chỉ pending_l1, chip L2 chỉ pending_l2;
        cấp KT kiểm không hiện khối (3.17.54). */
     /* v3.17.59 (Sếp): máy ADMIN thấy HẾT và thao tác HẾT — admin: mọi phiếu pending_* bất kể chip;
@@ -41399,8 +41836,8 @@ function renderApprovalList(){
        đúng bước của chip đó, KỂ CẢ ADMIN (thấy hết = mỗi bước có nhà ở đúng chip, không dồn một chỗ):
        chip KT kiểm → pending_acc (admin/KT bấm Duyệt chung để trình ký L1), chip L1 → pending_l1,
        chip Chờ TT → pending_l2. NV giữ nếp 3.17.54/58: chỉ L1/L2, KT kiểm ở tab Thu-Chi hộ. */
-    const _opLvlOk = isAdmin()
-      ? (_apprLvl==='pending_acc'||_apprLvl==='pending_l1'||_apprLvl==='pending_l2')
+    const _opLvlOk = (isAdmin()||canCheckAcc())
+      ? (_apprLvl==='pending_acc'||_apprLvl==='pending_l1'||_apprLvl==='pending_l2')   /* v3.17.75 GĐ B: KT làm việc tập trung */
       : (_apprLvl==='pending_l1'||_apprLvl==='pending_l2');
     let ops=_opLvlOk
       ? ((typeof opPendingForMe==='function')?opPendingForMe({}):[]).filter(t=>opWfStatus(t)===_apprLvl)
@@ -41441,13 +41878,14 @@ function renderApprovalList(){
       </div>`;
       /* v3.17.56: nói rõ vì sao "không thấy" — đếm phiếu ở bước KT kiểm (xử tại Thu-Chi hộ) + phiếu kỳ khóa */
       try{ let nAcc=0,nLock=0; VesselService.opTransactions().forEach(t=>{ if(!t||t._deleted||t.type!=='OUT')return;
-          if(isAdmin() && !t._locked && _apprLvl==='pending_acc') return;   /* v3.17.61: admin đứng chip KT kiểm đã thấy các phiếu này trong khối */
+          if((isAdmin()||canCheckAcc()) && !t._locked && _apprLvl==='pending_acc') return;   /* v3.17.75: KT/admin đứng chip KT kiểm đã thấy trong khối */
           const st=(typeof opWfStatus==='function')?opWfStatus(t):(t.ncStatus||'');
           if(st==='pending_acc') nAcc++; });
         /* v3.17.62: phiếu kỳ khóa đã vào danh sách duyệt bình thường (chỉ khóa CHI PHÍ, công nợ mở) — bỏ câu 'không duyệt được' */
         if(nAcc) opBatch+=`<div style="font-size:10px;color:var(--muted);padding:4px 10px">· ${nAcc} phiếu chi hộ đang bước KT KIỂM — xử lý tại tab Thu-Chi hộ / mobile.</div>`;
       }catch(e){}
     } else window._opBatchIds=[];
+    if(_apprLvl==='pending_acc'){ try{ opBatch+=renderApNeedProposeBlock(); }catch(e){} }   /* v3.17.75 GĐ B */
   }catch(e){ console.warn('[appr-op-batch]',e&&e.message); }
   const _emptyMsg=_apEmpty?('<div class="empty" style="padding:'+(opBatch?'10px':'20px')+';text-align:center;color:var(--muted)">Không có bút toán '+(opBatch?'AP':'nào')+' chờ duyệt phù hợp bộ lọc</div>'):'';
   tEl.innerHTML=`<div style="display:flex;flex-direction:column;gap:8px">${opBatch}${_apEmpty?_emptyMsg:cards}</div>`;
@@ -41475,7 +41913,7 @@ function renderApprovalList(){
     if(b3) b3.style.display=(_lvl==='pending_acc' && (canCheckAcc()||isAdmin()))?'':'none';
     // v3.06.50: nhãn nút hiện số phiếu ĐÃ TÍCH CHỌN (chỉ các phiếu này vào Phiếu trình thanh toán)
     const _selN=(function(){ try{ const _c=approvalGetCandidates(); let n=0; _c.forEach(x=>{ if(APPROVAL_SELECTED.has(x.id)) n++; }); return n; }catch(e){ return APPROVAL_SELECTED.size; } })();   /* v3.17.66: đếm theo phiếu ĐÚNG CẤP đang hiện — hết cảnh 'chưa chọn gì mà nút (12)' */
-    const _opSel=document.querySelectorAll('[data-opb]:checked').length;   /* v3.17.57 */
+    const _opSel=(typeof _opSelIds==='function')?_opSelIds().length:0;   /* v3.17.78 */
     const _selEff=_selN+_opSel;
     if(b1 && _lvl==='pending_l1'){ b1.textContent=_selN>0?`📋 Trình Thanh toán (${_selN})`:'📋 Trình Thanh toán'; b1.disabled=_selEff===0; b1.style.opacity=_selEff===0?'0.55':'1'; }
     if(b2 && _lvl==='pending_l2'){ b2.textContent=_selN>0?`📋 Duyệt chi L2 (${_selN})`:'📋 Duyệt chi (L2)'; b2.disabled=_selEff===0; b2.style.opacity=_selEff===0?'0.55':'1'; }
@@ -41595,7 +42033,7 @@ function approvalBulkApprove(skipL1){
   if(((document.getElementById('appr-level')||{}).value)==='approved'){ toast('Chế độ xem lại — không thao tác trên bút toán đã duyệt','bad'); return; }  // v3.03.08
   const lvl=document.getElementById('appr-level').value;
   const ids=[...APPROVAL_SELECTED];
-  const _opTicked=[...document.querySelectorAll('[data-opb]:checked')].length;   /* v3.17.55 */
+  const _opTicked=(typeof _opSelIds==='function')?_opSelIds().length:0;   /* v3.17.78 */
   if(!ids.length && !_opTicked){toast('Chưa chọn bút toán nào','bad');return;}
   if(!ids.length && _opTicked){ opBatchAdvance(); return; }   /* chỉ tick chi hộ → duyệt chi hộ */
   // Verify permission
@@ -41717,7 +42155,7 @@ function approvalBulkApprove(skipL1){
       APPROVAL_SELECTED.clear();
       renderAll();
       if(fail>0){ try{ console.warn('[phê duyệt] '+fail+' phiếu fail:', _failWhy); }catch(e){} }
-      try{ if(document.querySelectorAll('[data-opb]:checked').length) opBatchAdvance(); }catch(e){}   /* v3.17.55: CÙNG MỘT LỆNH — duyệt nốt chi hộ đã tick */
+      try{ if((typeof _opSelIds==='function'?_opSelIds().length:0)) opBatchAdvance(); }catch(e){}   /* v3.17.55: CÙNG MỘT LỆNH — duyệt nốt chi hộ đã tick */
       if(fail===0){ toast(`✓ Đã xử lý ${ok} bút toán`,'good'); }
       else if(ok>0){ toast(`✓ Xử lý ${ok} · ${fail} KHÔNG được: `+_failWhy.slice(0,2).join('; ')+(_failWhy.length>2?'…':''),'warn'); }
       else { toast(`⚠ Không xử lý được phiếu nào (${fail}): `+_failWhy.slice(0,2).join('; ')+(_failWhy.length>2?'…':''),'bad'); }
@@ -42958,6 +43396,12 @@ function bankLedgerRows(accId){
         _arPayAmountInCcy(p, r.ccy, accCcy), _bankLedgerFeeInAcc(p, r.ccy, accCcy),
         "openPayableModal('"+r.id+"')");
     });
+  });
+  // v3.17.74: PHÍ NH THEO ĐỢT (bảng kê) — dòng CHI phí độc lập
+  (S.bkBatchFees||[]).forEach(f=>{
+    if(!f || f.bankAccountId!==accId) return;
+    push(f.date,'PHÍ',f.id,'Phí NH theo đợt'+(f._bkId?(' · '+f._bkId):'')+(f.note?(' · '+f.note):''),0,
+      _arPayAmountInCcy({amount:+f.fee||0,fxRate:+S.fxRate||0},'VND',accCcy),0,'');
   });
   // AR — THU
   (S.receivables||[]).forEach(r=>{
@@ -56350,24 +56794,33 @@ function _apOrderActive(o){ return o.status==='pending'||o.status==='pending_l1'
 function _apPendingOrders(r){ return _apOrders(r).filter(_apOrderActive).reduce((s,o)=>s+(+o.amount||0),0); }
 /* v3.06.09: AUTO ghi chi thực khi lệnh chi qua hết L1-L2. Tạo payment trực tiếp (không qua form),
    số tiền = giá trị lệnh đã duyệt; hình thức/NH theo lệnh (nếu có). Idempotent qua o._paymentApplied. */
-function _apOrderAutoPay(r, o){
+function _apOrderAutoPay(r, o, opts){
+  /* v3.17.71: opts {date,bankId,method:'bank'|'cash'|'loan',bkId} — Bảng kê (KT là người CUỐI CÙNG
+     chuỗi thanh toán, được đổi nguồn); không opts = hành vi cũ nguyên vẹn. method='loan' = GIẢI NGÂN:
+     không trừ số dư TK, _kuDraftAttach gom khế ước nháp chờ KUNN (máy 3.15.19 sẵn có). */
   if(!r||!o||o._paymentApplied) return;
+  const _o=opts||{};
   const amt=+o.amount||0; if(amt<=0) return;
   r.payments=r.payments||[];
-  const bid=o._payBankId||r._payBankId||'';
-  const method=(o._payMethod||r._payMethod)==='cash'?'cash':'bank';
+  const bid=(_o.bankId!==undefined)?_o.bankId:(o._payBankId||r._payBankId||'');
+  const method=_o.method?_o.method:(((o._payMethod||r._payMethod)==='cash')?'cash':'bank');
   const bankAccountId=(method==='cash')?'':bid;
   // v3.06.11: gợi ý tỷ giá để khối quy đổi VND + cập nhật số dư NH đúng (giống saveArPayment).
   let fxRate=0;
   if(r.ccy==='USD') fxRate=+S.fxRate||0;
-  const pay={ date:todayISO(), amount:amt, fxRate, ccy:o.ccy||r.ccy,
-    note:(o.note?o.note+' · ':'')+'Auto từ lệnh chi đã duyệt L2',
+  const pay={ date:_o.date||todayISO(), amount:amt, fxRate, ccy:o.ccy||r.ccy,
+    note:(o.note?o.note+' · ':'')+(_o.bkId?('Bảng kê '+_o.bkId):'Auto từ lệnh chi đã duyệt L2'),
     method, recordedBy:actorName(), recordedAt:new Date().toISOString(),
     _fromOrder:o.id, _autoOrderPay:true };
   if(bankAccountId) pay.bankAccountId=bankAccountId;
+  if(_o.bkId) pay._bkId=_o.bkId;
   r.payments.push(pay); apDueConsume(r, +pay.amount||0); apOrderConsume(r, +pay.amount||0);   /* v3.17.41+45 */
+  // v3.17.71: GIẢI NGÂN — tiền từ hạn mức đi THẲNG NCC, KHÔNG chạm số dư TK (đúng saveArPayment 3.15.19)
+  if(method==='loan' && bankAccountId){
+    try{ _kuDraftAttach(r, pay, bankAccountId); }catch(e){ console.warn('[bk kuDraftAttach]',e); }
+  }
   // Cập nhật số dư tài khoản ngân hàng (AP trả → trừ), giống saveArPayment.
-  if(bankAccountId){
+  if(bankAccountId && method!=='loan'){
     const acc=AccountingService.bankAccounts().find(a=>a.id===bankAccountId);
     if(acc && typeof _arPayAmountInCcy==='function'){
       try{
@@ -61934,6 +62387,24 @@ function openOpNccPayment(id){
     `<button class="btn-sec" onclick="closeModal();showOpTxDetail('${id}')">Hủy</button><button class="btn-pri" onclick="opSaveNccPayment('${id}')">Lưu đợt</button>`);
 }
 /* v3.07.49: lưu một đợt thanh toán NCC vào payments[]. KHÔNG đụng reportedValue (báo cáo chủ tàu). */
+/* v3.17.71 (Sếp duyệt MẪU v2): LÕI ghi đợt thanh toán chi hộ — trích từ opSaveNccPayment,
+   dùng chung cho form tay VÀ Bảng kê thanh toán. Chạy BÊN TRONG commitMutation của nơi gọi. */
+function _opPayApply(t,p){
+  t.payments=t.payments||[];
+  const _pay={date:p.date, amount:p.amt, ccy:p.ccy, note:p.note||'', by:actorName(), at:new Date().toISOString()};
+  if(p.src==='CASH'){ _pay.method='cash'; }
+  else { _pay.bankAccountId=p.src; _pay.method='bank'; }
+  if(+p.bf>0) _pay.bankFee=+p.bf;
+  if(+p.of>0) _pay.otherFee=+p.of;
+  if(p.fn) _pay.feeNote=p.fn;
+  if(p.bkId) _pay._bkId=p.bkId;   // vết bảng kê
+  t.payments.push(_pay);
+  if(opNccRemaining(t)<=0.001){
+    t.paid=true; t.paidDate=t.paidDate||p.date; t.paidBy=t.paidBy||actorName(); t.paidAt=new Date().toISOString();
+  }
+  try{ touchRecord(t); }catch(e){}
+  return _pay;
+}
 function opSaveNccPayment(id){
   const t=VesselService.opTransactions().find(x=>x.id===id);
   /* v3.12.78 (Sếp chỉ rõ): NGOẠI LỆ ĐƯỢC PHÉP SAU KHÓA SỔ — ghi thanh toán NCC + PHÍ NGÂN HÀNG.
@@ -61970,23 +62441,11 @@ function opSaveNccPayment(id){
   if((_bf>0||_of>0) && String(date).slice(0,7)!==String(t.date||'').slice(0,7)){
     if(!confirm('⚠ Ngày phí ('+String(date).slice(0,7)+') KHÁC tháng khoản chi hộ gốc ('+String(t.date||'').slice(0,7)+').\n\nPhí sẽ ghi vào báo cáo chủ tàu THÁNG '+String(date).slice(0,7)+' (dòng riêng), không phải tháng khoản chi hộ. Vẫn lưu?')) return;
   }
-  commitMutation(()=>{
-  t.payments=t.payments||[];
-  const _pay={date, amount:amt, ccy, note, by:actorName(), at:new Date().toISOString()};
-  // v3.15.19: TK NH chi tiền (tùy chọn) → Sổ ngân hàng ghi CHI + phí
+  // v3.17.71: NGUỒN TIỀN đọc & validate TRƯỚC commit (trước đây nằm trong commit — return giữa chừng)
   const _nccBank=((document.getElementById('op-ncc-bank')||{}).value||'');
   if(!_nccBank){ toast('Chọn NGUỒN TIỀN chi đợt này: TK ngân hàng hoặc 💵 Tiền mặt/Quỹ (v3.17.44)','bad'); return; }
-  if(_nccBank==='CASH'){ _pay.method='cash'; }
-  else { _pay.bankAccountId=_nccBank; _pay.method='bank'; }
-  if(_bf>0) _pay.bankFee=_bf;
-  if(_of>0) _pay.otherFee=_of;
-  if(_fn) _pay.feeNote=_fn;
-  t.payments.push(_pay);
-  // Đồng bộ cờ paid khi đã trả hết (để các view cũ dựa vào t.paid vẫn đúng).
-  if(opNccRemaining(t)<=0.001){
-    t.paid=true; t.paidDate=t.paidDate||date; t.paidBy=t.paidBy||actorName(); t.paidAt=new Date().toISOString();
-  }
-  try{ touchRecord(t); }catch(e){}
+  commitMutation(()=>{
+  _opPayApply(t,{date, amt, ccy, note, src:_nccBank, bf:_bf, of:_of, fn:_fn});   /* v3.17.71: một đường ghi duy nhất */
   }, {action:'op_ncc_payment', fields:['opTransactions'], onOk:()=>{
   try{ logAuditEvent('op_ncc_payment',{id, amount:amt, ccy, by:actorName()}); }catch(e){}
   toast('✓ Đã ghi đợt thanh toán '+amt.toLocaleString('vi-VN')+' '+ccy+(opNccRemaining(t)<=0.001?' — đã trả HẾT':'')+'. Nhớ Sync.','good');
@@ -82389,12 +82848,11 @@ function openApprovalOrderPdf(level){
   //   dính từ lần lọc trước làm 3 phiếu đã tích bị loại → báo sai "Không có phiếu nào ở cấp L2".
   const _apprSrc=scopedView(S.payables||[],'ap').filter(r=>r && !r._cashClear);
   let rows=_apprSrc.filter(r=>wfStatus(r)===want && APPROVAL_SELECTED.has(r.id));
-  /* v3.17.68 (Sếp, ảnh 'Không duyệt được phiếu chi hộ'): phiếu CHI HỘ tick ở khối 🚢 không đi PDF
-     lệnh chi AP — trước đây bấm nút này chỉ tra AP nên chi hộ bị bỏ rơi + toast nhắc tick dù đã tick.
-     Nay: chuyển bước các phiếu chi hộ đã tick NGAY tại đây (máy trạng thái op, đếm thật), rồi tiếp
-     phần AP nếu có. */
+  /* v3.17.70 (Sếp — chốt): chi hộ đi TRỌN luồng công nợ như AP. Duyệt = chỉ chuyển bước trạng thái
+     (L1→L2, L2→Chờ Thanh Toán); NGUỒN TIỀN chọn ở BƯỚC THANH TOÁN khi KT ghi đợt chi (op-ncc-bank,
+     bắt buộc từ 3.17.44) — không hỏi ngân hàng lúc duyệt nữa (gỡ modal 3.17.69, phức tạp). */
   let _opDone=0;
-  try{ const _opTicked=document.querySelectorAll('[data-opb]:checked').length;
+  try{ const _opTicked=(typeof _opSelIds==='function')?_opSelIds().length:0;
     if(_opTicked>0 && typeof opBatchAdvance==='function'){ _opDone=_opTicked; opBatchAdvance(); }
   }catch(e){}
   // v3.11.17 FLAG_BATCH_UNIFIED (Sếp duyệt PA-1): PHIẾU NHIỀU DÒNG = 1 ROW trong màn Trình TT —
