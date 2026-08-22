@@ -1,5 +1,5 @@
 {
-  "version": "3.17.84",
-  "swVersion": "v3.17.84",
-  "notes": "v3.17.84 chốt đúng nguồn của chờ thanh toán theo chỉ đạo: danh sách chỉ nhận từ nguồn duyệt cấp hai. Lệnh công nợ phải mang dấu ký cấp hai mới vào, các lệnh trạng thái duyệt từ lịch sử không có dấu cấp hai bị loại và phiếu tương ứng quay về khối cần đề xuất đợt để trình lại đúng luồng; phiếu chi hộ phải có trạng thái thô đã duyệt do cấp hai bấm kèm vết máy trạng thái lên bước đó, không nhận trạng thái tự lành. Giữ nguyên lớp lọc phiếu còn nợ và màn rà lệnh treo của bản trước. Sau khi lên bản này tải lại trang một lần."
+  "version": "3.17.86",
+  "swVersion": "v3.17.86",
+  "notes": "v3.17.86 sửa lọc thiếu ở chờ thanh toán: danh sách nay đồng nguồn với hàng đợi chờ chi tiền của sổ phải trả gồm hai nhóm, nhóm lệnh chi có dấu duyệt cấp hai như bản trước và nhóm bổ sung là phiếu trạng thái đã duyệt còn nợ không có lệnh sống tức đường duyệt theo phiếu bốn cấp, số chi bằng số thanh toán đợt này đã duyệt cùng phiếu nếu có không thì bằng còn nợ, số cố định vì đã qua duyệt; xác nhận nhóm này ghi đợt qua lõi mới đúng khuôn ghi chi hiện hành gồm trừ đề xuất khớp lệnh trừ số dư tài khoản và giải ngân gom khế ước nháp. Sau khi lên bản này tải lại trang một lần huy hiệu chờ thanh toán sẽ khớp hàng đợi chờ chi tiền."
 }

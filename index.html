@@ -3806,7 +3806,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.17.84';
+const APP_VERSION='3.17.86';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -10748,6 +10748,27 @@ function renderKunnList(tEl){
     <div style="font-size:10.5px;color:var(--muted);padding-top:6px">Khế ước nháp sinh tự động khi Bảng kê ghi khoản GIẢI NGÂN — KT điền số KUNN, lãi suất, kỳ hạn tại màn Tín dụng.</div></div>`;
 }
 function feeCanUse(){ return isAdmin()||canCheckAcc()||canConfirmPayment(); }
+/* v3.17.86: LÕI ghi đợt AP CẤP PHIẾU cho Bảng kê (đường duyệt phiếu, không lệnh) — đúng shape
+   saveArPayment: push payment + apDueConsume + apOrderConsume + trừ số dư TK (loan → kuDraft, không trừ). */
+function _apPayCore(r,p){
+  r.payments=r.payments||[];
+  let fxRate=0; if(r.ccy==='USD') fxRate=+S.fxRate||0;
+  const pay={date:p.date, amount:+p.amt||0, fxRate, ccy:r.ccy, note:p.note||('Bảng kê '+(p.bkId||'')),
+    method:p.method, recordedBy:actorName(), recordedAt:new Date().toISOString()};
+  if(p.method!=='cash' && p.bankId) pay.bankAccountId=p.bankId;
+  if(p.bkId) pay._bkId=p.bkId;
+  r.payments.push(pay); apDueConsume(r, +pay.amount||0); apOrderConsume(r, +pay.amount||0);
+  if(p.method==='loan' && pay.bankAccountId){
+    try{ _kuDraftAttach(r, pay, pay.bankAccountId); }catch(e){ console.warn('[apr kuDraft]',e); }
+  } else if(pay.bankAccountId){
+    const acc=AccountingService.bankAccounts().find(a=>a.id===pay.bankAccountId);
+    if(acc && typeof _arPayAmountInCcy==='function'){
+      try{ acc.balance=(+acc.balance||0)-_arPayAmountInCcy(pay, r.ccy, acc.ccy||'USD'); touchRecord(acc); }catch(e){}
+    }
+  }
+  try{ touchRecord(r); }catch(e){}
+  return pay;
+}
 function _apFeeApply(r,p){
   r.payments=r.payments||[];
   const pay={date:p.date, amount:0, ccy:r.ccy, note:p.note||'Phí phát sinh sau chuyển NH', method:'bank',
@@ -10936,6 +10957,16 @@ function bkPendingRows(){
          khi PHIẾU CÒN NỢ HIỆU LỰC > 0; số đề xuất chi = min(lệnh, còn nợ). Lệnh treo phiếu-hết-nợ →
          màn 🧹 Rà lệnh treo để KT tự đóng — app không tự sửa. */
       const _rem=(typeof apRemainingEff==='function')?apRemainingEff(r):0;
+      /* v3.17.86 (Sếp, ảnh 420 vs 9): NHÓM B — phiếu wfStatus 'approved' CÒN NỢ nhưng KHÔNG lệnh L2
+         sống (đường duyệt PHIẾU 4 cấp / lịch sử) = đúng hàng đợi 💰 Chờ chi tiền tab Phải trả.
+         Số = TT đợt này (dueAmount đã duyệt cùng phiếu) nếu >0, không thì còn nợ. Số CỐ ĐỊNH. */
+      const _hasL2Order=_apOrders(r).some(o=>o&&o.status==='approved'&&!o._paymentApplied&&(o.approvedL2At||o.approvedL2By));
+      if(!_hasL2Order && _rem>0.001 && ((typeof wfStatus==='function')?wfStatus(r):(r.status||''))==='approved'){
+        const _due=(typeof apDueThisAmount==='function')?(+apDueThisAmount(r)||0):0;
+        rows.push({kind:'apr', r, id:'apr:'+r.id, label:(r.partner||r.vendor||''),
+          desc:(r.invoiceNo?('HĐ '+r.invoiceNo):'')+' · duyệt theo phiếu', amt:Math.min(_due>0?_due:_rem,_rem), ccy:r.ccy||'VND',
+          defMethod:(r._payMethod==='cash')?'CASH':'', defBank:r._payBankId||''});
+      }
       _apOrders(r).forEach(o=>{   /* v3.17.82: đúng trường paymentOrders qua helper chuẩn */
         if(!o||o.status!=='approved'||o._paymentApplied) return;
         if(!(o.approvedL2At||o.approvedL2By)) return;   /* v3.17.84 (Sếp): 💸 CHỈ từ nguồn DUYỆT L2 — lệnh approved lịch sử KHÔNG dấu L2 bị loại, trình lại đúng luồng */
@@ -10974,7 +11005,9 @@ function renderBkPayList(tEl){
         <b>${esc(String(x.label).slice(0,34))}</b> <span style="color:var(--muted);font-size:11px">${esc(String(x.desc).slice(0,44))}</span></span>
       <span style="white-space:nowrap;display:flex;gap:6px;align-items:center">
         <select id="bk-src-${ix}" data-bksrc="${esc(x.id)}" onchange="bkSummary()" style="max-width:210px;font-size:11px">${bkOpt(x.defMethod==='CASH'?'CASH':x.defBank, x.kind==='ap')}</select>
-        <b style="font-family:var(--font-mono);font-size:11px">${(+x.amt||0).toLocaleString('vi-VN')} ${esc(x.ccy)}</b></span></div>`).join('');
+        ${x.kind==='op'
+          ?`<input id="bk-amt-${ix}" value="${(+x.amt||0).toLocaleString('vi-VN')}" onchange="bkSummary()" title="Chi hộ: L2 duyệt CẢ PHIẾU — KT sửa số ĐỢT này, kẹp ≤ còn nợ ${(+x.amt||0).toLocaleString('vi-VN')} (v3.17.85)" style="width:110px;text-align:right;font-family:var(--font-mono);font-size:11px"> <span style="font-size:10px">${esc(x.ccy)}</span>`
+          :`<b style="font-family:var(--font-mono);font-size:11px" title="AP: số theo LỆNH đã duyệt L2 — KT đổi nguồn, không đổi số">${(+x.amt||0).toLocaleString('vi-VN')} ${esc(x.ccy)}</b>`}</span></div>`).join('');
   tEl.innerHTML=`<div style="border:1.5px solid #1c7a4d;border-radius:10px;padding:10px 12px">
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:6px">
       <b style="font-size:13px">💸 CHỜ THANH TOÁN (${rows.length})</b>
@@ -10998,7 +11031,10 @@ function bkSummary(){
   document.querySelectorAll('[data-bk]:checked').forEach(c=>{
     const x=rows.find(r=>r.id===c.getAttribute('data-bk')); if(!x) return;
     const ix=rows.indexOf(x); const src=((document.getElementById('bk-src-'+ix)||{}).value||'');
-    n++; const v=+x.amt||0;
+    n++;
+    let v=+x.amt||0;
+    if(x.kind==='op'){ const inp=document.getElementById('bk-amt-'+ix);
+      if(inp){ const u=_unformatNumber(inp.value||''); if(u>0) v=Math.min(u, +x.amt||0); } }   /* v3.17.85 */
     if(src==='CASH') tCash+=v; else if(src.indexOf('LOAN:')===0) tGn+=v; else tBank+=v;
   });
   if(el) el.innerHTML=n?('Đã tick <b>'+n+'</b> khoản — 🏦 NH: <b>'+tBank.toLocaleString('vi-VN')+'</b> · 💵 TM: <b>'+tCash.toLocaleString('vi-VN')+'</b> · 🏛 GN: <b>'+tGn.toLocaleString('vi-VN')+'</b>'):'Chưa tick khoản nào';
@@ -11017,7 +11053,13 @@ function bkConfirm(){
     const x=rows.find(r=>r.id===c.getAttribute('data-bk')); if(!x) continue;
     const ix=rows.indexOf(x); const src=((document.getElementById('bk-src-'+ix)||{}).value||'');
     if(!src){ toast('Chọn nguồn tiền (TK ngân hàng / 💵 Tiền mặt) cho TỪNG khoản đã tick — KT là người cuối cùng chuỗi thanh toán','bad'); return; }
-    picks.push({x, src});
+    let payAmt=+x.amt||0;   /* v3.17.85: chi hộ — số ĐỢT KT nhập, kẹp ≤ còn nợ; AP — số lệnh L2, không sửa */
+    if(x.kind==='op'){ const inp=document.getElementById('bk-amt-'+ix);
+      if(inp){ const u=_unformatNumber(inp.value||'');
+        if(!(u>0)){ toast('Số chi đợt của phiếu chi hộ phải > 0','bad'); return; }
+        if(u>(+x.amt||0)+0.001){ toast('Số chi đợt ('+u.toLocaleString('vi-VN')+') vượt CÒN NỢ ('+(+x.amt||0).toLocaleString('vi-VN')+') — kẹp theo còn nợ','bad'); return; }
+        payAmt=u; } }
+    picks.push({x, src, payAmt});
   }
   if(!picks.length){ toast('Chưa tick khoản nào','warn'); return; }
   const date=((document.getElementById('bk-date')||{}).value)||todayISO();
@@ -11037,17 +11079,20 @@ function bkConfirm(){
         if(!x.o._paymentApplied) return;
         x.o.status='paid'; x.o.paidAt=new Date().toISOString();
         try{ touchRecord(x.r); }catch(e){}
+      } else if(x.kind==='apr'){
+        _apPayCore(x.r, {date, amt:x.amt, method, bankId:(method==='cash')?'':srcBank, bkId});   /* v3.17.86: phiếu duyệt không lệnh */
       } else {
-        _opPayApply(x.t, {date, amt:x.amt, ccy:x.ccy, note:'Bảng kê '+bkId, src:pk.src, bkId});
+        _opPayApply(x.t, {date, amt:pk.payAmt, ccy:x.ccy, note:'Bảng kê '+bkId, src:pk.src, bkId});   /* v3.17.85: số đợt KT nhập */
       }
       nOk++;
       sheetRows.push({refType:x.kind, refId:(x.kind==='ap'?x.r.id:x.t.id), orderId:(x.kind==='ap'?x.o.id:undefined),
         label:x.label, desc:x.desc, group:(method==='cash')?'cash':(method==='loan'?'gn':'bank'), bankId:(method==='cash')?'':srcBank,
-        amount:x.amt, ccy:x.ccy, lock:!!x.lock, proposed, changed});
-      grand+=+x.amt||0;
-      if(method==='cash') totals.cash+=+x.amt||0;
-      else if(method==='loan') totals.gn[srcBank]=(totals.gn[srcBank]||0)+(+x.amt||0);
-      else totals.bank[srcBank]=(totals.bank[srcBank]||0)+(+x.amt||0);
+        amount:(x.kind==='op'?pk.payAmt:x.amt), ccy:x.ccy, lock:!!x.lock, proposed, changed});
+      const _v=(x.kind==='op'?pk.payAmt:x.amt)||0;
+      grand+=_v;
+      if(method==='cash') totals.cash+=_v;
+      else if(method==='loan') totals.gn[srcBank]=(totals.gn[srcBank]||0)+_v;
+      else totals.bank[srcBank]=(totals.bank[srcBank]||0)+_v;
     });
     S.paymentSheets=S.paymentSheets||[];
     S.paymentSheets.push({id:bkId, date, rows:sheetRows, totals, grand, by:actorName(), at:new Date().toISOString()});
