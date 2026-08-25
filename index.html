@@ -2849,6 +2849,10 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
                  Chứng từ kho → ⋯ Khác, tức 3 cú bấm cho một việc dựng nền cả sổ kho. Đưa thẳng ra
                  thanh thao tác của trang Kho vật tư. Vẫn gate thủ kho/admin ở trong hàm. -->
             <button class="btn-sec" style="font-size:13px;border-color:#1c5a8c;color:#1c5a8c" onclick="openOpeningImport()" title="Import số liệu kho từ Excel FAST — 2 chế độ: Tồn đầu kỳ (nạp mốc tồn) hoặc Nhập-Xuất-Tồn theo kỳ (nối tiếp số đang có)">📦 Import số liệu</button>
+            <!-- v3.18.63 (Sếp 25/8): Thủ kho làm việc tập trung tại trang Kho vật tư — đưa Danh mục vật tư
+                 (Material Master FAST) ra thẳng cụm 🗃 Danh mục. KHÔNG tạo màn mới: gọi đúng openMaterialMaster()
+                 sẵn có của tab Danh mục chung; quyền sửa vẫn gate canManageMaterials() bên trong hàm. -->
+            <button class="btn-sec" style="font-size:13px" onclick="openMaterialMaster()" title="Danh mục vật tư mã FAST (Material Master) — cùng màn với tab Danh mục chung, quyền sửa theo Thủ kho tổng/admin">📦 Danh mục vật tư</button>
           </div>
         </div>
       </div>
@@ -3820,7 +3824,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.18.62';
+const APP_VERSION='3.18.66';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -7140,6 +7144,7 @@ const ALL_DATA_FIELDS=[
      trong ALL_DATA_FIELDS → không đẩy/kéo/hợp nhất với cloud — bảng kê, phí lô, danh mục TSBĐ chỉ nằm
      trên máy người tạo. Cùng bài học v3.07.05 / v3.12.97 / v3.16.13. */
   'paymentSheets','bkBatchFees','pledges','vesselNotifs','matCostRules',   /* v3.18.62: quy tắc tiền tố mã vật tư → mã chi phí (sync TỪ NGÀY SINH — bài học expenseTree) */   /* v3.18.62: vesselNotifs thiếu từ ngày sinh — thông báo tàu không bao giờ sang máy khác */
+  'payCcExpenseMap',   /* v3.18.66: mã chi phí theo bộ phận (tàu/VP/dự án) cho cụm Phiếu lương NET — sync TỪ NGÀY SINH (bài học expenseTree) */
   'darReports','darTemplates',   /* v3.18.62 */
   'transactions',
   'cashFunds','cashTxns',
@@ -21739,22 +21744,38 @@ function payPeriodBack(id){ const p=payPeriodById(id); if(!p) return; if(payStat
    Tái dùng đúng lõi ghi sổ (tách theo phòng ban/tàu/dự án — giữ nguyên tắc phân bổ chi phí + VESSEL_MGMT),
    khác 2 điểm: status 'pending_acc' (vào thẳng luồng ký AP: KT kiểm → L1 → L2) và desc ghi rõ
    "Thanh toán lương khối … tháng … — tổng khối …". Luồng ký TRONG kỳ bỏ — kỳ tự advance theo cụm AP. */
-function _payCreateApBatch(p){
+/* v3.18.66 (Sếp chốt 25/8): MÃ CHI PHÍ THEO BỘ PHẬN — khai MỘT chỗ, các kỳ sau tự áp.
+   Store S.payCcExpenseMap: { '<key nhóm V:/P:/D:>': '<mã loại chi phí>' } — đã vào ALL_DATA_FIELDS
+   từ ngày sinh (bài học expenseTree v3.18.62). Chưa khai → SALARY + ⚠, không đoán mò. */
+function _payCcExpenseType(key){
+  const code=(S.payCcExpenseMap||{})[key];
+  const ok=code && (S.expenseTypes||[]).some(x=>x && !x.archived && String(x.code)===String(code));
+  return ok ? {code:String(code), known:true} : {code:'SALARY', known:false};
+}
+function _payCreateApBatch(p, etypes){
   const t=_payPeriodTotals(p);
   const vendor=(typeof getDefaultVendor==='function' && getDefaultVendor('SALARY')) || 'CBCNV';
   const period=p.period, batchId=uid();
   const groups=_payPeriodCostGroups(p); const keys=Object.keys(groups);
   if(!keys.length) return null;
-  const totalTxt=_negU(t.usd?`${t.gross.toLocaleString('en-US')} ${t.ccy}`:`${t.gross.toLocaleString('vi-VN')} đ`);
+  /* v3.18.66 (Sếp chốt): dòng phiếu ghi NET TỔNG mỗi bộ phận (không theo từng người);
+     header phiếu ĐẦU cụm mang TỔNG TNCN + TỔNG BHXH 32% (NV 10.5% + DN 21.5%).
+     Total chi phí lương = ΣNET + TNCN + BHXH32 — khớp _apCostAmount (P&L = NET+PIT+BHXH,
+     thiết kế sẵn từ v3.03.90; ghi GROSS như trước là P&L đếm trùng PIT+BH phần NV). */
+  const bhxh32 = t.usd ? 0 : (t.bhxh + (t.bhxhCo||0));
+  const totalCost = t.usd ? t.takeHome : (t.takeHome + t.pit + bhxh32);
+  const totalTxt=_negU(t.usd?`${totalCost.toLocaleString('en-US')} ${t.ccy}`:`${totalCost.toLocaleString('vi-VN')} đ`);
   const newIds=[]; const nowIso=new Date().toISOString(); const who=(typeof actorName==='function'?actorName():'admin');
   keys.forEach((k,i)=>{
     const g=groups[k]; const isFirst=(i===0);
+    const et=(etypes&&etypes[k]) || _payCcExpenseType(k).code;
+    const lineAmt=t.usd ? Math.round(g.net*100)/100 : Math.round(g.net);
     const ap={
       id:uid(), batchId,
       partner:vendor,
-      desc:`Thanh toán lương khối ${PAY_PROFILE_LABEL[p.profile]} tháng ${period} — ${g.label}${isFirst?` · TỔNG KHỐI ${totalTxt} (${t.count} NV, ${keys.length} dòng phân bổ)`:''}`,
-      expenseType:'SALARY', costCategory:'SALARY',
-      amountNet:Math.round(g.gross), vatPercent:0, vatAmount:0, amountGross:Math.round(g.gross), amount:Math.round(g.gross),
+      desc:`Lương ${PAY_PROFILE_LABEL[p.profile]} kỳ ${period} — ${g.label} (NET khối, ${g.count} NV)${isFirst?` · TỔNG CHI PHÍ LƯƠNG ${totalTxt} (${t.count} NV, ${keys.length} phiếu; TNCN + BHXH 32% gắn phiếu này)`:''}`,
+      expenseType:et, costCategory:'SALARY',
+      amountNet:lineAmt, vatPercent:0, vatAmount:0, amountGross:lineAmt, amount:lineAmt,
       ccy:t.ccy, fxToVnd:0, fxToUsd: t.usd&&+S.fxRate>0 ? 1 : 0,
       segment:'OTHER',
       costCenterType:g.ccType, costCenterId:g.ccId||'',
@@ -21763,8 +21784,8 @@ function _payCreateApBatch(p){
       departmentId:'',
       issueDate: period+'-01', dueDate:'', dueMonth:period, dueAmount:0, payments:[],
       pitAmount: (isFirst&&!t.usd)?t.pit:0,
-      bhxhAmount: (isFirst&&!t.usd)?t.bhxh:0,
-      _payroll:true, payrollPeriod:period, _payrollPeriodId:p.id,
+      bhxhAmount: (isFirst&&!t.usd)?bhxh32:0,   /* v3.18.66: trọn 32% (NV+DN) — NSNN INSURANCE_SOCIAL nhận đúng số phải nộp cơ quan BH; health n9_bridge_bhxh_dn hết cảnh báo phần DN ngoài app */
+      _payroll:true, payrollPeriod:period, _payrollPeriodId:p.id, _netScheme:true,   /* v3.18.66: dấu cụm ghi NET (phân biệt cụm GROSS cũ cho health/n9) */
       status:'pending_acc', submittedBy:who, submittedAt:nowIso, approvedL1By:'',approvedL1At:'',approvedL2By:'',approvedL2At:'',
       createdBy:who, createdAt:nowIso,
       _origin:'payroll_submit'   /* v3.15.32: phân biệt với 'payroll_period' (Ghi sổ cũ tại locked) */
@@ -21779,16 +21800,89 @@ function payPeriodSubmit(id){
   /* v3.15.30 GĐ-V3: CỔNG MÁY KIỂM — kiểm ĐỒNG BỘ, không phụ thuộc cache health (cache trống không được lọt) */
   { const why=(typeof _pvGateCheck==='function')?_pvGateCheck(p):null;
     if(why){ toast('🔍 CHẶN trình duyệt: '+why,'bad'); try{ _payAudit(p,'submit_blocked','Máy kiểm chặn trình: '+why); saveState(); }catch(e){} return; } }
-  /* v3.15.32 Ω1: "CHUYỂN KẾ TOÁN" — tạo cụm phiếu AP ngay, luồng ký duy nhất là luồng AP */
+  /* v3.15.32 Ω1: "CHUYỂN KẾ TOÁN" — luồng ký duy nhất là luồng AP.
+     v3.18.66 (Sếp chốt 25/8): KHÔNG sinh thẳng nữa — mở MÀN XEM TRƯỚC CỤM Phiếu lương:
+     mỗi bộ phận 1 phiếu 1 dòng NET tổng khối; header TNCN + BHXH 32%; HR chọn Lưu nháp/Gửi duyệt. */
   if(p._postedApIds&&p._postedApIds.length){ toast('Kỳ đã có cụm phiếu AP (batch '+String(p._postedBatchId||'').slice(-6)+')','warn'); return; }
   const t=_payPeriodTotals(p);
   if(t.gross<=0){ toast('Chưa có số liệu lương — Tính cả bảng trước','warn'); return; }
-  const res=_payCreateApBatch(p);
+  payPeriodSubmitPreview(id);
+}
+/* v3.18.66: màn xem trước cụm Phiếu lương — số KHÓA theo kỳ (nguồn sự thật), chỉ sửa được MÃ CHI PHÍ.
+   Σ NET các khối phải khớp Thực chi kỳ, lệch quá ngưỡng làm tròn là CHẶN Gửi duyệt (khớp máy). */
+function payPeriodSubmitPreview(id){
+  const p=payPeriodById(id); if(!p) return;
+  const t=_payPeriodTotals(p);
+  const groups=_payPeriodCostGroups(p); const keys=Object.keys(groups);
+  if(!keys.length){ toast('Không có số liệu để tạo phiếu','warn'); return; }
+  const fmt=v=>t.usd?(+v).toLocaleString('en-US'):Math.round(+v).toLocaleString('vi-VN');
+  const sumNet=keys.reduce((s,k)=>s+groups[k].net,0);
+  let cap=5; try{ cap=phThresholds().rounding.maxAbs||5; }catch(e){}
+  const mism=Math.abs(sumNet-t.takeHome)>cap;
+  const bhxh32=t.usd?0:(t.bhxh+(t.bhxhCo||0));
+  const totalCost=t.usd?t.takeHome:(t.takeHome+t.pit+bhxh32);
+  const draft=(p._sheetDraft&&p._sheetDraft.etypes)||{};
+  const ets=(S.expenseTypes||[]).filter(x=>x&&!x.archived).slice().sort((a,b)=>String(a.code).localeCompare(String(b.code)));
+  const etOpts=sel=>ets.map(x=>`<option value="${esc(String(x.code))}"${String(x.code)===String(sel)?' selected':''}>${esc(String(x.code))} — ${esc(String(x.name||''))}</option>`).join('');
+  const rows=keys.map((k,i)=>{ const g=groups[k];
+    const cur=draft[k]||_payCcExpenseType(k).code; const known=!!draft[k]||_payCcExpenseType(k).known;
+    return `<tr style="border-bottom:1px solid var(--rule)">
+      <td style="padding:5px 8px">${esc(g.label)}</td>
+      <td style="padding:5px 8px;text-align:center;color:var(--muted)">${g.count}</td>
+      <td style="padding:5px 8px;text-align:right;font-family:monospace">${fmt(g.net)} ${t.ccy}</td>
+      <td style="padding:5px 8px">${known?'':'<span title="Chưa khai mã cho bộ phận này — đang tạm SALARY">⚠</span> '}<select data-paycckey="${esc(k)}" style="max-width:230px">${etOpts(cur)}</select></td>
+    </tr>`; }).join('');
+  const body=`<div style="font-size:13px;line-height:1.7">
+    Cụm <b>Phiếu lương</b> kỳ <b>${esc(p.period)}</b> · ${esc(PAY_PROFILE_LABEL[p.profile])} — mỗi bộ phận 1 phiếu, MỘT dòng NET tổng khối (chi tiết từng người vẫn ở kỳ lương HR):
+    <table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:8px;border:1px solid var(--rule)">
+      <thead><tr style="background:var(--rule);text-align:left"><th style="padding:4px 8px">Bộ phận</th><th style="padding:4px 8px;text-align:center">NV</th><th style="padding:4px 8px;text-align:right">NET khối</th><th style="padding:4px 8px">Mã chi phí (tự áp — khai 1 lần)</th></tr></thead>
+      <tbody>${rows}</tbody></table>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:10px;border:1px solid var(--rule)"><tbody>
+      <tr style="border-bottom:1px solid var(--rule)"><td style="padding:5px 8px;color:var(--muted)">Σ NET các khối (${keys.length} phiếu)</td><td style="padding:5px 8px;text-align:right;font-family:monospace">${fmt(sumNet)} ${t.ccy}</td></tr>
+      ${!t.usd?`<tr style="border-bottom:1px solid var(--rule)"><td style="padding:5px 8px;color:var(--muted)">TỔNG TNCN (header phiếu đầu)</td><td style="padding:5px 8px;text-align:right;font-family:monospace">${t.pit.toLocaleString('vi-VN')} đ</td></tr>
+      <tr style="border-bottom:1px solid var(--rule)"><td style="padding:5px 8px;color:var(--muted)">TỔNG BHXH/BHYT/BHTN 32% (NV 10.5% ${t.bhxh.toLocaleString('vi-VN')} + DN 21.5% ${(t.bhxhCo||0).toLocaleString('vi-VN')})</td><td style="padding:5px 8px;text-align:right;font-family:monospace">${bhxh32.toLocaleString('vi-VN')} đ</td></tr>`:''}
+      <tr style="background:#eafaf0"><td style="padding:6px 8px;font-weight:700">TOTAL CHI PHÍ LƯƠNG = ΣNET + TNCN + BHXH32</td><td style="padding:6px 8px;text-align:right;font-family:monospace;font-weight:700">${_negU(fmt(totalCost)+' '+t.ccy)}</td></tr>
+    </tbody></table>
+    ${mism?`<div style="color:#c0392b;font-weight:600;margin-top:8px">⛔ Σ NET các khối lệch Thực chi kỳ (${fmt(t.takeHome)} ${t.ccy}) quá ngưỡng ${cap} — CHẶN Gửi duyệt. Kiểm lại bảng lương/điều chỉnh.</div>`
+        :`<div style="color:var(--muted);font-size:11px;margin-top:8px">✓ Khớp máy: Σ NET khối = Thực chi kỳ. Gửi duyệt sẽ tạo ${keys.length} phiếu Phải trả (pending_acc) vào luồng ký KT → L1 → L2; Lưu nháp chỉ ghi mã chi phí đã chọn, chưa vào luồng ký.</div>`}
+  </div>`;
+  window._paySubPid=id;
+  openModal('📤 Chuyển kế toán — cụm Phiếu lương', body,
+    `<button class="btn-ghost" onclick="closeModal()">Hủy</button>
+     <button class="btn-ghost" onclick="_paySubmitDraftSave()">💾 Lưu nháp</button>
+     <button class="btn-primary" ${mism?'disabled title="Σ NET lệch tổng kỳ — chặn"':''} onclick="_paySubmitCommit()">📤 Gửi duyệt</button>`);
+}
+function _paySubmitReadEtypes(){
+  const m={}; document.querySelectorAll('[data-paycckey]').forEach(el=>{ m[el.getAttribute('data-paycckey')]=el.value; });
+  return m;
+}
+function _paySubmitDraftSave(){
+  const id=window._paySubPid; const p=payPeriodById(id); if(!p){ closeModal(); return; }
+  const et=_paySubmitReadEtypes();
+  S.payCcExpenseMap=Object.assign({}, S.payCcExpenseMap||{}, et);   /* khai 1 lần — các kỳ sau tự áp */
+  p._sheetDraft={at:new Date().toISOString(), by:(CURRENT_USER&&CURRENT_USER.name)||'?', etypes:et};
+  _payAudit(p,'submit_draft','Lưu nháp cụm Phiếu lương — ghi mã chi phí '+Object.keys(et).length+' bộ phận (chưa vào luồng ký)');
+  saveState(); closeModal(); toast('💾 Đã lưu nháp — mã chi phí theo bộ phận được ghi nhớ, kỳ chưa trình ký','good');
+}
+function _paySubmitCommit(){
+  const id=window._paySubPid; const p=payPeriodById(id); if(!p){ closeModal(); return; }
+  /* an toàn: kiểm lại gate + trạng thái + khớp tổng ngay lúc bấm (modal có thể mở lâu) */
+  { const why=(typeof _pvGateCheck==='function')?_pvGateCheck(p):null;
+    if(why){ toast('🔍 CHẶN trình duyệt: '+why,'bad'); return; } }
+  if(p._postedApIds&&p._postedApIds.length){ toast('Kỳ đã có cụm phiếu AP','warn'); closeModal(); return; }
+  const t=_payPeriodTotals(p); const groups=_payPeriodCostGroups(p);
+  const sumNet=Object.values(groups).reduce((s,g)=>s+g.net,0);
+  let cap=5; try{ cap=phThresholds().rounding.maxAbs||5; }catch(e){}
+  if(Math.abs(sumNet-t.takeHome)>cap){ toast('⛔ Σ NET khối lệch Thực chi kỳ — chặn Gửi duyệt','bad'); return; }
+  const et=_paySubmitReadEtypes();
+  S.payCcExpenseMap=Object.assign({}, S.payCcExpenseMap||{}, et);
+  const res=_payCreateApBatch(p, et);
   if(!res){ toast('Không có số liệu để tạo phiếu','warn'); return; }
+  delete p._sheetDraft;
   p.status='submitted'; p.submittedBy=(CURRENT_USER&&CURRENT_USER.name)||'?'; p.submittedAt=new Date().toISOString();
-  _payAudit(p,'submit_to_accounting','Chuyển kế toán — tạo cụm '+res.n+' phiếu Phải trả (batch '+res.batchId.slice(-6)+') · tổng '+res.totalTxt+' — ký tại luồng AP');
-  saveState(); openPayPeriodDetail(id);
-  toast('📤 Đã chuyển kế toán — '+res.n+' phiếu Phải trả lương vào luồng ký (KT kiểm → L1 → L2)','good');
+  _payAudit(p,'submit_to_accounting','Chuyển kế toán — tạo cụm '+res.n+' Phiếu lương NET (batch '+res.batchId.slice(-6)+') · TỔNG CHI PHÍ LƯƠNG '+res.totalTxt+' — ký tại luồng AP');
+  saveState(); closeModal(); openPayPeriodDetail(id);
+  toast('📤 Đã chuyển kế toán — '+res.n+' Phiếu lương NET vào luồng ký (KT kiểm → L1 → L2)','good');
 }
 /* v3.15.33 B3① [DEPRECATED THEO DÕI]: luồng ký TRONG kỳ — từ v3.15.32 mọi kỳ ký qua cụm AP.
    Chưa có kỳ nào đi luồng cũ (Sếp xác nhận 11/8). GIỮ 2–3 kỳ vận hành ổn định rồi xóa hẳn cùng
@@ -24208,7 +24302,9 @@ PAYROLL_HEALTH_CHECKS.push(
     (p._postedApIds||[]).forEach(id=>{ const a=AccountingService.payableById(id); if(!a){ gone=true; return; }
       g+=(+a.amountGross||0); pit+=(+a.pitAmount||0); bh+=(+a.bhxhAmount||0); });
     if(gone) return items;
-    if(Math.abs(g-t.gross)>cap) items.push(_phItem({checkId:'n9_ap_vs_register', periodId:p.id, field:'amountGross', current:Math.round(g).toLocaleString('vi-VN'), expected:Math.round(t.gross).toLocaleString('vi-VN')+' (register)', source:'AP', openTarget:{type:'period',id:p.id}}));
+    /* v3.18.66: cụm NET (Sếp chốt 25/8) ghi dòng = NET tổng khối → Σ AP khớp Thực chi (takeHome);
+       cụm GROSS cũ vẫn khớp t.gross. Nhận CẢ HAI sơ đồ, lệch cả hai mới báo. */
+    if(Math.abs(g-t.gross)>cap && Math.abs(g-t.takeHome)>cap) items.push(_phItem({checkId:'n9_ap_vs_register', periodId:p.id, field:'amountGross', current:Math.round(g).toLocaleString('vi-VN'), expected:Math.round(t.gross).toLocaleString('vi-VN')+' (gross register) hoặc '+Math.round(t.takeHome).toLocaleString('vi-VN')+' (NET — cụm v3.18.66)', source:'AP', openTarget:{type:'period',id:p.id}}));
     if(Math.abs(pit-t.pit)>cap) items.push(_phItem({checkId:'n9_ap_vs_register', periodId:p.id, field:'pitAmount', current:Math.round(pit).toLocaleString('vi-VN'), expected:Math.round(t.pit).toLocaleString('vi-VN'), source:'AP', openTarget:{type:'period',id:p.id}}));
     if(bh && Math.abs(bh-t.bhxh)>cap && Math.abs(bh-(t.bhxh+(p.rows||[]).reduce((x,r)=>x+(+((r.result||{}).insCompany)||0),0)))>cap)
       items.push(_phItem({checkId:'n9_ap_vs_register', periodId:p.id, field:'bhxhAmount', current:Math.round(bh).toLocaleString('vi-VN'), expected:'khớp phần NV hoặc cả hai phần', source:'AP', openTarget:{type:'period',id:p.id}}));
@@ -28081,32 +28177,39 @@ function payImportTimesheetCommit(){
 /* v3.07.77: SINH BÚT TOÁN LƯƠNG → Module Kế toán (tạo AP loại SALARY từ kỳ đã khóa). */
 function _payPeriodTotals(p){
   const usd=_payCcyIsFx(p);   /* v3.14.97: theo tiền tệ KỲ */
-  let gross=0, takeHome=0, pit=0, bhxh=0, adj=0;
+  let gross=0, takeHome=0, pit=0, bhxh=0, bhxhCo=0, adj=0;
   (p.rows||[]).forEach(r=>{ const x=r.result||{}; const a=payRowAdjustTotal(r); adj+=a;
-    if(p.profile==='office'){ gross+=+x.AH||0; takeHome+=(+x.AP||0)+a; pit+=+x.AK||0; bhxh+=+x.AL||0; }
-    else if(p.profile==='crew'){ gross+=+x.AH||0; takeHome+=(+x.AS||0)+a; pit+=+x.AL||0; bhxh+=+x.AO||0; }
+    if(p.profile==='office'){ gross+=+x.AH||0; takeHome+=(+x.AP||0)+a; pit+=+x.AK||0; bhxh+=+x.AL||0; bhxhCo+=(+x.insCompany||+x.AN||0); }
+    else if(p.profile==='crew'){ gross+=+x.AH||0; takeHome+=(+x.AS||0)+a; pit+=+x.AL||0; bhxh+=+x.AO||0; bhxhCo+=(+x.insCompany||+x.AOco||0); }
     else { gross+=(+x.total||0)+a; takeHome+=(+x.total||0)+a; } // chuyên gia/expat: USD
   });
+  /* v3.18.66 (Sếp chốt 25/8): bhxhCo = BHXH/BHYT/BHTN phía DOANH NGHIỆP (21.5%) — engine đã tính
+     sẵn (insCompany chuẩn hóa mọi profile; fallback cột thô AN office / AOco crew cho result cũ).
+     bhxh(NV 10.5%) + bhxhCo = trọn 32%. Total chi phí lương = takeHome + pit + bhxh + bhxhCo. */
   gross+= (p.profile==='office'||p.profile==='crew') ? adj : 0; // VP/tàu: điều chỉnh cũng vào gross chi trả
   /* v3.14.99: ngoại tệ giữ 2 số lẻ (làm tròn đồng như VND sẽ mất xu); ccy = mã thật của kỳ. */
   const _rd=v=>usd?(Math.round(v*100)/100):Math.round(v);
-  return {usd, gross:_rd(gross), takeHome:_rd(takeHome), pit:_rd(pit), bhxh:_rd(bhxh), adj:_rd(adj), ccy:_payCcy(p), count:(p.rows||[]).length};
+  return {usd, gross:_rd(gross), takeHome:_rd(takeHome), pit:_rd(pit), bhxh:_rd(bhxh), bhxhCo:_rd(bhxhCo), adj:_rd(adj), ccy:_payCcy(p), count:(p.rows||[]).length};
 }
 function _payPeriodCostGroups(p){
   const empById={}; HRService.employees().forEach(e=>{ empById[e.id]=e; });
   const groups={};
   (p.rows||[]).forEach(r=>{
     const x=r.result||{}; const adj=payRowAdjustTotal(r);
-    let gross;
-    if(p.profile==='office'||p.profile==='crew') gross=(+x.AH||0)+adj; else gross=(+x.total||0)+adj;
-    if(!gross) return;
+    let gross, net;
+    if(p.profile==='office'){ gross=(+x.AH||0)+adj; net=(+x.AP||0)+adj; }
+    else if(p.profile==='crew'){ gross=(+x.AH||0)+adj; net=(+x.AS||0)+adj; }
+    else { gross=(+x.total||0)+adj; net=(+x.total||0)+adj; }
+    /* v3.18.66: net = thực lĩnh khối (cùng cột với takeHome của _payPeriodTotals → Σ net nhóm
+       PHẢI khớp t.takeHome, lệch là chặn Gửi duyệt ở màn xem trước cụm Phiếu lương). */
+    if(!gross && !net) return;
     const e=empById[r.empId]||{};
     let key,label,ccType,ccId;
     if(p.profile==='crew'){ ccType='opVessel'; ccId=e.vesselId||''; label=(typeof anyVesselName==='function'&&anyVesselName(ccId))||e.dept||'Đội tàu'; key='V:'+(ccId||label); }
     else if(p.profile==='project'||p.profile==='expat'){ const pid=(e.projectIds&&e.projectIds[0])||''; ccType='project'; ccId=pid; const pr=(S.projects||[]).find(x=>x.id===pid); label=pr?pr.code:(e.dept||PAY_PROFILE_LABEL[p.profile]); key='P:'+(ccId||label); }
     else { ccType='department'; ccId=''; label=e.dept||'Văn phòng'; key='D:'+label; }
-    if(!groups[key]) groups[key]={label, ccType, ccId, gross:0, count:0};
-    groups[key].gross += gross; groups[key].count++;
+    if(!groups[key]) groups[key]={label, ccType, ccId, gross:0, net:0, count:0};
+    groups[key].gross += gross; groups[key].net += net; groups[key].count++;
   });
   return groups;
 }
@@ -32215,14 +32318,17 @@ function addExpenseType(){
     <div style="font-size:13px">
       <div class="field">
         <label>Mã loại (uppercase, không dấu, không space) *</label>
-        <input type="text" id="etype-code" placeholder="VD: FUEL_ADD, COMMISSION..." maxlength="30">
+        <input type="text" id="etype-code" placeholder="VD: M.01.30.003 (theo bộ mã) hoặc FUEL_ADD..." maxlength="30" oninput="_etypeCodeSmart()" style="font-variant-numeric:tabular-nums">
+        <div id="etype-treepath" style="font-size:12px;color:var(--good,#1a7a4c);margin-top:4px"></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">Một mã duy nhất — phân cấp & nhóm TỰ SUY từ mã. <a href="#" onclick="_etypeTreePanelToggle();return false">Bảng tên nhánh ▾</a> <span style="color:var(--muted)">(bấm nhánh → tự điền mã, nối thêm .001 tùy ý)</span></div>
+        <div id="etype-tree-panel" style="display:none;border:1px solid var(--rule);border-radius:8px;padding:8px;margin-top:6px;max-height:220px;overflow:auto;background:var(--paper-2)"></div>
       </div>
       <div class="field">
         <label>Tên hiển thị *</label>
-        <input type="text" id="etype-label" placeholder="VD: Phụ thu nhiên liệu" maxlength="80">
+        <input type="text" id="etype-label" placeholder="VD: Phụ thu nhiên liệu" maxlength="80" oninput="_etypeCodeSmart()">
       </div>
       <div class="field">
-        <label>Nhóm *</label>
+        <label>Nhóm * <span id="etype-group-auto" style="font-weight:400;font-size:11px;color:var(--good,#1a7a4c)"></span></label>
         <select id="etype-group">
           ${Object.entries(EXPENSE_GROUPS).map(([k,v])=>`<option value="${k}">${v.label}</option>`).join('')}
         </select>
@@ -32230,13 +32336,6 @@ function addExpenseType(){
       <div class="field">
         <label>Icon (1 emoji)</label>
         <input type="text" id="etype-icon" placeholder="📝" maxlength="4" value="📝">
-      </div>
-      <div class="field">
-        <label>Mã số phân cấp (2–4 cấp, vd 1.30.100.01) — tùy chọn</label>
-        <input type="text" id="etype-treecode" placeholder="VD: 1.30.100.01" maxlength="20" oninput="_etypePreviewPath()" style="font-variant-numeric:tabular-nums">
-        <div id="etype-treepath" style="font-size:12px;color:var(--good,#1a7a4c);margin-top:4px"></div>
-        <div style="font-size:11px;color:var(--muted);margin-top:2px">Nhóm suy ra theo mã. <a href="#" onclick="_etypeTreePanelToggle();return false">Bảng tên nhánh ▾</a> <span style="color:var(--muted)">(bấm nhánh → tự điền MÃ LOẠI + phân cấp, sửa thêm .001 tùy ý)</span></div>
-        <div id="etype-tree-panel" style="display:none;border:1px solid var(--rule);border-radius:8px;padding:8px;margin-top:6px;max-height:220px;overflow:auto;background:var(--paper-2)"></div>
       </div>
       <div class="field">
         <label><input type="checkbox" id="etype-isPO"> Đây là PO (mua tồn kho — không vào P&L)</label>
@@ -32373,6 +32472,53 @@ function _expTreeDeleteRow(code){
 }
 
 /* v3.16.71 (GĐ2): preview đường dẫn nhánh khi admin gõ mã số trong form loại chi phí. */
+/* ═══ v3.18.65 (Sếp 25/8): MỘT NƠI GHI MÃ + NHÓM TỰ CHỌN THÔNG MINH ═══
+   Bỏ ô "Mã số phân cấp" — mã theo bộ chuẩn (M.01.30.003) TỰ LÀ phân cấp; mã ngoài bộ (FUEL_ADD)
+   không gắn phân cấp. Nhóm tự chọn theo CHỮ ĐẦU mã: học theo đa số loại cùng chữ đang có,
+   thiếu thì map chuẩn M→Vận hành tàu · F→Nhiên liệu(PO) · T→Kỹ thuật · C→Quản lý chung · O→Khác. */
+function _etypeDeriveTree(code){ const c=String(code||'').trim().toUpperCase(); return /^[A-Z](\.\d+)+$/.test(c)?c:''; }
+/* v3.18.65: nút GẬP theo nhóm lớn — bấm dòng CON gập/bung cả cây con; bung lại thì cháu về trạng thái gập gọn */
+function _etCatConToggle(gi){
+  const rows=document.querySelectorAll('.cg-'+gi);
+  const car=document.getElementById('ctgc-'+gi);
+  const collapsed=car&&car.textContent==='▸';
+  rows.forEach(r=>{
+    if(collapsed){ r.style.display=r.dataset.ctkid?'none':''; const c=r.querySelector('[id^="ctc-"]'); if(c) c.textContent='▸'; }
+    else r.style.display='none';
+  });
+  if(car) car.textContent=collapsed?'▾':'▸';
+}
+function _etypeGroupOfPrefix(code){
+  const m=String(code||'').trim().toUpperCase().match(/^([A-Z])\./); if(!m) return '';
+  const L=m[1], votes={};
+  (S.expenseTypes||[]).forEach(t=>{ if(!t||t.archived) return;
+    if(String(t.code||'').toUpperCase().indexOf(L+'.')===0 && t.group && EXPENSE_GROUPS[t.group]) votes[t.group]=(votes[t.group]||0)+1; });
+  let best='', bn=0; Object.keys(votes).forEach(g=>{ if(votes[g]>bn){ bn=votes[g]; best=g; } });
+  return best || (({M:'VESSEL',F:'PO',T:'TECH',C:'OVERHEAD',O:'OTHER'})[L]||'');
+}
+function _etypeCodeSmart(){
+  const cIn=document.getElementById('etype-code'); if(!cIn) return;
+  const code=cIn.value.trim().toUpperCase();
+  const tc=_etypeDeriveTree(code);
+  const out=document.getElementById('etype-treepath');
+  if(out){ const lab=(document.getElementById('etype-label')||{}).value||'';
+    const path=(tc&&typeof expTreePath==='function')?expTreePath(tc,lab):'';
+    out.innerHTML=path?('📁 '+esc(path)+' <span style="color:var(--muted)">· '+esc((typeof expTreeLevelName==='function'?expTreeLevelName(tc):''))+'</span>')
+      :(code?'<span style="color:var(--muted)">mã ngoài bộ chuẩn — không gắn phân cấp</span>':''); }
+  const g=_etypeGroupOfPrefix(code), sel=document.getElementById('etype-group'), gl=document.getElementById('etype-group-auto');
+  if(g&&sel){ if(sel.value!==g) sel.value=g; if(gl) gl.textContent='🧭 tự chọn theo mã'; }
+  else if(gl) gl.textContent='';
+}
+function _etypeEditCodeSmart(lab){
+  const cIn=document.getElementById('etype-edit-code'); if(!cIn) return;
+  const code=cIn.value.trim().toUpperCase();
+  const tc=_etypeDeriveTree(code);
+  const out=document.getElementById('etype-edit-treepath');
+  if(out){ const path=(tc&&typeof expTreePath==='function')?expTreePath(tc,(document.getElementById('etype-edit-label')||{}).value||lab||''):'';
+    out.innerHTML=path?('📁 '+esc(path)):(code?'<span style="color:var(--muted)">mã ngoài bộ chuẩn — giữ phân cấp cũ (nếu có)</span>':''); }
+  const g=_etypeGroupOfPrefix(code), gl=document.getElementById('etype-edit-group-auto');
+  if(gl) gl.textContent=g?('🧭 lưu là chuyển về nhóm '+(((EXPENSE_GROUPS||{})[g]||{}).label||g)+' theo mã'):'';
+}
 function _etypePreviewPath(){
   const el=document.getElementById('etype-treecode'); const out=document.getElementById('etype-treepath');
   if(!el||!out) return;
@@ -32390,7 +32536,7 @@ function _doAddExpenseType(){
   const label=document.getElementById('etype-label').value.trim();
   const group=document.getElementById('etype-group').value;
   const icon=document.getElementById('etype-icon').value.trim()||'📝';
-  const treeCode=(document.getElementById('etype-treecode')||{}).value ? document.getElementById('etype-treecode').value.trim() : '';   // v3.16.71
+  const treeCode=_etypeDeriveTree(codeRaw);   /* v3.18.65: MỘT nơi ghi mã — phân cấp tự suy từ chính MÃ LOẠI */
   const isPO=document.getElementById('etype-isPO').checked;
   const isFuel=document.getElementById('etype-isFuel').checked;  // v1.43.0
   const fuelKind=isFuel?(((document.getElementById('etype-fuelKind')||{}).value)||'do'):undefined;   /* v3.18.62 */
@@ -32435,8 +32581,12 @@ function editExpenseType(id){
   const body=`
     <div style="font-size:13px">
       <div class="field">
-        <label>Mã loại <span style="color:var(--muted);font-weight:400">(v3.18.62: đổi được — cho phép đặt mã số; mọi phiếu cũ tự chuyển theo)</span></label>
-        <input type="text" id="etype-edit-code" value="${esc(t.code)}" maxlength="30" style="font-variant-numeric:tabular-nums">
+        <label>Mã loại <span style="color:var(--muted);font-weight:400">(đổi được — mọi phiếu cũ tự chuyển theo; phân cấp & nhóm tự suy từ mã)</span></label>
+        <input type="text" id="etype-edit-code" value="${esc(t.code)}" maxlength="30" style="font-variant-numeric:tabular-nums" oninput="_etypeEditCodeSmart('${esc(t.label||'')}')">
+        <div id="etype-edit-treepath" style="font-size:12px;color:var(--good,#1a7a4c);margin-top:4px"></div>
+        <div id="etype-edit-group-auto" style="font-size:11px;color:var(--good,#1a7a4c);margin-top:2px"></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px"><a href="#" onclick="_etypeTreePanelToggle();return false">Bảng tên nhánh ▾</a></div>
+        <div id="etype-tree-panel" style="display:none;border:1px solid var(--rule);border-radius:8px;padding:8px;margin-top:6px;max-height:220px;overflow:auto;background:var(--paper-2)"></div>
       </div>
       <div class="field">
         <label>Tên hiển thị *</label>
@@ -32461,13 +32611,6 @@ function editExpenseType(id){
         <label>Gợi ý/Mô tả</label>
         <input type="text" id="etype-edit-hint" value="${esc(t.hint||'')}" maxlength="200">
       </div>
-      <div class="field">
-        <label>Mã số phân cấp (2–4 cấp, vd 1.30.100.01) — tùy chọn</label>
-        <input type="text" id="etype-edit-treecode" value="${esc(t.treeCode||'')}" placeholder="VD: 1.30.100.01" maxlength="20" oninput="_etypeEditPreviewPath('${esc(t.label||'')}')" style="font-variant-numeric:tabular-nums">
-        <div id="etype-edit-treepath" style="font-size:12px;color:var(--good,#1a7a4c);margin-top:4px"></div>
-        <div style="font-size:11px;color:var(--muted);margin-top:2px">Nhóm suy ra theo mã. <a href="#" onclick="_etypeTreePanelToggle();return false">Bảng tên nhánh ▾</a></div>
-        <div id="etype-tree-panel" style="display:none;border:1px solid var(--rule);border-radius:8px;padding:8px;margin-top:6px;max-height:220px;overflow:auto;background:var(--paper-2)"></div>
-      </div>
       <div id="etype-err" style="color:var(--bad);font-size:13px;margin-top:8px"></div>
     </div>
   `;
@@ -32490,12 +32633,11 @@ function _etypeTreePanelToggle(){
   pn.style.display='';
 }
 function _etypeTreePick(code){
-  const inp=document.getElementById('etype-edit-treecode')||document.getElementById('etype-treecode'); if(!inp) return;
-  inp.value=code;
-  /* v3.18.62 (Sếp): chọn nhánh AUTO ĐIỀN luôn MÃ LOẠI (sửa/nối thêm .001 tùy ý) */
-  const cIn=document.getElementById('etype-edit-code')||document.getElementById('etype-code');
-  if(cIn){ cIn.value=code; try{ cIn.focus(); }catch(e){} } if(typeof _etypeEditPreviewPath==='function'){ try{ _etypeEditPreviewPath((document.getElementById('etype-edit-label')||{}).value||''); }catch(e){} }
-  try{ inp.dispatchEvent(new Event('input')); }catch(e){}
+  /* v3.18.65: MỘT nơi ghi mã — chọn nhánh điền thẳng MÃ LOẠI (nối thêm .001 tùy ý); phân cấp & nhóm tự suy */
+  const cIn=document.getElementById('etype-edit-code')||document.getElementById('etype-code'); if(!cIn) return;
+  cIn.value=code;
+  try{ if(document.getElementById('etype-edit-code')) _etypeEditCodeSmart(''); else _etypeCodeSmart(); }catch(e){}
+  try{ cIn.focus(); }catch(e){}
   const pn=document.getElementById('etype-tree-panel'); if(pn) pn.style.display='none';
 }
 function _etypeTreeCreatePick(){
@@ -32536,7 +32678,8 @@ function _doEditExpenseType(id){
   if(!label){err.textContent='Nhập tên hiển thị';return;}
   const vals={
     icon:document.getElementById('etype-edit-icon').value.trim()||'',
-    treeCode:((document.getElementById('etype-edit-treecode')||{}).value||'').trim(),
+    treeCode:_etypeDeriveTree(newCode)||String(t0.treeCode||''),   /* v3.18.65: mã chuẩn TỰ LÀ phân cấp; mã ngoài bộ giữ phân cấp cũ */
+    group:_etypeGroupOfPrefix(newCode),                            /* v3.18.65: mã chuẩn → nhóm theo chữ đầu; nhóm cũ rỗng dần tự biến khỏi danh mục */
     isPO:document.getElementById('etype-edit-isPO').checked,
     isFuel:document.getElementById('etype-edit-isFuel').checked,
     fuelKind:((document.getElementById('etype-edit-fuelKind')||{}).value)||'do',
@@ -32566,6 +32709,7 @@ function _doEditExpenseType(id){
     t.label=label;
     t.icon=vals.icon;
     if(vals.treeCode) t.treeCode=vals.treeCode; else delete t.treeCode;
+    if(vals.group && EXPENSE_GROUPS[vals.group]) t.group=vals.group;   /* v3.18.65: dời nhóm theo mã — loại cuối rời nhóm cũ là header nhóm cũ tự biến */
     t.isPO=vals.isPO;
     t.isFuel=vals.isFuel;
     if(t.isFuel) t.fuelKind=vals.fuelKind; else delete t.fuelKind;
@@ -33213,28 +33357,35 @@ function renderCatalog(){
         const g = (EXPENSE_GROUPS && EXPENSE_GROUPS[gk]) || {label:'❓ Khác (nhóm lạ)', color:'#6b6b6b'};
         h += `<tr style="background:${g.color}14"><td colspan="${colspan}" style="font-weight:600;font-size:11px;color:${g.color};text-transform:uppercase;letter-spacing:.04em;padding:7px 12px;border-top:1px solid var(--rule)">
           ${esc(g.label)} <span style="font-weight:400;color:var(--muted);margin-left:4px">${items.length} loại</span></td></tr>`;
-        /* v3.18.62 (Sếp): cha(nhóm) → CON đậm → CHÁU gập ▸ (bấm bung loại/chắt); loại chưa theo bộ mã dồn cuối. */
+        /* v3.18.62 (Sếp): cha(nhóm) → CON đậm → CHÁU gập ▸ (bấm bung loại/chắt); loại chưa theo bộ mã dồn cuối.
+           v3.18.65 (Sếp): (1) dòng CON thành nút GẬP/BUNG cả nhóm lớn; (2) hiện ĐỦ nhóm cháu từ
+           Bảng tên nhánh kể cả nhánh CHƯA có loại nào (0 loại — KT đang dựng bộ mã cần thấy khung). */
         (function(){
           const srt=(a,b)=>String(a.code).localeCompare(String(b.code),'vi',{numeric:true});
           const sorted=items.slice().sort(srt);
           const treeIsh=t=>/^[A-Z]\./.test(String(t.treeCode||t.code||''));
           const inTree=sorted.filter(treeIsh), other=sorted.filter(t=>!treeIsh(t));
-          let curCon='', curChau='';
           const nm=c=>(typeof expTreeName==='function'&&expTreeName(c))||'';
-          inTree.forEach(t=>{
-            const tc=String(t.treeCode||t.code); const segs=tc.split('.');
-            const con=segs.slice(0,2).join('.');
-            const chau=segs.length>=3?segs.slice(0,3).join('.'):'';
-            if(con!==curCon){ curCon=con; curChau='';
-              h+=`<tr><td colspan="${colspan}" style="font-weight:700;font-size:12px;padding:6px 12px;background:rgba(18,58,92,.05)">${esc(con)} ${esc(nm(con))}</td></tr>`; }
-            if(chau && chau!==curChau){ curChau=chau;
+          const tcOf=t=>String(t.treeCode||t.code);
+          const cons={}; inTree.forEach(t=>{ const con=tcOf(t).split('.').slice(0,2).join('.'); (cons[con]=cons[con]||[]).push(t); });
+          const branch=(typeof expTreeList==='function'?expTreeList():[]).map(n=>String(n.code));
+          Object.keys(cons).sort((a,b)=>a.localeCompare(b,'vi',{numeric:true})).forEach(con=>{
+            const its=cons[con];
+            window.__cgSeq=(window.__cgSeq||0)+1; const gi=window.__cgSeq;
+            h+=`<tr style="cursor:pointer" onclick="_etCatConToggle(${gi})"><td colspan="${colspan}" style="font-weight:700;font-size:12px;padding:6px 12px;background:rgba(18,58,92,.05)"><span id="ctgc-${gi}" style="display:inline-block;width:12px;font-size:10px">▾</span> ${esc(con)} ${esc(nm(con))} <span style="font-weight:400;color:var(--muted)">(${its.length} loại)</span></td></tr>`;
+            /* nhóm cháu = HỢP của nhánh khai trong Bảng tên nhánh + cháu suy từ mã loại đang có */
+            const chauSet=new Set(branch.filter(c=>c.indexOf(con+'.')===0&&c.split('.').length===3));
+            its.forEach(t=>{ const s=tcOf(t).split('.'); if(s.length>=3) chauSet.add(s.slice(0,3).join('.')); });
+            const chaus=Array.from(chauSet).sort((a,b)=>a.localeCompare(b,'vi',{numeric:true}));
+            /* loại nằm THẲNG dưới con (mã 2 cấp) hiện trước */
+            its.filter(t=>tcOf(t).split('.').length<3).forEach(t=>{ h+=rowOf(t).replace('<tr',`<tr class="cg-${gi}"`); });
+            chaus.forEach(chau=>{
+              const kids=its.filter(x=>{ const xc=tcOf(x); return xc===chau||xc.indexOf(chau+'.')===0; });
               window.__ctSeq=(window.__ctSeq||0)+1; const ci=window.__ctSeq;
-              const kids=inTree.filter(x=>{const xc=String(x.treeCode||x.code); return xc===chau||xc.indexOf(chau+'.')===0;}).length;
-              h+=`<tr style="cursor:pointer" onclick="document.querySelectorAll('.ct-${ci}').forEach(r=>r.style.display=r.style.display==='none'?'':'none');const c=document.getElementById('ctc-${ci}');if(c)c.textContent=c.textContent==='▸'?'▾':'▸'">
-                <td colspan="${colspan}" style="font-size:11.5px;padding:5px 12px 5px 26px;color:#33475c"><span id="ctc-${ci}" style="display:inline-block;width:12px;font-size:10px">▸</span> <b>${esc(chau)}</b> ${esc(nm(chau))} <span style="color:var(--muted)">(${kids} loại)</span></td></tr>`;
-              window.__ctCur=ci; }
-            const hid=chau?` class="ct-${window.__ctCur}" style="display:none"`:'';
-            h+=rowOf(t).replace('<tr',`<tr${hid}`);
+              h+=`<tr class="cg-${gi}" style="cursor:pointer" onclick="document.querySelectorAll('.ct-${ci}').forEach(r=>r.style.display=r.style.display==='none'?'':'none');const c=document.getElementById('ctc-${ci}');if(c)c.textContent=c.textContent==='▸'?'▾':'▸'">
+                <td colspan="${colspan}" style="font-size:11.5px;padding:5px 12px 5px 26px;color:${kids.length?'#33475c':'var(--muted)'}"><span id="ctc-${ci}" style="display:inline-block;width:12px;font-size:10px">▸</span> <b>${esc(chau)}</b> ${esc(nm(chau))} <span style="color:var(--muted)">(${kids.length} loại${kids.length?'':' — nhánh khai sẵn, chưa có loại'})</span></td></tr>`;
+              kids.forEach(t=>{ h+=rowOf(t).replace('<tr',`<tr class="ct-${ci} cg-${gi}" data-ctkid="1" style="display:none"`); });
+            });
           });
           if(other.length){ if(inTree.length) h+=`<tr><td colspan="${colspan}" style="font-size:10.5px;color:var(--muted);padding:5px 12px;text-transform:uppercase;letter-spacing:.05em">Chưa theo bộ mã</td></tr>`;
             other.forEach(t=>{ h+=rowOf(t); }); }
@@ -68172,6 +68323,7 @@ function openMaterialMaster(){
         <option value="active" ${_matFilter.status==='active'?'selected':''}>Đang dùng</option>
         <option value="inactive" ${_matFilter.status==='inactive'?'selected':''}>Ngừng</option></select>
       <button class="btn-sec" style="font-size:13px" onclick="openMaterialGroupList()">📁 Nhóm (${(S.materialGroups||[]).length})</button>
+      ${canEdit?`<button class="btn-sec" style="font-size:13px;border-color:#1c5a8c;color:#1c5a8c" onclick="openMatAutoGroup()" title="Tự ghép vật tư vào khu + nhóm theo khúc mã FAST (SR.DECK.PAI→Boong/PAI…) — có xem trước, chỉ điền ô Nhóm đang trống, không đè dòng đã sửa tay">🧩 Auto ghép nhóm</button>`:''}
       ${canEdit?'<button class="btn-primary" style="font-size:13px" onclick="openMaterialForm()">+ Thêm vật tư</button>':''}
       ${canEdit?'<button class="btn-sec" style="font-size:13px" onclick="matImportPick()">📥 Import Excel FAST</button>':''}
       <input type="file" id="mat-import-file" accept=".xlsx,.xls,.csv" style="display:none" onchange="matImportFile(this.files[0])">
@@ -68368,7 +68520,7 @@ function openMaterialGroupList(filter){
       <thead><tr style="background:var(--rule);font-size:11px;position:sticky;top:0"><th style="padding:5px">Loại</th><th style="padding:5px;text-align:left">Mã nhóm</th><th style="padding:5px;text-align:left">Tên nhóm</th><th style="padding:5px;text-align:right">Vật tư</th><th style="padding:5px">Nhóm lớn</th><th style="padding:5px">Phân loại</th><th style="padding:5px">Nhóm HH</th><th style="padding:5px"></th></tr></thead>
       <tbody>${rows||'<tr><td colspan="8" style="padding:12px;text-align:center;color:var(--muted)">Không có nhóm khớp</td></tr>'}</tbody>
     </table></div>`;
-  openModal('📁 Danh mục nhóm vật tư', body, `<button class="btn-sec" onclick="openMaterialMaster()">← Danh mục vật tư</button><button class="btn-sec" onclick="closeModal()">Đóng</button>`);
+  openModal('📁 Danh mục nhóm vật tư', body, `${(typeof canManageMaterials==='function'&&canManageMaterials())?`<button class="btn-sec" style="border-color:#1c5a8c;color:#1c5a8c" onclick="matSeedZoneGroups()" title="Nạp bảng KHU chuẩn theo file Sếp: 5 khu (Boong·Máy·Khoan·CPT·Lab) × ~60 nhóm con — upsert theo mã+khu, chạy lại an toàn, phục vụ Auto ghép nhóm">📥 Nạp bảng khu chuẩn</button>`:''}<button class="btn-sec" onclick="openMaterialMaster()">← Danh mục vật tư</button><button class="btn-sec" onclick="closeModal()">Đóng</button>`);
 }
 function matGroupToggleKind(type,code){  // v3.11.43: xoay — → ⚙️ TECH → ⛵ COMMON → —
   if(!canManageMaterials()){ toast('Không có quyền','bad'); return; }
@@ -68445,6 +68597,157 @@ function matCostRuleAdd(prefix, costCode){
   const ex=S.matCostRules.find(r=>r&&String(r.prefix).toUpperCase()===prefix);
   if(ex){ ex.costCode=costCode; } else S.matCostRules.push({id:'MCR-'+prefix, prefix, costCode});
   return true;
+}
+/* ═══ v3.18.64 A1a — AUTO GHÉP NHÓM THEO KHÚC MÃ FAST (Sếp chốt 25/8) ═══
+   Bảng KHU chuẩn từ file Excel phân nhóm của Sếp: 5 khu × ~60 nhóm con. Nhóm con là MỘT KHÚC
+   trong mã FAST (SR.DECK.PAI→PAI, GS.E.GE→GE, SUR.DRI.EQM→DRI+EQM) nên app tự ghép theo khúc.
+   Token trùng giữa các khu (CON/EQM/TOOL/COM…) BẮT BUỘC thấy token khu mới gán — không thì ⚠.
+   Auto CHỈ điền ô Nhóm đang trống, không bao giờ đè; dấu groupSrc auto/manual — tay thắng máy.
+   TƯỜNG LỬA: chỉ đụng S.materials/S.materialGroups; không đọc/ghi opTransactions/AP chi hộ. */
+const MAT_ZONES=[['DECK','Bộ phận Boong (tàu)'],['ENGINE','Bộ phận Máy'],['DRI','Thiết bị khoan'],['CPT','Thiết bị CPT xuyên tĩnh'],['LAB','Phòng thí nghiệm']];
+const MAT_ZONE_SEED={
+ DECK:[['DS','Deck store — vật tư tiêu dùng khác trên boong'],['BRI','Thiết bị buồng lái'],['MOO','Dây buộc tàu'],['NC','Navigation Charts (hải đồ)'],['NP','Navigation Publication (ấn phẩm hàng hải)'],['LSA','Thiết bị cứu sinh (LSA)'],['VPP','Văn phòng phẩm (Stationery)'],['PAI','Vật tư sơn — Paint'],['CON','Vật tư tiêu dùng thường xuyên'],['LASH','Thiết bị chằng buộc (lashing)'],['LAU','Laundry room — phòng giặt ủi'],['LIF','Dụng cụ nâng hạ — Lifting Gears'],['LINEN','Vật tư phòng ở (Steward)'],['SOP','Sopep'],['STE','Vật tư phục vụ'],['NUF','Cờ số — Number Flag'],['IMO','Ký hiệu IMO symbol'],['GAL','Galley — vật tư bếp'],['AHTS','Thiết bị làm neo'],['ALF','Cờ chữ cái — Alphabet Flag'],['NAF','Cờ quốc gia — National Flag'],['MECH','Vật tư máy móc ở boong'],['MED','Vật tư y tế, thuốc'],['REC','Recreation room — phòng giải trí'],['MES','Messroom — phòng ăn'],['FFE','Thiết bị báo cháy/cứu hỏa (FFE)'],['HOSE','Bơm dầu hàng (Cargo Fuel Oil Pump)']],
+ ENGINE:[['ME','Máy chính (Main Engine)'],['GE','Máy phát điện (Generator Engine)'],['ELE','Thiết bị điện'],['AM','Máy móc phụ (Auxiliary Machineries)'],['CON','Vật tư tiêu dùng thường xuyên'],['AIR','Main air compressure'],['HB','Harbour — máy phát điện phụ'],['PUM','Pum — bơm'],['PUR','D.O & L.O Purifier — nhóm lọc dầu'],['AZI','Azimuth'],['BOW','Chân vịt mũi hông (Bow Thruster)'],['BB','Ball Bearing SKF (bạc đạn)'],['CPP','Hộp số và hệ trục chân vịt'],['CNEC','Bơm dầu hàng (Cargo Fuel Oil Pump)'],['ORI','O Rings'],['COMP','Air Compressor'],['STR','Side Thruster'],['VAL','Vật tư van'],['FIL','Filter'],['RUD','Hệ thống bánh lái'],['TOEQ','Tool/Equipment — vật tư tool và thiết bị'],['KH','Vật tư khác']],
+ DRI:[['CON','Vật tư tiêu dùng thường xuyên'],['EQM','Thiết bị'],['OTH','Vật tư khác'],['TOOL','Dụng cụ và bộ cầm tay — Tools & HandSet']],
+ CPT:[['CON','Vật tư tiêu dùng thường xuyên'],['EQM','Thiết bị'],['TOOL','Dụng cụ và bộ cầm tay — Tools & HandSet']],
+ LAB:[['COM','Máy tính — Computer'],['CON','Vật tư tiêu dùng thường xuyên'],['DRY','Dry Cabinet'],['EBM','Cân điện tử — Electronic balance'],['EQM','Thiết bị'],['ETM','Máy đẩy mẫu — Extruder machine'],['LVM','Máy cắt cánh trong phòng — Lab Vane Machine'],['OVM','Tủ sấy — Oven'],['PPM','Đo lực xuyên bỏ túi — Pocket Penetrometer'],['TBB','Cân ba đòn — Triple beam balance'],['TTM','Thiết bị nén ba trục — Triaxial test machine']]
+};
+const MAT_ZONE_TOKENS={DECK:'DECK', E:'ENGINE', ENG:'ENGINE', ENGINE:'ENGINE', DRI:'DRI', DRILL:'DRI', CPT:'CPT', LAB:'LAB'};
+// Đổi state thuần: upsert khu (type1) + nhóm con (type2, có zone). Trả {added,updated}. Không UI.
+function matSeedZoneGroupsApply(groups, by){
+  let added=0, updated=0; const now=new Date().toISOString();
+  MAT_ZONES.forEach(([code,name])=>{
+    const ex=groups.find(g=>g&&(g.type||1)===1&&String(g.code).toUpperCase()===code);
+    if(ex){ if(ex.name!==name||ex.zone!==code){ ex.name=name; ex.zone=code; ex.updatedAt=now; updated++; } }
+    else { groups.push({type:1, code, name, zone:code, updatedAt:now, updatedBy:by||''}); added++; }
+  });
+  Object.keys(MAT_ZONE_SEED).forEach(zone=>{
+    MAT_ZONE_SEED[zone].forEach(([code,name])=>{
+      const ex=groups.find(g=>g&&(g.type||1)===2&&String(g.code).toUpperCase()===code&&String(g.zone||'').toUpperCase()===zone);
+      if(ex){ if(ex.name!==name){ ex.name=name; ex.updatedAt=now; updated++; } }
+      else { groups.push({type:2, code, name, zone, updatedAt:now, updatedBy:by||''}); added++; }
+    });
+  });
+  return {added, updated};
+}
+function matSeedZoneGroups(){
+  if(!canManageMaterials()){ toast('Không có quyền','bad'); return; }
+  commitMutation(()=>{ if(!Array.isArray(S.materialGroups)) S.materialGroups=[];
+    window._mzsRes=matSeedZoneGroupsApply(S.materialGroups, (typeof actorName==='function'?actorName():'')); },
+    {action:'matgroup_zone_seed', fields:['materialGroups'], onOk:()=>{ const r=window._mzsRes||{}; window._mzsRes=null;
+      toast(`✓ Bảng khu chuẩn: thêm ${r.added||0}, cập nhật ${r.updated||0} — tổng ${(S.materialGroups||[]).length} nhóm`,'good');
+      try{ openMaterialGroupList(); }catch(e){} }});
+}
+// Logic thuần: auto ghép nhóm theo khúc mã. CHỈ vật tư trống nhóm & không phải sửa tay.
+// Trả {plan:[{code,zone,sub}], amb:[{code,token,zones}], none:[code…]}. Không UI, không ghi state.
+function matAutoGroup(materials, groups){
+  const out={plan:[], amb:[], none:[]};
+  const subIdx={}; // TOKEN -> [{zone}]
+  (groups||[]).forEach(g=>{ if(!g||(g.type||1)!==2) return; const c=String(g.code||'').toUpperCase(); if(!c) return;
+    (subIdx[c]=subIdx[c]||[]).push({zone:String(g.zone||'').toUpperCase()}); });
+  (materials||[]).forEach(m=>{
+    if(!m||!m.code) return;
+    if(m.group||m.group2) return;                 // chỉ điền ô trống
+    if(m.groupSrc==='manual') return;             // tay thắng máy (kể cả tay chủ động để trống)
+    const toks=String(m.code).toUpperCase().split(/[^A-Z0-9]+/).filter(t=>t&&/[A-Z]/.test(t));
+    let zone=''; toks.forEach(t=>{ if(!zone&&MAT_ZONE_TOKENS[t]) zone=MAT_ZONE_TOKENS[t]; });
+    let hit=null, ambHit=null;
+    for(let i=toks.length-1;i>=0;i--){            // khúc đứng SAU cụ thể hơn — quét từ cuối
+      const t=toks[i];
+      const cands=subIdx[t]; if(!cands) continue;
+      const zones=Array.from(new Set(cands.map(c=>c.zone).filter(Boolean)));
+      if(zone && zones.includes(zone)){ hit={sub:t, zone}; break; }
+      if(!zone && zones.length<=1){ hit={sub:t, zone:zones[0]||''}; break; }
+      if(!ambHit) ambHit={token:t, zones};
+    }
+    if(hit) out.plan.push({code:m.code, zone:hit.zone, sub:hit.sub});
+    else if(ambHit) out.amb.push({code:m.code, token:ambHit.token, zones:ambHit.zones});
+    else out.none.push(m.code);
+  });
+  return out;
+}
+function openMatAutoGroup(){
+  if(!canManageMaterials()){ toast('Không có quyền','bad'); return; }
+  const res=matAutoGroup(S.materials||[], S.materialGroups||[]);
+  window._magPlan=res.plan;
+  const byZone={}; res.plan.forEach(p=>{ byZone[p.zone||'?']=(byZone[p.zone||'?']||0)+1; });
+  const zRows=Object.keys(byZone).sort().map(z=>`<tr><td style="padding:3px 8px;font-family:monospace;font-size:12px">${esc(z||'—')}</td><td style="padding:3px 8px;text-align:right;font-size:12px"><b>${byZone[z]}</b></td></tr>`).join('');
+  const sample=res.plan.slice(0,12).map(p=>`<tr><td style="padding:2px 6px;font-family:monospace;font-size:11px">${esc(p.code)}</td><td style="padding:2px 6px;font-size:11px">${esc(p.zone||'—')}</td><td style="padding:2px 6px;font-family:monospace;font-size:11px"><b>${esc(p.sub)}</b></td></tr>`).join('');
+  const ambS=res.amb.slice(0,8).map(a=>`<div style="font-size:11px;font-family:monospace">⚠ ${esc(a.code)} — token ${esc(a.token)} có ở ${a.zones.length} khu, thiếu token khu</div>`).join('');
+  const body=`<div style="font-size:13px;margin-bottom:8px">Quét <b>${(S.materials||[]).length}</b> vật tư (chỉ ô Nhóm đang trống, bỏ qua dòng đã sửa tay):</div>
+    <div style="display:flex;gap:14px;font-size:13px;margin-bottom:10px">
+      <span style="color:var(--good)">✓ Ghép được: <b>${res.plan.length}</b></span>
+      <span style="color:var(--warn)">⚠ Nhập nhằng khu: <b>${res.amb.length}</b></span>
+      <span style="color:var(--muted)">— Không nhận diện: <b>${res.none.length}</b></span>
+    </div>
+    ${zRows?`<table style="border-collapse:collapse;border:1px solid var(--rule);margin-bottom:8px"><thead><tr style="background:var(--rule);font-size:11px"><th style="padding:3px 8px">Khu</th><th style="padding:3px 8px">Số mã</th></tr></thead><tbody>${zRows}</tbody></table>`:''}
+    ${sample?`<div style="font-size:11px;color:var(--muted);margin-bottom:4px">Mẫu 12 dòng đầu:</div><table style="width:100%;border-collapse:collapse;border:1px solid var(--rule);margin-bottom:8px"><thead><tr style="background:var(--rule);font-size:10px"><th style="padding:2px 6px">Mã vật tư</th><th style="padding:2px 6px">Khu</th><th style="padding:2px 6px">Nhóm</th></tr></thead><tbody>${sample}</tbody></table>`:''}
+    ${ambS}${res.amb.length>8?`<div style="font-size:11px;color:var(--muted)">… còn ${res.amb.length-8} mã ⚠ nữa</div>`:''}
+    <div style="font-size:11px;color:var(--muted);margin-top:8px">Bấm Áp: ghi Nhóm 1 = khu, Nhóm 2 = nhóm con, dấu <b>auto</b> — sau này sửa tay ở form vật tư sẽ thắng auto. Mã ⚠/không nhận diện GIỮ NGUYÊN trống, không đoán mò.</div>`;
+  openModal('🧩 Auto ghép nhóm theo mã FAST — Xem trước', body,
+    `<button class="btn-ghost" onclick="openMaterialMaster()">Hủy</button>`+
+    (res.plan.length?`<button class="btn-primary" onclick="_matAutoGroupApply()">✓ Áp ${res.plan.length} mã</button>`:''));
+}
+function _matAutoGroupApply(){
+  const plan=window._magPlan; if(!plan||!plan.length){ closeModal(); return; }
+  if(!canManageMaterials()){ toast('Không có quyền','bad'); return; }
+  commitMutation(()=>{
+    const idx={}; (S.materials||[]).forEach(m=>{ if(m&&m.code) idx[String(m.code).toUpperCase()]=m; });
+    const now=new Date().toISOString();
+    plan.forEach(p=>{ const m=idx[String(p.code).toUpperCase()]; if(!m) return;
+      if(m.group||m.group2||m.groupSrc==='manual') return;   // kiểm lại lúc ghi — không đè
+      m.group=p.zone||''; m.group2=p.sub; m.groupSrc='auto'; m.updatedAt=now; });
+  },{action:'mat_autogroup', fields:['materials'], onOk:()=>{ window._magPlan=null;
+      try{ logAuditEvent('mat_autogroup',{count:plan.length}); }catch(e){}
+      toast('✓ Đã ghép nhóm '+plan.length+' vật tư (dấu auto)','good'); openMaterialMaster(); }});
+}
+/* v3.18.64 — TÁCH CHI PHÍ THEO LOẠI trên phiếu XUẤT (chỉ phía bờ có quyền xem giá).
+   Đơn giá: (1) sổ tháng Thủ kho đã chốt (outValue/outQty đúng kho+mã+tháng — KHÔNG tính lại),
+   (2) thiếu sổ → giá trên dòng phiếu, đóng dấu TẠM. Mã chi phí auto qua matCostCodeOf; không
+   trúng → khối 📦⚠ riêng, không đoán. Hàm THUẦN — không ghi gì vào phiếu, tính lúc render. */
+function whDocCostSplit(d, movements, costOf){
+  const out={rows:[], un:null, grand:0, hasTam:false};
+  if(!d||d.type!=='OUT') return out;
+  const mm=String(d.date||'').slice(0,7);
+  const led={}; (movements||[]).forEach(mv=>{ if(!mv||mv.warehouseId!==d.warehouseId) return;
+    if(String(mv.month||'').slice(0,7)!==mm) return; if(!(+mv.outQty>0)) return;
+    const k=String(mv.itemCode||mv.itemName||'').toUpperCase(); if(!k) return;
+    led[k]={price:(+mv.outValue||0)/(+mv.outQty)}; });
+  const buckets={};
+  (d.lines||[]).forEach(l=>{ if(!l) return; const qty=+l.qty||0; if(!qty) return;
+    const cc=costOf(l.code, l.name)||'';
+    const lg=led[String(l.code||'').toUpperCase()]||led[String(l.name||'').toUpperCase()];
+    let price=null, tam=false;
+    if(lg&&lg.price>0){ price=lg.price; }
+    else if(+l.price>0){ price=+l.price; tam=true; }
+    const val=(price!=null)?Math.round(qty*price):null;
+    const b=(buckets[cc]=buckets[cc]||{code:cc, lines:0, qty:0, val:0, noVal:0, tam:false});
+    b.lines++; b.qty+=qty;
+    if(val!=null){ b.val+=val; if(tam){ b.tam=true; out.hasTam=true; } } else b.noVal++;
+  });
+  Object.keys(buckets).sort().forEach(cc=>{ const b=buckets[cc];
+    if(cc){ out.rows.push(b); out.grand+=b.val; } else out.un=b; });
+  return out;
+}
+function _whCostSplitHtml(d){
+  try{
+    if(!d||d.type!=='OUT') return '';
+    if(typeof whIsVesselSideUser==='function'&&whIsVesselSideUser()) return '';          // lớp 1: tàu không render
+    if(!(typeof canViewStockValue==='function'&&canViewStockValue())) return '';
+    const sp=whDocCostSplit(d, S.invMovements||[], (c,n)=>matCostCodeOf(c,n));
+    if(!sp.rows.length&&!sp.un) return '';
+    const nameOf=(cc)=>{ try{ const t=(typeof expTreeName==='function')?expTreeName(cc):''; if(t) return t;
+      const et=(S.expenseTypes||[]).find(x=>x&&(x.treeCode===cc||x.code===cc)); return et?et.label:''; }catch(e){ return ''; } };
+    const f=v=>Number(v||0).toLocaleString('vi-VN');
+    const tr=sp.rows.map(b=>`<tr><td style="padding:3px 8px;font-family:monospace;font-size:12px"><b>${esc(b.code)}</b> <span style="color:var(--muted);font-size:11px">${esc(nameOf(b.code))}</span></td><td style="padding:3px 8px;text-align:right;font-size:12px">${b.lines}</td><td style="padding:3px 8px;text-align:right;font-size:12px">${f(b.qty)}</td><td style="padding:3px 8px;text-align:right;font-size:12px;font-variant-numeric:tabular-nums">${f(b.val)}${b.tam?' <span style="color:#b8730a;font-size:10px">TẠM</span>':''}${b.noVal?` <span style="color:var(--muted);font-size:10px">(${b.noVal} dòng chưa giá)</span>`:''}</td></tr>`).join('');
+    const un=sp.un?`<tr><td style="padding:3px 8px;font-size:12px;color:#b8730a">📦⚠ Vật tư chưa gắn mã chi phí</td><td style="padding:3px 8px;text-align:right;font-size:12px">${sp.un.lines}</td><td style="padding:3px 8px;text-align:right;font-size:12px">${f(sp.un.qty)}</td><td style="padding:3px 8px;text-align:right;font-size:12px">${sp.un.val?f(sp.un.val):'—'}</td></tr>`:'';
+    return `<div style="border:1px solid var(--rule);border-radius:8px;padding:8px 10px;margin-bottom:10px;background:var(--paper-2)">
+      <div style="font-size:12px;font-weight:700;margin-bottom:4px">🧭 Tách chi phí theo loại (bờ xem — không in vào phiếu, không phát xuống tàu)</div>
+      <table style="width:100%;border-collapse:collapse"><thead><tr style="font-size:10px;color:var(--muted)"><th style="text-align:left;padding:2px 8px">Mã chi phí</th><th style="text-align:right;padding:2px 8px">Dòng</th><th style="text-align:right;padding:2px 8px">SL</th><th style="text-align:right;padding:2px 8px">Giá trị (VNĐ)</th></tr></thead>
+      <tbody>${tr}${un}</tbody></table>
+      <div style="font-size:10px;color:var(--muted);margin-top:4px">Giá theo sổ tháng Thủ kho đã chốt (không tính lại)${sp.hasTam?' · dòng TẠM: tháng chưa chốt sổ, dùng giá trên phiếu':''} · Tổng đã gắn mã: <b>${f(sp.grand)}</b></div>
+    </div>`;
+  }catch(e){ return ''; }
 }
 function _matGroupSetCost(gcode, gtype){
   if(!isAdmin()){ toast('Chỉ admin','bad'); return; }
@@ -68561,8 +68864,12 @@ function openMaterialForm(code){
     <label style="grid-column:1/3">Tên vật tư *<input id="mat-f-name" value="${esc(m.name||'')}" style="${fStyle}"></label>
     <label>Nhóm vật tư<select id="mat-f-group" style="${fStyle}">${groupOpts}</select></label>
     <label>Trạng thái<select id="mat-f-status" style="${fStyle}"><option value="active" ${m.status!=='inactive'?'selected':''}>Đang dùng</option><option value="inactive" ${m.status==='inactive'?'selected':''}>Ngừng</option></select></label>
+    <label>Nhóm 2 (nhóm con)<select id="mat-f-group2" style="${fStyle}">${(function(){ /* v3.18.64: nhóm con type2 + giá trị đang có */
+      const s2=new Set(); (S.materialGroups||[]).forEach(g=>{ if(g&&(g.type||1)===2&&g.code) s2.add(String(g.code)); }); if(m.group2) s2.add(String(m.group2));
+      return ['<option value="">— Chọn nhóm con —</option>'].concat(Array.from(s2).sort().map(g=>`<option value="${esc(g)}" ${m.group2===g?'selected':''}>${esc(matGroupDisp(g))}</option>`)).join(''); })()}</select></label>
+    <label>Mã chi phí đích danh<input id="mat-f-costcode" value="${esc(m.costCode||'')}" placeholder="vd M.03.10 — chỉ điền ngoại lệ khác nhóm" style="${fStyle};font-family:monospace"></label>
     <label style="grid-column:1/3">Ghi chú<input id="mat-f-note" value="${esc(m.note||'')}" style="${fStyle}"></label>
-  </div>${isNew?'<div style="font-size:11px;color:var(--muted);margin-top:8px">⚠ Ưu tiên tạo vật tư trên FAST trước rồi đồng bộ. Thêm tay chỉ khi cần gấp; mã phải khớp mã FAST.</div>':''}`;
+  </div>${m.groupSrc==='auto'?'<div style="font-size:11px;color:var(--muted);margin-top:6px">🧩 Nhóm hiện tại do auto ghép — lưu form này là chuyển dấu SỬA TAY, auto sau không đè.</div>':''}${isNew?'<div style="font-size:11px;color:var(--muted);margin-top:8px">⚠ Ưu tiên tạo vật tư trên FAST trước rồi đồng bộ. Thêm tay chỉ khi cần gấp; mã phải khớp mã FAST.</div>':''}`;
   openModal((isNew?'+ Thêm vật tư':'✏️ Sửa vật tư: '+esc(m.code)), body, `<button class="btn-ghost" onclick="openMaterialMaster()">← Danh mục</button><button class="btn-primary" onclick="saveMaterial('${esc(code||'')}')">💾 Lưu</button>`);
 }
 // Logic thuần: validate dữ liệu vật tư. existsFn(code)->vật tư trùng (hoặc null). Không UI.
@@ -68586,7 +68893,11 @@ function whApplySaveMaterial(data, origCode){
 function saveMaterial(origCode){
   if(!canManageMaterials()){ toast('Không có quyền','bad'); return; }
   const g=k=>(document.getElementById(k)||{}).value||'';
-  const data={ code:g('mat-f-code').trim(), name:g('mat-f-name').trim(), unit:g('mat-f-unit').trim(), group:g('mat-f-group'), status:g('mat-f-status')||'active', note:g('mat-f-note').trim(), updatedAt:new Date().toISOString(), updatedBy:(typeof actorName==='function'?actorName():'') };
+  const data={ code:g('mat-f-code').trim(), name:g('mat-f-name').trim(), unit:g('mat-f-unit').trim(), group:g('mat-f-group'), group2:g('mat-f-group2'), costCode:g('mat-f-costcode').trim(), status:g('mat-f-status')||'active', note:g('mat-f-note').trim(), updatedAt:new Date().toISOString(), updatedBy:(typeof actorName==='function'?actorName():'') };
+  /* v3.18.64: lưu qua form = quyết định của NGƯỜI với nhóm/mã chi phí → dấu manual, auto ghép sau không đè.
+     Chỉ đóng dấu khi nhóm/mã thực sự khác bản cũ (sửa tên/ghi chú không đụng dấu). */
+  const _old=origCode?matByCode(origCode):null;
+  if(!_old || String(_old.group||'')!==data.group || String(_old.group2||'')!==data.group2 || String(_old.costCode||'')!==data.costCode) data.groupSrc='manual';
   const val=whValidateMaterial(data, origCode, code=>matByCode(code)); if(!val.ok){ toast(val.reason,'bad'); return; }
   const res=whApplySaveMaterial(data, origCode);
   try{
@@ -74249,7 +74560,7 @@ function stockDocPreview(id){
      <button class="btn-sec" style="flex:1;font-size:12px" onclick="closeModal();whDocExportXlsx('${id}',false)">⬇ Excel (không giá)</button>
      <button class="btn-sec" style="flex:1;font-size:12px" onclick="closeModal();whDocExportXlsx('${id}',true)">⬇ Excel (có giá)</button>
    </div>`;
-  openModal('📄 In / xuất chứng từ '+esc(d.docNo), `<div style="font-size:13px;margin-bottom:10px">Chọn bản in (in ra PDF bằng lệnh in của trình duyệt):</div>
+  openModal('📄 In / xuất chứng từ '+esc(d.docNo), `${_whCostSplitHtml(d)}<div style="font-size:13px;margin-bottom:10px">Chọn bản in (in ra PDF bằng lệnh in của trình duyệt):</div>
     ${_btnNoVal}${_btnVal}${_btnXls}`,
     `<button class="btn-ghost" onclick="closeModal()">Hủy</button>`);
 }
