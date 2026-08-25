@@ -3689,6 +3689,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
         </select>
         <input type="file" id="hrm-att-file" accept=".xlsx,.xls" style="display:none" onchange="hrmAttImportExcel(this)">
         <button class="btn-ghost" id="hrm-att-btn-xls" style="padding:6px 14px;font-size:13px" onclick="hrmAttPickFile()">📥 Import BCC (Excel đã ký)</button>
+        <button class="btn-ghost" id="hrm-att-btn-depts" style="padding:6px 14px;font-size:13px" onclick="hrmAttPullFromDepts()" title="BCC các bộ phận gửi trực tiếp trong app (tàu chấm công → Gửi HR). HR bấm Lưu mới thành BCC kỳ — căn cứ tính lương như BCC import Excel.">📥 Lấy BCC từ các bộ phận</button>   <!-- v3.18.67 (Sếp) -->
         <input type="file" id="hrm-att-pdf" accept="application/pdf" multiple style="display:none" onchange="hrmAttImportBsrPdf(this)">
         <button class="btn-ghost" id="hrm-att-btn-pdf" style="padding:6px 14px;font-size:13px;display:none" onclick="document.getElementById('hrm-att-pdf').click()">📥 Import Timesheet BSR (PDF — nhiều file)</button>
         <span id="hrm-att-status" style="font-size:13px;color:var(--muted)"></span>
@@ -3824,7 +3825,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.18.66';
+const APP_VERSION='3.18.67';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -12241,7 +12242,9 @@ function _vtsSave(mode){
   Object.assign(ts, s);
   if(mode==='submit'){
     ts.status='submitted'; ts.submittedBy=actorName(); ts.submittedAt=new Date().toISOString(); ts.returnReason='';
-    _vtsPushToBCC(ts);      // ghi thẳng vào BCC Đội tàu — không đẻ nguồn thứ hai
+    /* v3.18.67 (Sếp 25/8): BỎ tự đổ vào BCC — hết cảnh 2 nguồn Thuyền viên trùng nhau (bản tàu tự đổ
+       + bản HR import Excel cùng kỳ). Tàu gửi = bảng nằm CHỜ; HR chủ động 📥 Lấy BCC từ các bộ phận
+       tại màn Chấm công NS, bấm Lưu mới thành BCC kỳ (căn cứ tính lương như BCC import Excel). */
     try{ logAuditEvent('vessel_timesheet_submit',{vessel:(typeof anyVesselName==='function'?anyVesselName(s.vesselId):''), period:s.period, rows:(s.rows||[]).length}); }catch(e){}
   } else {
     ts.status='confirmed'; ts.confirmedBy=actorName(); ts.confirmedAt=new Date().toISOString();
@@ -12250,7 +12253,7 @@ function _vtsSave(mode){
   ts.updatedAt=new Date().toISOString();
   try{ touchRecord(ts); }catch(e){}
   saveState();
-  toast(mode==='submit'?'✓ Đã gửi HR — bảng vào BCC Đội tàu kỳ '+s.period:'✓ Đã lưu — vẫn sửa tiếp được','good');
+  toast(mode==='submit'?'✓ Đã gửi HR — chờ Phòng NS 📥 Lấy BCC từ các bộ phận rồi Lưu vào BCC kỳ '+s.period:'✓ Đã lưu — vẫn sửa tiếp được','good');
   if(mode==='submit'){ _vtsDraft=null; closeModal(); } else { _vtsRender(); }
 }
 /* Gửi HR = tạo/cập nhật bản ghi BCC Đội tàu trong hrAttendance (cùng cửa với file Excel HR import).
@@ -12523,7 +12526,8 @@ function hrTsLock(tsId){
   t.status='locked'; t.lockedBy=actorName(); t.lockedAt=new Date().toISOString();
   try{ touchRecord(t); }catch(e){}
   try{
-    const att=(S.hrAttendance||[]).find(a=>a&&a.tsId===t.id);
+    let att=(S.hrAttendance||[]).find(a=>a&&a.tsId===t.id);
+    if(!att){ _vtsPushToBCC(t); att=(S.hrAttendance||[]).find(a=>a&&a.tsId===t.id); }   /* v3.18.67: bỏ auto-push khi tàu gửi — Kiểm & khóa tự lưu BCC nếu HR chưa Lấy */
     if(att){ att.status='locked'; att.lockedBy=actorName(); att.lockedAt=new Date().toISOString(); try{ touchRecord(att); }catch(e){} }
   }catch(e){}
   try{ logAuditEvent('vessel_timesheet_lock',{period:t.period, vessel:(typeof anyVesselName==='function'?anyVesselName(t.vesselId):'')}); }catch(e){}
@@ -93237,14 +93241,31 @@ function hrmAttView(id){
 }
 
 function hrmAttDelete(id){
+  /* v3.18.67 (Sếp 25/8): BCC là CĂN CỨ tính lương theo kỳ — xóa BCC = xóa kỳ lương tương ứng,
+     KỂ CẢ kỳ đã kiểm tra xong (validate/đối chiếu); HR được quyền xóa khi BCC CHƯA khóa.
+     Chốt an toàn: kỳ đã CHUYỂN KẾ TOÁN (submitted / có cụm phiếu AP) là chứng từ trong luồng ký —
+     CHẶN xóa cả cụm, phải xử lý cụm AP trước (không được rút căn cứ dưới chân phiếu đang ký). */
+  if(!(isAdmin()||(CURRENT_USER&&(CURRENT_USER.canSignHr||CURRENT_USER.isNVNS||CURRENT_USER.isHrStaff)))){ toast('Chỉ HR/Admin được xóa kỳ chấm công','bad'); return; }
   const a=HRService.attendance().find(x=>x.id===id); if(!a) return;
-  if(a.status==='locked'){ toast('Kỳ đã khóa — không xóa được','bad'); return; }
-  if(!confirm('Xóa kỳ chấm công '+a.period+' ('+(HRM_BCC_PROFILES[a.profile]||{}).label+')?')) return;
+  if(a.status==='locked'){ toast('Kỳ đã khóa — mở khóa trước khi xóa','bad'); return; }
+  const linked=(S.payrollPeriods||[]).filter(p=>p && !p._deleted &&
+    ((p.attSource&&p.attSource.attId===id) || (p.rows||[]).some(r=>r&&r.attSource&&r.attSource.attId===id)));
+  const hot=linked.filter(p=>(p._postedApIds&&p._postedApIds.length) || ['submitted','approved','locked','posted','paid'].includes(String(p.status||'')));
+  if(hot.length){ toast('⛔ BCC này là căn cứ của kỳ lương ĐÃ CHUYỂN KẾ TOÁN ('+hot.map(p=>p.period).join(', ')+') — phiếu đang trong luồng ký. Xử lý cụm AP/kỳ trước rồi mới xóa BCC.','bad'); return; }
+  const kyTxt=linked.length?('\n\n⚠ XÓA KÈM '+linked.length+' kỳ lương đã kéo từ BCC này (kể cả đã kiểm tra xong):\n· '+linked.map(p=>(PAY_PROFILE_LABEL[p.profile]||p.profile)+' '+p.period+' ('+(p.rows||[]).length+' người)').join('\n· ')):'';
+  if(!confirm('Xóa kỳ chấm công '+a.period+' ('+((HRM_BCC_PROFILES[a.profile]||{}).label||a.profile)+')?'+kyTxt)) return;
   S.hrAttendance=HRService.attendance().filter(x=>x.id!==id);
   try{ markDeleted(id,'hrAttendance'); }catch(e){}  // v3.08.64: chống bản ghi quay lại khi sync giữa máy
+  linked.forEach(p=>{
+    S.payrollPeriods=(S.payrollPeriods||[]).filter(x=>x.id!==p.id);
+    try{ markDeleted(p.id,'payrollPeriods'); }catch(e){}   /* bia mộ — bài học v3.14.06 */
+    try{ logAuditEvent('pay_period_delete',{id:p.id, period:p.period, profile:p.profile, rows:(p.rows||[]).length, actor:actorName(), reason:'BCC nguồn '+a.period+' bị xóa (v3.18.67)'}); }catch(e){}
+  });
+  try{ logAuditEvent('hrm_att_delete',{id:id, period:a.period, profile:a.profile, cascadePeriods:linked.length, actor:actorName()}); }catch(e){}
   saveState();
-  toast('Đã xóa kỳ chấm công','good');
+  toast(linked.length?('Đã xóa kỳ chấm công + '+linked.length+' kỳ lương tương ứng'):'Đã xóa kỳ chấm công','good');
   hrmAttRender();
+  try{ if(typeof renderPayroll==='function') renderPayroll(); }catch(e){}
 }
 /* v3.13.24: KHÓA/MỞ kỳ công — trạng thái locked có sẵn nhưng thiếu UI chuyển. Khóa = công đã ký/chốt,
    là điều kiện Payroll 📥 Lấy công từ HRM. Quyền: HR (canSignHr/isNVNS) hoặc Admin. */
@@ -93265,6 +93286,55 @@ function hrmAttUnlock(id){
   try{touchRecord(a);}catch(e){}
   try{ logAuditEvent('hrm_att_unlock',{period:a.period,profile:a.profile}); }catch(e){}
   saveState(); toast('🔓 Đã mở khóa '+a.period,'good'); hrmAttRender();
+}
+/* ═══ v3.18.67 (Sếp 25/8): 📥 LẤY BCC TỪ CÁC BỘ PHẬN — hộp chờ bảng chấm công gửi trong app.
+   Tàu chấm công → Gửi HR = bảng nằm ĐÂY (không tự đổ vào BCC nữa — hết trùng 2 nguồn Thuyền viên).
+   HR bấm 💾 Lưu → bản ghi BCC Đội tàu vào "Các kỳ chấm công đã lưu" — căn cứ tính lương y như
+   BCC import Excel (kỳ lương vẫn chỉ đọc BCC ĐÃ KHÓA, không biết số đến từ tàu hay từ file). ═══ */
+function hrmAttPullFromDepts(){
+  if(!(isAdmin()||(CURRENT_USER&&(CURRENT_USER.canSignHr||CURRENT_USER.isNVNS||CURRENT_USER.isHrStaff)))){ toast('Chỉ HR/Admin','bad'); return; }
+  const all=HRService.timesheets().slice().sort((a,b)=>String(b.submittedAt||b.updatedAt||'').localeCompare(String(a.submittedAt||a.updatedAt||'')));
+  const sent=all.filter(t=>t&&(t.status==='submitted'||t.status==='locked'));
+  const vName=id=>(typeof anyVesselName==='function')?anyVesselName(id):id;
+  const rows=sent.length? sent.map(t=>{
+    const att=(S.hrAttendance||[]).find(a=>a&&a.tsId===t.id&&(a.rows||[]).length);
+    const saved=!!att;
+    const lockedBcc=att&&att.status==='locked';
+    const st= lockedBcc?'<span class="ds-need" style="color:var(--teal)">🔒 BCC đã khóa</span>'
+            : saved?'<span class="ds-need" style="color:var(--good)">✓ Đã lưu vào BCC kỳ</span>'
+            : '<span class="ds-need" style="color:var(--warn)">📨 Chờ HR lưu</span>';
+    return `<tr style="border-top:1px solid var(--rule)">
+      <td style="padding:6px 8px;font-size:13px"><b>⚓ ${esc(vName(t.vesselId))}</b></td>
+      <td style="padding:6px 8px;font-size:13px;font-family:monospace">${esc(t.period||'')}</td>
+      <td style="padding:6px 8px;font-size:11px">${(t.rows||[]).length} người</td>
+      <td style="padding:6px 8px;font-size:10px;color:var(--muted)">${esc(t.submittedBy||'')} ${esc((t.submittedAt||'').slice(0,16).replace('T',' '))}</td>
+      <td style="padding:6px 8px">${st}</td>
+      <td style="padding:6px 8px;white-space:nowrap">
+        <button class="btn-sec" style="font-size:11px" onclick="openHrTimesheetDetail('${t.id}')">Xem</button>
+        ${lockedBcc?'':`<button class="btn-primary" style="font-size:11px" onclick="hrmAttSaveFromTs('${t.id}')">💾 ${saved?'Lưu lại (ghi đè nháp)':'Lưu vào BCC kỳ'}</button>`}
+      </td></tr>`;
+  }).join('') : `<tr><td colspan="6" style="padding:14px;text-align:center;color:var(--muted)">Chưa có bảng chấm công nào từ các bộ phận (tàu → 🕐 Chấm công → Gửi HR).</td></tr>`;
+  openModal('📥 Lấy BCC từ các bộ phận',
+    `<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Bảng chấm công các bộ phận gửi trực tiếp trong app (hiện: các tàu). <b>Lưu</b> = tạo bản BCC Đội tàu nháp trong "Các kỳ chấm công đã lưu" — HR kiểm rồi 🔒 Khóa để kỳ lương kéo công, y như BCC import Excel. Số công KHÓA theo bảng tàu gửi — sai thì ↩ Trả lại tàu sửa (trong màn Xem).</div>
+    <div class="tbl-scroll" style="max-height:420px"><table style="width:100%;border-collapse:collapse;font-size:13px;border:1px solid var(--rule)">
+      <thead><tr style="background:var(--rule);text-align:left"><th style="padding:6px 8px">Bộ phận</th><th style="padding:6px 8px">Kỳ</th><th style="padding:6px 8px">Số người</th><th style="padding:6px 8px">Gửi</th><th style="padding:6px 8px">Trạng thái</th><th style="padding:6px 8px"></th></tr></thead>
+      <tbody>${rows}</tbody></table></div>`,
+    `<button class="btn-ghost" onclick="closeModal()">Đóng</button>`);
+}
+function hrmAttSaveFromTs(tsId){
+  if(!(isAdmin()||(CURRENT_USER&&(CURRENT_USER.canSignHr||CURRENT_USER.isNVNS||CURRENT_USER.isHrStaff)))){ toast('Chỉ HR/Admin','bad'); return; }
+  const t=HRService.timesheets().find(x=>x.id===tsId);
+  if(!t){ toast('Không tìm thấy bảng chấm công','bad'); return; }
+  if(!(t.status==='submitted'||t.status==='locked')){ toast('Bảng chưa gửi HR — tàu phải Gửi HR trước','bad'); return; }
+  const att0=(S.hrAttendance||[]).find(a=>a&&a.tsId===t.id);
+  if(att0&&att0.status==='locked'){ toast('BCC kỳ này đã khóa — mở khóa trước nếu cần ghi đè','bad'); return; }
+  _vtsPushToBCC(t);   /* tái dùng lõi sẵn có: tạo/cập nhật bản BCC_DOITAU (per tàu + kỳ), status draft */
+  t._bccSavedAt=new Date().toISOString(); t._bccSavedBy=actorName();
+  try{ touchRecord(t); }catch(e){}
+  try{ logAuditEvent('hrm_att_pull_dept',{period:t.period, vessel:(typeof anyVesselName==='function'?anyVesselName(t.vesselId):''), rows:(t.rows||[]).length}); }catch(e){}
+  saveState();
+  toast('💾 Đã lưu vào BCC kỳ '+t.period+' — kiểm xong 🔒 Khóa để kỳ lương kéo công','good');
+  hrmAttPullFromDepts(); try{ hrmAttRender(); }catch(e){}
 }
 
 
