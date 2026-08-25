@@ -3825,7 +3825,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.18.67';
+const APP_VERSION='3.18.69';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -12139,8 +12139,29 @@ function _vtsVesselId(){
   const a=(CURRENT_USER&&CURRENT_USER.assignedVesselIds)||[];
   return a[0]||(VesselService.vessels()[0]||{}).id||'';
 }
-function openVesselTimesheet(){
-  const vid=_vtsVesselId();
+/* v3.18.68 (Sếp 25/8: "máy admin — admin phải thấy toàn bộ"): trạng thái BCC của tàu theo kỳ,
+   THUẦN (chỉ đọc HRService.timesheets) — dùng cho thẻ 🕐 Chấm công (BCC) trên Trung tâm QL tàu.
+   waiting = số bảng tàu ĐÃ GỬI HR (submitted) còn chờ NS 📥 Lấy BCC (mọi kỳ). */
+function vtsHubStatus(vid, period){
+  const all=HRService.timesheets().filter(t=>t && t.vesselId===vid);
+  const ts=all.find(t=>t.period===period);
+  const waiting=all.filter(t=>t.status==='submitted').length;
+  const st=ts?(ts.status||'draft'):'none';
+  const map={
+    none:      {label:'chưa chấm',                   color:'#b8730a'},
+    draft:     {label:'nháp',                        color:''},
+    confirmed: {label:'đã xác nhận — chưa gửi HR',   color:''},
+    returned:  {label:'HR trả lại — tàu cần sửa',    color:'#c0392b'},
+    submitted: {label:'đã gửi HR — chờ NS lấy BCC',  color:'#b8730a'},
+    approved:  {label:'NS đã duyệt',                 color:'#1f7a3a'},
+    locked:    {label:'HR đã khóa',                  color:'#1f7a3a'}
+  };
+  const m=map[st]||{label:st,color:''};
+  return {key:st, label:m.label, color:m.color, waiting};
+}
+/* v3.18.68: vidArg — mở đúng tàu đang xem từ Hub (admin/VM); tài khoản tàu vẫn suy theo _vtsVesselId. */
+function openVesselTimesheet(vidArg){
+  const vid=vidArg||_vtsVesselId();
   if(!vid){ toast('Chưa xác định tàu','bad'); return; }
   const period=(_vtsDraft&&_vtsDraft.vesselId===vid)?_vtsDraft.period:_vtsPeriodNow();
   _vtsLoad(vid, period);
@@ -32492,6 +32513,60 @@ function _etCatConToggle(gi){
   });
   if(car) car.textContent=collapsed?'▾':'▸';
 }
+/* ═══ v3.18.69 (Sếp 25/8: "Các nút danh mục trong app: mặc định gập" + "Tạo/sửa/thêm mới nhánh cha?") ═══
+   (1) Dòng NHÓM CHA cũng là nút gập/bung — mặc định GẬP cả 3 cấp (cha ▸ con ▸ cháu).
+       Bung nhóm cha CHỈ hiện dòng CON (mọi dòng dưới con mang cgkid vẫn ẩn, caret con về ▸). */
+function _etCatGroupToggle(ggi){
+  const rows=document.querySelectorAll('.gg-'+ggi);
+  const car=document.getElementById('ctgg-'+ggi);
+  const collapsed=car&&car.textContent==='▸';
+  rows.forEach(r=>{
+    if(collapsed){ r.style.display=r.dataset.cgkid?'none':''; const c=r.querySelector('[id^="ctgc-"]'); if(c) c.textContent='▸'; const k=r.querySelector('[id^="ctc-"]'); if(k) k.textContent='▸'; }
+    else r.style.display='none';
+  });
+  if(car) car.textContent=collapsed?'▾':'▸';
+}
+/* (2) Gợi ý mã nhánh con kế tiếp — THUẦN: dưới chữ cái bước 01 (C.01, C.02…), dưới con bước 10 (C.01.10, C.01.20…). */
+function expTreeNextChildCode(parent){
+  parent=String(parent||'').trim(); if(!parent) return '';
+  const depth=parent.split('.').length;                 // 1 = chữ cái, 2 = con
+  const step=depth===1?1:10, width=2;
+  let max=0;
+  (typeof expTreeList==='function'?expTreeList():[]).forEach(n=>{
+    const c=String(n.code||''); if(c.indexOf(parent+'.')!==0) return;
+    const rest=c.slice(parent.length+1); if(rest.indexOf('.')>=0) return;   // chỉ con TRỰC TIẾP
+    const v=parseInt(rest,10); if(!isNaN(v)&&v>max) max=v;
+  });
+  const next=max+step;
+  return parent+'.'+String(next).padStart(width,'0');
+}
+/* Sửa tên nhánh ngay trên cây danh mục (admin) — tái dùng expTreeUpsert, commitMutation field expenseTree (bài học 3.18.62). */
+function _etCatBranchEdit(code){
+  if(!isAdmin()){ toast('Chỉ admin sửa tên nhánh','bad'); return; }
+  const cur=(typeof expTreeName==='function')?expTreeName(code):'';
+  const nv=prompt('Sửa tên nhánh '+code+':', cur);
+  if(nv===null) return;
+  if(!nv.trim()){ toast('Tên không được rỗng','bad'); return; }
+  commitMutation(()=>{ expTreeUpsert(code, nv.trim()); },
+    {action:'exptree_edit', fields:['expenseTree'], onOk:()=>{ toast('Đã cập nhật nhánh '+code+' (đồng bộ mọi máy)','good'); try{ renderCatalog(); }catch(e){} }});
+}
+/* Thêm nhánh con dưới nhánh cha (chữ cái → con; con → cháu). Mã gợi ý sẵn, admin sửa được. */
+function _etCatBranchAdd(parent){
+  if(!isAdmin()){ toast('Chỉ admin thêm nhánh','bad'); return; }
+  parent=String(parent||'').trim();
+  const sug=expTreeNextChildCode(parent);
+  const code=prompt('Thêm nhánh dưới '+parent+' '+((typeof expTreeName==='function'&&expTreeName(parent))||'')+'\nMã nhánh mới:', sug);
+  if(code===null) return;
+  const c=code.trim().toUpperCase();
+  if(!/^[A-Z](\.\d+)+$/.test(c)){ toast('Mã nhánh: chữ nhóm cha + số, vd '+sug,'bad'); return; }
+  if(c.indexOf(parent+'.')!==0){ toast('Mã phải nằm dưới '+parent,'bad'); return; }
+  if((typeof expTreeList==='function'?expTreeList():[]).some(n=>String(n.code)===c)){ toast('Nhánh '+c+' đã có — dùng ✎ để sửa tên','bad'); return; }
+  const name=prompt('Tên nhánh '+c+':','');
+  if(name===null) return;
+  if(!name.trim()){ toast('Nhập tên nhánh','bad'); return; }
+  commitMutation(()=>{ expTreeUpsert(c, name.trim()); },
+    {action:'exptree_add', fields:['expenseTree'], onOk:()=>{ toast('Đã thêm nhánh '+c+' (đồng bộ mọi máy)','good'); try{ renderCatalog(); }catch(e){} }});
+}
 function _etypeGroupOfPrefix(code){
   const m=String(code||'').trim().toUpperCase().match(/^([A-Z])\./); if(!m) return '';
   const L=m[1], votes={};
@@ -33359,8 +33434,12 @@ function renderCatalog(){
         const items = byGroup[gk];
         if(!items || !items.length) return;
         const g = (EXPENSE_GROUPS && EXPENSE_GROUPS[gk]) || {label:'❓ Khác (nhóm lạ)', color:'#6b6b6b'};
-        h += `<tr style="background:${g.color}14"><td colspan="${colspan}" style="font-weight:600;font-size:11px;color:${g.color};text-transform:uppercase;letter-spacing:.04em;padding:7px 12px;border-top:1px solid var(--rule)">
-          ${esc(g.label)} <span style="font-weight:400;color:var(--muted);margin-left:4px">${items.length} loại</span></td></tr>`;
+        /* v3.18.69 (Sếp): NHÓM CHA cũng gập/bung — mặc định GẬP; nút ＋ thêm nhánh con theo chữ cái nhóm (admin). */
+        window.__ggSeq=(window.__ggSeq||0)+1; const ggi=window.__ggSeq;
+        const letter=(function(){ const v={}; items.forEach(t=>{ const m=String(t.treeCode||t.code||'').match(/^([A-Z])\./); if(m) v[m[1]]=(v[m[1]]||0)+1; }); let b='',bn=0; Object.keys(v).forEach(k=>{ if(v[k]>bn){bn=v[k];b=k;} }); return b; })();
+        const _bq=(fn,title,ic)=>adminMode?`<button class="icon-btn" style="font-size:11px;padding:0 5px;margin-left:4px" title="${title}" onclick="event.stopPropagation();${fn}">${ic}</button>`:'';
+        h += `<tr style="background:${g.color}14;cursor:pointer" onclick="_etCatGroupToggle(${ggi})"><td colspan="${colspan}" style="font-weight:600;font-size:11px;color:${g.color};text-transform:uppercase;letter-spacing:.04em;padding:7px 12px;border-top:1px solid var(--rule)">
+          <span id="ctgg-${ggi}" style="display:inline-block;width:12px;font-size:10px">▸</span> ${esc(g.label)} <span style="font-weight:400;color:var(--muted);margin-left:4px">${items.length} loại</span>${letter?_bq(`_etCatBranchAdd('${esc(letter)}')`,'Thêm nhánh con dưới '+esc(letter),'＋ nhánh'):''}</td></tr>`;
         /* v3.18.62 (Sếp): cha(nhóm) → CON đậm → CHÁU gập ▸ (bấm bung loại/chắt); loại chưa theo bộ mã dồn cuối.
            v3.18.65 (Sếp): (1) dòng CON thành nút GẬP/BUNG cả nhóm lớn; (2) hiện ĐỦ nhóm cháu từ
            Bảng tên nhánh kể cả nhánh CHƯA có loại nào (0 loại — KT đang dựng bộ mã cần thấy khung). */
@@ -33376,23 +33455,24 @@ function renderCatalog(){
           Object.keys(cons).sort((a,b)=>a.localeCompare(b,'vi',{numeric:true})).forEach(con=>{
             const its=cons[con];
             window.__cgSeq=(window.__cgSeq||0)+1; const gi=window.__cgSeq;
-            h+=`<tr style="cursor:pointer" onclick="_etCatConToggle(${gi})"><td colspan="${colspan}" style="font-weight:700;font-size:12px;padding:6px 12px;background:rgba(18,58,92,.05)"><span id="ctgc-${gi}" style="display:inline-block;width:12px;font-size:10px">▾</span> ${esc(con)} ${esc(nm(con))} <span style="font-weight:400;color:var(--muted)">(${its.length} loại)</span></td></tr>`;
+            /* v3.18.69: CON mặc định gập (▸), ẩn chờ bung nhóm cha; ✎ sửa tên nhánh + ＋ thêm cháu (admin). */
+            h+=`<tr class="gg-${ggi}" style="display:none;cursor:pointer" onclick="_etCatConToggle(${gi})"><td colspan="${colspan}" style="font-weight:700;font-size:12px;padding:6px 12px;background:rgba(18,58,92,.05)"><span id="ctgc-${gi}" style="display:inline-block;width:12px;font-size:10px">▸</span> ${esc(con)} ${esc(nm(con))} <span style="font-weight:400;color:var(--muted)">(${its.length} loại)</span>${_bq(`_etCatBranchEdit('${esc(con)}')`,'Sửa tên nhánh '+esc(con),'✎')}${_bq(`_etCatBranchAdd('${esc(con)}')`,'Thêm nhánh cháu dưới '+esc(con),'＋')}</td></tr>`;
             /* nhóm cháu = HỢP của nhánh khai trong Bảng tên nhánh + cháu suy từ mã loại đang có */
             const chauSet=new Set(branch.filter(c=>c.indexOf(con+'.')===0&&c.split('.').length===3));
             its.forEach(t=>{ const s=tcOf(t).split('.'); if(s.length>=3) chauSet.add(s.slice(0,3).join('.')); });
             const chaus=Array.from(chauSet).sort((a,b)=>a.localeCompare(b,'vi',{numeric:true}));
             /* loại nằm THẲNG dưới con (mã 2 cấp) hiện trước */
-            its.filter(t=>tcOf(t).split('.').length<3).forEach(t=>{ h+=rowOf(t).replace('<tr',`<tr class="cg-${gi}"`); });
+            its.filter(t=>tcOf(t).split('.').length<3).forEach(t=>{ h+=rowOf(t).replace('<tr',`<tr class="cg-${gi} gg-${ggi}" data-cgkid="1" style="display:none"`); });
             chaus.forEach(chau=>{
               const kids=its.filter(x=>{ const xc=tcOf(x); return xc===chau||xc.indexOf(chau+'.')===0; });
               window.__ctSeq=(window.__ctSeq||0)+1; const ci=window.__ctSeq;
-              h+=`<tr class="cg-${gi}" style="cursor:pointer" onclick="document.querySelectorAll('.ct-${ci}').forEach(r=>r.style.display=r.style.display==='none'?'':'none');const c=document.getElementById('ctc-${ci}');if(c)c.textContent=c.textContent==='▸'?'▾':'▸'">
-                <td colspan="${colspan}" style="font-size:11.5px;padding:5px 12px 5px 26px;color:${kids.length?'#33475c':'var(--muted)'}"><span id="ctc-${ci}" style="display:inline-block;width:12px;font-size:10px">▸</span> <b>${esc(chau)}</b> ${esc(nm(chau))} <span style="color:var(--muted)">(${kids.length} loại${kids.length?'':' — nhánh khai sẵn, chưa có loại'})</span></td></tr>`;
-              kids.forEach(t=>{ h+=rowOf(t).replace('<tr',`<tr class="ct-${ci} cg-${gi}" data-ctkid="1" style="display:none"`); });
+              h+=`<tr class="cg-${gi} gg-${ggi}" data-cgkid="1" style="display:none;cursor:pointer" onclick="document.querySelectorAll('.ct-${ci}').forEach(r=>r.style.display=r.style.display==='none'?'':'none');const c=document.getElementById('ctc-${ci}');if(c)c.textContent=c.textContent==='▸'?'▾':'▸'">
+                <td colspan="${colspan}" style="font-size:11.5px;padding:5px 12px 5px 26px;color:${kids.length?'#33475c':'var(--muted)'}"><span id="ctc-${ci}" style="display:inline-block;width:12px;font-size:10px">▸</span> <b>${esc(chau)}</b> ${esc(nm(chau))} <span style="color:var(--muted)">(${kids.length} loại${kids.length?'':' — nhánh khai sẵn, chưa có loại'})</span>${_bq(`_etCatBranchEdit('${esc(chau)}')`,'Sửa tên nhánh '+esc(chau),'✎')}</td></tr>`;
+              kids.forEach(t=>{ h+=rowOf(t).replace('<tr',`<tr class="ct-${ci} cg-${gi} gg-${ggi}" data-ctkid="1" data-cgkid="1" style="display:none"`); });
             });
           });
-          if(other.length){ if(inTree.length) h+=`<tr><td colspan="${colspan}" style="font-size:10.5px;color:var(--muted);padding:5px 12px;text-transform:uppercase;letter-spacing:.05em">Chưa theo bộ mã</td></tr>`;
-            other.forEach(t=>{ h+=rowOf(t); }); }
+          if(other.length){ if(inTree.length) h+=`<tr class="gg-${ggi}" style="display:none"><td colspan="${colspan}" style="font-size:10.5px;color:var(--muted);padding:5px 12px;text-transform:uppercase;letter-spacing:.05em">Chưa theo bộ mã</td></tr>`;
+            other.forEach(t=>{ h+=rowOf(t).replace('<tr',`<tr class="gg-${ggi}" style="display:none"`); }); }
         })();
       });
       h += '</tbody>';
@@ -38231,6 +38311,16 @@ function _vaDashCards(vid, forVessel){
   const block1=[
     card('📋','Hồ sơ tàu','Định danh · kỹ thuật · đăng kiểm · '+nCert+' chứng chỉ'+(nCertDue?' · <b style="color:#b8730a">'+nCertDue+' cần chú ý</b>':''),'Mở hồ sơ tàu', go(`openVesselCerts('${vid}')`), nCertDue?'#b8730a':''),
     card('👥','Thuyền viên', crew.length+' người trên tàu (QĐ điều động + hồ sơ NS).','Xem danh sách', go(`openVesselCrewList('${vid}')`)),
+    /* v3.18.68 (Sếp 25/8 "admin phải thấy toàn bộ"): BCC tàu vốn chỉ có chip 🕐 ở banner tài khoản tàu
+       (v3.15.73) — Hub admin/VM không có lối vào. Thêm thẻ phía BỜ, mở ĐÚNG tàu đang xem (vid đích danh,
+       không suy theo tài khoản). Dashboard tàu (forVessel) giữ nguyên chip, không đẻ thẻ trùng. */
+    !forVessel ? (function(){
+      const p=(typeof _vtsPeriodNow==='function')?_vtsPeriodNow():'';
+      const st=(typeof vtsHubStatus==='function')?vtsHubStatus(vid,p):{label:'',color:'',waiting:0};
+      const sub='Kỳ '+hrmEsc(p)+': '+(st.color?'<b style="color:'+st.color+'">'+hrmEsc(st.label)+'</b>':hrmEsc(st.label))
+        +(st.waiting?'<div style="font-size:11px;margin-top:2px">📨 '+st.waiting+' bảng đã gửi, chờ NS lấy BCC</div>':'<div style="font-size:11px;margin-top:2px">Tàu chấm · Gửi HR · NS lấy BCC</div>');
+      return card('🕐','Chấm công (BCC)', sub, 'Mở bảng chấm công', go(`openVesselTimesheet('${vid}')`), st.waiting?'#b8730a':'');
+    })() : '',
     card('📧','Email tàu', v.vesselEmail?hrmEsc(v.vesselEmail):'Chưa cấu hình email tàu.','Gửi chứng từ', go(`sendVesselDocEmail('${vid}')`)),
     card('📋','Báo cáo hàng ngày (DAR)','Biểu charter (PTSC / SME) — tàu điền, gửi là khóa, in PDF đúng biểu. (v3.18.62 GĐ1)','Mở DAR', go(`openDarList('${vid}')`), '#1c3a5c')
   ];
