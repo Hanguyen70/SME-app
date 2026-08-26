@@ -3825,7 +3825,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.18.86';
+const APP_VERSION='3.18.87';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -23184,7 +23184,7 @@ function _pexbHeaderIdx(aoa){
     if(iMs>=0 && iAmt>=0){
       const col=(re)=>cells.findIndex(c=>re.test(c));
       return { row:i, ms:iMs, amt:iAmt, name:col(/^họ và tên$|^họ tên$|^tên$/), block:col(/^khối$/), dept:col(/^bộ phận$|^phòng ban$/),
-               title:col(/chức danh/), pl:col(/^phân loại$/), note:col(/^ghi chú$/), site:col(/nơi làm việc/) };
+               title:col(/chức danh/), pl:col(/^phân loại$/), note:col(/^ghi chú$/), site:col(/nơi làm việc/), join:col(/ngày nhận việc|ngày vào/) };
     }
   }
   return null;
@@ -23220,7 +23220,7 @@ function pexbParseSheet(aoa){
     const amt=_pexbNum(r[hd.amt]);
     if(!(amt>0)){ out.skippedZero++; continue; }
     out.rows.push({ smartId:ms, name:nm, block:hd.block>=0?_pexbNorm(r[hd.block]).toUpperCase():'', dept:hd.dept>=0?_pexbNorm(r[hd.dept]):'',
-      title:hd.title>=0?_pexbNorm(r[hd.title]):'', phanLoai:hd.pl>=0?_pexbNorm(r[hd.pl]).toUpperCase():'', note:hd.note>=0?_pexbNorm(r[hd.note]):'', amount:amt, line:i+1 });
+      title:hd.title>=0?_pexbNorm(r[hd.title]):'', phanLoai:hd.pl>=0?_pexbNorm(r[hd.pl]).toUpperCase():'', note:hd.note>=0?_pexbNorm(r[hd.note]):'', joinDate:hd.join>=0?_pexbDate(r[hd.join]):'', amount:amt, line:i+1 });
     out.total+=amt;
   }
   return out;
@@ -23338,6 +23338,7 @@ function pexbFixOpen(si){
     return `<tr style="border-bottom:1px solid var(--rule)"><td style="padding:3px 6px;font-family:monospace">${esc(r.smartId)}</td><td style="padding:3px 6px">${esc(r.name)}<div style="font-size:10px;color:var(--muted)">${esc(r.block)}${r.dept?' · '+esc(r.dept):''}</div></td><td style="padding:3px 6px;text-align:right;font-family:monospace">${fm(r.amount)}</td>
       <td style="padding:3px 6px"><input type="text" placeholder="gõ tên để lọc…" oninput="pexbFixFilter(this,${si},${idx})" style="width:150px;font-size:11px;padding:2px 5px;margin-right:4px"><select data-pexbfix="${si}:${idx}" onchange="pexbFixSet(${si},${idx},this.value)" style="max-width:260px;font-size:12px${cur?';border-color:#1e7d44':''}">
         <option value="">— bỏ dòng này —</option>${sug.length?`<optgroup label="Gợi ý theo tên">${sug.map(e=>opt(e,'★ ')).join('')}</optgroup>`:''}<optgroup label="Tất cả nhân sự">${sorted.map(e=>opt(e)).join('')}</optgroup></select>
+        <button class="btn-sec" style="font-size:11px;padding:2px 7px;margin-left:4px" onclick="pexbFixCreate(${si},${idx})" title="NV mới chưa có hồ sơ: tạo nhanh hồ sơ tối thiểu (mã + tên + bộ phận từ file), ghi vào Việc cần làm của HR để hoàn thiện sau">➕ Tạo mới</button>
         <div id="pexb-upd-${si}-${idx}" style="font-size:10.5px;margin-top:2px;${cur&&cur!==r.smartId?'':'display:none'}"><label><input type="checkbox" data-pexbupd="${si}:${idx}"${_pexbFixUpd(si,idx)?' checked':''} onchange="pexbFixUpdSet(${si},${idx},this.checked)"> cập nhật MSNV trong hồ sơ NV → <b>${esc(r.smartId)}</b> <span style="color:var(--muted)">(v3.18.83 — file HR là nguồn đúng)</span></label></div></td></tr>`; }).join('');
   box.innerHTML=`<div style="font-size:11px;color:var(--muted);margin:4px 0">Chọn đúng nhân sự cho từng dòng (★ gợi ý theo tên) — chọn xong app tự đếm lại; để "bỏ dòng" nếu người này không nhận.</div>
     <table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:var(--rule);text-align:left"><th style="padding:3px 6px">MSNV file</th><th style="padding:3px 6px">Họ tên (file)</th><th style="padding:3px 6px;text-align:right">Tiền</th><th style="padding:3px 6px">Nhân sự trong app</th></tr></thead><tbody>${rows||'<tr><td colspan="4" style="padding:8px;color:var(--muted)">Không còn dòng lỗi</td></tr>'}</tbody></table>`;
@@ -23351,6 +23352,44 @@ function pexbFixSet(si, idx, smartId){
   const r=(imp.sheets[si]&&imp.sheets[si].parsed.rows[idx])||{}; const box=document.getElementById('pexb-upd-'+si+'-'+idx);
   if(box){ const show=!!smartId && String(smartId).toUpperCase()!==r.smartId; box.style.display=show?'':'none'; if(show){ imp.fixUpd=imp.fixUpd||{}; imp.fixUpd[si]=imp.fixUpd[si]||{}; if(imp.fixUpd[si][idx]==null) imp.fixUpd[si][idx]=true; const cb=box.querySelector('input'); if(cb) cb.checked=!!imp.fixUpd[si][idx]; } }
   pexbFixRecount(si);
+}
+/* v3.18.87 (Sếp 26/8 "NV mới phát sinh: cho phép HR tạo mã trước — note tại Việc cần làm"): tạo hồ sơ TỐI THIỂU ngay từ
+   dòng file (mã + tên + bộ phận + chức danh + ngày nhận việc nếu có), dấu PAYROLL_ONLY + needsProfile → HR hoàn thiện sau;
+   dòng file tự khớp, đợt chi được ngay. Trùng mã → chặn; trùng tên → hỏi. */
+function pexbFixCreate(si, idx){
+  const imp=window._pexbImp; if(!imp) return; const sh=imp.sheets[si]; const r=sh&&sh.parsed.rows[idx]; if(!r) return;
+  if(!pexCanCreate_() && !isAdmin()){ toast('Tạo hồ sơ nhanh: NS tiền lương / Admin','bad'); return; }
+  const all=HRService.employees().filter(e=>e&&!e._deleted);
+  if(all.some(e=>String(e.smartId||'').trim().toUpperCase()===r.smartId)){ toast('Mã '+r.smartId+' đã có hồ sơ — chọn trong danh sách','bad'); return; }
+  const same=all.filter(e=>_pexbNameKey(e.fullName).join(' ')===_pexbNameKey(r.name).join(' '));
+  if(same.length && !confirm('Đã có '+same.length+' hồ sơ trùng tên "'+r.name+'" ('+same.map(e=>e.smartId).join(', ')+').\nVẫn tạo hồ sơ MỚI mã '+r.smartId+'?')) return;
+  const who=(typeof actorName==='function'?actorName():''), now=new Date().toISOString();
+  const rec={ id:'emp_'+uid(), smartId:r.smartId, fullName:r.name, dept:r.dept||'', title:r.title||'', joinDate:r.joinDate||'',
+    status:'active', hrVisibility:'PAYROLL_ONLY', needsProfile:true, companyId:(document.getElementById('pexb-co-'+si)||{}).value||'',
+    _stubFrom:{file:imp.file.name, block:r.block||'', at:now, by:who}, createdBy:who, createdAt:now,
+    auditTrail:[{at:now,by:who,act:'create_stub_from_file',note:imp.file.name}] };
+  commitMutation(()=>{ HRService.addEmployee(rec); try{touchRecord(rec);}catch(e){} },
+    {action:'hr_add_stub_from_file', fields:['hrEmployees'], onOk:()=>{
+      try{ logAuditEvent('hr_add_stub_from_file',{smartId:r.smartId, name:r.name, file:imp.file.name, actor:who}); }catch(e){}
+      toast('✓ Đã tạo hồ sơ tối thiểu '+r.smartId+' · '+r.name+' — đã ghi vào Việc cần làm của HR','good');
+      /* dòng file nay khớp → gỡ fix cũ, vẽ lại hộp sửa + đếm lại */
+      try{ if(imp.fixes&&imp.fixes[si]) delete imp.fixes[si][idx]; const box=document.getElementById('pexb-fix-'+si); if(box){ box.innerHTML=''; box.style.display='none'; } pexbFixOpen(si); pexbFixRecount(si); }catch(e){}
+    }});
+}
+/* Danh sách hồ sơ tạo nhanh chưa hoàn thiện — THUẦN */
+function hrmStubProfiles(){ return (S.hrEmployees||[]).filter(e=>e&&!e._deleted&&e.needsProfile); }
+function hrmStubListOpen(){
+  const list=hrmStubProfiles();
+  const rows=list.map(e=>`<tr style="border-bottom:1px solid var(--rule)"><td style="padding:4px 6px;font-family:monospace">${esc(e.smartId||'')}</td><td style="padding:4px 6px">${esc(e.fullName||'')}<div style="font-size:10.5px;color:var(--muted)">${esc(e.dept||'')}${e.title?' · '+esc(e.title):''}${e._stubFrom?' · từ '+esc(e._stubFrom.file||'')+' ('+esc(String(e._stubFrom.at||'').slice(0,10))+')':''}</div></td>
+    <td style="padding:4px 6px;white-space:nowrap"><button class="btn-sec" style="font-size:11px" onclick="hrmViewEmployee('${esc(e.id)}')">✎ Hoàn thiện hồ sơ</button> <button class="btn-ghost" style="font-size:11px" onclick="hrmStubDone('${esc(e.id)}')" title="Đã đủ thông tin — gỡ khỏi Việc cần làm">✓ Xong</button></td></tr>`).join('');
+  openModal('📝 Hồ sơ tạo nhanh cần hoàn thiện ('+list.length+')', `<div style="font-size:12px;color:var(--muted);margin-bottom:6px">Tạo từ file chi trợ cấp/thưởng với mã + tên + bộ phận; cần bổ sung CCCD, MST, ngân hàng, ngày sinh, thẻ lương… rồi bấm ✓ Xong.</div>
+    <table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr style="background:var(--rule);text-align:left"><th style="padding:4px 6px">MSNV</th><th style="padding:4px 6px">Họ tên</th><th></th></tr></thead><tbody>${rows||'<tr><td colspan="3" style="padding:10px;text-align:center;color:var(--muted)">Không còn hồ sơ nào</td></tr>'}</tbody></table>`,
+    `<button class="btn-ghost" onclick="closeModal()">Đóng</button>`);
+}
+function hrmStubDone(id){
+  const e=(S.hrEmployees||[]).find(x=>x&&x.id===id); if(!e) return;
+  commitMutation(()=>{ delete e.needsProfile; if(e.hrVisibility==='PAYROLL_ONLY') e.hrVisibility=''; try{touchRecord(e);}catch(_){} (e.auditTrail=e.auditTrail||[]).push({at:new Date().toISOString(),by:(typeof actorName==='function'?actorName():''),act:'stub_completed'}); },
+    {action:'hr_stub_done', fields:['hrEmployees'], onOk:()=>{ toast('Đã gỡ khỏi Việc cần làm','good'); hrmStubListOpen(); }});
 }
 function _pexbFixUpd(si, idx){ const imp=window._pexbImp; const v=imp&&imp.fixUpd&&imp.fixUpd[si]&&imp.fixUpd[si][idx]; return v==null?true:!!v; }
 function pexbFixUpdSet(si, idx, on){ const imp=window._pexbImp; if(!imp) return; imp.fixUpd=imp.fixUpd||{}; imp.fixUpd[si]=imp.fixUpd[si]||{}; imp.fixUpd[si][idx]=!!on; }
@@ -92755,6 +92794,7 @@ function hrmRenderDash(){
   if(_seeAll&&A&&A.tsSubmitted>0) todo+=row(`🟠 ${A.tsSubmitted} chấm công tàu chờ duyệt`, chip('điều động','warn'), `hrmSwitchView('crew')`);
   if(_seeAll&&spMiss>0) todo+=row(`🟠 ${spMiss} NV thiếu Thẻ lương hiệu lực kỳ ${esc_(P)}`, chip('thẻ lương','warn'), `hrmSpMissOpen('${esc_(P)}')`);
   if(missingDocs>0) todo+=row(`🟡 ${missingDocs} hồ sơ thiếu số CCCD/căn cước`, chip('hồ sơ','mut'), `hrmSwitchView('list')`);
+  try{ const _nStub=(typeof hrmStubProfiles==='function')?hrmStubProfiles().length:0; if(_nStub>0) todo+=row(`🟠 ${_nStub} hồ sơ tạo nhanh từ file chi trợ cấp/thưởng — cần hoàn thiện`, chip('hồ sơ','warn'), `hrmStubListOpen()`); }catch(e){}   /* v3.18.87 */
   if(certExpiring>0) todo+=row(`🟡 ${certExpiring} chứng chỉ/visa/WP sắp hết hạn`, chip('chứng chỉ','mut'), `hrContractDueOpen()`);
   try{ const hidden=activeDepartments({includeEmpty:true}).length-activeDepartments().length;
     if(hidden>0) todo+=row(`🟡 ${hidden} phòng không còn NV — đã tự ẩn khỏi dropdown`, chip('phòng ban','mut'), (isAdmin()||canSignHr())?`hrmOpenDeptCatalog()`:''); }catch(e){}
