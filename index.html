@@ -3825,7 +3825,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.18.87';
+const APP_VERSION='3.18.88';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -23332,7 +23332,11 @@ function pexbFixOpen(si){
   const all=HRService.employees().filter(e=>e&&!e._deleted); const emps={}; all.forEach(e=>{ emps[String(e.smartId||'').trim().toUpperCase()]=e; });
   const sorted=all.slice().sort((a,b)=>String(a.fullName||'').localeCompare(String(b.fullName||''),'vi'));
   const fm=v=>Math.round(+v||0).toLocaleString('vi-VN');
-  const rows=sh.parsed.rows.map((r,idx)=>({r,idx})).filter(x=>!emps[x.r.smartId]).map(({r,idx})=>{
+  const created=(imp.created&&imp.created[si])||{};
+  const rows=sh.parsed.rows.map((r,idx)=>({r,idx})).filter(x=>!emps[x.r.smartId] || created[x.idx]).map(({r,idx})=>{
+    if(created[idx]){ /* v3.18.88 (Sếp 26/8): sau ➕ Tạo mới giữ dòng, thay ô chọn bằng dòng ghi chú */
+      return `<tr style="border-bottom:1px solid var(--rule);background:#f1faf3"><td style="padding:3px 6px;font-family:monospace">${esc(r.smartId)}</td><td style="padding:3px 6px">${esc(r.name)}<div style="font-size:10px;color:var(--muted)">${esc(r.block)}${r.dept?' · '+esc(r.dept):''}</div></td><td style="padding:3px 6px;text-align:right;font-family:monospace">${fm(r.amount)}</td>
+        <td style="padding:3px 6px;font-size:11.5px;color:#1e7d44">✓ Đã tạo hồ sơ tối thiểu <b>${esc(r.smartId)}</b> · ${esc(r.name)} — <b>HR cập nhật hồ sơ</b> <span style="color:var(--muted)">(đã ghi vào Việc cần làm)</span> <button class="btn-ghost" style="font-size:10.5px;padding:1px 6px" onclick="hrmViewEmployee('${esc(created[idx])}')">✎ mở hồ sơ</button></td></tr>`; }
     const cur=_pexbFixOf(si,idx); const sug=pexbSuggestEmp(r.name, all);
     const opt=(e,pre)=>`<option value="${esc(String(e.smartId||'').toUpperCase())}"${String(e.smartId||'').toUpperCase()===cur?' selected':''}>${pre||''}${esc(e.fullName||'')} · ${esc(e.smartId||'')}${e.dept?' · '+esc(e.dept):''}</option>`;
     return `<tr style="border-bottom:1px solid var(--rule)"><td style="padding:3px 6px;font-family:monospace">${esc(r.smartId)}</td><td style="padding:3px 6px">${esc(r.name)}<div style="font-size:10px;color:var(--muted)">${esc(r.block)}${r.dept?' · '+esc(r.dept):''}</div></td><td style="padding:3px 6px;text-align:right;font-family:monospace">${fm(r.amount)}</td>
@@ -23373,7 +23377,8 @@ function pexbFixCreate(si, idx){
       try{ logAuditEvent('hr_add_stub_from_file',{smartId:r.smartId, name:r.name, file:imp.file.name, actor:who}); }catch(e){}
       toast('✓ Đã tạo hồ sơ tối thiểu '+r.smartId+' · '+r.name+' — đã ghi vào Việc cần làm của HR','good');
       /* dòng file nay khớp → gỡ fix cũ, vẽ lại hộp sửa + đếm lại */
-      try{ if(imp.fixes&&imp.fixes[si]) delete imp.fixes[si][idx]; const box=document.getElementById('pexb-fix-'+si); if(box){ box.innerHTML=''; box.style.display='none'; } pexbFixOpen(si); pexbFixRecount(si); }catch(e){}
+      try{ if(imp.fixes&&imp.fixes[si]) delete imp.fixes[si][idx]; imp.created=imp.created||{}; imp.created[si]=imp.created[si]||{}; imp.created[si][idx]=rec.id;
+        const box=document.getElementById('pexb-fix-'+si); if(box){ box.innerHTML=''; box.style.display='none'; } pexbFixOpen(si); pexbFixRecount(si); }catch(e){}
     }});
 }
 /* Danh sách hồ sơ tạo nhanh chưa hoàn thiện — THUẦN */
@@ -23418,9 +23423,9 @@ function pexbFixRecount(si){
   const imp=window._pexbImp; if(!imp) return; const sh=imp.sheets[si]; if(!sh) return;
   const emps={}; HRService.employees().forEach(e=>{ if(e&&!e._deleted) emps[String(e.smartId||'').trim().toUpperCase()]=e; });
   const miss=sh.parsed.rows.filter((r,idx)=>!emps[r.smartId] && !_pexbFixOf(si,idx));
-  const fixed=Object.keys((imp.fixes&&imp.fixes[si])||{}).length;
+  const fixed=Object.keys((imp.fixes&&imp.fixes[si])||{}).length; const nCreated=Object.keys((imp.created&&imp.created[si])||{}).length;
   const el=document.getElementById('pexb-miss-'+si); if(!el) return;
-  el.innerHTML=(miss.length?`⚠ ${miss.length} MSNV không khớp hồ sơ (bị bỏ): ${esc(miss.slice(0,6).map(m=>m.smartId).join(', '))}${miss.length>6?'…':''}`:'✓ Mọi MSNV đã khớp')+(fixed?` · <span style="color:#1e7d44">đã sửa ${fixed}</span>`:'')+' <u>bấm để xem/sửa</u>';
+  el.innerHTML=(miss.length?`⚠ ${miss.length} MSNV không khớp hồ sơ (bị bỏ): ${esc(miss.slice(0,6).map(m=>m.smartId).join(', '))}${miss.length>6?'…':''}`:'✓ Mọi MSNV đã khớp')+(fixed?` · <span style="color:#1e7d44">đã sửa ${fixed}</span>`:'')+(nCreated?` · <span style="color:#1e7d44">đã tạo mới ${nCreated} — HR cập nhật hồ sơ</span>`:'')+' <u>bấm để xem/sửa</u>';
   el.style.color=miss.length?'#c0392b':'#1e7d44';
 }
 function pexbImportPreview(){
