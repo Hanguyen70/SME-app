@@ -3827,7 +3827,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.19.12';
+const APP_VERSION='3.19.13';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -55416,6 +55416,10 @@ function _arEditorBody(r,isPayable){
 function _etQuickCreate(chau, selectId, lineTmpId){
   if(!isAdmin()){ toast('Chỉ admin tạo loại chi phí','bad'); return; }
   chau=String(chau||'').trim().toUpperCase();
+  /* v3.19.13 (Sếp 26/8 "không thấy nút thêm" — con M.04 chưa có cháu): nhận cả nhánh CON (M.04) → tự tạo cháu mới
+     (mã kế tiếp, hỏi tên) rồi đặt loại dưới cháu đó; nhánh lạ → hỏi. */
+  let newChau=null;
+  if(/^[A-Z]\.\d+$/.test(chau)){ const nc=(typeof expTreeNextChildCode==='function')?expTreeNextChildCode(chau):''; const nm=prompt('Nhánh '+chau+' chưa có nhánh cháu phù hợp. Tạo nhánh cháu mới '+nc+' — nhập tên nhánh cháu:',''); if(nm===null) return; if(!nm.trim()){ toast('Nhập tên nhánh cháu','bad'); return; } newChau={code:nc,name:nm.trim()}; chau=nc; }
   if(!/^[A-Z]\.\d+\.\d+$/.test(chau)){ const a=prompt('Nhánh cháu để đặt loại (vd M.01.10):', chau||''); if(a===null) return; chau=String(a).trim().toUpperCase(); if(!/^[A-Z]\.\d+\.\d+$/.test(chau)){ toast('Nhánh phải dạng M.01.10','bad'); return; } }
   const code=etypeNextCode(chau);
   const label=prompt('Tên loại chi phí mới — mã '+code+' (nhánh '+chau+(typeof expTreeName==='function'&&expTreeName(chau)?' · '+expTreeName(chau):'')+'):','');
@@ -55423,7 +55427,7 @@ function _etQuickCreate(chau, selectId, lineTmpId){
   if((S.expenseTypes||[]).some(t=>t&&String(t.code).toUpperCase()===code)){ toast('Mã '+code+' đã có','bad'); return; }
   const group=(typeof _etypeGroupOfPrefix==='function')?_etypeGroupOfPrefix(code):'';
   const rec={ id:'ET-'+code+'-'+uid().slice(-4), code, label:label.trim(), group:group||'OTHER', icon:'📄', isPO:false, treeCode:chau, createdAt:new Date().toISOString(), createdBy:(typeof actorName==='function'?actorName():''), _quick:true };
-  commitMutation(()=>{ (S.expenseTypes=S.expenseTypes||[]).push(rec); },{action:'etype_quick_add', fields:['expenseTypes'], onOk:()=>{
+  commitMutation(()=>{ if(newChau) expTreeUpsert(newChau.code,newChau.name); (S.expenseTypes=S.expenseTypes||[]).push(rec); },{action:'etype_quick_add', fields:newChau?['expenseTree','expenseTypes']:['expenseTypes'], onOk:()=>{
     try{ logAuditEvent('etype_quick_add',{code, label:rec.label, from:'ap_form', actor:rec.createdBy}); }catch(e){}
     toast('✓ Đã tạo loại '+code+' · '+rec.label+' — có mặt trong Danh mục (đồng bộ mọi máy)','good');
     try{ if(selectId==='ar-expense-type'){ _etPick(code); const L=code.charAt(0); if(window._arEtLetter===L) try{ _etTreeRender(L); }catch(e){} }
@@ -55453,6 +55457,7 @@ function _etTreeRender(rootL){
     const nC=Object.values(c.chaus).reduce((s,x)=>s+x.types.length,0)+c.types.length;
     h+=`<div style="padding:4px 6px;border-bottom:1px solid var(--rule);cursor:pointer;font-weight:600" onclick="${tog(idC)}"><span class="ettg" style="display:inline-block;width:12px;font-size:10px">▸</span><b style="font-variant-numeric:tabular-nums">${esc(c.code)}</b> ${esc(c.name)} <span style="font-weight:400;color:var(--muted)">(${nC} loại)</span></div><div id="${idC}" style="display:none">`;
     c.types.forEach(t=>{ h+=leafRow(t,26); });
+    if(isAdmin()) h+=`<div style="padding:3px 6px 3px 26px;border-bottom:1px dotted var(--rule);cursor:pointer;color:var(--accent);font-size:11px" onclick="event.stopPropagation();_etQuickCreate('${esc(c.code)}','ar-expense-type')">＋ Tạo loại mới dưới ${esc(c.code)} (tạo nhánh cháu mới · admin)</div>`;   /* v3.19.13 */
     Object.keys(c.chaus).sort((a,b)=>a.localeCompare(b,'vi',{numeric:true})).forEach((chk,hi)=>{ const ch=c.chaus[chk]; const idH=idC+'h'+hi;
       h+=`<div style="padding:3px 6px 3px 22px;border-bottom:1px dotted var(--rule);cursor:pointer" onclick="${tog(idH)}"><span class="ettg" style="display:inline-block;width:12px;font-size:10px">▸</span><b style="font-variant-numeric:tabular-nums">${esc(ch.code)}</b> ${esc(ch.name)} <span style="color:var(--muted)">(${ch.types.length} loại)</span></div><div id="${idH}" style="display:none">`;
       ch.types.forEach(t=>{ h+=leafRow(t,40); });
