@@ -1283,6 +1283,8 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
       <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
         <label style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Lọc theo tàu</label>
         <select id="prj-filter-vessel" onchange="_prjFilterVessel=this.value;renderProjects()" style="padding:6px 10px;font-size:13px;border:1px solid var(--rule);border-radius:6px;min-width:180px"></select>
+        <button class="btn-sec" style="font-size:12px" onclick="ctlImportOpen()" title="v3.18.98: đọc file Contract Tracking List (sheet Main Contract) → dự án + đơn giá + đoạn On/Off-hire; đối chiếu với app, chỉ ghi phần phát sinh">📥 Contract Tracking List</button>
+        <label class="btn-sec" style="font-size:12px;cursor:pointer" title="v3.18.98: AI đọc PDF tóm tắt hợp đồng → điền form Thêm dự án (ô trống)">📄 Đọc PDF tóm tắt HĐ<input type="file" accept=".pdf,image/*" style="display:none" onchange="ctlReadContractPdf(this)"></label>
       </div>
     </div>
     <div class="section-body">
@@ -3825,7 +3827,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.18.93';
+const APP_VERSION='3.19.03';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -10801,9 +10803,21 @@ function renderKunnList(tEl){
     ${loans.length?loans.map(l=>`<div onclick="editLoan('${esc(l.id)}')" title="Bấm để tạo/hoàn thiện KUNN cho khế ước này (v3.18.62)" style="display:flex;justify-content:space-between;gap:8px;align-items:center;padding:7px 6px;border-bottom:1px dotted var(--rule);font-size:12px;cursor:pointer;border-radius:6px" onmouseover="this.style.background='rgba(28,122,77,.07)'" onmouseout="this.style.background=''">
       <span>📝 <b>${esc(String(l.lender||l.name||'KU nháp').slice(0,34))}</b> <span style="color:var(--muted);font-size:10.5px">${esc(l.startDate||'')} · thiếu số KUNN · lãi suất · kỳ hạn</span></span>
       <span style="display:flex;gap:8px;align-items:center;white-space:nowrap"><b style="font-family:var(--font-mono);font-size:11px">${(+(l.principal||l.amount)||0).toLocaleString('vi-VN')} ${esc(l.ccy||'VND')}</b>
-        <button class="btn-primary" style="font-size:11px;padding:3px 10px" onclick="event.stopPropagation();editLoan('${esc(l.id)}')" title="Điền số KUNN · lãi suất · kỳ hạn NGAY tại đây">✎ Tạo KUNN</button></span></div>`).join('')
+        <button class="btn-primary" style="font-size:11px;padding:3px 10px" onclick="event.stopPropagation();editLoan('${esc(l.id)}')" title="Điền số KUNN · lãi suất · kỳ hạn NGAY tại đây">✎ Tạo KUNN</button>${(isAdmin()||canCheckAcc())?`<button class="icon-btn danger" style="font-size:11px" onclick="event.stopPropagation();kuDraftDiscard('${esc(l.id)}')" title="v3.19.02: bỏ khế ước nháp này (đợt chi đã ghi giữ nguyên, chỉ không tạo KUNN)">✕</button>`:''}${(Math.abs(+(l.principal||l.amount)||0)<1&&String(l.ccy||'VND')==='VND')?'<span class="ds-need" data-dot="bad" style="font-size:10px" title="Dư lẻ làm tròn, không phải khoản vay thật — bấm ✕ để bỏ">rác</span>':''}</span></div>`).join('')
       :'<div class="empty" style="padding:12px;text-align:center;color:var(--muted)">✓ Không còn khế ước nháp nào</div>'}
     <div style="font-size:10.5px;color:var(--muted);padding-top:6px">Khế ước nháp sinh tự động khi Bảng kê ghi khoản GIẢI NGÂN — bấm vào dòng để tạo KUNN (số KUNN · lãi suất · kỳ hạn) ngay tại đây.</div></div>`;
+}
+/* v3.19.02 (Sếp 26/8 ảnh: khế ước nháp VRB 06/08 0,36đ vẫn treo, form vay hiện 0.36000001430511475): bỏ khế ước nháp
+   không hợp lý (bia mộ, đồng bộ mọi máy). Đợt chi đã ghi trên phiếu giữ nguyên — chỉ không tạo KUNN từ đó. */
+function kuDraftDiscard(id){
+  if(!(isAdmin()||canCheckAcc())){ toast('Chỉ admin / kế toán','bad'); return; }
+  const l=((typeof AccountingService!=='undefined'&&AccountingService.loans)?AccountingService.loans():(S.loans||[])).find(x=>x&&x.id===id&&x.kuDraft);
+  if(!l){ toast('Không tìm thấy khế ước nháp','warn'); return; }
+  const amt=+(l.principal||l.amount)||0;
+  if(!confirm('Bỏ khế ước nháp '+(l.lender||'')+' '+String(l.startDate||'').slice(0,10)+' · '+amt.toLocaleString('vi-VN')+' '+(l.ccy||'VND')+'?\nĐợt chi trên phiếu giữ nguyên; muốn tạo KUNN lại thì ghi đợt giải ngân mới.')) return;
+  const who=(typeof actorName==='function'?actorName():'');
+  commitMutation(()=>{ l._deleted=true; l.status='discarded'; (l.auditTrail=l.auditTrail||[]).push({at:new Date().toISOString(),by:who,act:'ku_draft_discard'}); try{touchRecord(l);}catch(e){} try{ markDeleted([l.id],'loans'); }catch(e){} },
+    {action:'ku_draft_discard', fields:['loans','deletedIds'], onOk:()=>{ try{ logAuditEvent('ku_draft_discard',{id, amt, actor:who}); }catch(e){} toast('Đã bỏ khế ước nháp'); try{ if(typeof renderAll==='function') renderAll(); }catch(e){} }});
 }
 function feeCanUse(){ return isAdmin()||canCheckAcc()||canConfirmPayment(); }
 /* v3.17.86: LÕI ghi đợt AP CẤP PHIẾU cho Bảng kê (đường duyệt phiếu, không lệnh) — đúng shape
@@ -16706,9 +16720,14 @@ function getExpenseType(code){
 }
 
 /* Get all active (non-archived) expense types, sorted by group then label */
+/* v3.18.95 (Sếp 26/8: "Bút toán BOD không hiển thị, chỉ duy nhất admin thấy, tại tất cả các trường lọc chi phí trong app"):
+   loại BOD-only (isBODOnly hoặc nhóm BOD) CHỈ admin thấy — lọc một chỗ ở activeExpenseTypes → mọi dropdown/chip/danh mục
+   (AP đơn, nhiều dòng, bảng kê, sổ quỹ, form loại) đều theo; NV có cờ isBOD vẫn KHÔNG thấy (Sếp: duy nhất admin). */
+function isExpenseTypeBOD(t){ return !!(t && (t.isBODOnly || t.group==='BOD')); }
 function activeExpenseTypes(){
   const list = (S && S.expenseTypes && S.expenseTypes.length) ? S.expenseTypes : DEFAULT_EXPENSE_TYPES;
-  return list.filter(t=>!t.archived);
+  const adm=(typeof isAdmin==='function')?isAdmin():false;
+  return list.filter(t=>!t.archived && (adm || !isExpenseTypeBOD(t)));
 }
 
 /* Get archived expense types */
@@ -17382,7 +17401,8 @@ function expGroupsActive(opts){
     const used=new Set((S.expenseTypes||[]).filter(t=>t&&!t.archived).map(t=>t.group));
     Object.keys(EXPENSE_GROUPS).forEach(k=>{ if(!out.includes(k) && used.has(k)) out.push(k); });
   }
-  return out;
+  const adm=(typeof isAdmin==='function')?isAdmin():false;   /* v3.18.95: nhóm BOD chỉ admin */
+  return adm ? out : out.filter(k=>k!=='BOD');
 }
 /* Chữ cái → key nhóm: bảng cố định thắng; chữ cái động → chính nó (nếu đã sync thành nhóm); lạ → rỗng. */
 function etypeLetterGroup(L){
@@ -37791,6 +37811,261 @@ function _projectIssuedValue(projectId){
   });
   return sum;
 }
+/* ═══════════════════════════════════════════════════════════════════════════════════════
+   v3.18.98 (Sếp 26/8): CONTRACT TRACKING LIST → DỰ ÁN + ĐƠN GIÁ + ON/OFF-HIRE, ĐỐI CHIẾU & GHI PHÁT SINH.
+   · ctlParse(aoa) THUẦN: sheet "Main Contract" → 4 khối tàu, hợp đồng, đoạn on/off (dòng con theo tháng),
+     GỘP LIỀN các đoạn cùng hợp đồng nối tiếp nhau (≤ 1 phút) — Sếp chốt 26/8.
+   · ctlReconcile(parsed, ctx) THUẦN: đối chiếu với dự án/đoạn đang có → kế hoạch {projects, events}:
+       dự án khớp theo Contract No. (chuẩn hóa) hoặc mã dự án → chỉ ĐIỀN Ô TRỐNG + ghi lệch (không đè);
+       dự án chưa có → tạo mới (mã = Notice No. hoặc Contract No.);
+       đoạn on/off: cùng tàu + cùng giờ bắt đầu (±1 phút) → CẬP NHẬT giờ kết thúc/dự án theo file (Sếp chốt); khác → thêm.
+   · projectHireSpan(projectId, events) THUẦN: On-hire đầu → Off-hire cuối + tổng ngày On-hire của dự án (cột mới trên bảng Dự án).
+   · Nút 📄 Đọc PDF tóm tắt HĐ: aiExtract(file,'service_contract') → điền form Thêm dự án (cần backend GAS có mode này).
+   ═══════════════════════════════════════════════════════════════════════════════════════ */
+function ctlNorm(v){ return String(v==null?'':v).replace(/\u00a0/g,' ').replace(/\s+/g,' ').trim(); }
+function ctlDate(v){
+  if(v instanceof Date && !isNaN(v)) return {y:v.getFullYear(),M:v.getMonth()+1,d:v.getDate(),h:v.getHours(),m:v.getMinutes()};
+  const s=ctlNorm(v); let x;
+  if((x=s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{1,2}):(\d{2}))?/))) return {y:+x[1],M:+x[2],d:+x[3],h:+(x[4]||0),m:+(x[5]||0)};
+  if((x=s.match(/^(\d{1,2}):(\d{2})\s+(\d{1,2})\/(\d{1,2})\/(\d{4})$/))) return {y:+x[5],M:+x[4],d:+x[3],h:+x[1],m:+x[2]};
+  if((x=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2}))?$/))) return {y:+x[3],M:+x[2],d:+x[1],h:+(x[4]||0),m:+(x[5]||0)};
+  return null;
+}
+function ctlIsoLocal(d){ if(!d) return ''; const p=n=>String(n).padStart(2,'0'); return d.y+'-'+p(d.M)+'-'+p(d.d)+'T'+p(d.h)+':'+p(d.m)+':00'; }
+function ctlMs(d){ return d?new Date(d.y,d.M-1,d.d,d.h,d.m).getTime():0; }
+function ctlMoney(s){ const t=ctlNorm(s); const m=t.match(/^([A-Z]{3})?\s*([\d.,]+)/); if(!m) return {ccy:'',amount:0}; const num=+m[2].replace(/,/g,'')||0; return {ccy:m[1]||'',amount:num}; }
+function ctlParse(aoa){
+  const out={vessels:[], errors:[]};
+  let hdr=-1; for(let i=0;i<Math.min((aoa||[]).length,10);i++){ const r=aoa[i]||[]; if(r.some(c=>/^on-?hire$/i.test(ctlNorm(c))) && r.some(c=>/contract no/i.test(ctlNorm(c)))){ hdr=i; break; } }
+  if(hdr<0){ out.errors.push('Không tìm thấy dòng tiêu đề (Contract No. + On-hire)'); return out; }
+  const H=aoa[hdr].map(c=>ctlNorm(c).toLowerCase()); const col=(re)=>H.findIndex(c=>re.test(c));
+  const iNo=col(/^no\.?$/), iNotice=col(/notice/), iCon=col(/contract no/), iClient=col(/^client/), iEnd=col(/end client/), iProj=col(/name of project/), iLoc=col(/^location/), iRate=col(/hire rate/), iPrice=col(/total contract price/), iOn=col(/^on-?hire$/), iOff=col(/^off-?hire$/), iEst=col(/est\.? duration/);
+  let ves=null, con=null;
+  for(let i=hdr+1;i<aoa.length;i++){
+    const r=aoa[i]||[]; const a=ctlNorm(r[iNo]); const b=ctlNorm(r[iNotice]); const c=ctlNorm(r[iCon]);
+    if(/^[A-Z]$/.test(a) && b && !c){ ves={letter:a,name:b,segments:[],contracts:[]}; out.vessels.push(ves); con=null; continue; }
+    if(!ves) continue;
+    if(a && /^\d+(\.\d+)?$/.test(a)){ con={no:a, notice:b, contractNo:c, client:ctlNorm(r[iClient]), endClient:ctlNorm(r[iEnd]), project:ctlNorm(r[iProj]), location:ctlNorm(r[iLoc]), rate:ctlMoney(r[iRate]), price:ctlMoney(r[iPrice]), est:ctlNorm(r[iEst]), segments:[]}; ves.contracts.push(con); }
+    const on=ctlDate(r[iOn]), off=ctlDate(r[iOff]);
+    if(!on && !off) continue;
+    if(!con){ out.errors.push('Dòng '+(i+1)+' ('+ves.name+'): có on/off nhưng chưa thuộc hợp đồng nào'); continue; }
+    if(!on || !off){ out.errors.push('Dòng '+(i+1)+' ('+ves.name+' · '+con.contractNo+'): thiếu '+(on?'Off-hire':'On-hire')+' → bỏ'); continue; }
+    if(ctlMs(off)<=ctlMs(on)){ out.errors.push('Dòng '+(i+1)+' ('+ves.name+'): Off-hire ≤ On-hire → bỏ'); continue; }
+    const sg={row:i+1, on, off, contract:con, month:ctlNorm(r[iEst])}; ves.segments.push(sg); con.segments.push(sg);
+  }
+  out.vessels.forEach(v=>{
+    v.segments.sort((x,y)=>ctlMs(x.on)-ctlMs(y.on));
+    const merged=[];
+    v.segments.forEach(sg=>{ const last=merged[merged.length-1];
+      if(last && last.contract===sg.contract && Math.abs(ctlMs(sg.on)-ctlMs(last.off))<=60000){ last.off=sg.off; last.rows.push(sg.row); last.parts++; }
+      else merged.push({on:sg.on, off:sg.off, contract:sg.contract, rows:[sg.row], parts:1}); });
+    for(let k=1;k<merged.length;k++){ if(ctlMs(merged[k].on)<ctlMs(merged[k-1].off)) out.errors.push(v.name+': đoạn '+ctlIsoLocal(merged[k].on)+' chồng lên đoạn trước ('+merged[k-1].contract.contractNo+')'); }
+    v.merged=merged;
+  });
+  return out;
+}
+function ctlKey(s){ return ctlNorm(s).toUpperCase().replace(/[^A-Z0-9]/g,''); }
+/* ctx = {projects:[...], events:[...], vessels:[{id,name,type}]} */
+function ctlReconcile(parsed, ctx){
+  const plan={projects:[], events:[], unmatchedVessels:[]};
+  const vByName={}; (ctx.vessels||[]).forEach(v=>{ vByName[ctlKey(v.name)]=v; });
+  const projByKey={}; (ctx.projects||[]).forEach(p=>{ if(p.contractNo) projByKey['C:'+ctlKey(p.contractNo)]=p; projByKey['P:'+ctlKey(p.code)]=p; });
+  (parsed.vessels||[]).forEach(v=>{
+    const vv=vByName[ctlKey(v.name)] || (ctx.vessels||[]).find(x=>ctlKey(x.name).indexOf(ctlKey(v.name))>=0 || ctlKey(v.name).indexOf(ctlKey(x.name))>=0);
+    if(!vv){ plan.unmatchedVessels.push(v.name); return; }
+    v.contracts.forEach(c=>{
+      if(!c.contractNo) return;
+      const ex=projByKey['C:'+ctlKey(c.contractNo)] || projByKey['P:'+ctlKey(c.notice)] || projByKey['P:'+ctlKey(c.contractNo)];
+      const wantCode=(c.notice&&!/^nil$/i.test(c.notice))?c.notice:c.contractNo;
+      const rec={vesselId:vv.id, vesselName:vv.name, contractNo:c.contractNo, code:wantCode, name:c.project||c.contractNo, client:c.client, endClient:c.endClient,
+        ccy:c.price.ccy||c.rate.ccy||'VND', value:c.price.amount, unitPrice:c.rate.amount, segment:(vv.type==='TECH'?'VESSEL_TECH':'VESSEL_SERVICE'),
+        start:c.segments.length?ctlIsoLocal(c.segments[0].on).slice(0,10):'', end:c.segments.length?ctlIsoLocal(c.segments[c.segments.length-1].off).slice(0,10):''};
+      if(!ex){ plan.projects.push({action:'new', rec, fill:[], diffs:[]}); return; }
+      const fill=[], diffs=[];
+      [['contractNo',rec.contractNo],['client',rec.client],['unitPrice',rec.unitPrice],['value',rec.value],['vesselId',rec.vesselId],['start',rec.start],['end',rec.end],['ccy',rec.ccy]].forEach(([k,nv])=>{
+        const cur=ex[k]; const empty=(cur==null||cur===''||cur===0);
+        if(nv==null||nv===''||nv===0) return;
+        if(empty) fill.push({k,nv}); else if(String(cur)!==String(nv)) diffs.push({k,cur,nv});
+      });
+      plan.projects.push({action:(fill.length?'update':'same'), existing:ex, rec, fill, diffs});
+    });
+    /* đoạn on/off */
+    const exEv=(ctx.events||[]).filter(e=>e && e.vesselId===vv.id && e.type==='onhire');
+    v.merged.forEach(m=>{
+      const st=ctlMs(m.on), en=ctlMs(m.off);
+      const hit=exEv.find(e=>Math.abs(new Date(e.startAt).getTime()-st)<=60000);
+      const seg={vesselId:vv.id, vesselName:vv.name, startAt:ctlIsoLocal(m.on), endAt:ctlIsoLocal(m.off), contractNo:m.contract.contractNo, notice:m.contract.notice, parts:m.parts, rows:m.rows, days:Math.round((en-st)/864e5*100)/100};
+      if(!hit) plan.events.push({action:'add', seg});
+      else { const changed=Math.abs(new Date(hit.endAt).getTime()-en)>60000; plan.events.push({action:changed?'update':'same', existing:hit, seg}); }
+    });
+  });
+  return plan;
+}
+/* Cột mới bảng Dự án: On-hire đầu → Off-hire cuối + tổng ngày On-hire */
+function projectHireSpan(projectId, events){
+  const evs=(events||[]).filter(e=>e && e.projectId===projectId && e.type==='onhire' && e.startAt && e.endAt);
+  if(!evs.length) return {n:0, first:'', last:'', days:0};
+  let first=null,last=null,days=0;
+  evs.forEach(e=>{ const s=new Date(e.startAt), t=new Date(e.endAt); if(!first||s<first) first=s; if(!last||t>last) last=t; days+=Math.max(0,(t-s)/864e5); });
+  return {n:evs.length, first:first.toISOString(), last:last.toISOString(), days:Math.round(days*100)/100};
+}
+/* ---- UI ---- */
+function ctlImportOpen(){
+  if(!(isAdmin()||canCheckAcc())){ toast('Nhập Contract Tracking List: admin / kế toán','bad'); return; }
+  if(typeof XLSX==='undefined'){ toast('Thư viện Excel chưa sẵn sàng','bad'); return; }
+  const inp=document.createElement('input'); inp.type='file'; inp.accept='.xlsx,.xls';
+  inp.onchange=function(){ const f=inp.files&&inp.files[0]; if(!f) return; const rd=new FileReader();
+    rd.onload=function(ev){ try{
+      const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array',cellDates:true});
+      const sn=wb.SheetNames.find(n=>/main contract/i.test(n))||wb.SheetNames[0];
+      const aoa=XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,raw:true});
+      const parsed=ctlParse(aoa);
+      const plan=ctlReconcile(parsed,{projects:(S.projects||[]).filter(p=>p&&!p._deleted), events:VesselService.events(), vessels:VesselService.vessels()});
+      window._ctlPlan={file:f.name, sheet:sn, parsed, plan}; ctlImportPreview();
+    }catch(err){ toast('Lỗi đọc file: '+(err&&err.message||err),'bad'); } };
+    rd.readAsArrayBuffer(f); };
+  inp.click();
+}
+function ctlImportPreview(){
+  const st=window._ctlPlan; if(!st) return; const plan=st.plan; const fm=v=>Math.round(+v||0).toLocaleString('vi-VN');
+  const fDT=s=>String(s||'').replace('T',' ').slice(0,16);
+  const kLabel={contractNo:'Số HĐ',client:'Khách hàng',unitPrice:'Đơn giá',value:'Giá trị HĐ',vesselId:'Tàu',start:'Bắt đầu',end:'Kết thúc',ccy:'CCY'};
+  const pr=plan.projects.map(x=>`<tr style="border-bottom:1px solid var(--rule)"><td style="padding:4px 6px">${x.action==='new'?'<b style="color:#1e7d44">MỚI</b>':x.action==='update'?'<b style="color:#b8730a">ĐIỀN THÊM</b>':'<span style="color:var(--muted)">đã có</span>'}</td>
+    <td style="padding:4px 6px"><b>${esc(x.rec.code)}</b> · ${esc(x.rec.name)}<div style="font-size:10.5px;color:var(--muted)">${esc(x.rec.contractNo)} · ${esc(x.rec.client)}${x.rec.endClient?' / '+esc(x.rec.endClient):''} · ${esc(x.rec.vesselName)}</div>
+      ${x.fill.length?`<div style="font-size:10.5px;color:#1e7d44">điền: ${x.fill.map(f=>kLabel[f.k]+' = '+(typeof f.nv==='number'?fm(f.nv):esc(String(f.nv)))).join(' · ')}</div>`:''}
+      ${x.diffs.length?`<div style="font-size:10.5px;color:#b8730a">⚠ lệch (giữ số app): ${x.diffs.map(d=>kLabel[d.k]+' app='+(typeof d.cur==='number'?fm(d.cur):esc(String(d.cur)))+' / file='+(typeof d.nv==='number'?fm(d.nv):esc(String(d.nv)))).join(' · ')}</div>`:''}</td>
+    <td style="padding:4px 6px;text-align:right;font-family:monospace">${fm(x.rec.unitPrice)}</td><td style="padding:4px 6px;text-align:right;font-family:monospace">${fm(x.rec.value)} ${esc(x.rec.ccy)}</td></tr>`).join('');
+  const ev=plan.events.map(x=>`<tr style="border-bottom:1px solid var(--rule)"><td style="padding:4px 6px">${x.action==='add'?'<b style="color:#1e7d44">THÊM</b>':x.action==='update'?'<b style="color:#b8730a">CẬP NHẬT</b>':'<span style="color:var(--muted)">đã có</span>'}</td>
+    <td style="padding:4px 6px">${esc(x.seg.vesselName)}</td><td style="padding:4px 6px;font-family:monospace">${fDT(x.seg.startAt)} → ${fDT(x.seg.endAt)}${x.action==='update'?`<div style="font-size:10.5px;color:#b8730a">app: kết thúc ${fDT(x.existing.endAt)}</div>`:''}</td>
+    <td style="padding:4px 6px;text-align:right;font-family:monospace">${x.seg.days}</td><td style="padding:4px 6px;font-size:11px">${esc(x.seg.contractNo)}${x.seg.parts>1?' · gộp '+x.seg.parts+' đoạn tháng':''}</td></tr>`).join('');
+  const nP=plan.projects.filter(x=>x.action!=='same').length, nE=plan.events.filter(x=>x.action!=='same').length;
+  openModal('📥 Contract Tracking List — đối chiếu ('+esc(st.file)+')', `
+    <div style="font-size:12px;color:var(--muted);margin-bottom:6px">Sheet <b>${esc(st.sheet)}</b>. Dự án khớp theo Số HĐ/Mã: chỉ <b>điền ô trống</b>, ô đã có mà lệch thì giữ số app và báo. Đoạn On/Off-hire: cùng tàu + cùng giờ bắt đầu → <b>cập nhật theo file</b>; đoạn nối tiếp cùng HĐ đã gộp liền.${plan.unmatchedVessels.length?`<div style="color:#c0392b">⚠ Tàu trong file không khớp app: ${esc(plan.unmatchedVessels.join(', '))} — bỏ qua</div>`:''}${st.parsed.errors.length?`<div style="color:#c0392b">⚠ ${st.parsed.errors.map(esc).join('<br>⚠ ')}</div>`:''}</div>
+    <div style="font-weight:600;font-size:12px;margin:6px 0 2px">Hợp đồng / dự án (${plan.projects.length} · ${nP} thay đổi)</div>
+    <div style="max-height:26vh;overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:var(--rule);text-align:left"><th style="padding:3px 6px"></th><th style="padding:3px 6px">Dự án</th><th style="padding:3px 6px;text-align:right">Đơn giá</th><th style="padding:3px 6px;text-align:right">Giá trị HĐ</th></tr></thead><tbody>${pr||'<tr><td colspan="4" style="padding:8px;color:var(--muted)">Không có</td></tr>'}</tbody></table></div>
+    <div style="font-weight:600;font-size:12px;margin:8px 0 2px">Đoạn On-hire (${plan.events.length} · ${nE} thay đổi)</div>
+    <div style="max-height:26vh;overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:var(--rule);text-align:left"><th style="padding:3px 6px"></th><th style="padding:3px 6px">Tàu</th><th style="padding:3px 6px">On-hire → Off-hire</th><th style="padding:3px 6px;text-align:right">Ngày</th><th style="padding:3px 6px">HĐ</th></tr></thead><tbody>${ev||'<tr><td colspan="5" style="padding:8px;color:var(--muted)">Không có</td></tr>'}</tbody></table></div>`,
+    `<button class="btn-ghost" onclick="window._ctlPlan=null;closeModal()">✖ Hủy</button>${(nP+nE)?`<button class="btn-primary" onclick="ctlImportCommit()">✓ Ghi ${nP} dự án + ${nE} đoạn</button>`:''}`);
+}
+function ctlImportCommit(){
+  const st=window._ctlPlan; if(!st) return; const plan=st.plan;
+  const who=(typeof actorName==='function'?actorName():'admin'), now=new Date().toISOString();
+  let nPn=0,nPu=0,nEa=0,nEu=0;
+  const codeToId={};
+  commitMutation(()=>{
+    S.projects=S.projects||[];
+    plan.projects.forEach(x=>{
+      if(x.action==='new'){ const p={id:uid(), code:x.rec.code, name:x.rec.name, client:x.rec.client, segment:x.rec.segment, vesselId:x.rec.vesselId, ccy:x.rec.ccy, start:x.rec.start, end:x.rec.end, value:x.rec.value, unitPrice:x.rec.unitPrice, experts:0, workDays:0, contractNo:x.rec.contractNo, projectManager:'', projStatus:'', isOM:false, _source:'ctl_import', _sourceFile:st.file, createdBy:who, createdAt:now, updatedAt:now}; S.projects.push(p); codeToId[ctlKey(x.rec.contractNo)]=p.id; nPn++; }
+      else { const p=x.existing; codeToId[ctlKey(x.rec.contractNo)]=p.id; if(x.fill.length){ x.fill.forEach(f=>{ p[f.k]=f.nv; }); try{touchRecord(p);}catch(e){} nPu++; } }
+    });
+    plan.events.forEach(x=>{
+      const pid=codeToId[ctlKey(x.seg.contractNo)]||null;
+      if(x.action==='add'){ VesselService.events().push({id:uid(), vesselId:x.seg.vesselId, type:'onhire', startAt:x.seg.startAt, endAt:x.seg.endAt, projectId:pid, notes:(x.seg.notice&&!/^nil$/i.test(x.seg.notice)?x.seg.notice+' · ':'')+'CTL '+st.file+(x.seg.parts>1?' (gộp '+x.seg.parts+' đoạn tháng)':''), _source:'ctl_import', createdBy:who, createdAt:now, updatedAt:now}); nEa++; }
+      else if(x.action==='update'){ const e=x.existing; e.endAt=x.seg.endAt; if(!e.projectId&&pid) e.projectId=pid; e.notes=(e.notes?e.notes+' · ':'')+'CTL cập nhật '+now.slice(0,10); try{touchRecord(e);}catch(_){} nEu++; }
+    });
+  },{action:'ctl_import', fields:['projects','events'], onOk:()=>{
+    try{ logAuditEvent('ctl_import',{file:st.file, projectsNew:nPn, projectsFilled:nPu, eventsAdded:nEa, eventsUpdated:nEu, actor:who}); }catch(e){}
+    toast('✓ Dự án: '+nPn+' mới · '+nPu+' điền thêm · Đoạn: '+nEa+' thêm · '+nEu+' cập nhật','good');
+    window._ctlPlan=null; closeModal(); try{ renderProjects(); }catch(e){}
+  }});
+}
+/* v3.18.99 (Sếp 26/8 "đọc file pdf đã có sẵn trong app từ trước"): dùng LẠI bộ đọc PDF sẵn có (pdf.js bóc chữ, như
+   On/Off-hire Wizard v3.09.68) — KHÔNG cần backend mới. Bóc chữ → ctlParseContractText THUẦN (regex song ngữ) → điền
+   ô TRỐNG form Thêm dự án. PDF scan không có chữ → thử AI (mode service_contract) nếu backend có, không thì báo. */
+function ctlParseContractText(text, vesselNames){
+  const T=String(text||'').replace(/\u00a0/g,' ').replace(/\s+/g,' ');
+  /* Cắt theo NHÃN đã biết (song ngữ): tìm mọi vị trí nhãn, giá trị = đoạn chữ tới nhãn kế tiếp → tên dự án chứa 'Vessel' vẫn nguyên */
+  const LABELS=[
+    ['contractNo',/(?:Contract\s*No\.?|Contract\s*Number|Hợp đồng số|Số hợp đồng|HĐ số)\s*[:：]/gi],
+    ['notice',/(?:Notice\s*No\.?|Thông báo số)\s*[:：]/gi],
+    ['endClient',/End\s*Client(?:'s name)?\s*[:：]/gi],
+    ['client',/(?:^|\s)(?:Client(?:'s name)?|Charterer|Customer|Khách hàng|Bên A|Bên thuê)\s*[:：]/gi],
+    ['projectName',/(?:Name of Project|Project name|Project|Tên dự án|Dự án|Scope of work|Scope)\s*[:：]/gi],
+    ['location',/(?:Location|Địa điểm)\s*[:：]/gi],
+    ['vessel',/(?:Vessel(?: name)?|Tàu)\s*[:：]/gi],
+    ['hireRate',/(?:Vessel hire rate|Hire rate|Day rate|Daily rate|Charter rate|Đơn giá)[^:：]{0,30}[:：]/gi],
+    ['totalValue',/(?:Total Contract Price|Total Contract Value|Contract Value|Contract Price|Total price|Giá trị hợp đồng|Tổng giá trị)[^:：]{0,30}[:：]/gi],
+    ['startDate',/(?:On-?hire|Commencement|Start date|Ngày bắt đầu|Bắt đầu|Effective date)(?: date| time)?\s*[:：]/gi],
+    ['endDate',/(?:Off-?hire|Completion|End date|Ngày kết thúc|Kết thúc|Expiry)(?: date| time)?\s*[:：]/gi],
+    ['duration',/(?:Est\.? Duration|Duration|Thời hạn)\s*[:：]/gi]
+  ];
+  const hits=[]; LABELS.forEach(([k,re])=>{ let m; re.lastIndex=0; while((m=re.exec(T))){ hits.push({k, at:m.index, end:m.index+m[0].length}); } });
+  /* nhãn 'client' lồng trong 'End Client' → loại TRƯỚC khi cắt giá trị */
+  const clean=hits.filter(h=>!(h.k==='client' && hits.some(o=>o.k==='endClient' && Math.abs(o.end-h.end)<2))).sort((a,b)=>a.at-b.at);
+  const vals={}; clean.forEach((h,idx)=>{ const next=clean[idx+1]; const v=ctlNorm(T.slice(h.end, next?next.at:T.length)); if(v && vals[h.k]==null) vals[h.k]=v; });
+  const out={contractNo:'',notice:'',client:'',endClient:'',projectName:'',location:'',vessel:'',hireRate:0,totalValue:0,ccy:'',startDate:'',endDate:''};
+  const code=v=>{ const m=String(v||'').match(/\S*\d\S*/); return m?m[0].replace(/[,;.]+$/,''):''; };   /* token đầu có chữ số (chấp nhận HĐ, /, -) */
+  out.contractNo=code(vals.contractNo); out.notice=code(vals.notice);
+  const tidy=v=>String(v||'').replace(/\s*\(\s*$/,'').replace(/\).*$/,'').replace(/\s+(?:Owner|Contractor|Bên B)\b.*$/i,'').trim();   /* cắt "(", ")" và phần 'Owner:' phía sau */
+  out.client=tidy(vals.client).slice(0,80); out.endClient=tidy(vals.endClient).slice(0,80); out.projectName=(vals.projectName||'').slice(0,160); out.location=(vals.location||'').slice(0,60);
+  let rate=ctlMoney(vals.hireRate||''), total=ctlMoney(vals.totalValue||'');
+  /* khuôn Contract Validation: bảng 'Vessel hire rate | Day | 513.000.000' không có dấu ':' → bắt trực tiếp */
+  if(!rate.amount){ const m=T.match(/Vessel hire rate\s+(?:Day\s+)?([\d.,]{6,})/i); if(m) rate=ctlMoney((/\bVND\b/i.test(T)?'VND ':'')+m[1].replace(/\.(?=\d{3}\b)/g,',')); }
+  out.hireRate=rate.amount; out.totalValue=total.amount; out.ccy=total.ccy||rate.ccy||(/\bVND\b|đồng/i.test(T)?'VND':(/\bUSD\b/.test(T)?'USD':''));
+  const dt=v=>{ const s=String(v||''); const m=s.match(/(\d{1,2}:\d{2}\s+\d{1,2}\/\d{1,2}\/\d{4}|\d{4}-\d{2}-\d{2}(?:[ T]\d{1,2}:\d{2})?|\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{4}(?:\s+\d{1,2}:\d{2})?)/); if(!m) return ''; const d=ctlDate(m[1]); return d?ctlIsoLocal(d).slice(0,10):_aiDateISO(m[1]); };
+  out.startDate=dt(vals.startDate); out.endDate=dt(vals.endDate);
+  const tk=ctlKey(T); (vesselNames||[]).forEach(n=>{ if(!out.vessel && n && tk.indexOf(ctlKey(n))>=0) out.vessel=n; });
+  if(!out.vessel) out.vessel=(vals.vessel||'').slice(0,40);
+  out._fields=Object.keys(out).filter(k=>k[0]!=='_' && out[k]).length;
+  return out;
+}
+/* v3.19.00 (Sếp 26/8: "đã cập nhật bằng Excel thì add file PDF vào để lưu"): đính PDF hợp đồng vào DỰ ÁN — file lên Drive
+   (upload_attachment, thư mục HopDong_<năm>), app chỉ giữ link trong p.docs[] (như hồ sơ điện tử HRM). */
+async function projectAttachPdf(projectId, inputEl){
+  const file=inputEl&&inputEl.files&&inputEl.files[0]; if(!file) return; try{ inputEl.value=''; }catch(e){}
+  const p=(S.projects||[]).find(x=>x&&x.id===projectId); if(!p){ toast('Không tìm thấy dự án','bad'); return; }
+  if(!(isAdmin()||canCheckAcc())){ toast('Đính file: admin / kế toán','bad'); return; }
+  const cfg=getAuthConfig(); if(!cfg||!cfg.scriptUrl){ toast('Chưa cấu hình Apps Script — không lưu được file lên Drive','bad'); return; }
+  if(file.size>15*1024*1024){ toast('File quá lớn (>15MB)','bad'); return; }
+  toast('⏳ Đang đưa "'+file.name+'" lên Drive…','warn');
+  try{
+    const b64=await new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>{ const x=String(r.result||''); res(x.includes(',')?x.split(',')[1]:x); }; r.onerror=()=>rej(new Error('Đọc file lỗi')); r.readAsDataURL(file); });
+    const year=(p.start||p.createdAt||new Date().toISOString()).slice(0,4);
+    const resp=await fetch(cfg.scriptUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'upload_attachment', fileBase64:b64, mimeType:file.type||'application/pdf', fileName:(p.code?p.code+' - ':'')+file.name, sub:'HopDong_'+year, viewers:[]})});
+    const data=await resp.json();
+    if(!data||!data.ok||!data.file) throw new Error((data&&data.error)||'upload lỗi');
+    const who=(typeof actorName==='function'?actorName():''), now=new Date().toISOString();
+    await commitMutation(()=>{ p.docs=p.docs||[]; p.docs.push({id:uid(), kind:'contract', name:file.name, url:data.file.url||'', driveId:data.file.id||'', at:now, by:who}); try{touchRecord(p);}catch(e){} },
+      {action:'project_attach_doc', fields:['projects'], onOk:()=>{ try{ logAuditEvent('project_attach_doc',{projectId, name:file.name, actor:who}); }catch(e){} toast('✓ Đã đính "'+file.name+'" vào '+(p.code||p.name),'good'); try{ renderProjects(); }catch(e){} }});
+  }catch(err){ toast('Không đính được: '+(err&&err.message||err),'bad'); }
+}
+function projectDocRemove(projectId, docId){
+  const p=(S.projects||[]).find(x=>x&&x.id===projectId); if(!p||!p.docs) return;
+  const d=p.docs.find(x=>x.id===docId); if(!d) return;
+  if(!isAdmin()){ toast('Chỉ admin gỡ file','bad'); return; }
+  if(!confirm('Gỡ link "'+d.name+'" khỏi dự án? (file trên Drive giữ nguyên)')) return;
+  commitMutation(()=>{ p.docs=p.docs.filter(x=>x.id!==docId); try{touchRecord(p);}catch(e){} },{action:'project_doc_remove', fields:['projects'], onOk:()=>{ toast('Đã gỡ link'); try{ renderProjects(); }catch(e){} }});
+}
+async function ctlReadContractPdf(inputEl){
+  const file=inputEl&&inputEl.files&&inputEl.files[0]; if(!file) return; try{ inputEl.value=''; }catch(e){}
+  toast('⏳ Đang đọc PDF…','warn');
+  let text='';
+  if(/pdf$/i.test(file.name)||file.type==='application/pdf'){
+    try{
+      if(!window.pdfjsLib){ await _loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js','pdfjsLib'); if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; }
+      const pdf=await pdfjsLib.getDocument({data:new Uint8Array(await file.arrayBuffer())}).promise;
+      for(let p=1;p<=Math.min(pdf.numPages,6);p++){ const pg=await pdf.getPage(p); const tc=await pg.getTextContent(); text+=' '+tc.items.map(it=>it.str).join(' '); }
+    }catch(e){ text=''; }
+  }
+  let d=null;
+  if(text.replace(/\s+/g,'').length>80){ d=ctlParseContractText(text, VesselService.vessels().map(v=>v.name)); d._method='text'; }
+  if(!d || d._fields<2){ /* PDF scan/ảnh hoặc bóc chữ không ra → thử AI nếu backend có */
+    try{ const ai=await aiExtract(file,'service_contract'); d=Object.assign({},d||{},ai,{_method:'ai'}); }
+    catch(e){ if(!d||d._fields<1){ toast('Không bóc được chữ từ PDF ('+String(e&&e.message||e)+') — file scan cần backend AI','bad'); return; } }
+  }
+  /* v3.19.00: số HĐ đọc được đã có trong app (đã nhập bằng Excel) → đính PDF vào dự án đó để lưu, không điền form */
+  if(d.contractNo){ const ex=(S.projects||[]).find(x=>x&&!x._deleted&&(ctlKey(x.contractNo)===ctlKey(d.contractNo)||ctlKey(x.code)===ctlKey(d.contractNo)||(d.notice&&ctlKey(x.code)===ctlKey(d.notice))));
+    if(ex && confirm('Hợp đồng '+d.contractNo+' đã có trong app: '+(ex.code||'')+' · '+(ex.name||'')+'.\n\nOK = đính PDF này vào dự án đó để lưu (Drive).\nHủy = điền form Thêm dự án mới.')){ const fake={files:[file], value:''}; await projectAttachPdf(ex.id, fake); return; } }
+  const set=(id,v)=>{ const el=document.getElementById(id); if(el && v!=null && v!=='' && v!==0 && !el.value){ el.value=v; el.style.borderColor='#1e7d44'; return true; } return false; };
+  let nSet=0;
+  nSet+=set('prj-code', d.notice||d.contractNo)?1:0; nSet+=set('prj-name', d.projectName)?1:0; nSet+=set('prj-client', d.client)?1:0; nSet+=set('prj-contract', d.contractNo)?1:0;
+  const rate=(typeof d.hireRate==='number')?{amount:d.hireRate,ccy:''}:ctlMoney(d.hireRate||''), price=(typeof d.totalValue==='number')?{amount:d.totalValue,ccy:''}:ctlMoney(d.totalValue||'');
+  nSet+=set('prj-unitprice', rate.amount||'')?1:0; nSet+=set('prj-value', price.amount||'')?1:0;
+  const ccyEl=document.getElementById('prj-ccy'); const ccy=d.ccy||price.ccy||rate.ccy; if(ccyEl && ccy && ['VND','USD'].includes(ccy)) ccyEl.value=ccy;
+  nSet+=set('prj-start', d.startDate&&/^\d{4}-/.test(d.startDate)?d.startDate:_aiDateISO(d.startDate))?1:0; nSet+=set('prj-end', d.endDate&&/^\d{4}-/.test(d.endDate)?d.endDate:_aiDateISO(d.endDate))?1:0;
+  if(d.vessel){ const vsel=document.getElementById('prj-vessel'); const vv=VesselService.vessels().find(v=>ctlKey(v.name)===ctlKey(d.vessel)||ctlKey(v.name).indexOf(ctlKey(d.vessel))>=0||ctlKey(d.vessel).indexOf(ctlKey(v.name))>=0); if(vsel&&vv&&!vsel.value){ vsel.value=vv.id; nSet++; } }
+  toast((nSet?'✓ Đã điền '+nSet+' ô trống từ PDF ('+(d._method==='ai'?'AI':'bóc chữ')+') — kiểm tra rồi bấm Thêm':'PDF đọc được nhưng không nhận ra trường nào — điền tay'), nSet?'good':'warn');
+}
 function renderProjects(){
   const tbl=document.getElementById('prj-table');
   if(!S.projects.length){tbl.innerHTML='<tr><td class="empty">Chưa có dự án</td></tr>';return;}
@@ -37811,9 +38086,9 @@ function renderProjects(){
   else if(_prjFilterVessel) list=list.filter(p=>p.vesselId===_prjFilterVessel);
   // v3.06.23: BẢNG RÚT GỌN ở tab 02 (Dự án) — chỉ Tên · Đơn giá · Giá trị HĐ.
   //   NV phân quyền tab Dự án CHỈ thấy mức này — KHÔNG thấy DT/CP/Margin (chuyển sang tab 01 Báo cáo định kỳ).
-  let html=`<thead><tr><th>Mã</th><th>Tên / Khách hàng</th><th>Tàu</th><th class="r">Đơn giá <span style="font-weight:400;text-transform:none">(đ/ngày)</span></th><th class="r">Giá trị HĐ (dự kiến)</th><th class="r">Thực hiện <span style="font-weight:400;text-transform:none">(đã phát HĐ)</span></th><th class="r">% TH</th><th></th></tr></thead><tbody>`;
-  if(!list.length){ html+='<tr><td class="empty" colspan="8">Không có dự án khớp bộ lọc</td></tr></tbody>'; tbl.innerHTML=html; return; }
-  let tValue=0, tIssued=0;
+  let html=`<thead><tr><th>Mã</th><th>Tên / Khách hàng</th><th>Tàu</th><th style="white-space:nowrap" title="v3.18.98: On-hire đầu → Off-hire cuối của các đoạn On-hire gắn dự án">On-hire → Off-hire</th><th class="r" title="Tổng ngày On-hire của dự án (từ Vessel Employment)">Ngày DA</th><th class="r">Đơn giá <span style="font-weight:400;text-transform:none">(đ/ngày)</span></th><th class="r">Giá trị HĐ (dự kiến)</th><th class="r">Thực hiện <span style="font-weight:400;text-transform:none">(đã phát HĐ)</span></th><th class="r">% TH</th><th></th></tr></thead><tbody>`;
+  if(!list.length){ html+='<tr><td class="empty" colspan="10">Không có dự án khớp bộ lọc</td></tr></tbody>'; tbl.innerHTML=html; return; }
+  let tValue=0, tIssued=0, tDays=0; const _allEv=(typeof VesselService!=='undefined'&&VesselService.events)?VesselService.events():[];
   list.forEach(p=>{
     tValue+=(+p.value||0);
     const issued=_projectIssuedValue(p.id);
@@ -37831,14 +38106,18 @@ function renderProjects(){
       : '';
     html+=`<tr style="${p.archived?'opacity:0.55;background:var(--paper-3)':''}">
       <td class="ds-t-sub" style="font-family:var(--font-mono)">${esc(p.code)}${p.archived?' <span class="ds-need" data-dot="bad" style="font-size:10px" title="Đã đánh dấu hoàn thành">⊘</span>':''}</td>
-      <td><b>${esc(p.name)}</b>${p.isOM?' <span class="ds-need" data-dot="good" style="font-size:10px;margin-left:4px" title="Dự án O&M độc lập — có NV phụ trách riêng">⚙ O&M</span>':''}<br><span style="color:var(--muted);font-size:11px">${esc(p.client) || '—'}</span></td>
+      <td><b>${esc(p.name)}</b>${p.isOM?' <span class="ds-need" data-dot="good" style="font-size:10px;margin-left:4px" title="Dự án O&M độc lập — có NV phụ trách riêng">⚙ O&M</span>':''}<br><span style="color:var(--muted);font-size:11px">${esc(p.client) || '—'}</span>${(p.docs&&p.docs.length)?`<div style="font-size:10.5px;margin-top:2px">${p.docs.map(d=>`<a href="${esc(d.url)}" target="_blank" rel="noopener" title="${esc(d.name)} · ${esc(String(d.at||'').slice(0,10))} · ${esc(d.by||'')}">📎 ${esc(String(d.name).length>28?String(d.name).slice(0,26)+'…':d.name)}</a>${adminMode?` <a href="#" onclick="event.preventDefault();projectDocRemove('${p.id}','${esc(d.id)}')" style="color:var(--bad)" title="Gỡ link">✕</a>`:''}`).join(' · ')}</div>`:''}</td>
       <td>${v?'<b>'+v.name+'</b>':'<span style="color:var(--muted)">—</span>'}</td>
+      ${(()=>{ const hs=projectHireSpan(p.id,_allEv); tDays+=hs.days; const f=s=>s?String(s).slice(0,10).split('-').reverse().join('/'):'';
+        return hs.n?`<td style="font-family:var(--font-mono);font-size:11px;white-space:nowrap">${f(hs.first)} → ${f(hs.last)}${hs.n>1?`<div style="color:var(--muted);font-size:10px">${hs.n} đoạn</div>`:''}</td><td class="r mono" style="font-size:11px">${hs.days}</td>`
+        :`<td style="font-size:11px;color:var(--muted)">${p.start?f(p.start)+' → '+f(p.end)+' <span style="font-size:10px">(KH)</span>':'—'}</td><td class="r" style="color:var(--muted);font-size:11px">${p.workDays?p.workDays+' <span style="font-size:10px">(KH)</span>':'—'}</td>`; })()}
       <td class="r num">${p.unitPrice?fmt(p.unitPrice,p.ccy):'<span style="color:var(--muted)">—</span>'}</td>
       <td class="r num">${fmt(p.value,p.ccy)}</td>
       <td class="r num">${issued>0.01?fmt(issued):'<span style="color:var(--muted)">—</span>'}</td>
       <td class="r">${pctTxt}</td>
       <td><div class="row-actions">
         ${archiveBtn}
+        <label class="icon-btn" title="v3.19.00: đính PDF hợp đồng/tóm tắt vào dự án (lưu Drive, app giữ link)" style="cursor:pointer">📎<input type="file" accept=".pdf,image/*" style="display:none" onchange="projectAttachPdf('${p.id}',this)"></label>
         <button class="icon-btn" title="Sửa" onclick="editProject('${p.id}')">✎</button>
         <button class="icon-btn danger" title="Xóa" onclick="delProject('${p.id}')">✕</button>
       </div></td>
@@ -37848,6 +38127,7 @@ function renderProjects(){
   const tPct = tValDisp>0.01 ? (tIssued/tValDisp*100) : 0;
   html+=`<tr style="border-top:2px solid var(--ink);font-weight:700;background:var(--paper-2,var(--paper-3))">
     <td colspan="4" class="r">TỔNG (${list.length} dự án${_prjFilterVessel&&_prjFilterVessel!=='__none__'?' · '+esc((VesselService.vessels().find(x=>x.id===_prjFilterVessel)||{}).name||''):''})</td>
+    <td class="r mono" style="font-size:11px">${Math.round(tDays*100)/100}</td><td></td>
     <td class="r num">${fmt(tValue)}</td>
     <td class="r num">${fmt(tIssued)}</td>
     <td class="r"><b style="color:${tPct>=100?'var(--good)':'var(--warn)'}">${_negU(tPct.toFixed(0))}%</b></td>
@@ -39057,11 +39337,21 @@ function _vohBody(vid, inner){
   let evRows;
   if(!evs.length){ evRows='<tr><td class="empty" colspan="'+(_showVal?9:8)+'">No periods yet — click "+ Add Period"</td></tr>'; }
   else {
-    // cảnh báo gap
+    // v3.18.97: khoảng trống → dòng Available (tự tính) chèn đúng vị trí, lịch liên tục; không còn dòng ⚠ Gap
     const warns=[];
-    for(let i=1;i<evs.length;i++){ const p=evs[i-1],c=evs[i]; if(!p.endAt||!c.startAt) continue;
-      const d=new Date(c.startAt).getTime()-new Date(p.endAt).getTime(); if(d>60000) warns.push(`Gap ${fmtDays(d/(864e5))} between ${fmtDateTime(p.endAt)} and ${fmtDateTime(c.startAt)}`); }
-    evRows=evs.map(e=>{
+    const _gaps=(typeof eventAutoGaps==='function')?eventAutoGaps(evs):[];
+    const _gapRow=g=>`<tr style="background:var(--paper-3)" title="Tự tính từ khoảng trống giữa hai đoạn — không phải bản ghi; muốn ghi rõ (Standby trong job / Drydock…) thì + Add period">
+        <td><span class="ds-need" style="opacity:.75">AVL</span></td>
+        <td class="ds-t-sub" style="font-family:var(--font-mono);color:var(--muted)">${fmtDateTime(g.startAt)}</td>
+        <td class="ds-t-sub" style="font-family:var(--font-mono);color:var(--muted)">${fmtDateTime(g.endAt)}</td>
+        <td class="r mono" style="font-size:11px;color:var(--muted)">${fmtDays(g.days)}</td>
+        <td style="font-size:11px;color:var(--muted);font-style:italic">Available · chờ việc (tự tính)</td>
+        <td class="r mono" style="font-size:11px">—</td><td class="r mono" style="font-size:11px">—</td><td class="r mono" style="font-size:11px">—</td>${_showVal?'<td class="r mono" style="font-size:11px">—</td>':''}<td></td></tr>`;
+    const _evsSorted=evs.slice().sort((a,b)=>new Date(a.startAt||0)-new Date(b.startAt||0));
+    const _rowsWithGaps=[]; let _gi=0;
+    _evsSorted.forEach(e=>{ while(_gi<_gaps.length && new Date(_gaps[_gi].endAt)<=new Date(e.startAt||0)){ _rowsWithGaps.push({gap:_gaps[_gi]}); _gi++; } _rowsWithGaps.push({ev:e}); });
+    while(_gi<_gaps.length){ _rowsWithGaps.push({gap:_gaps[_gi]}); _gi++; }
+    evRows=_rowsWithGaps.map(x=>{ if(x.gap) return _gapRow(x.gap); const e=x.ev;
      try{  // v3.10.96: 1 đoạn lỗi dữ liệu → 1 hàng cảnh báo, không chặn cả modal (sự cố GEOSUPORTER 12/07)
       const t=evtType(e.type);
       const proj=e.projectId?S.projects.find(p=>p.id===e.projectId):null;
@@ -39984,6 +40274,17 @@ const EVENT_TYPES=[
   {key:'demob',label:'Demobilisation',short:'DMB',chip:'chip-2',billable:false,wantPorts:true}
 ];
 function evtType(k){return EVENT_TYPES.find(e=>e.key===k)||EVENT_TYPES[0];}
+/* v3.18.97 (Sếp 26/8: "Khoảng cách giữa các kỳ Off-hire → On-hire = Chờ việc. App auto tính từng quãng để lịch liên tục"):
+   khoảng trống > 1 phút giữa 2 đoạn liền nhau (đã sắp theo giờ bắt đầu) = đoạn AVAILABLE TỰ TÍNH (csb — tàu rảnh
+   ngoài job; Standby giữ nghĩa chờ TRONG job). THUẦN, tính lúc render — không ghi dữ liệu, tự cập nhật khi đoạn đổi. */
+function eventAutoGaps(evs){
+  const out=[]; const list=(evs||[]).filter(e=>e&&e.startAt&&e.endAt).slice().sort((a,b)=>new Date(a.startAt)-new Date(b.startAt));
+  let cursorEnd=null;
+  list.forEach(e=>{ const st=new Date(e.startAt).getTime(), en=new Date(e.endAt).getTime();
+    if(cursorEnd!=null && st-cursorEnd>60000) out.push({type:'csb', auto:true, startAt:new Date(cursorEnd).toISOString(), endAt:new Date(st).toISOString(), days:(st-cursorEnd)/864e5});
+    if(cursorEnd==null || en>cursorEnd) cursorEnd=en; });
+  return out;
+}
 
 const FUEL_TYPES=[
   {key:'do',label:'Dầu',short:'DO'},
@@ -46886,6 +47187,17 @@ function _sfSaveConfig(){
 /* ============================================================
    QUỸ TIỀN MẶT (v2.20.0) — nhiều quỹ + sổ quỹ thu/chi/tồn
    ============================================================ */
+/* v3.18.94 (Sếp 26/8: "Không có quỹ dự án O&M. Quỹ VPCT-QN là P/L dự án O&M. Quỹ VPCT: vào Quản lý chung"):
+   quỹ VĂN PHÒNG khai rõ P&L đích khi tạo/sửa quỹ — 'OM' (mảng Tư vấn O&M) hoặc 'OTHER' (Quản lý chung).
+   Trước: mọi quỹ Văn phòng đều dồn vào O&M (v3.03.68/72) → quỹ VPCT (Vũng Tàu) sai mảng. Chưa khai → giữ O&M như cũ + cảnh báo. */
+const OFFICE_PL_TARGETS={OM:{label:'Mảng Tư vấn O&M (P&L dự án O&M)'}, OTHER:{label:'Quản lý chung'}};
+function cashFundPlSegment(f){
+  if(!f) return 'OTHER';
+  if(f.fundType==='OFFICE') return (f.plSegment&&OFFICE_PL_TARGETS[f.plSegment])?f.plSegment:'OM';
+  if(f.fundType==='VESSEL'||f.fundType==='PROJECT') return 'OM';   /* tàu: theo tàu (xử lý riêng), dự án: OM */
+  return 'OTHER';
+}
+function cashFundPlLabel(f){ const k=cashFundPlSegment(f); return f&&f.fundType==='OFFICE'?((OFFICE_PL_TARGETS[k]||{}).label||k)+(f.plSegment?'':' (chưa khai — mặc định O&M)'):k; }
 const CASH_FUND_TYPES={
   OFFICE:{label:'Quỹ Văn phòng', icon:'🏢'},
   VESSEL:{label:'Quỹ Tàu',       icon:'⛵'},
@@ -46941,6 +47253,11 @@ function _cashFundModal(f){
         </select>
         <span style="font-size:10px;color:var(--muted)">Thuyền trưởng tàu này sẽ chỉ thấy quỹ gắn đúng tàu mình.</span>
       </div>
+      <div class="field" id="cf-pl-row" style="${f.fundType==='OFFICE'?'':'display:none'}">
+        <label>P&amp;L đích (quỹ Văn phòng) *</label>
+        <select id="cf-pl">${Object.entries(OFFICE_PL_TARGETS).map(([k,v])=>`<option value="${k}" ${(f.plSegment||'')===k?'selected':''}>${esc(v.label)}</option>`).join('')}</select>
+        <div style="font-size:10.5px;color:var(--muted);margin-top:2px">Mọi khoản chi/hoàn ứng của quỹ này vào P&amp;L đã chọn (vd VPCT-QN → O&amp;M, VPCT → Quản lý chung).${f.fundType==='OFFICE'&&!f.plSegment?' <b style="color:#b8730a">Chưa khai — đang mặc định O&amp;M.</b>':''}</div>
+      </div>
       <div class="field" id="cf-project-row" style="${f.fundType==='PROJECT'?'':'display:none'}">
         <label>Dự án O&M (gắn quỹ này cho dự án nào) *</label>
         <select id="cf-project">
@@ -46993,6 +47310,8 @@ function cfToggleVessel(){
   if(row) row.style.display = (t==='VESSEL') ? '' : 'none';
   const prow=document.getElementById('cf-project-row');
   if(prow) prow.style.display = (t==='PROJECT') ? '' : 'none';
+  const plrow=document.getElementById('cf-pl-row');   /* v3.18.94 */
+  if(plrow) plrow.style.display = (t==='OFFICE') ? '' : 'none';
 }
 function saveCashFund(id){
   const err=document.getElementById('cf-err');
@@ -47007,6 +47326,8 @@ function saveCashFund(id){
   const vesselId = (fundType==='VESSEL') ? (document.getElementById('cf-vessel')?.value||'') : '';
   // v3.09.47: quỹ loại Dự án (O&M) phải gắn 1 dự án đích danh → chi phí vào P&L dự án
   const projectId = (fundType==='PROJECT') ? (document.getElementById('cf-project')?.value||'') : '';
+  const plSegment = (fundType==='OFFICE') ? ((document.getElementById('cf-pl')||{}).value||'') : '';   /* v3.18.94 */
+  if(fundType==='OFFICE' && !plSegment){ err.textContent='Quỹ Văn phòng phải chọn P&L đích (O&M hay Quản lý chung)'; return; }
   if(!name){err.textContent='Nhập tên quỹ';return;}
   if(fundType==='VESSEL' && !vesselId){err.textContent='Quỹ loại Tàu phải chọn tàu đích danh';return;}
   if(fundType==='PROJECT' && !projectId){err.textContent='Quỹ loại Dự án phải chọn dự án O&M đích danh';return;}
@@ -47018,11 +47339,11 @@ function saveCashFund(id){
   if(id){
     const f=AccountingService.cashFunds().find(x=>x.id===id);
     if(!f){ return; }
-    f.name=name; f.fundType=fundType; f.ccy=ccy; f.isActive=isActive; f.note=note; f.vesselId=vesselId; f.projectId=projectId; f.needManagerApproval=needManagerApproval;
+    f.name=name; f.fundType=fundType; f.ccy=ccy; f.isActive=isActive; f.note=note; f.vesselId=vesselId; f.projectId=projectId; f.needManagerApproval=needManagerApproval; f.plSegment=plSegment;   /* v3.18.94 */
     if(typeof touchRecord==='function') touchRecord(f);
   } else {
     const initBal=+document.getElementById('cf-balance').value||0;
-    const fund={id:uid(),name,fundType,vesselId,projectId,ccy,balance:initBal,isActive,note,needManagerApproval,
+    const fund={id:uid(),name,fundType,vesselId,projectId,plSegment,ccy,balance:initBal,isActive,note,needManagerApproval,
       createdBy:actorName(),createdAt:new Date().toISOString()};
     AccountingService.addCashFund(fund);
     // Số dư ban đầu > 0 → ghi 1 dòng sổ quỹ làm mốc
@@ -47422,7 +47743,7 @@ function cashImportShowPreview(){
       const fv=VesselService.vessels().find(x=>x.id===f.vesselId);
       fundScopeInfo=`<span style="color:#1c3a5c">⛵ Quỹ Tàu — chi phí sẽ vào <b>P&L tàu ${esc(fv?fv.name:'?')}</b></span>`;
     } else if(f.fundType==='OFFICE'){
-      fundScopeInfo=`<span style="color:#2d6a6a">🏢 Quỹ Văn phòng — chi phí vào <b>mảng O&M</b></span>`;
+      fundScopeInfo=`<span style="color:#2d6a6a">🏢 Quỹ Văn phòng — chi phí vào <b>${esc(cashFundPlLabel(f))}</b></span>`;
     } else {
       fundScopeInfo=`<span style="color:var(--muted)">💰 Quỹ khác — chỉ quản lý tiền, <b>KHÔNG vào P&L</b></span>`;
     }
@@ -47546,7 +47867,7 @@ function cashImportWrite(){
     ? ('• Chi phí gắn TÀU: '+((VesselService.vessels().find(x=>x.id===f.vesselId)||{}).name||'?')+' → vào P&L tàu\n')
     : (f.fundType==='PROJECT'&&f.projectId)
     ? ('• Chi phí gắn DỰ ÁN O&M: '+(((S.projects||[]).find(x=>x.id===f.projectId)||{}).code||'?')+' → vào P&L dự án\n')
-    : (f.fundType==='OFFICE' ? '• Chi phí vào mảng O&M\n' : '• Chi phí vào Quản lý chung\n');
+    : (f.fundType==='OFFICE' ? ('• Chi phí vào '+cashFundPlLabel(f)+'\n') : '• Chi phí vào Quản lý chung\n');
   if(!confirm(`Ghi vào sổ quỹ "${f.name}" tháng ${importMonth}:\n\n`
     +`• ${allRows.length} dòng chi → gom thành ${nTypes} phiếu hoàn ứng (theo loại CP)\n`
     +_scopeLine
@@ -47567,7 +47888,7 @@ function cashImportWrite(){
     _impProjectId=f.projectId;
     _impSegment='OM';
   } else if(f.fundType==='OFFICE'){
-    _impSegment='OM';
+    _impSegment=cashFundPlSegment(f);   /* v3.18.94: theo P&L đích khai trên quỹ (VPCT-QN → OM, VPCT → OTHER) */
   } else {
     _impSegment='OTHER';
   }
@@ -48054,7 +48375,7 @@ function saveCashClear(){
     let seg = (v&&v.segment) || (p&&p.segment) || '';
     if(!seg && p && p.isOM) seg='OM';                       // dự án O&M → mảng O&M
     if(!seg && (v||p)) seg='VESSEL_SERVICE';
-    if(!seg && _isOfficeFund) seg='OM';                     // v3.03.72: quỹ Văn phòng O&M, không gắn dự án → mảng O&M (không rơi vào QL chung)
+    if(!seg && _isOfficeFund) seg=cashFundPlSegment(f);     // v3.18.94: theo P&L đích khai trên quỹ (VPCT-QN → OM, VPCT → Quản lý chung)
     const _byCrew = !!st._byCrew;
     const rec={
       id:uid(), partner:'[Hoàn ứng quỹ '+(f.name||'')+']',
@@ -49607,6 +49928,7 @@ function _kuDraftAttach(rec, pay, bankAccountId){
     try{ logAuditEvent('ku_draft_create',{loanId:l.id, lender, date:pay.date, actor:actorName()}); }catch(e){}
   }
   l.principal=(+l.principal||0)+(+pay.amount||0);
+  l.principal=(String(l.ccy||'VND').toUpperCase()==='VND')?Math.round(l.principal):Math.round(l.principal*100)/100;   /* v3.19.02: VND số nguyên, ngoại tệ 2 số lẻ — hết 0.36000001430511475 */
   pay.linkedLoanId=l.id;
   try{ touchRecord(l); }catch(e){ l.updatedAt=new Date().toISOString(); }
   return l;
@@ -50704,7 +51026,7 @@ function _loanModal(l){
       </div>
       <div class="field">
         <label>Số tiền vay (gốc) *</label>
-        <input type="number" id="ln-principal" value="${l.principal||''}" step="any" placeholder="5000000000">
+        <input type="number" id="ln-principal" value="${l.principal?((String(l.ccy||'VND').toUpperCase()==='VND')?Math.round(l.principal):Math.round(l.principal*100)/100):''}" step="any" placeholder="5000000000">
       </div>
       <div class="field">
         <label>Loại tiền *</label>
@@ -53949,6 +54271,10 @@ function _arEtChip(gk){
   const seg=(document.getElementById('ar-segment')||{}).value||''; const pref=expGroupsForSegment(seg);
   sel.innerHTML=expenseTypeOptsPref(sel.value, pref, gk||'');
   document.querySelectorAll('#ar-et-chips [data-etchip]').forEach(b=>{ const on=(b.getAttribute('data-etchip')||'')===(gk||''); b.style.border='1px solid '+(on?'var(--accent)':'var(--rule)'); b.style.fontWeight=on?'700':''; });
+  /* v3.18.96: chip chữ cái = gốc cây nhánh; mở cascade ngay tại nhánh của nhóm đó (không bắt bấm "Chọn theo nhánh") */
+  const L=(gk && typeof expGroupLetter==='function')?expGroupLetter(gk):''; window._arEtLetter=L||'';
+  const pn=document.getElementById('et-cascade');
+  if(pn){ if(L){ pn.style.display=''; try{ _etCascade(2,L); }catch(e){} } else if(!gk){ pn.style.display='none'; } }
 }
 function _arSegmentChanged(){
   /* v3.18.92: đổi mảng → ưu tiên nhóm chi phí theo mảng (chỉ đổi thứ tự/lọc hiển thị) */
@@ -54528,7 +54854,7 @@ function _arEditorBody(r,isPayable){
           const chip=(k,lab,on)=>`<button type="button" class="btn-ghost" data-etchip="${esc(k)}" style="font-size:10.5px;padding:1px 8px;border:1px solid ${on?'var(--accent)':'var(--rule)'};border-radius:10px;${on?'font-weight:700':''}" onclick="_arEtChip('${esc(k)}')">${lab}</button>`;
           return chip('', 'Tất cả', !pref.length)+expGroupsActive().map(k=>chip(k, esc(expGroupLabel(k)), pref.length===1&&pref[0]===k)).join(''); }catch(e){ return ''; } })()}</div>
         <select id="ar-expense-type" onchange="arExpenseTypeChanged()">${(function(){ try{ const pref=expGroupsForSegment(r.segment||''); return expenseTypeOptsPref(r.expenseType, pref, pref.length===1?pref[0]:''); }catch(e){ return etHtml; } })()}</select>
-        <a href="#" style="font-size:11px" onclick="_etCascade(0);return false">🧭 Chọn theo nhánh</a>
+        <a href="#" style="font-size:11px" onclick="_etCascade(0);return false" title="Cây nhánh theo nhóm đang chọn ở dãy trên">🧭 Nhánh</a>
         <div id="et-cascade" style="display:none;border:1px solid var(--rule);border-radius:8px;padding:6px;margin-top:4px;background:var(--paper-2);max-height:200px;overflow:auto;font-size:12px"></div>
       </div>
       <div class="field" id="ar-khoan-field" style="grid-column:span 3;display:${_isOpManagedAp(r)?'':'none'}">
@@ -54993,12 +55319,17 @@ function _etCascade(lv, prefix){
      Mọi click dòng chặn nổi bọt để không dội ngược lên link làm tắt panel. */
   const pn=document.getElementById('et-cascade'); if(!pn) return;
   try{ if(typeof event!=='undefined'&&event&&event.stopPropagation) event.stopPropagation(); }catch(e){}
-  if(lv===0){ if(pn.style.display!=='none'){ pn.style.display='none'; return; } lv=1; prefix=''; }
+  /* v3.18.96 (Sếp 26/8 "Đã chọn Vận hành tàu sao còn chọn theo nhánh? Chỉ để lại nhánh thuộc vận hành tàu"):
+     chip nhóm đang chọn (chữ cái) = GỐC của cây — cascade mở thẳng ở nhánh của chữ cái đó, không lùi lên trên. */
+  const rootL=String(window._arEtLetter||'');
+  if(lv===0){ if(pn.style.display!=='none'){ pn.style.display='none'; return; } lv=rootL?2:1; prefix=rootL; }
+  if(lv===1 && rootL){ lv=2; prefix=rootL; }
   pn.style.display='';
   prefix=String(prefix||'');
   const types=(typeof expenseTypesForUser==='function')?expenseTypesForUser():(S.expenseTypes||[]);
   const upPrefix=prefix?prefix.split('.').slice(0,-1).join('.'):'';
-  const back=prefix?`<div style="padding:4px 6px;color:var(--muted);cursor:pointer;font-weight:600" onclick="_etCascade(${prefix.indexOf('.')>=0?lv-1:1},'${esc(upPrefix)}')">← quay lại${upPrefix?(' '+esc(upPrefix)):''}</div>`:'';
+  const back=(prefix && !(rootL && prefix===rootL))?`<div style="padding:4px 6px;color:var(--muted);cursor:pointer;font-weight:600" onclick="_etCascade(${prefix.indexOf('.')>=0?lv-1:1},'${esc(upPrefix)}')">← quay lại${upPrefix?(' '+esc(upPrefix)):''}</div>`
+    :(rootL?`<div style="padding:4px 6px;color:var(--muted);font-size:11px">Nhánh của nhóm <b>${esc(rootL)}</b> — chọn "Tất cả" ở dãy nhóm để xem nhánh khác</div>`:'');
   const kids={};
   (typeof expTreeList==='function'?expTreeList():[]).forEach(n=>{
     const c=String(n.code);
@@ -64738,8 +65069,11 @@ function _opNccFootButtons(t){
     b+=`<button class="btn-sec" onclick="opWfReject('${t.id}')" title="Từ chối / trả lại hồ sơ" style="border-color:var(--bad);color:var(--bad)">✕ Từ chối</button>`;
   }
   // Nút thanh toán từng phần — khi đã tới pending_l2 trở đi và còn nợ
-  if((st==='pending_l2'||st==='approved') && opNccRemaining(t)>0.001 && canConfirmPayment()){
-    b+=`<button class="btn-sec" onclick="closeModal();openOpNccPayment('${t.id}')" title="Ghi nhận một đợt thanh toán NCC" style="border-color:#1c3a5c;color:#1c3a5c">💰 Thanh toán NCC</button>`;
+  /* v3.19.03 (Sếp 26/8: "Tại màn nhập này không cần chọn ngân hàng — sau khi L2 duyệt, khoản trả NCC phải về Chờ thanh toán
+     tại Phê duyệt như các khoản khác"): đã L2 → dẫn sang 💸 Chờ thanh toán (Bảng kê chọn nguồn tiền), không mở form chọn nguồn;
+     chờ L2 → không có nút chi (đi đúng luồng). Ghi bù lịch sử vẫn ở foot (opAddOldPayment). */
+  if(st==='approved' && opNccRemaining(t)>0.001 && canConfirmPayment()){
+    b+=`<button class="btn-sec" onclick="closeModal();navTo('approval');setTimeout(()=>{ try{ _apprSetLevel('bk_pay'); }catch(e){} },150)" title="Khoản đã duyệt L2 → nằm ở 💸 Chờ Thanh Toán — tick + chọn nguồn tiền ở Bảng kê như các khoản khác" style="border-color:#1c3a5c;color:#1c3a5c">💸 → Chờ thanh toán (Bảng kê)</button>`;
   }
   /* v3.17.90: nút nhập bù lịch sử đã có ở foot modal (site 3.07.x) — gỡ bản TRÙNG tại đây
      (ảnh Sếp: 2 nút giống hệt cạnh nhau trên phiếu TỪ CHỐI). */
@@ -64914,6 +65248,12 @@ function opAddOldPayment(id){
 }
 /* v3.07.49: mở form ghi nhận một đợt thanh toán NCC. */
 function openOpNccPayment(id){
+  /* v3.19.03: khoản đã vào luồng duyệt (L2 hoặc chờ L2) → không nhập chi tay ở đây; chi và chọn nguồn tại Bảng kê */
+  try{ const _t0=VesselService.opTransactions().find(x=>x.id===id); const _st0=_t0?opWfStatus(_t0):'';
+    if(_t0 && (_st0==='approved'||_st0==='pending_l2') && !isAdmin()){
+      openModal('💸 Khoản này chi qua Bảng kê', `<div style="font-size:13px;line-height:1.7">Khoản trả NCC <b>${esc(_t0.vendor||_t0.desc||'')}</b> ${_st0==='approved'?'đã duyệt L2 và đang nằm ở <b>💸 Chờ Thanh Toán</b>':'đang <b>chờ L2 duyệt</b>'}.<br>Nguồn tiền (TK ngân hàng / giải ngân / tiền mặt) chọn tại <b>Bảng kê</b> như mọi khoản khác — không nhập tay ở đây.</div>`,
+        `<button class="btn-ghost" onclick="closeModal()">Đóng</button>${_st0==='approved'?`<button class="btn-primary" onclick="closeModal();navTo('approval');setTimeout(()=>{ try{ _apprSetLevel('bk_pay'); }catch(e){} },150)">💸 → Chờ thanh toán</button>`:''}`);
+      return; } }catch(e){}
   const t=VesselService.opTransactions().find(x=>x.id===id);
   if(!t){ toast('Phiếu đã bị xóa','warn'); renderAll(); return; }
   if(!canConfirmPayment()){ toast('Bạn không có quyền xác nhận thanh toán','bad'); return; }
@@ -64928,7 +65268,7 @@ function openOpNccPayment(id){
     </div>
     <div class="field"><label>Diễn giải phí (tùy chọn)</label><input type="text" id="op-ncc-feenote" placeholder="VD: phí chuyển tiền đợt này"></div>
     <div class="field"><label>NGUỒN TIỀN CHI <span style="font-weight:400;color:var(--bad);font-size:10px;text-transform:none">(bắt buộc — v3.17.44)</span></label>
-      <select id="op-ncc-bank"><option value="">— CHỌN NGUỒN TIỀN —</option><option value="CASH">💵 Tiền mặt / Quỹ</option>${AccountingService.bankAccounts().filter(a=>a.isActive!==false).map(a=>`<option value="${esc(a.id)}">${esc(bankAcctLabel(a))} (${esc(a.ccy||'USD')})</option>`).join('')}</select>
+      <select id="op-ncc-bank"><option value="">— CHỌN NGUỒN TIỀN —</option><option value="CASH">💵 Tiền mặt / Quỹ</option><optgroup label="🏦 Chuyển khoản từ TK">${AccountingService.bankAccounts().filter(a=>a.isActive!==false).map(a=>`<option value="${esc(a.id)}">${esc(bankAcctLabel(a))} (${esc(a.ccy||'USD')})</option>`).join('')}</optgroup><!-- v3.19.01 (Sếp 26/8 "nguồn: thiếu giải ngân"): giải ngân từ hạn mức NH — method loan, không chạm TK, gom khế ước nháp (đã có sẵn ở _opPayApply 3.18.62 nhưng dropdown chưa có) --><optgroup label="🏛 Giải ngân từ hạn mức NH (không trừ TK, gom khế ước nháp)">${AccountingService.bankAccounts().filter(a=>a.isActive!==false).map(a=>`<option value="LOAN:${esc(a.id)}">🏛 GN · ${esc(bankAcctLabel(a))} (${esc(a.ccy||'USD')})</option>`).join('')}</optgroup><option value="OFFSET">⇄ Cấn trừ công nợ chủ tàu (không TK, không phí)</option></select>
     </div>
     <div class="field"><label>Ghi chú (tùy chọn)</label><input type="text" id="op-ncc-pay-note" placeholder="VD: chuyển khoản VCB / tiền mặt"></div>`;
   openModal('💰 Thanh toán NCC — đợt mới', body,
@@ -64994,7 +65334,7 @@ function opSaveNccPayment(id){
   }
   // v3.17.71: NGUỒN TIỀN đọc & validate TRƯỚC commit (trước đây nằm trong commit — return giữa chừng)
   const _nccBank=((document.getElementById('op-ncc-bank')||{}).value||'');
-  if(!_nccBank){ toast('Chọn NGUỒN TIỀN chi đợt này: TK ngân hàng hoặc 💵 Tiền mặt/Quỹ (v3.17.44)','bad'); return; }
+  if(!_nccBank){ toast('Chọn NGUỒN TIỀN chi đợt này: TK ngân hàng · 🏛 Giải ngân · 💵 Tiền mặt/Quỹ · ⇄ Cấn trừ (v3.17.44)','bad'); return; }
   commitMutation(()=>{
   _opPayApply(t,{date, amt, ccy, note, src:_nccBank, bf:_bf, of:_of, fn:_fn});   /* v3.17.71: một đường ghi duy nhất */
   }, {action:'op_ncc_payment', fields:['opTransactions'], onOk:()=>{
