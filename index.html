@@ -3825,7 +3825,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.18.78';
+const APP_VERSION='3.18.79';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -22902,6 +22902,20 @@ window.pexImportOpen=function(){
         var defPer=((document.getElementById('px-period')||{}).value)||new Date().toISOString().slice(0,7);
         var bm={}; HRService.employees().forEach(function(e){ if(e&&!e._deleted&&(e.status!=='inactive'||e.resignDate)) bm[String(e.smartId||'').trim().toUpperCase()]=e; });
         var pr=pexParseRows_(aoa, bm, defPer);
+        /* v3.18.79 (ảnh Sếp 26/8: chọn file DS trợ cấp của HR ở nút Nhập lô → 0 hợp lệ, 153 lỗi): file KHÔNG theo khuôn
+           7 cột nhưng là KHUÔN DANH SÁCH HR (MSNV + Mức trợ cấp) → hỏi đường đi thay vì báo lỗi từng dòng. */
+        if(!pr.ok.length){
+          try{
+            var rdHr=_pexbReadWorkbook(new Uint8Array(ev.target.result), f.name, f.type);
+            if(rdHr.sheets.length){
+              window._pexbImp=rdHr;
+              var nPpl=rdHr.sheets.reduce(function(s,sh){ return s+sh.parsed.rows.length; },0);
+              openModal('📥 File theo khuôn danh sách HR', '<div style="font-size:13px;line-height:1.7">File <b>'+esc(f.name)+'</b> là khuôn <b>danh sách đề xuất của HR</b> ('+rdHr.sheets.length+' sheet · '+nPpl+' người), không phải mẫu 7 cột của Nhập lô.<br>Chọn cách nhập:<ul style="margin:6px 0 0 18px"><li><b>💸 Đợt chi riêng</b> (khuyên dùng cho trợ cấp lễ/thưởng chi ngoài kỳ): KTT duyệt → bảng NH riêng → phiếu KT; thuế trừ trong kỳ lương tháng ngày chi.</li><li><b>📥 Lô chi cùng kỳ</b>: các khoản cộng vào thực lãnh kỳ lương tháng ngày chi, trả cùng bảng lương.</li></ul></div>',
+                '<button class="btn-ghost" onclick="window._pexbImp=null;closeModal();payExtrasOpen()">✖ Hủy</button><button class="btn-sec" onclick="pexImportHrAsBatch()">📥 Lô chi cùng kỳ</button><button class="btn-primary" onclick="pexbImportPreview()">💸 Đợt chi riêng</button>');
+              return;
+            }
+          }catch(e2){}
+        }
         if(!pr.ok.length && !pr.err.length){ toast('File trống','warn'); return; }
         var h='<div style="font-size:12px"><div>📥 <b>'+pr.ok.length+'</b> khoản hợp lệ · <b style="color:#c0392b">'+pr.err.length+'</b> dòng lỗi (bị bỏ)</div>'
           +(pr.err.length?('<div style="max-height:20vh;overflow:auto;font-size:10.5px;color:#c0392b;margin:4px 0">'+pr.err.map(esc).join('<br>')+'</div>'):'')
@@ -22917,6 +22931,31 @@ window.pexImportOpen=function(){
     rd.readAsArrayBuffer(f);
   };
   inp.click();
+};
+/* v3.18.79: file khuôn HR → nhập thành LÔ chi cùng kỳ (chọn loại + thuế rồi xem trước như Nhập lô thường). */
+window.pexImportHrAsBatch=function(){
+  var imp=window._pexbImp; if(!imp){ toast('Chưa có file','warn'); return; }
+  var presetOpts=Object.keys(PEX_PRESETS).filter(function(k){ return PEX_PRESETS[k].sign>0; }).map(function(k){ return '<option value="'+k+'"'+(k==='support_tx'?' selected':'')+'>'+esc(PEX_PRESETS[k].label)+'</option>'; }).join('');
+  openModal('📥 Nhập lô từ file HR — chi cùng kỳ', '<div style="font-size:13px"><label>Loại khoản<select id="pexhr-preset" style="width:100%;padding:6px" onchange="var p=PEX_PRESETS[this.value];if(p)document.getElementById(\'pexhr-tax\').checked=!!p.taxable">'+presetOpts+'</select></label><label style="display:block;margin-top:8px"><input type="checkbox" id="pexhr-tax" checked> Chịu thuế TNCN</label><div style="font-size:11px;color:var(--muted);margin-top:6px">Kỳ áp dụng = tháng của ngày chi ghi trong file ('+esc((imp.sheets[0].parsed.payDate||'').slice(0,7)||'—')+'); sheet tổng hợp (trùng MSNV) sẽ bị bỏ để không chi kép.</div></div>',
+    '<button class="btn-ghost" onclick="window._pexbImp=null;closeModal();payExtrasOpen()">✖ Hủy</button><button class="btn-primary" onclick="pexImportHrAsBatchGo()">Xem trước</button>');
+};
+window.pexImportHrAsBatchGo=function(){
+  var imp=window._pexbImp; if(!imp) return;
+  var preset=(document.getElementById('pexhr-preset')||{}).value||'support_tx', taxable=!!((document.getElementById('pexhr-tax')||{}).checked);
+  /* bỏ sheet tổng hợp (chứa trọn MSNV sheet khác) */
+  var sets=imp.sheets.map(function(sh){ return new Set(sh.parsed.rows.map(function(r){ return r.smartId; })); });
+  var keep=imp.sheets.filter(function(sh,si){ return !imp.sheets.some(function(o,oi){ return oi!==si && sets[oi].size && sets[oi].size<sets[si].size && Array.from(sets[oi]).every(function(m){ return sets[si].has(m); }); }); });
+  var bm={}; HRService.employees().forEach(function(e){ if(e&&!e._deleted&&(e.status!=='inactive'||e.resignDate)) bm[String(e.smartId||'').trim().toUpperCase()]=e; });
+  var pr=_pexbSheetsToBatchRows(keep, bm, preset, taxable, imp.file.name);
+  window._pexbImp=null;
+  var h='<div style="font-size:12px"><div>📥 <b>'+pr.ok.length+'</b> khoản hợp lệ · <b style="color:#c0392b">'+pr.err.length+'</b> dòng lỗi (bị bỏ)</div>'
+    +(pr.err.length?('<div style="max-height:20vh;overflow:auto;font-size:10.5px;color:#c0392b;margin:4px 0">'+pr.err.map(esc).join('<br>')+'</div>'):'')
+    +'<div style="max-height:30vh;overflow:auto"><table class="tbl" style="font-size:11px"><tr><th>MSNV</th><th>Loại</th><th>±Tiền</th><th>Kỳ</th><th>Thuế</th><th>Mô tả</th></tr>'
+    +pr.ok.map(function(x){ return '<tr><td>'+esc(x.smartId)+'</td><td>'+esc(PEX_PRESETS[x.sourceType].label)+'</td><td style="text-align:right">+'+Number(x.amount).toLocaleString('vi-VN')+'</td><td>'+x.period+'</td><td>'+(x.taxable?'chịu thuế':'miễn')+'</td><td>'+esc(x.desc)+'</td></tr>'; }).join('')
+    +'</table></div></div>';
+  window._pexImp=pr.ok;
+  openModal('📥 Nhập lô khoản PS (từ file HR) — xem trước', h,
+    '<button class="btn-ghost" onclick="window._pexImp=null;closeModal();payExtrasOpen()">✖ Hủy</button>'+(pr.ok.length?'<button class="btn-primary" onclick="pexImportGo()">✓ Tạo '+pr.ok.length+' NHÁP (chờ KTT duyệt)</button>':''));
 };
 window.pexImportGo=function(){
   var list=window._pexImp||[]; window._pexImp=null;
@@ -23233,6 +23272,23 @@ function pexbOpen(){
     `<button class="btn-ghost" onclick="closeModal()">Đóng</button>`);
 }
 /* ---- Nhập từ file HR: mỗi sheet danh sách = 1 đợt; SME+TAU cùng sheet → cùng đợt ---- */
+/* v3.18.79: đọc workbook khuôn HR → {file:{name,mime,b64}, sheets:[{name,parsed}]} — dùng chung cho Đợt chi riêng
+   và cho Nhập lô (khi KT lỡ chọn file HR ở nút Nhập lô — ảnh Sếp 26/8: 0 hợp lệ · 153 lỗi "MSNV không khớp"). */
+function _pexbReadWorkbook(buf, fname, mime){
+  const wb=XLSX.read(buf,{type:'array',cellDates:true});
+  const sheets=[];
+  wb.SheetNames.forEach(sn=>{ const aoa=XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,raw:true}); if(pexbSheetIsList(aoa)){ const p=pexbParseSheet(aoa); if(p.rows.length) sheets.push({name:sn, parsed:p}); } });
+  const b64=(function(){ let t=''; const CH=0x8000; for(let i=0;i<buf.length;i+=CH) t+=String.fromCharCode.apply(null,buf.subarray(i,i+CH)); return btoa(t); })();
+  return {file:{name:fname, mime:mime||'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', b64}, sheets};
+}
+/* Khuôn HR → dòng nhập lô chi CÙNG kỳ (khi KT chọn đường này thay vì đợt chi riêng). */
+function _pexbSheetsToBatchRows(sheets, empBySmart, preset, taxable, fname){
+  const out={ok:[], err:[]}; const pr=PEX_PRESETS[preset]||PEX_PRESETS.support_tx;
+  (sheets||[]).forEach(sh=>{ const per=(sh.parsed.payDate||todayISO()).slice(0,7);
+    sh.parsed.rows.forEach(r=>{ const e=empBySmart[r.smartId]; if(!e){ out.err.push('Sheet '+sh.name+' dòng '+r.line+' ['+r.smartId+']: MSNV không khớp hồ sơ'); return; }
+      out.ok.push({empId:e.id, smartId:r.smartId, sourceType:preset, sign:1, amount:Math.round(r.amount), period:per, effectivePeriod:per, taxable:!!taxable, insuranceApplicable:false, showOnPayslip:true, desc:(sh.name||fname||'Khoản PS').replace(/\.(xlsx|xls)$/i,''), docRef:fname||''}); }); });
+  return out;
+}
 function pexbImportOpen(){
   if(!pexCanCreate_()){ toast('Nhập đợt: NS tiền lương / KT / Admin','bad'); return; }
   if(typeof XLSX==='undefined'){ toast('Thư viện Excel chưa sẵn sàng','bad'); return; }
@@ -23243,12 +23299,9 @@ function pexbImportOpen(){
     rd.onload=function(ev){
       try{
         const buf=new Uint8Array(ev.target.result);
-        const wb=XLSX.read(buf,{type:'array',cellDates:true});
-        const sheets=[];
-        wb.SheetNames.forEach(sn=>{ const aoa=XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,raw:true}); if(pexbSheetIsList(aoa)){ const p=pexbParseSheet(aoa); if(p.rows.length) sheets.push({name:sn, parsed:p}); } });
-        if(!sheets.length){ toast('Không tìm thấy sheet danh sách (cần cột MSNV + Mức trợ cấp/Số tiền)','bad'); return; }
-        const b64=(function(){ let s=''; const CH=0x8000; for(let i=0;i<buf.length;i+=CH) s+=String.fromCharCode.apply(null,buf.subarray(i,i+CH)); return btoa(s); })();
-        window._pexbImp={file:{name:f.name, mime:f.type||'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', b64}, sheets};
+        const rd2=_pexbReadWorkbook(buf, f.name, f.type);   /* v3.18.79: dùng chung */
+        if(!rd2.sheets.length){ toast('Không tìm thấy sheet danh sách (cần cột MSNV + Mức trợ cấp/Số tiền)','bad'); return; }
+        window._pexbImp=rd2;
         pexbImportPreview();
       }catch(err){ toast('Lỗi đọc file: '+(err&&err.message||err),'bad'); }
     };
