@@ -3825,7 +3825,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.18.69';
+const APP_VERSION='3.18.75';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -7145,7 +7145,8 @@ const ALL_DATA_FIELDS=[
      trong ALL_DATA_FIELDS → không đẩy/kéo/hợp nhất với cloud — bảng kê, phí lô, danh mục TSBĐ chỉ nằm
      trên máy người tạo. Cùng bài học v3.07.05 / v3.12.97 / v3.16.13. */
   'paymentSheets','bkBatchFees','pledges','vesselNotifs','matCostRules',   /* v3.18.62: quy tắc tiền tố mã vật tư → mã chi phí (sync TỪ NGÀY SINH — bài học expenseTree) */   /* v3.18.62: vesselNotifs thiếu từ ngày sinh — thông báo tàu không bao giờ sang máy khác */
-  'payCcExpenseMap',   /* v3.18.66: mã chi phí theo bộ phận (tàu/VP/dự án) cho cụm Phiếu lương NET — sync TỪ NGÀY SINH (bài học expenseTree) */
+  'payCcExpenseMap',
+  'payExtraBatches',   /* v3.18.73: đợt chi riêng khoản PS — sync TỪ NGÀY SINH */   /* v3.18.66: mã chi phí theo bộ phận (tàu/VP/dự án) cho cụm Phiếu lương NET — sync TỪ NGÀY SINH (bài học expenseTree) */
   'darReports','darTemplates',   /* v3.18.62 */
   'transactions',
   'cashFunds','cashTxns',
@@ -11185,7 +11186,7 @@ function renderBkPayList(tEl){
         <select id="bk-src-${ix}" data-bksrc="${esc(x.id)}" onchange="bkSummary()" style="width:100%;font-size:11px">${bkOpt(x.defMethod==='CASH'?'CASH':x.defBank, true)}${x.kind==='op'?`<option value="OFFSET">⚖ Cấn trừ công nợ chủ tàu</option>`:''}</select></span>   <!-- v3.18.62 (Sếp): chi hộ cũng GIẢI NGÂN như AP — tiền đi từ TK/hạn mức công ty -->
       <span style="text-align:right;white-space:nowrap">
         ${x.kind==='op'
-          ?`<input id="bk-amt-${ix}" value="${(+x.amt||0).toLocaleString('vi-VN')}" onchange="bkSummary()" title="Chi hộ: L2 duyệt CẢ PHIẾU — KT sửa số ĐỢT này, kẹp ≤ còn nợ ${(+x.amt||0).toLocaleString('vi-VN')} (v3.17.85)" style="width:110px;text-align:right;font-family:var(--font-mono);font-size:11px"> <span style="font-size:10px">${esc(x.ccy)}</span>`
+          ?`<input id="bk-amt-${ix}" value="${_bkAmtFill(+x.amt||0, x.ccy)}" onchange="bkSummary()" title="Chi hộ: L2 duyệt CẢ PHIẾU — KT sửa số ĐỢT này, kẹp ≤ còn nợ ${(+x.amt||0).toLocaleString('vi-VN')} (v3.17.85)" style="width:110px;text-align:right;font-family:var(--font-mono);font-size:11px"> <span style="font-size:10px">${esc(x.ccy)}</span>`
           :`<b style="font-family:var(--font-mono);font-size:11px" title="AP: số theo LỆNH đã duyệt L2 — KT đổi nguồn, không đổi số">${(+x.amt||0).toLocaleString('vi-VN')} ${esc(x.ccy)}</b>`}</span></div>`;
   const _grpIds=new Map(); let _gi=0; const _grpIdOf=(x)=>{ const k=_gk(x); if(!_grpIds.has(k)) _grpIds.set(k,++_gi); return _grpIds.get(k); };
   const _seenG=new Set();
@@ -11262,7 +11263,7 @@ function bkSummary(){
     /* v3.18.62 (Sếp): TỔNG RIÊNG các dòng ĐÃ TICK trong khối — đối chiếu UNC đi ngân hàng */
     const out=document.getElementById('bk-gsel-'+g);
     if(out){ let sum=0; ks.forEach(c=>{ if(!c.checked) return; const x=rows.find(r=>r.id===c.getAttribute('data-bk')); if(!x) return; const ix=rows.indexOf(x); let v=+x.amt||0;
-        if(x.kind==='op'){ const inp=document.getElementById('bk-amt-'+ix); if(inp){ const u=_unformatNumber(inp.value||''); if(u>0) v=Math.min(u,+x.amt||0); } } sum+=v; });
+        if(x.kind==='op'){ const inp=document.getElementById('bk-amt-'+ix); if(inp){ const u=_bkAmtParse(inp.value||'', x.ccy); if(u>0) v=Math.min(u,+x.amt||0); } } sum+=v; });
       out.textContent=n?('✓ '+n+'/'+ks.length+' = '+sum.toLocaleString('vi-VN')):''; out.title='Tổng các khoản đã tick trong khối — đối chiếu UNC'; } }); }catch(e){}
   let n=0, tBank=0, tCash=0, tGn=0, tOff=0;
   document.querySelectorAll('[data-bk]:checked').forEach(c=>{
@@ -11296,7 +11297,7 @@ function bkConfirm(){
     const src=st.src||'';
     if(!src){ toast('Chọn nguồn tiền (TK ngân hàng / 💵 Tiền mặt) cho TỪNG khoản đã tick — KT là người cuối cùng chuỗi thanh toán ('+String(x.label||'').slice(0,30)+')','bad'); return; }
     let payAmt=+x.amt||0;   /* v3.17.85: chi hộ — số ĐỢT KT nhập, kẹp ≤ còn nợ; AP — số lệnh L2, không sửa */
-    if(x.kind==='op'){ const u=_unformatNumber(st.amt||'');
+    if(x.kind==='op'){ const u=_bkAmtParse(st.amt||'', x.ccy);   /* v3.18.74: theo tiền tệ dòng */
       if(st.amt!=null&&st.amt!==''){
         if(!(u>0)){ toast('Số chi đợt của phiếu chi hộ phải > 0','bad'); return; }
         if(u>(+x.amt||0)+0.001){ toast('Số chi đợt ('+u.toLocaleString('vi-VN')+') vượt CÒN NỢ ('+(+x.amt||0).toLocaleString('vi-VN')+') — kẹp theo còn nợ','bad'); return; }
@@ -15359,6 +15360,7 @@ function _vaEnforceNav(){
   }catch(e){ console.warn('[va-nav]',e); }
 }
 function applyRoleUI(){
+  try{ expGroupsSync(); }catch(e){}   /* v3.18.71: sau đăng nhập/pull dữ liệu */
   const user=CURRENT_ROLE==='user';
   // v2.75.0/v2.83.0: nút "Tổng quan nhanh" cho Admin, Duyệt L2 (CFO), KT Kiểm (KTT), Duyệt L1 (trưởng BP)
   const qvBtn=document.getElementById('quickview-btn');
@@ -16685,12 +16687,14 @@ function expTreeUpsert(code, name){
   if(!S.expenseTree) S.expenseTree=[];
   const ex=S.expenseTree.find(x=>String(x.code)===code);
   if(ex){ ex.name=name; } else { S.expenseTree.push({code, name}); }
+  try{ expGroupsSync(); }catch(e){}   /* v3.18.71: nhánh chữ cái mới/đổi tên → nhóm động cập nhật ngay */
   return true;
 }
 function expTreeRemove(code){
   code=String(code||'').trim();
   if(!S.expenseTree) return false;
   S.expenseTree=S.expenseTree.filter(x=>String(x.code)!==code);
+  try{ expGroupsSync(); }catch(e){}   /* v3.18.71 */
   return true;
 }
 
@@ -17328,6 +17332,36 @@ const EXPENSE_GROUPS = {
   OTHER:    {label:'🔧 Khác',               color:'#6b6b6b'},
   BOD:      {label:'🔒 Nội bộ BOD',         color:'#8b3a2a'}
 };
+/* ═══ v3.18.71 (Sếp 25/8: "Thêm nhóm có được không?" → "app tự gán" màu): NHÓM ĐỘNG SINH TỪ CHỮ CÁI.
+   Nhánh CẤP 1 (1 chữ in hoa) trong Bảng tên nhánh mà KHÔNG nằm trong ETYPE_LETTER_GROUP (M/F/T/O/C cố định)
+   = một nhóm hệ thống mới: key = chính chữ cái, nhãn = tên nhánh, màu app tự gán theo thứ tự.
+   expGroupsSync() cấy/gỡ các key động vào EXPENSE_GROUPS tại chỗ — mọi nơi đọc EXPENSE_GROUPS (dropdown,
+   form, danh mục) gọi sync trước là nhận nhóm mới; nhóm cố định KHÔNG bao giờ bị đụng. */
+const EXP_GROUP_PALETTE=['#2f6f8f','#8f4f2f','#4f6f2f','#6f2f8f','#8f6f2f','#2f8f6f','#8f2f5f','#4f4f8f'];
+function expGroupIsDynamic(gk){ return !!(EXPENSE_GROUPS[gk] && EXPENSE_GROUPS[gk].dynamic); }
+function expGroupsSync(){
+  try{
+    const fixedLetters=(typeof ETYPE_LETTER_GROUP!=='undefined')?ETYPE_LETTER_GROUP:{};
+    const letters=(typeof expTreeList==='function'?expTreeList():[])
+      .filter(n=>n && /^[A-Z]$/.test(String(n.code||'')) && !fixedLetters[String(n.code)])
+      .map(n=>({code:String(n.code), name:String(n.name||'').trim()}))
+      .sort((a,b)=>a.code.localeCompare(b.code));
+    const keep=new Set(letters.map(l=>l.code));
+    Object.keys(EXPENSE_GROUPS).forEach(k=>{ if(EXPENSE_GROUPS[k].dynamic && !keep.has(k)) delete EXPENSE_GROUPS[k]; });
+    letters.forEach((l,i)=>{
+      const color=(EXPENSE_GROUPS[l.code]&&EXPENSE_GROUPS[l.code].color)||EXP_GROUP_PALETTE[i%EXP_GROUP_PALETTE.length];
+      EXPENSE_GROUPS[l.code]={label:'📁 '+(l.name||l.code), color, dynamic:true};
+    });
+  }catch(e){}
+}
+/* Chữ cái → key nhóm: bảng cố định thắng; chữ cái động → chính nó (nếu đã sync thành nhóm); lạ → rỗng. */
+function etypeLetterGroup(L){
+  L=String(L||'').toUpperCase();
+  const f=(typeof ETYPE_LETTER_GROUP!=='undefined')?ETYPE_LETTER_GROUP[L]:'';
+  if(f && EXPENSE_GROUPS[f]) return f;
+  if(EXPENSE_GROUPS[L] && EXPENSE_GROUPS[L].dynamic) return L;
+  return '';
+}
 
 /* ============================================================
    REVENUE TYPES (v1.30.4) — Loại doanh thu cho Phải thu (AR)
@@ -17424,6 +17458,7 @@ function expenseTypeOpts(selectedCode){
     groups[t.group].push(t);
   });
   let html='<option value="">— Chọn loại chi phí —</option>';
+  try{ expGroupsSync(); }catch(e){}   /* v3.18.71 */
   Object.keys(EXPENSE_GROUPS).forEach(gk=>{
     if(!groups[gk]) return;
     html+=`<optgroup label="${EXPENSE_GROUPS[gk].label}">`;
@@ -20167,7 +20202,7 @@ function openPayrollPeriods(){
   const body=`
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
       <div style="font-size:13px;color:var(--muted)">Mỗi kỳ = 1 tháng × 1 nhóm lương. Tính cả bảng (preview), khóa kỳ sau khi duyệt.</div>
-      <div style="display:flex;gap:6px"><!-- v3.17.35 (Sếp): bỏ nút 📊 Dashboard khỏi Kỳ lương — Sổ lương + Chi phí lương năm đã đứng ngoài, dashboard riêng hết vai trò lối tắt --><button class="btn-sec" style="font-size:13px" onclick="openSalaryLedger()" title="Sổ theo dõi lương nhân sự — thẻ lương từng người (v3.17.34: chuyển ra cạnh Tạo kỳ lương theo lệnh)">💳 Sổ lương</button><button class="btn-sec" style="font-size:13px" onclick="payYearCostReport()" title="Sổ Chi phí Lương Năm — GROSS + 21,5% BHXH cty">📊 Chi phí lương năm</button><!-- v3.14.58 (Sếp 07/8): GỠ nút ⚖ Pháp nhân kỳ — công cụ migration một-lần đã xong vai trò (mọi kỳ có companyId; kỳ mới bắt buộc chọn pháp nhân khi tạo). Hàm meMigrationOpen GIỮ: health check vẫn dẫn vào được nếu phát sinh kỳ thiếu pháp nhân. --><button class="btn-primary" style="font-size:13px" onclick="payPeriodCreate()">+ Tạo kỳ lương</button></div>
+      <div style="display:flex;gap:6px"><!-- v3.17.35 (Sếp): bỏ nút 📊 Dashboard khỏi Kỳ lương — Sổ lương + Chi phí lương năm đã đứng ngoài, dashboard riêng hết vai trò lối tắt --><button class="btn-sec" style="font-size:13px" onclick="openSalaryLedger()" title="Sổ theo dõi lương nhân sự — thẻ lương từng người (v3.17.34: chuyển ra cạnh Tạo kỳ lương theo lệnh)">💳 Sổ lương</button><button class="btn-sec" style="font-size:13px" onclick="payYearCostReport()" title="Sổ Chi phí Lương Năm — GROSS + 21,5% BHXH cty">📊 Chi phí lương năm</button><!-- v3.14.58 (Sếp 07/8): GỠ nút ⚖ Pháp nhân kỳ — công cụ migration một-lần đã xong vai trò (mọi kỳ có companyId; kỳ mới bắt buộc chọn pháp nhân khi tạo). Hàm meMigrationOpen GIỮ: health check vẫn dẫn vào được nếu phát sinh kỳ thiếu pháp nhân. --><!-- v3.18.75 (Sếp 26/8: "vẫn phải tạo kỳ lương rồi mới import được Khoản PS"): lối vào ĐỘC LẬP — khoản PS/đợt chi riêng nhập trước, kỳ tạo sau vẫn tự bắt --><button class="btn-sec" style="font-size:13px" onclick="payExtrasOpen()" title="Khoản thu/chi phát sinh — nhập/duyệt KHÔNG cần có kỳ; kỳ lương tháng tạo sau sẽ tự bắt khoản đã duyệt khi Áp">➕ Khoản PS</button><button class="btn-sec" style="font-size:13px" onclick="pexbOpen()" title="Thưởng/trợ cấp đột xuất chi RIÊNG (không cùng kỳ lương) — nhập file HR → KTT duyệt → bảng NH → Chuyển kế toán">💸 Đợt chi riêng</button><button class="btn-primary" style="font-size:13px" onclick="payPeriodCreate()">+ Tạo kỳ lương</button></div>
     </div>
     <table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:var(--rule);text-align:left">
       <th style="padding:6px 8px">Kỳ</th><th style="padding:6px 8px">Nhóm</th><th style="padding:6px 8px">Pháp nhân</th><th style="padding:6px 8px;text-align:center">Số NV</th><th style="padding:6px 8px;text-align:right">Tổng thực lĩnh</th><th style="padding:6px 8px">Trạng thái</th><th style="padding:6px 8px"></th>
@@ -22828,6 +22863,10 @@ function payComputeRow(p, row){
   const F=PAY_EXTRA_TAXFIELD[p.profile];
   const ex=payExtrasFor(row.empId, p.period);
   const taxSum=ex.filter(x=>x.taxable).reduce((t,x)=>t+(x.sign<0?-1:1)*(+x.amount||0),0);
+  /* v3.18.73 (Sếp chốt 25/8): khoản CHI RIÊNG (payout==='separate' — đợt chi riêng, tiền đã trả ngoài kỳ):
+     chịu thuế → VẪN vào cột thu nhập chịu thuế (thuế TNCN trừ trong tháng) nhưng bút toán trừ lại đúng số
+     để THỰC LÃNH KỲ không gồm tiền đã chi; miễn thuế → không đụng kỳ (chỉ hiện trên payslip GĐ2). */
+  const exSep=ex.filter(x=>x.payout==='separate');
   const inp=Object.assign({}, row.inputs||{});
   /* v3.15.02: nạp DIỆN CƯ TRÚ + tỷ giá tạm tính của kỳ cho engine ngoại tệ (chuyên gia/expat).
      Chỉ ĐỌC, không ghi; thiếu khai → engine tự báo pending, không tính bừa. */
@@ -22853,8 +22892,11 @@ function payComputeRow(p, row){
   row._extrasTaxApplied=taxSum||0;
   // non-taxable → adjustments (thay toàn bộ entries nguồn payExtra — idempotent)
   row.adjustments=(row.adjustments||[]).filter(a=>!a._extraId);
-  ex.filter(x=>!x.taxable).forEach(x=>{
+  ex.filter(x=>!x.taxable&&x.payout!=='separate').forEach(x=>{
     row.adjustments.push({amount:(x.sign<0?-1:1)*(+x.amount||0), note:x.desc||'Khoản phát sinh', _extraId:x.id, _hidePayslip:x.showOnPayslip===false});
+  });
+  exSep.filter(x=>x.taxable).forEach(x=>{   /* v3.18.73: đã chi riêng → trừ lại khỏi thực lãnh (thuế đã tính ở trên) */
+    row.adjustments.push({amount:-((x.sign<0?-1:1)*(+x.amount||0)), note:'Đã chi riêng '+(x.payDate||'')+': '+(x.desc||'Khoản phát sinh'), _extraId:x.id, _sepPaid:true, _hidePayslip:x.showOnPayslip===false});
   });
   const res=payDispatchCompute(p.profile, inp, p);
   /* v3.14.74 (Sếp 08/8 — "2 trường hợp không có chấm công, không có lương T01 tại PON: app vẫn tính BHXH"):
@@ -22955,8 +22997,347 @@ function _meApplyTax(p, row, res){
   o._me=_mkAudit(o, tc, null);
   return o;
 }
+/* ═══════════════════════════════════════════════════════════════════════════════════════
+   v3.18.73 GĐ1 (Sếp chốt 25/8): ĐỢT CHI RIÊNG KHOẢN PHÁT SINH — thưởng/trợ cấp đột xuất
+   KHÔNG chi cùng kỳ lương tháng.
+   · Không tạo kỳ lương mới. Một đường CHI (đợt) + một đường THUẾ (kỳ tháng).
+   · Nhập thẳng file HR (khuôn "DS đề xuất trợ cấp 02/09": mỗi pháp nhân 1 sheet, cột STT | Phân loại |
+     Nơi làm việc | Khối | MSNV | Họ và tên | Bộ phận | Chức danh | Ngày nhận việc | Thâm niên | Mức trợ cấp | Ghi chú)
+     — app tự tìm dòng tiêu đề, bỏ sheet Summary/DS thuyền viên. Số nhập = SỐ THỰC CHI (Sếp chốt).
+   · Đợt: nháp → KTT duyệt (SOD) → bảng chuyển NH riêng → Chuyển kế toán = 1 phiếu nhiều dòng
+     (cùng batchId) tách theo KHỐI × mã chi phí (key X:<KHỐI> trong S.payCcExpenseMap — khai 1 lần).
+   · Duyệt đợt sinh khoản PS approved dấu payout:'separate' (kỳ = tháng ngày chi): kỳ lương tháng
+     cộng vào THU NHẬP CHỊU THUẾ (thuế trừ trong tháng) nhưng KHÔNG cộng thực lãnh, KHÔNG vào bảng NH kỳ.
+   · File gốc HR đẩy Drive (upload_attachment) — app chỉ giữ link. Store payExtraBatches vào ALL_DATA_FIELDS.
+   Hàm THUẦN để test: pexbSheetIsList, pexbParseSheet, pexbCompanyGuess, pexbBlockKey, pexbCostLines.
+   ═══════════════════════════════════════════════════════════════════════════════════════ */
+function _pexbNorm(v){ return String(v==null?'':v).replace(/\u00a0/g,' ').replace(/\s+/g,' ').trim(); }
+function _pexbHeaderIdx(aoa){
+  for(let i=0;i<Math.min(aoa.length,40);i++){
+    const r=aoa[i]||[]; const cells=r.map(c=>_pexbNorm(c).toLowerCase());
+    const iMs=cells.findIndex(c=>/^msnv$|^mã\s*nv$|^mã số nv$/.test(c));
+    const iAmt=cells.findIndex(c=>/mức trợ cấp|số tiền|mức thưởng|thành tiền/.test(c));
+    if(iMs>=0 && iAmt>=0){
+      const col=(re)=>cells.findIndex(c=>re.test(c));
+      return { row:i, ms:iMs, amt:iAmt, name:col(/^họ và tên$|^họ tên$|^tên$/), block:col(/^khối$/), dept:col(/^bộ phận$|^phòng ban$/),
+               title:col(/chức danh/), pl:col(/^phân loại$/), note:col(/^ghi chú$/), site:col(/nơi làm việc/) };
+    }
+  }
+  return null;
+}
+function pexbSheetIsList(aoa){ return !!_pexbHeaderIdx(aoa||[]); }
+function _pexbNum(v){
+  if(typeof v==='number') return v;
+  const s=_pexbNorm(v); if(!s) return 0;
+  /* "1.000.000" / "1,000,000" / "1000000.5": bỏ dấu nhóm nghìn, giữ phần lẻ nếu có đúng 1 dấu cuối ≤2 số */
+  const m=s.replace(/[^\d.,-]/g,'');
+  const dec=/[.,](\d{1,2})$/.test(m) && !/[.,]\d{3}$/.test(m);
+  const clean=dec ? m.replace(/[.,](?=\d{1,2}$)/,'#').replace(/[.,]/g,'').replace('#','.') : m.replace(/[.,]/g,'');
+  return +clean||0;
+}
+function _pexbDate(v){
+  if(v instanceof Date && !isNaN(v)) return v.toISOString().slice(0,10);
+  const s=_pexbNorm(v); let m;
+  if((m=s.match(/^(\d{4})-(\d{2})-(\d{2})/))) return m[1]+'-'+m[2]+'-'+m[3];
+  if((m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/))) return m[3]+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0');
+  return '';
+}
+function pexbParseSheet(aoa){
+  aoa=aoa||[]; const hd=_pexbHeaderIdx(aoa);
+  const out={rows:[], err:[], total:0, skippedZero:0, payDate:'', header:hd};
+  if(!hd) return out;
+  /* ngày chi gợi ý: ô ngày ở các dòng TRÊN tiêu đề (HR để ngày lễ ở dòng đếm) */
+  for(let i=0;i<hd.row && !out.payDate;i++){ (aoa[i]||[]).forEach(c=>{ if(!out.payDate){ const d=_pexbDate(c); if(d) out.payDate=d; } }); }
+  for(let i=hd.row+1;i<aoa.length;i++){
+    const r=aoa[i]||[]; const ms=_pexbNorm(r[hd.ms]).toUpperCase();
+    const nm=hd.name>=0?_pexbNorm(r[hd.name]):'';
+    if(!ms){ if(/tổng cộng|tổng/i.test(nm)) continue; continue; }
+    const amt=_pexbNum(r[hd.amt]);
+    if(!(amt>0)){ out.skippedZero++; continue; }
+    out.rows.push({ smartId:ms, name:nm, block:hd.block>=0?_pexbNorm(r[hd.block]).toUpperCase():'', dept:hd.dept>=0?_pexbNorm(r[hd.dept]):'',
+      title:hd.title>=0?_pexbNorm(r[hd.title]):'', phanLoai:hd.pl>=0?_pexbNorm(r[hd.pl]).toUpperCase():'', note:hd.note>=0?_pexbNorm(r[hd.note]):'', amount:amt, line:i+1 });
+    out.total+=amt;
+  }
+  return out;
+}
+/* Phân loại (SME/TAU/POND/STER…) → pháp nhân: khớp MÃ công ty; TAU (đội tàu) thuộc công ty mẹ; lạ → công ty mẹ. */
+function pexbCompanyGuess(phanLoais, companies){
+  const cos=companies||[]; const parent=(cos.find(c=>c&&c.isParent)||cos[0]||{}).id||'';
+  const votes={};
+  (phanLoais||[]).forEach(pl=>{ const P=String(pl||'').toUpperCase();
+    const hit=cos.find(c=>c&&String(c.code||'').toUpperCase()===P) || (P==='TAU'?cos.find(c=>c&&c.isParent):null);
+    const id=(hit&&hit.id)||parent; votes[id]=(votes[id]||0)+1; });
+  let best=parent,bn=0; Object.keys(votes).forEach(k=>{ if(votes[k]>bn){bn=votes[k];best=k;} });
+  return best;
+}
+function pexbBlockKey(block){ return 'X:'+_pexbNorm(block).toUpperCase(); }
+function pexbCostLines(batch){
+  const g={};
+  ((batch&&batch.items)||[]).forEach(it=>{ const b=_pexbNorm(it.block).toUpperCase()||'(Chưa rõ khối)'; const k=pexbBlockKey(b);
+    if(!g[k]) g[k]={key:k, block:b, amount:0, count:0}; g[k].amount+=(+it.amount||0); g[k].count++; });
+  return Object.keys(g).sort().map(k=>g[k]);
+}
+function _pexbBatches(){ return (S.payExtraBatches||[]).filter(b=>b&&!b._deleted); }
+function _pexbById(id){ return (S.payExtraBatches||[]).find(b=>b&&b.id===id&&!b._deleted); }
+const PEXB_STATUS={draft:'📝 Nháp — chờ KTT duyệt', approved:'✓ KTT đã duyệt — chưa chuyển KT', submitted:'📤 Đã chuyển kế toán (cụm phiếu trong luồng ký)'};
+function pexbOpen(){
+  if(!pexCanCreate_() && !isAdmin() && !canApproveL1()){ toast('Đợt chi riêng: NS tiền lương / KT / KTT / Admin','bad'); return; }
+  const list=_pexbBatches().slice().sort((a,b)=>String(b.payDate||'').localeCompare(String(a.payDate||''))||String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
+  const fm=v=>Math.round(+v||0).toLocaleString('vi-VN');
+  const rows=list.map(b=>{ const tot=(b.items||[]).reduce((s,x)=>s+(+x.amount||0),0);
+    const act=[`<button class="btn-sec" style="font-size:11px" onclick="pexbView('${b.id}')">👁 Xem</button>`];
+    if(b.status==='draft'){ if(isAdmin()||canApproveL1()) act.push(`<button class="btn-primary" style="font-size:11px" onclick="pexbApprove('${b.id}')">✓ Duyệt</button>`);
+      if(pexCanCreate_()) act.push(`<button class="icon-btn danger" title="Xóa đợt nháp" onclick="pexbDelete('${b.id}')">⊘</button>`); }
+    if(b.status==='approved'){ act.push(`<button class="btn-sec" style="font-size:11px" onclick="pexbBankExport('${b.id}')">🏦 Bảng NH</button>`);
+      act.push(`<button class="btn-primary" style="font-size:11px" onclick="pexbSubmitPreview('${b.id}')">📤 Chuyển kế toán</button>`); }
+    if(b.status==='submitted'){ act.push(`<button class="btn-sec" style="font-size:11px" onclick="pexbBankExport('${b.id}')">🏦 Bảng NH</button>`); }
+    return `<tr style="border-bottom:1px solid var(--rule)">
+      <td style="padding:5px 6px"><b>${esc(b.name||'')}</b><div style="font-size:10.5px;color:var(--muted)">${esc((PEX_PRESETS[b.presetType]||{}).label||b.presetType||'')} · ${b.taxable?'chịu thuế TNCN':'miễn thuế'} · ${esc(companyName(b.companyId))}${b.sourceFile&&b.sourceFile.driveUrl?` · <a href="${esc(b.sourceFile.driveUrl)}" target="_blank">📎 file HR</a>`:(b.sourceFile&&b.sourceFile.name?' · 📄 '+esc(b.sourceFile.name):'')}</div></td>
+      <td style="padding:5px 6px;white-space:nowrap">${esc(b.payDate||'')}<div style="font-size:10.5px;color:var(--muted)">kỳ thuế ${esc(b.period||'')}</div></td>
+      <td style="padding:5px 6px;text-align:center">${(b.items||[]).length}</td>
+      <td style="padding:5px 6px;text-align:right;font-family:monospace">${fm(tot)}</td>
+      <td style="padding:5px 6px;font-size:11px">${PEXB_STATUS[b.status]||b.status}${b.apBatchId?`<div style="color:var(--muted)">phiếu KT · batch ${esc(String(b.apBatchId).slice(-6))}</div>`:''}</td>
+      <td style="padding:5px 6px;white-space:nowrap">${act.join(' ')}</td></tr>`; }).join('');
+  openModal('💸 Đợt chi riêng — khoản phát sinh không chi cùng kỳ lương', `
+    <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Thưởng/trợ cấp đột xuất chi <b>riêng</b>: nhập file HR → KTT duyệt → xuất bảng chuyển NH → Chuyển kế toán (1 phiếu nhiều dòng, tách theo Khối × mã chi phí). Số nhập là <b>số thực chi</b>; thuế TNCN của khoản (nếu chịu thuế) tự trừ trong kỳ lương tháng ngày chi — kỳ lương <b>không</b> trả lại tiền này.</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+      ${pexCanCreate_()?`<button class="btn-primary" style="font-size:11px" onclick="pexbImportOpen()">📥 Nhập đợt từ file HR</button>`:''}
+      <button class="btn-sec" style="font-size:11px" onclick="payExtrasOpen()">← Khoản PS</button>
+    </div>
+    <div style="max-height:52vh;overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="background:var(--rule);text-align:left"><th style="padding:4px 6px">Đợt</th><th style="padding:4px 6px">Ngày chi</th><th style="padding:4px 6px;text-align:center">NV</th><th style="padding:4px 6px;text-align:right">Tổng chi</th><th style="padding:4px 6px">Trạng thái</th><th></th></tr></thead>
+      <tbody>${rows||'<tr><td colspan="6" style="padding:14px;text-align:center;color:var(--muted)">Chưa có đợt nào — bấm 📥 Nhập đợt từ file HR</td></tr>'}</tbody></table></div>`,
+    `<button class="btn-ghost" onclick="closeModal()">Đóng</button>`);
+}
+/* ---- Nhập từ file HR: mỗi sheet danh sách = 1 đợt; SME+TAU cùng sheet → cùng đợt ---- */
+function pexbImportOpen(){
+  if(!pexCanCreate_()){ toast('Nhập đợt: NS tiền lương / KT / Admin','bad'); return; }
+  if(typeof XLSX==='undefined'){ toast('Thư viện Excel chưa sẵn sàng','bad'); return; }
+  const inp=document.createElement('input'); inp.type='file'; inp.accept='.xlsx,.xls';
+  inp.onchange=function(){
+    const f=inp.files&&inp.files[0]; if(!f) return;
+    const rd=new FileReader();
+    rd.onload=function(ev){
+      try{
+        const buf=new Uint8Array(ev.target.result);
+        const wb=XLSX.read(buf,{type:'array',cellDates:true});
+        const sheets=[];
+        wb.SheetNames.forEach(sn=>{ const aoa=XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,raw:true}); if(pexbSheetIsList(aoa)){ const p=pexbParseSheet(aoa); if(p.rows.length) sheets.push({name:sn, parsed:p}); } });
+        if(!sheets.length){ toast('Không tìm thấy sheet danh sách (cần cột MSNV + Mức trợ cấp/Số tiền)','bad'); return; }
+        const b64=(function(){ let s=''; const CH=0x8000; for(let i=0;i<buf.length;i+=CH) s+=String.fromCharCode.apply(null,buf.subarray(i,i+CH)); return btoa(s); })();
+        window._pexbImp={file:{name:f.name, mime:f.type||'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', b64}, sheets};
+        pexbImportPreview();
+      }catch(err){ toast('Lỗi đọc file: '+(err&&err.message||err),'bad'); }
+    };
+    rd.readAsArrayBuffer(f);
+  };
+  inp.click();
+}
+function pexbImportPreview(){
+  const imp=window._pexbImp; if(!imp) return;
+  const emps={}; HRService.employees().forEach(e=>{ if(e&&!e._deleted) emps[String(e.smartId||'').trim().toUpperCase()]=e; });
+  const cos=S.companies||[];
+  const presetOpts=Object.keys(PEX_PRESETS).filter(k=>PEX_PRESETS[k].sign>0).map(k=>`<option value="${k}"${k==='support_tx'?' selected':''}>${esc(PEX_PRESETS[k].label)}</option>`).join('');
+  const fm=v=>Math.round(+v||0).toLocaleString('vi-VN');
+  const defName=String(imp.file.name||'').replace(/\.(xlsx|xls)$/i,'');
+  const defDate=(imp.sheets.find(s=>s.parsed.payDate)||{parsed:{}}).parsed.payDate||todayISO();
+  /* sheet TỔNG HỢP (chứa trọn MSNV của sheet khác — vd "2026-SME-All" gộp SME+POND+STER) → mặc định KHÔNG tick,
+     tránh nhập kép; người dùng vẫn tick lại được nếu muốn 1 đợt chung. */
+  const sets=imp.sheets.map(sh=>new Set(sh.parsed.rows.map(r=>r.smartId)));
+  const isAll=imp.sheets.map((sh,si)=>imp.sheets.some((o,oi)=>oi!==si && sets[oi].size && sets[oi].size<sets[si].size && [...sets[oi]].every(m=>sets[si].has(m))));
+  const blocks=imp.sheets.map((sh,si)=>{
+    const p=sh.parsed; const miss=p.rows.filter(r=>!emps[r.smartId]);
+    const byBlock={}; p.rows.forEach(r=>{ const b=r.block||'(Chưa rõ khối)'; byBlock[b]=(byBlock[b]||0)+r.amount; });
+    const coId=pexbCompanyGuess(p.rows.map(r=>r.phanLoai), cos);
+    const coSel=cos.length>1?`<select id="pexb-co-${si}" style="font-size:12px">${cos.map(c=>`<option value="${esc(c.id)}"${c.id===coId?' selected':''}>${esc(c.code||'')} — ${esc(c.name||'')}</option>`).join('')}</select>`:esc(companyName(coId))+`<input type="hidden" id="pexb-co-${si}" value="${esc(coId)}">`;
+    return `<div style="border:1px solid var(--rule);border-radius:8px;padding:8px 10px;margin-bottom:8px">
+      <label style="font-size:12px"><input type="checkbox" class="pexb-sh" data-si="${si}"${isAll[si]?'':' checked'}> <b>Sheet "${esc(sh.name)}"</b> — ${p.rows.length} người · <b>${fm(p.total)}</b> đ${p.skippedZero?` · bỏ ${p.skippedZero} dòng tiền 0`:''}${isAll[si]?' · <span style="color:#b8730a">sheet tổng hợp — trùng MSNV với sheet khác, mặc định bỏ</span>':''}</label>
+      <div style="font-size:11.5px;margin-top:4px">Pháp nhân: ${coSel}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:3px">Theo khối: ${Object.keys(byBlock).map(b=>esc(b)+' '+fm(byBlock[b])).join(' · ')}</div>
+      ${miss.length?`<div style="font-size:11px;color:#c0392b;margin-top:3px">⚠ ${miss.length} MSNV không khớp hồ sơ (bị bỏ): ${esc(miss.slice(0,6).map(m=>m.smartId).join(', '))}${miss.length>6?'…':''}</div>`:''}
+    </div>`; }).join('');
+  openModal('📥 Nhập đợt chi riêng từ file HR — xem trước', `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px;margin-bottom:10px">
+      <label style="grid-column:1/3">Tên đợt<input id="pexb-name" value="${esc(defName)}" style="width:100%;padding:6px;border:1px solid var(--rule);border-radius:5px"></label>
+      <label>Ngày chi<input id="pexb-date" type="date" value="${esc(defDate)}" style="width:100%;padding:6px;border:1px solid var(--rule);border-radius:5px"></label>
+      <label>Loại khoản<select id="pexb-preset" style="width:100%;padding:6px;border:1px solid var(--rule);border-radius:5px" onchange="var p=PEX_PRESETS[this.value];if(p)document.getElementById('pexb-tax').checked=!!p.taxable">${presetOpts}</select></label>
+      <label><input type="checkbox" id="pexb-tax" checked> Chịu thuế TNCN (thuế trừ trong kỳ lương tháng ngày chi)</label>
+      <label><input type="checkbox" id="pexb-drive" checked> Đẩy file gốc lên Drive (app chỉ giữ link)</label>
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Mỗi sheet danh sách = 1 đợt (pháp nhân riêng). Số tiền = số thực chi cho NV.</div>
+    <div style="max-height:40vh;overflow:auto">${blocks}</div>`,
+    `<button class="btn-ghost" onclick="window._pexbImp=null;pexbOpen()">✖ Hủy</button><button class="btn-primary" onclick="pexbCreateBatches()">✓ Tạo đợt (nháp, chờ KTT duyệt)</button>`);
+}
+function pexbCreateBatches(){
+  const imp=window._pexbImp; if(!imp){ toast('Chưa có file','warn'); return; }
+  const name=_pexbNorm((document.getElementById('pexb-name')||{}).value); if(!name){ toast('Nhập tên đợt','bad'); return; }
+  const date=(document.getElementById('pexb-date')||{}).value||''; if(!/^\d{4}-\d{2}-\d{2}$/.test(date)){ toast('Ngày chi sai','bad'); return; }
+  const preset=(document.getElementById('pexb-preset')||{}).value||'support_tx'; if(!PEX_PRESETS[preset]){ toast('Loại khoản lạ','bad'); return; }
+  const taxable=!!((document.getElementById('pexb-tax')||{}).checked);
+  const wantDrive=!!((document.getElementById('pexb-drive')||{}).checked);
+  const emps={}; HRService.employees().forEach(e=>{ if(e&&!e._deleted) emps[String(e.smartId||'').trim().toUpperCase()]=e; });
+  const who=(typeof actorName==='function'?actorName():'admin'), now=new Date().toISOString();
+  const picked=[...document.querySelectorAll('.pexb-sh')].filter(c=>c.checked).map(c=>+c.dataset.si);
+  if(!picked.length){ toast('Chưa chọn sheet nào','warn'); return; }
+  /* chặn nhập kép: cùng MSNV ở 2 sheet đã tick */
+  { const seen={}, dup=new Set(); picked.forEach(si=>{ (imp.sheets[si]||{parsed:{rows:[]}}).parsed.rows.forEach(r=>{ if(seen[r.smartId]&&seen[r.smartId]!==si) dup.add(r.smartId); seen[r.smartId]=si; }); });
+    if(dup.size){ toast('⚠ '+dup.size+' MSNV xuất hiện ở NHIỀU sheet đã tick ('+[...dup].slice(0,4).join(', ')+'…) — bỏ tick sheet tổng hợp để không chi kép','bad'); return; } }
+  const batches=[]; let nSkip=0;
+  picked.forEach(si=>{ const sh=imp.sheets[si]; if(!sh) return;
+    const coId=(document.getElementById('pexb-co-'+si)||{}).value||'';
+    const items=[]; sh.parsed.rows.forEach(r=>{ const e=emps[r.smartId]; if(!e){ nSkip++; return; }
+      items.push({empId:e.id, smartId:r.smartId, name:e.fullName||r.name, block:r.block, dept:r.dept, title:r.title, phanLoai:r.phanLoai, amount:Math.round(r.amount), note:r.note}); });
+    if(!items.length) return;
+    batches.push({ id:'pexb_'+uid(), name:(picked.length>1?name+' — '+sh.name:name), payDate:date, period:date.slice(0,7), companyId:coId,
+      presetType:preset, taxable, items, status:'draft', sheetName:sh.name,
+      sourceFile:{name:imp.file.name, driveUrl:'', driveId:''}, ccMap:{}, extrasIds:[], apIds:[], apBatchId:'',
+      createdBy:who, createdAt:now, updatedAt:now, auditTrail:[{at:now,by:who,act:'create',n:items.length}] });
+  });
+  if(!batches.length){ toast('Không có dòng nào khớp hồ sơ NS','bad'); return; }
+  commitMutation(()=>{ S.payExtraBatches=S.payExtraBatches||[]; batches.forEach(b=>S.payExtraBatches.push(b)); },
+    {action:'pexb_create', fields:['payExtraBatches'], onOk:()=>{
+      try{ logAuditEvent('pexb_create',{n:batches.length, items:batches.reduce((s,b)=>s+b.items.length,0), file:imp.file.name, actor:who}); }catch(e){}
+      toast('✓ Tạo '+batches.length+' đợt (nháp) · '+batches.reduce((s,b)=>s+b.items.length,0)+' NV'+(nSkip?' · bỏ '+nSkip+' MSNV không khớp':''),'good');
+      const ids=batches.map(b=>b.id); window._pexbImp=null;
+      if(wantDrive) pexbUploadDrive(ids, imp.file); else pexbOpen();
+    }});
+}
+/* Đẩy file gốc HR lên Drive qua Apps Script (đường upload_attachment sẵn có, thư mục KhoanPS_<kỳ>) — lưu link vào đợt. */
+async function pexbUploadDrive(batchIds, file){
+  const cfg=getAuthConfig();
+  if(!cfg||!cfg.scriptUrl){ toast('Chưa cấu hình Apps Script — không đẩy Drive, đợt vẫn tạo','warn'); pexbOpen(); return; }
+  const b0=_pexbById(batchIds[0]); const sub='KhoanPS_'+((b0&&b0.period)||todayISO().slice(0,7));
+  toast('⏳ Đang đẩy file gốc lên Drive…','warn');
+  try{
+    const resp=await fetch(cfg.scriptUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'upload_attachment', fileBase64:file.b64, mimeType:file.mime, fileName:file.name, sub, viewers:[]})});
+    const data=await resp.json();
+    if(!data||!data.ok||!data.file) throw new Error((data&&data.error)||'upload lỗi');
+    await commitMutation(()=>{ batchIds.forEach(id=>{ const b=_pexbById(id); if(!b) return; b.sourceFile=Object.assign({},b.sourceFile||{},{driveUrl:data.file.url||'', driveId:data.file.id||''}); try{touchRecord(b);}catch(e){} }); },
+      {action:'pexb_drive', fields:['payExtraBatches'], onOk:()=>{ toast('✓ File gốc đã lên Drive','good'); }});
+  }catch(err){ toast('Không đẩy được Drive: '+(err&&err.message||err)+' — đợt vẫn tạo, đính file sau','warn'); }
+  pexbOpen();
+}
+function pexbView(id){
+  const b=_pexbById(id); if(!b) return;
+  const fm=v=>Math.round(+v||0).toLocaleString('vi-VN');
+  const lines=pexbCostLines(b);
+  const rows=(b.items||[]).slice().sort((x,y)=>String(x.block).localeCompare(String(y.block))||String(x.smartId).localeCompare(String(y.smartId))).map((it,i)=>`<tr style="border-bottom:1px solid var(--rule)"><td style="padding:3px 6px;color:var(--muted)">${i+1}</td><td style="padding:3px 6px">${esc(it.smartId)}</td><td style="padding:3px 6px">${esc(it.name)}</td><td style="padding:3px 6px">${esc(it.block)}</td><td style="padding:3px 6px;font-size:11px;color:var(--muted)">${esc(it.dept||'')}</td><td style="padding:3px 6px;text-align:right;font-family:monospace">${fm(it.amount)}</td></tr>`).join('');
+  const tot=(b.items||[]).reduce((s,x)=>s+(+x.amount||0),0);
+  openModal('💸 '+esc(b.name), `
+    <div style="font-size:12px;line-height:1.7">${PEXB_STATUS[b.status]||b.status} · ngày chi <b>${esc(b.payDate)}</b> · kỳ thuế <b>${esc(b.period)}</b> · ${esc(companyName(b.companyId))} · ${esc((PEX_PRESETS[b.presetType]||{}).label||'')} · ${b.taxable?'chịu thuế TNCN':'miễn thuế'}
+      ${b.sourceFile&&b.sourceFile.driveUrl?` · <a href="${esc(b.sourceFile.driveUrl)}" target="_blank">📎 file HR</a>`:''}${b.approvedBy?` · duyệt: ${esc(b.approvedBy)}`:''}</div>
+    <div style="font-size:12px;margin:6px 0">Theo khối: ${lines.map(l=>'<b>'+esc(l.block)+'</b> '+fm(l.amount)+' ('+l.count+')').join(' · ')} — <b>Σ ${fm(tot)}</b> đ / ${(b.items||[]).length} NV</div>
+    <div style="max-height:48vh;overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:var(--rule);text-align:left"><th style="padding:3px 6px">#</th><th style="padding:3px 6px">MSNV</th><th style="padding:3px 6px">Họ tên</th><th style="padding:3px 6px">Khối</th><th style="padding:3px 6px">Bộ phận</th><th style="padding:3px 6px;text-align:right">Số tiền</th></tr></thead><tbody>${rows}</tbody></table></div>`,
+    `<button class="btn-ghost" onclick="pexbOpen()">← Danh sách</button>`);
+}
+function pexbDelete(id){
+  const b=_pexbById(id); if(!b||b.status!=='draft'){ toast('Chỉ xóa đợt nháp','warn'); return; }
+  if(!confirm('Xóa đợt nháp "'+b.name+'" ('+(b.items||[]).length+' NV)?')) return;
+  commitMutation(()=>{ b._deleted=true; try{touchRecord(b);}catch(e){} }, {action:'pexb_delete', fields:['payExtraBatches'], onOk:()=>{ toast('Đã xóa đợt nháp'); pexbOpen(); }});
+}
+/* KTT duyệt đợt: SOD người duyệt ≠ người tạo (admin bypass — chuẩn chung). Sinh khoản PS approved dấu payout:'separate'. */
+function pexbApprove(id){
+  if(!isAdmin() && !canApproveL1()){ toast('Duyệt đợt: KTT / Admin','bad'); return; }
+  const b=_pexbById(id); if(!b||b.status!=='draft'){ toast('Đợt không ở trạng thái nháp','warn'); return; }
+  const me=(typeof actorName==='function'?actorName():'');
+  if(!isAdmin() && b.createdBy && b.createdBy===me){ toast('🔒 SOD: không tự duyệt đợt mình tạo','bad'); try{ logAuditEvent('pexb_self_approve_blocked',{id, actor:me}); }catch(e){} return; }
+  const tot=(b.items||[]).reduce((s,x)=>s+(+x.amount||0),0);
+  if(!confirm('Duyệt đợt "'+b.name+'" — '+(b.items||[]).length+' NV · '+Math.round(tot).toLocaleString('vi-VN')+' đ · ngày chi '+b.payDate+'?\n\nSau duyệt: sinh khoản PS (chi riêng) cho từng người vào kỳ '+b.period+(b.taxable?' — thuế TNCN trừ trong kỳ lương tháng đó':' — miễn thuế, không ảnh hưởng kỳ lương')+'.')) return;
+  const now=new Date().toISOString(); const pr=PEX_PRESETS[b.presetType]||{};
+  commitMutation(()=>{
+    S.payExtras=S.payExtras||[]; b.extrasIds=[];
+    (b.items||[]).forEach(it=>{
+      const x={ companyId:b.companyId||'', id:'pex_'+uid(), batchId:b.id, pexBatchId:b.id,
+        empId:it.empId, period:b.period, effectivePeriod:b.period, sign:1, amount:+it.amount||0, currency:'VND',
+        taxable:!!b.taxable, insuranceApplicable:false, showOnPayslip:true,
+        payout:'separate', payDate:b.payDate,
+        desc:b.name, docRef:(b.sourceFile&&b.sourceFile.name)||'', sourceType:b.presetType,
+        status:'approved', createdBy:b.createdBy||me, createdAt:now, approvedBy:me, approvedAt:now,
+        auditTrail:[{at:now,by:me,act:'create_from_batch'},{at:now,by:me,act:'approved'}] };
+      try{touchRecord(x);}catch(e){}
+      S.payExtras.push(x); b.extrasIds.push(x.id);
+    });
+    b.status='approved'; b.approvedBy=me; b.approvedAt=now; (b.auditTrail=b.auditTrail||[]).push({at:now,by:me,act:'approved'});
+    try{touchRecord(b);}catch(e){}
+  },{action:'pexb_approve', fields:['payExtraBatches','payExtras'], onOk:()=>{
+    try{ pexStalePeriods_(b.period); }catch(e){}
+    try{ logAuditEvent('pexb_approve',{id, n:(b.items||[]).length, total:tot, period:b.period, actor:me}); }catch(e){}
+    toast('✓ Đã duyệt đợt · '+(b.items||[]).length+' khoản PS chi riêng vào kỳ '+b.period,'good'); pexbOpen();
+  }});
+}
+/* Bảng chuyển NH riêng của đợt — cùng khuôn file NH kỳ lương (pfBankInfo). */
+function pexbBankExport(id){
+  const b=_pexbById(id); if(!b){ toast('Không tìm thấy đợt','bad'); return; }
+  if(b.status==='draft'){ toast('Chỉ xuất bảng NH sau khi KTT duyệt','warn'); return; }
+  if(typeof canExportPayroll==='function' && !canExportPayroll() && !isAdmin()){ toast('🔒 Không có quyền xuất bảng chuyển khoản','bad'); return; }
+  if(typeof XLSX==='undefined'){ toast('Chưa tải được thư viện Excel','bad'); return; }
+  const empById={}; HRService.employees().forEach(e=>{ empById[e.id]=e; });
+  const aoa=[['STT','MSNV','Họ tên','Khối','Số tài khoản','Ngân hàng','Chủ tài khoản','Số tiền','Nội dung CK']];
+  let stt=0,tot=0; const missing=[];
+  (b.items||[]).forEach(it=>{ const e=empById[it.empId]||{}; const bk=pfBankInfo(e);
+    if(!bk.acc) missing.push(it.name||it.smartId); stt++; tot+=(+it.amount||0);
+    aoa.push([stt, it.smartId, it.name||e.fullName||'', it.block||'', bk.acc, bk.bank, bk.owner||e.fullName||'', Math.round(+it.amount||0), (b.name+' '+(it.name||'')).trim()]); });
+  aoa.push([]); aoa.push(['','','','','','','TỔNG',Math.round(tot),'VND']);
+  const ws=XLSX.utils.aoa_to_sheet(aoa); ws['!cols']=[{wch:5},{wch:10},{wch:24},{wch:6},{wch:18},{wch:18},{wch:24},{wch:14},{wch:36}];
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'ChuyenKhoan');
+  XLSX.writeFile(wb, 'ChuyenKhoan_'+String(b.name||'DotChi').replace(/[^\w\-]+/g,'_').slice(0,40)+'_'+b.payDate+'.xlsx');
+  try{ logAuditEvent('pexb_export_bank',{id, n:stt, total:tot, missing:missing.length}); }catch(e){}
+  if(missing.length) toast('Đã xuất — ⚠ '+missing.length+' NV thiếu số TK: '+missing.slice(0,3).join(', ')+(missing.length>3?'…':''),'warn'); else toast('Đã xuất bảng chuyển khoản đợt','good');
+}
+/* Chuyển kế toán: xem trước — mỗi KHỐI 1 dòng, mã chi phí khai 1 lần (key X:<KHỐI> trong S.payCcExpenseMap). */
+function pexbSubmitPreview(id){
+  const b=_pexbById(id); if(!b) return;
+  if(b.status!=='approved'){ toast(b.status==='submitted'?'Đợt đã chuyển kế toán':'KTT duyệt đợt trước','warn'); return; }
+  const lines=pexbCostLines(b); const fm=v=>Math.round(+v||0).toLocaleString('vi-VN');
+  const ets=(S.expenseTypes||[]).filter(x=>x&&!x.archived).slice().sort((a,b)=>String(a.code).localeCompare(String(b.code)));
+  const etOpts=sel=>ets.map(x=>`<option value="${esc(String(x.code))}"${String(x.code)===String(sel)?' selected':''}>${esc(String(x.code))} — ${esc(String(x.label||x.name||''))}</option>`).join('');
+  const rows=lines.map(l=>{ const cur=(b.ccMap&&b.ccMap[l.key])||_payCcExpenseType(l.key).code; const known=!!(b.ccMap&&b.ccMap[l.key])||_payCcExpenseType(l.key).known;
+    return `<tr style="border-bottom:1px solid var(--rule)"><td style="padding:5px 8px">${esc(l.block)}</td><td style="padding:5px 8px;text-align:center;color:var(--muted)">${l.count}</td><td style="padding:5px 8px;text-align:right;font-family:monospace">${fm(l.amount)}</td><td style="padding:5px 8px">${known?'':'<span title="Chưa khai mã cho khối này">⚠</span> '}<select data-paycckey="${esc(l.key)}" style="max-width:260px">${etOpts(cur)}</select></td></tr>`; }).join('');
+  const tot=lines.reduce((s,l)=>s+l.amount,0);
+  openModal('📤 Chuyển kế toán — '+esc(b.name), `
+    <div style="font-size:13px;line-height:1.7">Một phiếu nhiều dòng (cùng cụm), mỗi <b>Khối</b> một dòng với mã chi phí riêng — khai một lần, đợt sau tự áp. Số = thực chi (thuế TNCN đã ở kỳ lương ${esc(b.period)}). Pháp nhân: <b>${esc(companyName(b.companyId))}</b>.
+    <table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:8px;border:1px solid var(--rule)"><thead><tr style="background:var(--rule);text-align:left"><th style="padding:4px 8px">Khối</th><th style="padding:4px 8px;text-align:center">NV</th><th style="padding:4px 8px;text-align:right">Số tiền</th><th style="padding:4px 8px">Mã chi phí</th></tr></thead><tbody>${rows}</tbody>
+    <tfoot><tr><td style="padding:5px 8px;font-weight:700">Tổng phiếu</td><td></td><td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:700">${fm(tot)}</td><td></td></tr></tfoot></table></div>`,
+    `<button class="btn-ghost" onclick="pexbOpen()">← Đợt</button><button class="btn-primary" onclick="pexbSubmit('${b.id}')">📤 Gửi duyệt (KT → L1 → L2)</button>`);
+}
+function pexbSubmit(id){
+  const b=_pexbById(id); if(!b||b.status!=='approved'){ toast('Đợt không ở trạng thái đã duyệt','warn'); return; }
+  const lines=pexbCostLines(b); if(!lines.length){ toast('Đợt trống','warn'); return; }
+  const et={}; document.querySelectorAll('select[data-paycckey]').forEach(s=>{ et[s.getAttribute('data-paycckey')]=s.value; });
+  const bad=lines.filter(l=>!et[l.key] || !(S.expenseTypes||[]).some(x=>x&&!x.archived&&String(x.code)===String(et[l.key])));
+  if(bad.length){ toast('Chọn mã chi phí cho: '+bad.map(l=>l.block).join(', '),'bad'); return; }
+  const totBatch=(b.items||[]).reduce((s,x)=>s+(+x.amount||0),0); const sumLines=lines.reduce((s,l)=>s+l.amount,0);
+  if(Math.abs(totBatch-sumLines)>1){ toast('Σ dòng ('+sumLines+') ≠ tổng đợt ('+totBatch+') — không gửi','bad'); return; }
+  const vendor=(typeof getDefaultVendor==='function' && getDefaultVendor('SALARY')) || 'CBCNV';
+  const who=(typeof actorName==='function'?actorName():'admin'), now=new Date().toISOString(); const batchId=uid(); const ids=[];
+  commitMutation(()=>{
+    lines.forEach((l,i)=>{
+      const ap={ id:uid(), batchId, partner:vendor, companyId:b.companyId||'',
+        desc:`${b.name} — ${l.block} (${l.count} NV, chi riêng ${b.payDate})${i===0?` · TỔNG ĐỢT ${Math.round(totBatch).toLocaleString('vi-VN')} đ, ${lines.length} dòng${b.taxable?' — TNCN khấu trừ tại kỳ lương '+b.period:' — miễn thuế'}`:''}`,
+        expenseType:et[l.key], costCategory:'SALARY',
+        amountNet:Math.round(l.amount), vatPercent:0, vatAmount:0, amountGross:Math.round(l.amount), amount:Math.round(l.amount),
+        ccy:'VND', fxToVnd:0, fxToUsd:0, segment:'OTHER', costCenterType:'department', costCenterId:'', projectId:null, vesselId:null, departmentId:'',
+        issueDate:b.payDate, dueDate:b.payDate, dueMonth:b.period, dueAmount:0, payments:[],
+        pitAmount:0, bhxhAmount:0,
+        _pexBatch:true, pexBatchId:b.id, payrollPeriod:b.period,
+        status:'pending_acc', submittedBy:who, submittedAt:now, approvedL1By:'',approvedL1At:'',approvedL2By:'',approvedL2At:'',
+        createdBy:who, createdAt:now, _origin:'pex_batch' };
+      AccountingService.addPayable(ap); ids.push(ap.id);
+    });
+    b.ccMap=Object.assign({}, b.ccMap||{}, et); b.apIds=ids; b.apBatchId=batchId; b.status='submitted'; b.submittedBy=who; b.submittedAt=now;
+    (b.auditTrail=b.auditTrail||[]).push({at:now,by:who,act:'submitted',ap:ids.length}); try{touchRecord(b);}catch(e){}
+    S.payCcExpenseMap=Object.assign({}, S.payCcExpenseMap||{}, et);   /* khai 1 lần — đợt sau tự áp */
+  },{action:'pexb_submit', fields:['payExtraBatches','payables','payCcExpenseMap'], onOk:()=>{
+    try{ logAuditEvent('pexb_submit',{id, batchId, n:ids.length, total:totBatch, actor:who}); }catch(e){}
+    toast('✓ Đã tạo phiếu '+ids.length+' dòng (batch '+batchId.slice(-6)+') — vào luồng ký KT → L1 → L2','good');
+    try{ if(typeof renderAll==='function') renderAll(); }catch(e){}
+    pexbOpen();
+  }});
+}
+
 function payExtrasOpen(prefPeriod, fromPeriodId){
-  if(!isAdmin() && !canCheckAcc()){ toast('Chỉ admin/kế toán','bad'); return; }
+  /* v3.18.75: NS tiền lương (pexCanCreate_) và KTT (canApproveL1) cũng mở được — HR là người nhập file (Sếp 26/8) */
+  if(!isAdmin() && !canCheckAcc() && !pexCanCreate_() && !canApproveL1()){ toast('Khoản PS: admin / kế toán / NS tiền lương / KTT','bad'); return; }
   /* v3.15.40: nhớ kỳ nguồn (mở từ kỳ lương nào) để nút 🧮 Áp phát sinh trong modal áp đúng kỳ đó */
   if(fromPeriodId!==undefined) window._pexFromPeriodId=fromPeriodId||'';
   const per=prefPeriod||new Date().toISOString().slice(0,7);
@@ -22978,6 +23359,7 @@ function payExtrasOpen(prefPeriod, fromPeriodId){
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
       <button class="btn-sec" style="font-size:11px" onclick="payExtraForm()">➕ Nhập 1 khoản</button>
       <button class="btn-sec" style="font-size:11px" onclick="pexImportOpen()" title="File Excel: MSNV | Loại | Số tiền | Kỳ | Chịu thuế | Mô tả | Chứng từ — tạo hàng loạt NHÁP chờ KTT duyệt">📥 Nhập lô Excel</button>
+      <button class="btn-sec" style="font-size:11px" onclick="pexbOpen()" title="v3.18.73: thưởng/trợ cấp đột xuất KHÔNG chi cùng kỳ lương — nhập file HR → KTT duyệt → bảng NH riêng → Chuyển kế toán (tách theo Khối)">💸 Đợt chi riêng</button>
       ${window._pexFromPeriodId?`<button class="btn-primary" style="font-size:11px" onclick="payApplyExtras(window._pexFromPeriodId)" title="v3.15.40: chuyển từ thanh nút kỳ vào đây — áp khoản ĐÃ DUYỆT đúng kỳ vào bảng lương (Tính lại các dòng liên quan), tự quay về kỳ">🧮 Áp phát sinh vào kỳ</button>`:''}
       <!-- v3.15.33 B1 (audit Sếp 11/8): nút "Import Excel" trực tiếp gỡ — TRÙNG mục đích với "Nhập lô Excel"
            nhưng KHÁC cơ chế duyệt → dễ nhập kép, khó truy vết. MỘT đường: 📥 Nhập lô Excel (pexImportOpen,
@@ -32338,6 +32720,7 @@ function deleteDepartment(id){
    EXPENSE TYPE MANAGEMENT (v1.30.1)
    ============================================================ */
 function addExpenseType(){
+  try{ expGroupsSync(); }catch(e){}   /* v3.18.71: dropdown Nhóm nhận nhóm động */
   // v1.39: NV được thêm (chỉ admin sửa/xóa)
   const body = `
     <div style="font-size:13px">
@@ -32550,6 +32933,23 @@ function _etCatBranchEdit(code){
   commitMutation(()=>{ expTreeUpsert(code, nv.trim()); },
     {action:'exptree_edit', fields:['expenseTree'], onOk:()=>{ toast('Đã cập nhật nhánh '+code+' (đồng bộ mọi máy)','good'); try{ renderCatalog(); }catch(e){} }});
 }
+/* v3.18.71: Thêm NHÓM = chữ cái cấp 1 mới trong Bảng tên nhánh (admin). Chữ cái phải chưa dùng
+   (không thuộc M/F/T/O/C cố định, không có sẵn trong bảng). Nhóm hiện ngay với 0 loại; màu app tự gán. */
+function _etCatGroupAdd(){
+  if(!isAdmin()){ toast('Chỉ admin thêm nhóm','bad'); return; }
+  const used=(typeof expTreeList==='function'?expTreeList():[]).filter(n=>/^[A-Z]$/.test(String(n.code||''))).map(n=>String(n.code));
+  const fixed=Object.keys(ETYPE_LETTER_GROUP);
+  const L0=prompt('Thêm NHÓM chi phí mới — nhập MỘT chữ cái in hoa làm mã nhóm cha.\nĐã dùng: '+fixed.concat(used.filter(c=>!fixed.includes(c))).join(', '),'');
+  if(L0===null) return;
+  const L=L0.trim().toUpperCase();
+  if(!/^[A-Z]$/.test(L)){ toast('Mã nhóm: đúng MỘT chữ cái A–Z','bad'); return; }
+  if(fixed.includes(L) || used.includes(L)){ toast('Chữ '+L+' đã dùng — chọn chữ khác','bad'); return; }
+  const name=prompt('Tên nhóm '+L+':','');
+  if(name===null) return;
+  if(!name.trim()){ toast('Nhập tên nhóm','bad'); return; }
+  commitMutation(()=>{ expTreeUpsert(L, name.trim()); },
+    {action:'exptree_group_add', fields:['expenseTree'], onOk:()=>{ toast('✓ Đã thêm nhóm '+L+' · '+name.trim()+' (đồng bộ mọi máy) — thêm nhánh con bằng ＋ nhánh trên dòng nhóm','good'); try{ renderCatalog(); }catch(e){} }});
+}
 /* Thêm nhánh con dưới nhánh cha (chữ cái → con; con → cháu). Mã gợi ý sẵn, admin sửa được. */
 function _etCatBranchAdd(parent){
   if(!isAdmin()){ toast('Chỉ admin thêm nhánh','bad'); return; }
@@ -32567,13 +32967,36 @@ function _etCatBranchAdd(parent){
   commitMutation(()=>{ expTreeUpsert(c, name.trim()); },
     {action:'exptree_add', fields:['expenseTree'], onOk:()=>{ toast('Đã thêm nhánh '+c+' (đồng bộ mọi máy)','good'); try{ renderCatalog(); }catch(e){} }});
 }
+/* v3.18.70 (Sếp 25/8: "mã C: phải là Quản lý chung"): CHỮ CÁI = NHÓM HỆ THỐNG CỐ ĐỊNH theo bộ mã 24/8.
+   Bỏ học đa số cho chữ cái trong bảng — v3.18.65 học đa số khiến C.* kế thừa nhóm Nhân sự cũ, vòng luẩn quẩn
+   không tự thoát. Học đa số CHỈ còn cho chữ cái ngoài bảng (fallback). */
+const ETYPE_LETTER_GROUP={M:'VESSEL',F:'PO',T:'TECH',O:'OTHER',C:'OVERHEAD'};
 function _etypeGroupOfPrefix(code){
   const m=String(code||'').trim().toUpperCase().match(/^([A-Z])\./); if(!m) return '';
-  const L=m[1], votes={};
+  const L=m[1];
+  const lg=etypeLetterGroup(L); if(lg) return lg;   /* v3.18.71: cố định + nhóm động */
+  const votes={};
   (S.expenseTypes||[]).forEach(t=>{ if(!t||t.archived) return;
     if(String(t.code||'').toUpperCase().indexOf(L+'.')===0 && t.group && EXPENSE_GROUPS[t.group]) votes[t.group]=(votes[t.group]||0)+1; });
   let best='', bn=0; Object.keys(votes).forEach(g=>{ if(votes[g]>bn){ bn=votes[g]; best=g; } });
-  return best || (({M:'VESSEL',F:'PO',T:'TECH',C:'OVERHEAD',O:'OTHER'})[L]||'');
+  return best;
+}
+/* Nhóm HIỂN THỊ của một loại — THUẦN, tính lúc render: mã bộ chuẩn → theo chữ cái; mã ngoài bộ → group ghi.
+   Nhờ vậy danh mục xếp đúng ngay cả khi group ghi trong bản ghi còn lệch (chờ nút dời). */
+function etypeDisplayGroup(t){
+  const m=String((t&&(t.treeCode||t.code))||'').toUpperCase().match(/^([A-Z])\./);
+  if(m){ const lg=etypeLetterGroup(m[1]); if(lg) return lg; }   /* v3.18.71 */
+  return (t&&t.group)||'';
+}
+/* Dời loại có group ghi ≠ nhóm theo chữ cái (admin, 1 lần, đồng bộ mọi máy). */
+function _etCatRegroup(){
+  if(!isAdmin()){ toast('Chỉ admin','bad'); return; }
+  const off=(S.expenseTypes||[]).filter(t=>t&&!t.archived&&etypeDisplayGroup(t)&&etypeDisplayGroup(t)!==t.group);
+  if(!off.length){ toast('Không còn loại lệch nhóm','good'); return; }
+  const sum={}; off.forEach(t=>{ const k=(t.group||'?')+' → '+etypeDisplayGroup(t); sum[k]=(sum[k]||0)+1; });
+  if(!confirm('Dời '+off.length+' loại về đúng nhóm theo chữ cái mã?\n'+Object.keys(sum).map(k=>'• '+k+': '+sum[k]+' loại').join('\n')+'\n\nChỉ đổi nhóm hiển thị/báo cáo — mã, tên, phiếu KHÔNG đổi.')) return;
+  commitMutation(()=>{ (S.expenseTypes||[]).forEach(t=>{ if(!t||t.archived) return; const g=etypeDisplayGroup(t); if(g&&g!==t.group){ t.group=g; try{touchRecord(t);}catch(e){} } }); },
+    {action:'etype_regroup', fields:['expenseTypes'], onOk:()=>{ try{ logAuditEvent('etype_regroup',{n:off.length,actor:actorName()}); }catch(e){} toast('✓ Đã dời '+off.length+' loại về đúng nhóm (đồng bộ mọi máy)','good'); try{ renderCatalog(); }catch(e){} }});
 }
 function _etypeCodeSmart(){
   const cIn=document.getElementById('etype-code'); if(!cIn) return;
@@ -32654,6 +33077,7 @@ function _doAddExpenseType(){
 }
 
 function editExpenseType(id){
+  try{ expGroupsSync(); }catch(e){}   /* v3.18.71 */
   if(!isAdmin()){toast('Chỉ admin','bad');return;}
   const t=(S.expenseTypes||[]).find(x=>x.id===id);
   if(!t){toast('Không tìm thấy','bad');return;}
@@ -33174,6 +33598,7 @@ function canEditTreasury(){
 }
 
 function renderCatalog(){
+  try{ expGroupsSync(); }catch(e){}   /* v3.18.71 */
   // v3.10.50: sub-tab QL User chỉ hiện với người có quyền staff (canManageUsers/IT/trưởng BP nhóm HR)
   try{ const _ub=document.getElementById('cat-tab-btn-users'); if(_ub) _ub.style.display=canAccessTab('staff')?'':'none'; }catch(e){}
   const adminMode = isAdmin();
@@ -33413,7 +33838,10 @@ function renderCatalog(){
       // thứ tự nhóm theo EXPENSE_GROUPS; loại nào group lạ → dồn vào cuối nhóm '?'
       const order = grpKeys.concat(['?']);
       const byGroup = {};
-      list.forEach(t => { const g = (EXPENSE_GROUPS && EXPENSE_GROUPS[t.group]) ? t.group : '?'; (byGroup[g] = byGroup[g]||[]).push(t); });
+      /* v3.18.70: gom theo nhóm HIỂN THỊ (chữ cái mã → nhóm cố định); mã ngoài bộ theo group ghi. */
+      list.forEach(t => { const dgp=(typeof etypeDisplayGroup==='function')?etypeDisplayGroup(t):t.group; const g = (EXPENSE_GROUPS && EXPENSE_GROUPS[dgp]) ? dgp : '?'; (byGroup[g] = byGroup[g]||[]).push(t); });
+      const _nOff=(typeof etypeDisplayGroup==='function')?list.filter(t=>etypeDisplayGroup(t)&&etypeDisplayGroup(t)!==t.group).length:0;
+      if(adminMode && _nOff) h += `<tr><td colspan="${colspan}" style="padding:6px 12px;font-size:12px;background:rgba(184,115,10,.08)">⚠ ${_nOff} loại còn ghi nhóm cũ khác chữ cái mã (danh mục đã xếp đúng, báo cáo theo nhóm chưa) <button class="btn-sec" style="font-size:11px;padding:2px 8px;margin-left:6px" onclick="_etCatRegroup()">🔁 Dời về đúng nhóm</button></td></tr>`;
       const rowOf = (t) => {
         const fuelChip = t.isFuel ? '<span class="ds-need" style="font-size:10px;margin-left:4px" title="Loại nhiên liệu — AP bắt buộc nhập SL/ĐG/Loại">⛽ FUEL</span>' : '';
         const flags = [];
@@ -33430,16 +33858,19 @@ function renderCatalog(){
           </div></td>`:''}
         </tr>`;
       };
+      /* v3.18.71: nút ＋ Nhóm (admin) — chữ cái cấp 1 mới = nhóm hệ thống mới, màu app tự gán */
+      if(adminMode) h += `<tr><td colspan="${colspan}" style="padding:4px 12px"><button class="btn-sec" style="font-size:11px;padding:2px 8px" onclick="_etCatGroupAdd()" title="Thêm nhóm chi phí mới = một chữ cái cấp 1 (vd S · Khảo sát)">＋ Nhóm</button></td></tr>`;
       order.forEach(gk => {
-        const items = byGroup[gk];
-        if(!items || !items.length) return;
+        const items = byGroup[gk] || [];
+        /* v3.18.71: nhóm ĐỘNG chưa có loại vẫn hiện header (0 loại) để admin thêm nhánh/loại; nhóm cố định rỗng vẫn ẩn như cũ */
+        if(!items.length && !(typeof expGroupIsDynamic==='function' && expGroupIsDynamic(gk))) return;
         const g = (EXPENSE_GROUPS && EXPENSE_GROUPS[gk]) || {label:'❓ Khác (nhóm lạ)', color:'#6b6b6b'};
         /* v3.18.69 (Sếp): NHÓM CHA cũng gập/bung — mặc định GẬP; nút ＋ thêm nhánh con theo chữ cái nhóm (admin). */
         window.__ggSeq=(window.__ggSeq||0)+1; const ggi=window.__ggSeq;
-        const letter=(function(){ const v={}; items.forEach(t=>{ const m=String(t.treeCode||t.code||'').match(/^([A-Z])\./); if(m) v[m[1]]=(v[m[1]]||0)+1; }); let b='',bn=0; Object.keys(v).forEach(k=>{ if(v[k]>bn){bn=v[k];b=k;} }); return b; })();
+        const letter=expGroupIsDynamic(gk)?gk:(function(){ const v={}; items.forEach(t=>{ const m=String(t.treeCode||t.code||'').match(/^([A-Z])\./); if(m) v[m[1]]=(v[m[1]]||0)+1; }); let b='',bn=0; Object.keys(v).forEach(k=>{ if(v[k]>bn){bn=v[k];b=k;} }); return b; })();
         const _bq=(fn,title,ic)=>adminMode?`<button class="icon-btn" style="font-size:11px;padding:0 5px;margin-left:4px" title="${title}" onclick="event.stopPropagation();${fn}">${ic}</button>`:'';
         h += `<tr style="background:${g.color}14;cursor:pointer" onclick="_etCatGroupToggle(${ggi})"><td colspan="${colspan}" style="font-weight:600;font-size:11px;color:${g.color};text-transform:uppercase;letter-spacing:.04em;padding:7px 12px;border-top:1px solid var(--rule)">
-          <span id="ctgg-${ggi}" style="display:inline-block;width:12px;font-size:10px">▸</span> ${esc(g.label)} <span style="font-weight:400;color:var(--muted);margin-left:4px">${items.length} loại</span>${letter?_bq(`_etCatBranchAdd('${esc(letter)}')`,'Thêm nhánh con dưới '+esc(letter),'＋ nhánh'):''}</td></tr>`;
+          <span id="ctgg-${ggi}" style="display:inline-block;width:12px;font-size:10px">▸</span> ${esc(g.label)} <span style="font-weight:400;color:var(--muted);margin-left:4px">${items.length} loại</span>${letter?`<span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted);margin-left:8px">· mã <b>${esc(letter)}</b> ${esc((typeof expTreeName==='function'&&expTreeName(letter))||'')}</span>${_bq(`_etCatBranchEdit('${esc(letter)}')`,'Sửa tên nhánh '+esc(letter)+' (Bảng tên nhánh)','✎')}${_bq(`_etCatBranchAdd('${esc(letter)}')`,'Thêm nhánh con dưới '+esc(letter),'＋ nhánh')}`:''}</td></tr>`;
         /* v3.18.62 (Sếp): cha(nhóm) → CON đậm → CHÁU gập ▸ (bấm bung loại/chắt); loại chưa theo bộ mã dồn cuối.
            v3.18.65 (Sếp): (1) dòng CON thành nút GẬP/BUNG cả nhóm lớn; (2) hiện ĐỦ nhóm cháu từ
            Bảng tên nhánh kể cả nhánh CHƯA có loại nào (0 loại — KT đang dựng bộ mã cần thấy khung). */
@@ -34581,6 +35012,19 @@ function _parseVatPercent(v){
   // làm tròn nhẹ để khử sai số (0.1*100=10.000000001)
   n=Math.round(n*100)/100;
   return n;
+}
+/* v3.18.74 (Sếp 26/8 ảnh bảng kê: chi hộ 298,56 USD bị đọc 29.856 → "vượt còn nợ"): ô số ĐỢT chi hộ
+   điền sẵn theo vi-VN (phẩy = thập phân) nhưng _unformatNumber coi phẩy = nhóm nghìn kiểu US. Hai helper
+   THUẦN theo tiền tệ: ngoại tệ điền sẵn kiểu en-US (298.56 / 1,323), và khi KT gõ "298,56" (1 phẩy + 1–2 số lẻ,
+   không có chấm sau phẩy) thì hiểu là thập phân. VND giữ nguyên luật cũ. */
+function _bkAmtFill(v, ccy){
+  const c=String(ccy||'VND').toUpperCase(); v=+v||0;
+  return c==='VND' ? v.toLocaleString('vi-VN') : v.toLocaleString('en-US',{maximumFractionDigits:2});
+}
+function _bkAmtParse(val, ccy){
+  const c=String(ccy||'VND').toUpperCase(); let str=String(val==null?'':val).trim();
+  if(c!=='VND' && /^-?[\d.]+,\d{1,2}$/.test(str)) str=str.replace(/\./g,'').replace(',','.');
+  return _unformatNumber(str);
 }
 function _unformatNumber(s){
   if(s==null||s==='') return 0;
@@ -41616,9 +42060,18 @@ function txReturn(id){
    - Status: paid (rem<=0) / overdue (dueDate<today & rem>0) / due-soon (dueDate−today<=7) / open
    ============================================================ */
 
+/* v3.18.72 (Sếp 25/8: "0,36vnđ là gì?" — đợt giải ngân 0,36đ trên phiếu PTSC HĐ 88): giá trị phiếu có phần lẻ
+   (VAT ra số thập phân), đợt trước trả số tròn → còn nợ 0,36đ > ngưỡng 0,001 → phiếu vẫn "còn nợ" → vào hàng đợi
+   Chờ chi tiền → KT tick bảng kê → sinh đợt chi 0,36 vào khế ước nháp. Là rác làm tròn. VÁ TẬN GỐC: dư lẻ dưới
+   1 đồng (VND) / 0,005 (ngoại tệ) = HẾT NỢ. Chỉ snap dư lẻ, KHÔNG làm tròn số còn nợ thật. Hàm THUẦN. */
+function apResidualSnap(rem, ccy){
+  const c=String(ccy||'VND').toUpperCase();
+  const tol=(c==='VND')?1:0.005;
+  return (Math.abs(+rem||0)<tol)?0:(+rem||0);
+}
 function arRemaining(r){
   const paid=(r.payments||[]).reduce((s,p)=>s+(+p.amount||0),0);
-  return (+r.amount||0)-paid;
+  return apResidualSnap((+r.amount||0)-paid, r.ccy);   /* v3.18.72 */
 }
 function arPaidTotal(r){return (+r.amount||0)-arRemaining(r);}
 
@@ -41640,7 +42093,7 @@ function apRemainingEff(r){
   const base=(r.settleValue!=null && r.settleValue!=='')?(+r.settleValue||0)
            :((r.actualValue!=null && r.actualValue!=='')?(+r.actualValue||0):(+r.amount||0));
   const paid=(r.payments||[]).reduce((t,x)=>t+(+x.amount||0),0);
-  return base-paid;
+  return apResidualSnap(base-paid, r.ccy);   /* v3.18.72: dư lẻ < 1đ = hết nợ */
 }
 /* v3.17.45 (Sếp, ảnh phiếu 260,5tr: đợt trước 160,5tr ĐÃ CHI TAY nhưng LỆNH CHI đợt đó vẫn treo
    'chờ thanh toán' với giá trị cũ): khi ghi đợt chi ngoài ngữ cảnh lệnh, lệnh active khớp số tiền
@@ -47676,7 +48129,7 @@ function renderBanking(){
           </thead>
           <tbody>`;
       /* v3.18.62 (Sếp): GOM THEO NGÂN HÀNG — dòng đầu = NH · tổng hạn mức · tổng đã vay · còn · % · số khoản,
-         bấm ▸ gập/bung các hạn mức con (mặc định bung). Cùng NH xếp cạnh nhau, NH theo tên A→Z, trong NH
+         bấm ▸ gập/bung các hạn mức con. v3.18.72 (Sếp): mặc định GẬP khi mở, bấm mới bung. Cùng NH xếp cạnh nhau, NH theo tên A→Z, trong NH
          theo năm giảm dần. Quy đổi tổng NH về ccy chủ đạo của NH (đa số hạn mức); khác ccy → FX. */
       const _byBank={}; facilities.forEach(f=>{ const k=(f.bankName||'').trim().toUpperCase()||'(?)'; (_byBank[k]=_byBank[k]||[]).push(f); });
       const _bankKeys=Object.keys(_byBank).sort((a,b)=>a.localeCompare(b,'vi'));
@@ -47689,7 +48142,7 @@ function renderBanking(){
         let tL=0,tD=0,nL=0; fs.forEach(f=>{ tL+=_cv(+f.limit||0,f.ccy||'VND',mainCcy); tD+=_cv(+f.drawn||0,f.ccy||'VND',mainCcy); nL+=(+f.nLoans||0); });
         const tR=Math.max(0,tL-tD), tU=tL>0?Math.min(100,tD/tL*100):0;
         const tColor=tU>80?'var(--bad)':(tU>50?'var(--accent)':'var(--teal)');
-        const open=(window._cfacOpen[bk]!==false);
+        const open=(window._cfacOpen[bk]===true);   /* v3.18.72: mặc định gập */
         if(fs.length>1 || true){
           h += `<tr class="cfac-bank-head" style="background:var(--paper-3);cursor:pointer" onclick="cfacBankToggle('${esc(bk).replace(/'/g,'&#39;')}')" title="Bấm để gập/bung các hạn mức của ${esc(fs[0].bankName||'')}">
           <td><span class="cfac-chev" style="display:inline-block;width:12px;font-size:10px;color:var(--muted)">${open?'▾':'▸'}</span> <b>${esc(fs[0].bankName||'')}</b> <span style="font-size:10px;color:var(--muted)">(${fs.length} hạn mức)</span></td>
@@ -48134,7 +48587,7 @@ function loanRemainingPrincipal(loan){
 /* v3.18.62: gập/bung nhóm hạn mức theo NH — nhớ trạng thái trong phiên (window._cfacOpen). */
 function cfacBankToggle(bk){
   window._cfacOpen=window._cfacOpen||{};
-  const open=!(window._cfacOpen[bk]!==false);
+  const open=!(window._cfacOpen[bk]===true);   /* v3.18.72: mặc định gập → bấm lần đầu là bung */
   window._cfacOpen[bk]=open;
   document.querySelectorAll('tr.cfac-row').forEach(tr=>{ if(tr.getAttribute('data-cfac-bank')===bk) tr.style.display=open?'':'none'; });
   document.querySelectorAll('tr.cfac-bank-head').forEach(tr=>{ if((tr.getAttribute('title')||'').indexOf(bk)<0) return; });
@@ -53599,6 +54052,7 @@ function _arEditorBody(r,isPayable){
     // (chưa phát sinh thực). Lưu cờ _isBudget, không vào công nợ/P&L; chỉ hiện ở Báo cáo chủ tàu + NHANH.
     etHtml += `<option value="__BUDGET__" ${r._isBudget?'selected':''}>📋 Dự kiến chi (chưa phát sinh)</option>`;
     if(typeof EXPENSE_GROUPS!=='undefined'){
+      try{ expGroupsSync(); }catch(e){}   /* v3.18.71 */
       Object.keys(EXPENSE_GROUPS).forEach(gk=>{
         if(!etGroups[gk]) return;
         etHtml += `<optgroup label="${esc(EXPENSE_GROUPS[gk].label)}">`;
