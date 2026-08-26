@@ -3827,7 +3827,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.19.03';
+const APP_VERSION='3.19.08';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -37782,7 +37782,9 @@ function editProject(id){
     Object.assign(p,d,{vesselId:d.vesselId||null,isOM:!!d.isOM});
     touchRecord(p);  // v2.61.0: đóng dấu updatedAt — nếu thiếu, sync sẽ ghi đè bản sửa bằng bản cloud cũ
     saveState();
-  });
+  }, null, `<div style="margin-top:10px;padding:8px 10px;border:1px solid var(--rule);border-radius:8px;font-size:12px">
+    <b>📎 Hồ sơ hợp đồng (Drive)</b> <span style="color:var(--muted)">— v3.19.05: link file đã đính; file thật nằm trên Drive</span>
+    <div style="margin-top:4px">${(p.docs&&p.docs.length)?p.docs.map(d=>`<div>📎 <a href="${esc(d.url)}" target="_blank" rel="noopener">${esc(d.name)}</a> <span style="color:var(--muted);font-size:10.5px">${esc(String(d.at||'').slice(0,10))} · ${esc(d.by||'')}</span>${isAdmin()?` <a href="#" onclick="event.preventDefault();closeModal();projectDocRemove('${p.id}','${esc(d.id)}')" style="color:var(--bad)">✕</a>`:''}</div>`).join(''):'<span style="color:var(--muted)">Chưa đính file nào — dùng nút 📎 trên dòng dự án.</span>'}</div></div>`);
 }
 let _prjFilterVessel='';  // v3.03.78: bộ lọc dự án theo tàu
 /* v3.07.40: nhãn trạng thái dự án (Project Integration). */
@@ -37868,11 +37870,16 @@ function ctlKey(s){ return ctlNorm(s).toUpperCase().replace(/[^A-Z0-9]/g,''); }
 /* ctx = {projects:[...], events:[...], vessels:[{id,name,type}]} */
 function ctlReconcile(parsed, ctx){
   const plan={projects:[], events:[], unmatchedVessels:[]};
-  const vByName={}; (ctx.vessels||[]).forEach(v=>{ vByName[ctlKey(v.name)]=v; });
+  const vByName={}; (ctx.vessels||[]).forEach(v=>{ vByName[ctlKey(v.name)]=v; (v.ctlAliases||[]).forEach(a=>{ vByName[ctlKey(a)]=v; }); });   /* v3.19.04: tên khác đã chấp nhận */
+  const _lev=(a,b)=>{ const m=a.length,n=b.length; if(!m) return n; if(!n) return m; let prev=[...Array(n+1).keys()]; for(let i=1;i<=m;i++){ const cur=[i]; for(let j=1;j<=n;j++){ cur[j]=Math.min(prev[j]+1, cur[j-1]+1, prev[j-1]+(a[i-1]===b[j-1]?0:1)); } prev=cur; } return prev[n]; };
+  plan.suggest={};
   const projByKey={}; (ctx.projects||[]).forEach(p=>{ if(p.contractNo) projByKey['C:'+ctlKey(p.contractNo)]=p; projByKey['P:'+ctlKey(p.code)]=p; });
   (parsed.vessels||[]).forEach(v=>{
     const vv=vByName[ctlKey(v.name)] || (ctx.vessels||[]).find(x=>ctlKey(x.name).indexOf(ctlKey(v.name))>=0 || ctlKey(v.name).indexOf(ctlKey(x.name))>=0);
-    if(!vv){ plan.unmatchedVessels.push(v.name); return; }
+    if(!vv){ plan.unmatchedVessels.push(v.name);
+      /* gợi ý tàu gần tên nhất (khoảng cách chỉnh sửa ≤ 3, vd GEO SUPPORTER ~ GEOSUPORTER) — chỉ gợi ý, người dùng chấp nhận */
+      const k=ctlKey(v.name); let best=null,bd=99; (ctx.vessels||[]).forEach(x=>{ const d=_lev(k, ctlKey(x.name)); if(d<bd){ bd=d; best=x; } }); if(best && bd<=3) plan.suggest[v.name]={id:best.id, name:best.name, dist:bd};
+      return; }
     v.contracts.forEach(c=>{
       if(!c.contractNo) return;
       const ex=projByKey['C:'+ctlKey(c.contractNo)] || projByKey['P:'+ctlKey(c.notice)] || projByKey['P:'+ctlKey(c.contractNo)];
@@ -37926,6 +37933,18 @@ function ctlImportOpen(){
     rd.readAsArrayBuffer(f); };
   inp.click();
 }
+/* v3.19.04 (Sếp 26/8 "Tại sao không khớp? Cần click xem và chọn chấp nhận/sửa/bỏ qua"): tên tàu trong file khác tên trong app
+   (vd file 'Geo Supporter' · app 'GEOSUPORTER') → chọn tàu, ✓ Chấp nhận → ghi ctlAliases trên tàu (đồng bộ), đối chiếu lại ngay. */
+function ctlVesselMapAccept(fileName){
+  const st=window._ctlPlan; if(!st) return;
+  const sel=document.getElementById('ctl-vmap-'+ctlKey(fileName)); const vid=sel&&sel.value; if(!vid){ toast('Chọn tàu','warn'); return; }
+  const v=VesselService.vessels().find(x=>x.id===vid); if(!v) return;
+  if(!(isAdmin()||canCheckAcc())){ toast('Admin / kế toán','bad'); return; }
+  commitMutation(()=>{ v.ctlAliases=Array.from(new Set((v.ctlAliases||[]).concat([fileName]))); try{touchRecord(v);}catch(e){} },
+    {action:'vessel_alias_add', fields:['vessels'], onOk:()=>{ try{ logAuditEvent('vessel_alias_add',{vesselId:vid, alias:fileName, actor:(typeof actorName==='function'?actorName():'')}); }catch(e){}
+      toast('✓ "'+fileName+'" = '+v.name+' — đã nhớ','good');
+      st.plan=ctlReconcile(st.parsed,{projects:(S.projects||[]).filter(p=>p&&!p._deleted), events:VesselService.events(), vessels:VesselService.vessels()}); ctlImportPreview(); }});
+}
 function ctlImportPreview(){
   const st=window._ctlPlan; if(!st) return; const plan=st.plan; const fm=v=>Math.round(+v||0).toLocaleString('vi-VN');
   const fDT=s=>String(s||'').replace('T',' ').slice(0,16);
@@ -37940,7 +37959,11 @@ function ctlImportPreview(){
     <td style="padding:4px 6px;text-align:right;font-family:monospace">${x.seg.days}</td><td style="padding:4px 6px;font-size:11px">${esc(x.seg.contractNo)}${x.seg.parts>1?' · gộp '+x.seg.parts+' đoạn tháng':''}</td></tr>`).join('');
   const nP=plan.projects.filter(x=>x.action!=='same').length, nE=plan.events.filter(x=>x.action!=='same').length;
   openModal('📥 Contract Tracking List — đối chiếu ('+esc(st.file)+')', `
-    <div style="font-size:12px;color:var(--muted);margin-bottom:6px">Sheet <b>${esc(st.sheet)}</b>. Dự án khớp theo Số HĐ/Mã: chỉ <b>điền ô trống</b>, ô đã có mà lệch thì giữ số app và báo. Đoạn On/Off-hire: cùng tàu + cùng giờ bắt đầu → <b>cập nhật theo file</b>; đoạn nối tiếp cùng HĐ đã gộp liền.${plan.unmatchedVessels.length?`<div style="color:#c0392b">⚠ Tàu trong file không khớp app: ${esc(plan.unmatchedVessels.join(', '))} — bỏ qua</div>`:''}${st.parsed.errors.length?`<div style="color:#c0392b">⚠ ${st.parsed.errors.map(esc).join('<br>⚠ ')}</div>`:''}</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:6px">Sheet <b>${esc(st.sheet)}</b>. Dự án khớp theo Số HĐ/Mã: chỉ <b>điền ô trống</b>, ô đã có mà lệch thì giữ số app và báo. Đoạn On/Off-hire: cùng tàu + cùng giờ bắt đầu → <b>cập nhật theo file</b>; đoạn nối tiếp cùng HĐ đã gộp liền.${plan.unmatchedVessels.length?plan.unmatchedVessels.map(vn=>{ const sg=plan.suggest&&plan.suggest[vn]; const vs=VesselService.vessels();
+      return `<div style="color:#c0392b;margin-top:4px">⚠ Tàu trong file "<b>${esc(vn)}</b>" không khớp tên trong app${sg?` — gần nhất: <b>${esc(sg.name)}</b>`:''}.
+        <select id="ctl-vmap-${esc(ctlKey(vn))}" style="font-size:11px;margin:0 4px">${vs.map(v=>`<option value="${esc(v.id)}"${sg&&sg.id===v.id?' selected':''}>${esc(v.name)}</option>`).join('')}</select>
+        <button class="btn-primary" style="font-size:10.5px;padding:2px 8px" onclick="ctlVesselMapAccept('${esc(vn)}')" title="Ghi tên này là tên khác của tàu đã chọn — lần sau tự khớp">✓ Chấp nhận (nhớ)</button>
+        <span style="color:var(--muted);font-size:10.5px">· hoặc để nguyên = bỏ qua các HĐ/đoạn của tàu này</span></div>`; }).join(''):''}${st.parsed.errors.length?`<div style="color:#c0392b">⚠ ${st.parsed.errors.map(esc).join('<br>⚠ ')}</div>`:''}</div>
     <div style="font-weight:600;font-size:12px;margin:6px 0 2px">Hợp đồng / dự án (${plan.projects.length} · ${nP} thay đổi)</div>
     <div style="max-height:26vh;overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:var(--rule);text-align:left"><th style="padding:3px 6px"></th><th style="padding:3px 6px">Dự án</th><th style="padding:3px 6px;text-align:right">Đơn giá</th><th style="padding:3px 6px;text-align:right">Giá trị HĐ</th></tr></thead><tbody>${pr||'<tr><td colspan="4" style="padding:8px;color:var(--muted)">Không có</td></tr>'}</tbody></table></div>
     <div style="font-weight:600;font-size:12px;margin:8px 0 2px">Đoạn On-hire (${plan.events.length} · ${nE} thay đổi)</div>
@@ -38053,18 +38076,60 @@ async function ctlReadContractPdf(inputEl){
     try{ const ai=await aiExtract(file,'service_contract'); d=Object.assign({},d||{},ai,{_method:'ai'}); }
     catch(e){ if(!d||d._fields<1){ toast('Không bóc được chữ từ PDF ('+String(e&&e.message||e)+') — file scan cần backend AI','bad'); return; } }
   }
-  /* v3.19.00: số HĐ đọc được đã có trong app (đã nhập bằng Excel) → đính PDF vào dự án đó để lưu, không điền form */
-  if(d.contractNo){ const ex=(S.projects||[]).find(x=>x&&!x._deleted&&(ctlKey(x.contractNo)===ctlKey(d.contractNo)||ctlKey(x.code)===ctlKey(d.contractNo)||(d.notice&&ctlKey(x.code)===ctlKey(d.notice))));
-    if(ex && confirm('Hợp đồng '+d.contractNo+' đã có trong app: '+(ex.code||'')+' · '+(ex.name||'')+'.\n\nOK = đính PDF này vào dự án đó để lưu (Drive).\nHủy = điền form Thêm dự án mới.')){ const fake={files:[file], value:''}; await projectAttachPdf(ex.id, fake); return; } }
-  const set=(id,v)=>{ const el=document.getElementById(id); if(el && v!=null && v!=='' && v!==0 && !el.value){ el.value=v; el.style.borderColor='#1e7d44'; return true; } return false; };
-  let nSet=0;
-  nSet+=set('prj-code', d.notice||d.contractNo)?1:0; nSet+=set('prj-name', d.projectName)?1:0; nSet+=set('prj-client', d.client)?1:0; nSet+=set('prj-contract', d.contractNo)?1:0;
-  const rate=(typeof d.hireRate==='number')?{amount:d.hireRate,ccy:''}:ctlMoney(d.hireRate||''), price=(typeof d.totalValue==='number')?{amount:d.totalValue,ccy:''}:ctlMoney(d.totalValue||'');
-  nSet+=set('prj-unitprice', rate.amount||'')?1:0; nSet+=set('prj-value', price.amount||'')?1:0;
-  const ccyEl=document.getElementById('prj-ccy'); const ccy=d.ccy||price.ccy||rate.ccy; if(ccyEl && ccy && ['VND','USD'].includes(ccy)) ccyEl.value=ccy;
-  nSet+=set('prj-start', d.startDate&&/^\d{4}-/.test(d.startDate)?d.startDate:_aiDateISO(d.startDate))?1:0; nSet+=set('prj-end', d.endDate&&/^\d{4}-/.test(d.endDate)?d.endDate:_aiDateISO(d.endDate))?1:0;
-  if(d.vessel){ const vsel=document.getElementById('prj-vessel'); const vv=VesselService.vessels().find(v=>ctlKey(v.name)===ctlKey(d.vessel)||ctlKey(v.name).indexOf(ctlKey(d.vessel))>=0||ctlKey(d.vessel).indexOf(ctlKey(v.name))>=0); if(vsel&&vv&&!vsel.value){ vsel.value=vv.id; nSet++; } }
-  toast((nSet?'✓ Đã điền '+nSet+' ô trống từ PDF ('+(d._method==='ai'?'AI':'bóc chữ')+') — kiểm tra rồi bấm Thêm':'PDF đọc được nhưng không nhận ra trường nào — điền tay'), nSet?'good':'warn');
+  /* v3.19.05 (Sếp 26/8: "Đọc PDF rồi phải mở 1 màn có các thông tin của bản tóm tắt: để đọc, lưu các thông tin cần"):
+     mở màn XEM & SỬA các trường đọc được → chọn đích (tạo dự án mới / điền vào dự án đã có) + đính PDF → Lưu. */
+  window._ctlPdf={file, d, text};
+  ctlContractReview();
+}
+function ctlContractReview(){
+  const st=window._ctlPdf; if(!st) return; const d=st.d||{};
+  const vs=VesselService.vessels(); const vv=d.vessel?vs.find(v=>ctlKey(v.name)===ctlKey(d.vessel)||ctlKey(v.name).indexOf(ctlKey(d.vessel))>=0||ctlKey(d.vessel).indexOf(ctlKey(v.name))>=0):null;
+  const ex=(d.contractNo||d.notice)?(S.projects||[]).find(x=>x&&!x._deleted&&((d.contractNo&&(ctlKey(x.contractNo)===ctlKey(d.contractNo)||ctlKey(x.code)===ctlKey(d.contractNo)))||(d.notice&&ctlKey(x.code)===ctlKey(d.notice)))):null;
+  const fm=v=>Math.round(+v||0).toLocaleString('vi-VN');
+  const F=(id,label,val,type,extra)=>`<div class="field"><label>${label}</label><input id="${id}" type="${type||'text'}" value="${esc(val==null?'':val)}" ${extra||''}></div>`;
+  const rate=(typeof d.hireRate==='number')?d.hireRate:ctlMoney(d.hireRate||'').amount, total=(typeof d.totalValue==='number')?d.totalValue:ctlMoney(d.totalValue||'').amount;
+  const prjOpts=(S.projects||[]).filter(x=>x&&!x._deleted&&!x.archived).slice().sort((a,b)=>String(a.code).localeCompare(String(b.code))).map(x=>`<option value="${esc(x.id)}"${ex&&ex.id===x.id?' selected':''}>${esc(x.code)} · ${esc(x.name)}</option>`).join('');
+  openModal('📄 Tóm tắt hợp đồng — '+esc(st.file.name), `
+    <div style="font-size:11.5px;color:var(--muted);margin-bottom:8px">Đọc bằng ${d._method==='ai'?'AI':'bóc chữ PDF'} · ${d._fields||0} trường nhận được. Kiểm/sửa rồi chọn đích và Lưu. ${ex?`<b style="color:#b8730a">Số HĐ này đã có: ${esc(ex.code)} · ${esc(ex.name)} — mặc định điền thêm vào dự án đó.</b>`:''}</div>
+    <div class="form-grid">
+      ${F('ctlr-contract','Số hợp đồng',d.contractNo)}${F('ctlr-notice','Notice No.',d.notice)}
+      ${F('ctlr-client','Khách hàng',d.client)}${F('ctlr-endclient','End client',d.endClient)}
+      <div class="field span-2"><label>Tên dự án / phạm vi</label><input id="ctlr-name" value="${esc(d.projectName||'')}"></div>
+      <div class="field"><label>Tàu</label><select id="ctlr-vessel"><option value="">— Không gắn —</option>${vs.map(v=>`<option value="${esc(v.id)}"${vv&&vv.id===v.id?' selected':''}>${esc(v.name)}</option>`).join('')}</select></div>
+      ${F('ctlr-location','Địa điểm',d.location)}
+      ${F('ctlr-rate','Đơn giá (/ngày)',rate||'','number','step="any"')}${F('ctlr-value','Giá trị HĐ',total||'','number','step="any"')}
+      <div class="field"><label>Tiền tệ</label><select id="ctlr-ccy"><option value="VND"${(d.ccy||'VND')==='VND'?' selected':''}>VND</option><option value="USD"${d.ccy==='USD'?' selected':''}>USD</option></select></div>
+      ${F('ctlr-start','Bắt đầu',d.startDate,'date')}${F('ctlr-end','Kết thúc',d.endDate,'date')}
+      <div class="field span-2"><label>Lưu vào</label><select id="ctlr-target" onchange="document.getElementById('ctlr-target-prj').style.display=this.value==='existing'?'':'none'"><option value="new"${ex?'':' selected'}>➕ Tạo dự án mới</option><option value="existing"${ex?' selected':''}>✎ Điền vào dự án đã có (chỉ ô trống, không đè)</option></select>
+        <select id="ctlr-target-prj" style="margin-top:4px;${ex?'':'display:none'}">${prjOpts}</select></div>
+      <div class="field span-2"><label><input type="checkbox" id="ctlr-attach" ${getAuthConfig()&&getAuthConfig().scriptUrl?'checked':'disabled'}> Đính file PDF này vào dự án (lưu Drive, app giữ link)${getAuthConfig()&&getAuthConfig().scriptUrl?'':' — chưa cấu hình Apps Script'}</label></div>
+    </div>
+    <details style="margin-top:6px"><summary style="font-size:11px;color:var(--muted);cursor:pointer">Xem chữ bóc được từ PDF</summary><div style="font-size:11px;max-height:22vh;overflow:auto;white-space:pre-wrap;background:var(--paper-3);padding:6px;border-radius:6px">${esc(String(st.text||'').slice(0,4000))}</div></details>`,
+    `<button class="btn-ghost" onclick="window._ctlPdf=null;closeModal()">✖ Hủy</button><button class="btn-primary" onclick="ctlContractSave()">✓ Lưu</button>`);
+}
+async function ctlContractSave(){
+  const st=window._ctlPdf; if(!st) return;
+  const g=id=>(document.getElementById(id)||{}).value||'';
+  const rec={contractNo:g('ctlr-contract').trim(), notice:g('ctlr-notice').trim(), client:g('ctlr-client').trim(), endClient:g('ctlr-endclient').trim(), name:g('ctlr-name').trim(), vesselId:g('ctlr-vessel')||null, location:g('ctlr-location').trim(), unitPrice:+g('ctlr-rate')||0, value:+g('ctlr-value')||0, ccy:g('ctlr-ccy')||'VND', start:g('ctlr-start'), end:g('ctlr-end')};
+  const target=g('ctlr-target'); const attach=!!((document.getElementById('ctlr-attach')||{}).checked);
+  const who=(typeof actorName==='function'?actorName():'admin'), now=new Date().toISOString();
+  let pid='';
+  if(target==='existing'){ pid=g('ctlr-target-prj'); const p=(S.projects||[]).find(x=>x&&x.id===pid); if(!p){ toast('Chọn dự án','bad'); return; }
+    const fill=[]; [['contractNo',rec.contractNo],['client',rec.client],['unitPrice',rec.unitPrice],['value',rec.value],['vesselId',rec.vesselId],['start',rec.start],['end',rec.end],['ccy',rec.ccy]].forEach(([k,nv])=>{ const cur=p[k]; if(nv==null||nv===''||nv===0) return; if(cur==null||cur===''||cur===0) fill.push([k,nv]); });
+    if(!p.name && rec.name) fill.push(['name',rec.name]);
+    await commitMutation(()=>{ fill.forEach(([k,nv])=>{ p[k]=nv; }); if(rec.endClient&&!p.endClient) p.endClient=rec.endClient; if(rec.location&&!p.location) p.location=rec.location; try{touchRecord(p);}catch(e){} },
+      {action:'ctl_pdf_fill', fields:['projects'], onOk:()=>{ toast('✓ Điền '+fill.length+' ô trống vào '+(p.code||''),'good'); }});
+  } else {
+    if(!rec.name && !rec.contractNo){ toast('Cần tên dự án hoặc số HĐ','bad'); return; }
+    const code=rec.notice||rec.contractNo||('DA-'+now.slice(0,10)); if((S.projects||[]).some(x=>x&&!x._deleted&&ctlKey(x.code)===ctlKey(code))){ toast('Mã '+code+' đã có — chọn "Điền vào dự án đã có"','bad'); return; }
+    const vv=rec.vesselId?VesselService.vessels().find(v=>v.id===rec.vesselId):null;
+    const p={id:uid(), code, name:rec.name||rec.contractNo, client:rec.client, endClient:rec.endClient, location:rec.location, segment:vv?(vv.type==='TECH'?'VESSEL_TECH':'VESSEL_SERVICE'):'OTHER', vesselId:rec.vesselId, ccy:rec.ccy, start:rec.start, end:rec.end, value:rec.value, unitPrice:rec.unitPrice, experts:0, workDays:0, contractNo:rec.contractNo, projectManager:'', projStatus:'', isOM:false, _source:'ctl_pdf', createdBy:who, createdAt:now, updatedAt:now};
+    pid=p.id;
+    await commitMutation(()=>{ (S.projects=S.projects||[]).push(p); },{action:'ctl_pdf_new', fields:['projects'], onOk:()=>{ toast('✓ Đã tạo dự án '+code,'good'); }});
+  }
+  try{ logAuditEvent('ctl_pdf_save',{target, pid, file:st.file.name, actor:who}); }catch(e){}
+  if(attach && pid){ await projectAttachPdf(pid, {files:[st.file], value:''}); }
+  window._ctlPdf=null; closeModal(); try{ renderProjects(); }catch(e){}
 }
 function renderProjects(){
   const tbl=document.getElementById('prj-table');
@@ -54274,7 +54339,7 @@ function _arEtChip(gk){
   /* v3.18.96: chip chữ cái = gốc cây nhánh; mở cascade ngay tại nhánh của nhóm đó (không bắt bấm "Chọn theo nhánh") */
   const L=(gk && typeof expGroupLetter==='function')?expGroupLetter(gk):''; window._arEtLetter=L||'';
   const pn=document.getElementById('et-cascade');
-  if(pn){ if(L){ pn.style.display=''; try{ _etCascade(2,L); }catch(e){} } else if(!gk){ pn.style.display='none'; } }
+  if(pn){ if(L){ pn.style.display=''; try{ _etTreeRender(L); }catch(e){ try{ _etCascade(2,L); }catch(_){} } } else if(!gk){ pn.style.display='none'; } }   /* v3.19.08: cây 3 cấp tại chỗ */
 }
 function _arSegmentChanged(){
   /* v3.18.92: đổi mảng → ưu tiên nhóm chi phí theo mảng (chỉ đổi thứ tự/lọc hiển thị) */
@@ -54854,7 +54919,7 @@ function _arEditorBody(r,isPayable){
           const chip=(k,lab,on)=>`<button type="button" class="btn-ghost" data-etchip="${esc(k)}" style="font-size:10.5px;padding:1px 8px;border:1px solid ${on?'var(--accent)':'var(--rule)'};border-radius:10px;${on?'font-weight:700':''}" onclick="_arEtChip('${esc(k)}')">${lab}</button>`;
           return chip('', 'Tất cả', !pref.length)+expGroupsActive().map(k=>chip(k, esc(expGroupLabel(k)), pref.length===1&&pref[0]===k)).join(''); }catch(e){ return ''; } })()}</div>
         <select id="ar-expense-type" onchange="arExpenseTypeChanged()">${(function(){ try{ const pref=expGroupsForSegment(r.segment||''); return expenseTypeOptsPref(r.expenseType, pref, pref.length===1?pref[0]:''); }catch(e){ return etHtml; } })()}</select>
-        <a href="#" style="font-size:11px" onclick="_etCascade(0);return false" title="Cây nhánh theo nhóm đang chọn ở dãy trên">🧭 Nhánh</a>
+        <!-- v3.19.07 (Sếp 26/8): bỏ link 🧭 Nhánh — cây nhánh đã tự mở khi bấm chip nhóm; link chỉ là nút bật/tắt thừa -->
         <div id="et-cascade" style="display:none;border:1px solid var(--rule);border-radius:8px;padding:6px;margin-top:4px;background:var(--paper-2);max-height:200px;overflow:auto;font-size:12px"></div>
       </div>
       <div class="field" id="ar-khoan-field" style="grid-column:span 3;display:${_isOpManagedAp(r)?'':'none'}">
@@ -55314,6 +55379,40 @@ function _arEditorBody(r,isPayable){
 
 /* v1.43.0: Show/hide fuel block when expense type changes */
 /* v3.18.62 (Sếp): dropdown thông minh — mở LẦN LƯỢT theo nhánh (cấp 1 → cấp 2 → loại), không xổ 64 loại. */
+/* v3.19.08 (Sếp 26/8: "Khi chọn: cho chọn đến chắt trong Phải trả"): cây NHÁNH TẠI CHỖ cho nhóm chữ cái đã chọn —
+   con ▸ cháu ▸ loại (chắt) gập/bung tại chỗ, không đổi màn từng cấp; bấm loại → chọn vào ô Loại chi phí. */
+/* chọn loại từ cây → ô Loại chi phí (thêm option nếu dropdown đang lọc không có), đóng cây */
+function _etPick(code){
+  const s2=document.getElementById('ar-expense-type'); if(!s2) return;
+  if(![...s2.options].some(o=>o.value===code)){ const t=(S.expenseTypes||[]).find(x=>x&&x.code===code); const o=document.createElement('option'); o.value=code; o.textContent=((t&&t.icon)||'')+' '+((t&&t.label)||code); s2.appendChild(o); }
+  s2.value=code; try{ arExpenseTypeChanged(); }catch(e){}
+  const p2=document.getElementById('et-cascade'); if(p2) p2.style.display='none';
+}
+function _etTreeRender(rootL){
+  const pn=document.getElementById('et-cascade'); if(!pn) return;
+  const types=(typeof expenseTypesForUser==='function')?expenseTypesForUser():(S.expenseTypes||[]);
+  const tree=(typeof expTreeList==='function'?expTreeList():[]).map(n=>({code:String(n.code),name:n.name||''})).filter(n=>n.code.indexOf(rootL+'.')===0);
+  const cons={}; tree.forEach(n=>{ const p=n.code.split('.'); if(p.length===2) cons[n.code]={code:n.code,name:n.name,chaus:{},types:[]}; });
+  tree.forEach(n=>{ const p=n.code.split('.'); if(p.length===3){ const c=p.slice(0,2).join('.'); if(!cons[c]) cons[c]={code:c,name:'',chaus:{},types:[]}; cons[c].chaus[n.code]={code:n.code,name:n.name,types:[]}; } });
+  types.forEach(t=>{ const tc=String(t.treeCode||t.code||''); if(tc.indexOf(rootL+'.')!==0) return; const p=tc.split('.'); const c=p.slice(0,2).join('.'); if(!cons[c]) cons[c]={code:c,name:'',chaus:{},types:[]};
+    if(p.length>=3){ const ch=p.slice(0,3).join('.'); if(!cons[c].chaus[ch]) cons[c].chaus[ch]={code:ch,name:'',types:[]}; cons[c].chaus[ch].types.push(t); } else cons[c].types.push(t); });
+  const sel=document.getElementById('ar-expense-type'); const cur=sel?sel.value:'';
+  const leafRow=(t,pad)=>`<div style="padding:3px 6px 3px ${pad}px;border-bottom:1px dotted var(--rule);cursor:pointer;background:${t.code===cur?'#fff3c4':'#fff'}" onclick="event.stopPropagation();_etPick('${esc(t.code)}')">${t.icon||''} <b style="font-variant-numeric:tabular-nums">${esc(t.code)}</b> ${esc(t.label||'')} ✓</div>`;
+  const tog=(id)=>`(function(ev){try{ev&&ev.stopPropagation&&ev.stopPropagation();}catch(e){} const b=document.getElementById('${id}'); if(b){ const on=b.style.display==='none'; b.style.display=on?'':'none'; const c=b.previousElementSibling&&b.previousElementSibling.querySelector('.ettg'); if(c) c.textContent=on?'▾':'▸'; } })(typeof event!=='undefined'?event:null)`;
+  let h='';
+  Object.keys(cons).sort((a,b)=>a.localeCompare(b,'vi',{numeric:true})).forEach((ck,ci)=>{ const c=cons[ck]; const idC='ettr-c'+ci;
+    const nC=Object.values(c.chaus).reduce((s,x)=>s+x.types.length,0)+c.types.length;
+    h+=`<div style="padding:4px 6px;border-bottom:1px solid var(--rule);cursor:pointer;font-weight:600" onclick="${tog(idC)}"><span class="ettg" style="display:inline-block;width:12px;font-size:10px">▸</span><b style="font-variant-numeric:tabular-nums">${esc(c.code)}</b> ${esc(c.name)} <span style="font-weight:400;color:var(--muted)">(${nC} loại)</span></div><div id="${idC}" style="display:none">`;
+    c.types.forEach(t=>{ h+=leafRow(t,26); });
+    Object.keys(c.chaus).sort((a,b)=>a.localeCompare(b,'vi',{numeric:true})).forEach((chk,hi)=>{ const ch=c.chaus[chk]; const idH=idC+'h'+hi;
+      h+=`<div style="padding:3px 6px 3px 22px;border-bottom:1px dotted var(--rule);cursor:pointer" onclick="${tog(idH)}"><span class="ettg" style="display:inline-block;width:12px;font-size:10px">▸</span><b style="font-variant-numeric:tabular-nums">${esc(ch.code)}</b> ${esc(ch.name)} <span style="color:var(--muted)">(${ch.types.length} loại)</span></div><div id="${idH}" style="display:none">`;
+      ch.types.forEach(t=>{ h+=leafRow(t,40); }); h+='</div>'; });
+    h+='</div>'; });
+  pn.innerHTML=h||'<div style="padding:6px;color:var(--muted)">Nhóm '+esc(rootL)+' chưa có nhánh/loại</div>'; pn.style.display='';
+  /* tự bung nhánh chứa loại đang chọn */
+  if(cur){ const t=types.find(x=>x.code===cur); const tc=t?String(t.treeCode||t.code||''):''; if(tc.indexOf(rootL+'.')===0){ const p=tc.split('.'); const ck=p.slice(0,2).join('.'); const ci=Object.keys(cons).sort((a,b)=>a.localeCompare(b,'vi',{numeric:true})).indexOf(ck); if(ci>=0){ const bC=document.getElementById('ettr-c'+ci); if(bC){ bC.style.display=''; const cc=bC.previousElementSibling.querySelector('.ettg'); if(cc) cc.textContent='▾'; }
+      if(p.length>=3){ const chk=p.slice(0,3).join('.'); const hi=Object.keys(cons[ck].chaus).sort((a,b)=>a.localeCompare(b,'vi',{numeric:true})).indexOf(chk); const bH=document.getElementById('ettr-c'+ci+'h'+hi); if(bH){ bH.style.display=''; const ch=bH.previousElementSibling.querySelector('.ettg'); if(ch) ch.textContent='▾'; } } } } }
+}
 function _etCascade(lv, prefix){
   /* v3.18.62: viết lại điều khiển — lv=0: bấm LINK (bật/tắt); lv>=1: render mức đó.
      Mọi click dòng chặn nổi bọt để không dội ngược lên link làm tắt panel. */
@@ -65028,7 +65127,8 @@ function _opNccPanel(t, ccy){
       <td style="font-size:11px;padding:2px 6px">Đợt ${i+1}</td>
       <td class="ds-t-sub" style="font-family:var(--font-mono);padding:2px 6px">${esc(p.date||'')}</td>
       <td class="r num" style="font-size:11px;padding:2px 6px">${(+p.amount||0).toLocaleString('vi-VN')} ${esc(p.ccy||ccy)}</td>
-      <td style="font-size:10px;color:var(--muted);padding:2px 6px">${esc(p.note||'')}${p.by?' · '+esc(p.by):''}</td>
+      <td style="font-size:10px;color:var(--muted);padding:2px 6px">${esc(p.note||'')}${p.by?' · '+esc(p.by):''}${p.method==='loan'?' · 🏛 GN':(p.method==='cash'?' · 💵':(p.method==='offset'?' · ⇄':(p.bankAccountId?' · 🏦':'')))}${p._bkId?' · bảng kê':''}
+        ${(isAdmin()||(typeof canApproveL1==='function'&&canApproveL1()))?(p._bkId?`<span style="color:var(--muted)" title="Đợt từ Bảng kê — hủy bằng cách hủy bảng kê (bkVoid)">🔒</span>`:`<button class="icon-btn danger" style="font-size:10px;padding:0 4px" title="v3.19.06: hủy đợt ghi tay này — số về lại Còn nợ, vào Chờ thanh toán; TK/khế ước nháp tự đảo" onclick="event.stopPropagation();opPayUndo('${t.id}',${i})">✕ hủy</button>`):''}</td>
     </tr>`).join('');
   return `<div style="margin:12px 0;padding:12px 14px;border:1.5px solid var(--ink);border-radius:8px;background:var(--paper-3)">
     <div style="font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink);font-weight:700;margin-bottom:8px">📁 Hồ sơ công nợ NCC ${isRej?'<span class="ds-need" data-dot="bad" style="font-size:10px">Từ chối</span>':`<span class="ds-need" data-dot="${((st.chip)||'').indexOf('good')>=0?'good':((st.chip)||'').indexOf('bad')>=0?'bad':((st.chip)||'').indexOf('warn')>=0?'warn':''}" style="font-size:10px">${st.label}</span>`}</div>
@@ -65295,6 +65395,37 @@ function _opPayApply(t,p){
   }
   try{ touchRecord(t); }catch(e){}
   return _pay;
+}
+/* v3.19.06 (Sếp 26/8 phiếu AFALINA Tân Cảng 234.280.591: bản trước bấm 'Thanh toán NCC' 144.926.448 chọn NH → app ghi đã trả,
+   nay Chờ thanh toán chỉ còn 89.354.143): HỦY ĐỢT GHI TAY — xóa đợt khỏi phiếu, số về Còn nợ (Chờ thanh toán/Bảng kê tự nhận
+   đủ), Sổ NH tính lại từ payments nên tự đảo; đợt giải ngân → trừ lại khế ước nháp (rỗng thì bỏ nháp). Đợt từ Bảng kê (_bkId)
+   không hủy ở đây — hủy bảng kê (bkVoid). Chỉ admin/KTT; ghi audit + vết trên phiếu. */
+function opPayUndo(tid, ix){
+  if(!(isAdmin()||(typeof canApproveL1==='function'&&canApproveL1()))){ toast('Hủy đợt: admin / KTT','bad'); return; }
+  const t=VesselService.opTransactions().find(x=>x.id===tid); if(!t) return;
+  const p=(t.payments||[])[ix]; if(!p){ toast('Không tìm thấy đợt','warn'); return; }
+  if(p._bkId){ toast('Đợt này từ Bảng kê — hủy bảng kê đó (bkVoid) thay vì hủy lẻ','bad'); return; }
+  if(t._locked){ toast('Phiếu đã khóa kỳ — không hủy đợt','bad'); return; }
+  const amt=+p.amount||0;
+  if(!confirm('Hủy đợt '+(ix+1)+' · '+amt.toLocaleString('vi-VN')+' '+(p.ccy||t.ccy||'VND')+' · '+(p.date||'')+(p.by?' · '+p.by:'')+'?\n\nSố này về lại CÒN NỢ và vào Chờ thanh toán; TK ngân hàng / khế ước nháp tự đảo.')) return;
+  const who=(typeof actorName==='function'?actorName():''), now=new Date().toISOString();
+  const fields=['opTransactions']; let kuTouched=false;
+  commitMutation(()=>{
+    t.payments.splice(ix,1);
+    (t._payUndoLog=t._payUndoLog||[]).push({at:now,by:who,amount:amt,date:p.date,method:p.method,bankAccountId:p.bankAccountId||'',note:p.note||''});
+    if(opNccRemaining(t)>0.001){ t.paid=false; t.paidDate=''; t.paidBy=''; t.paidAt=''; }
+    if(p.method==='loan' && p.bankAccountId){   /* đảo khế ước nháp */
+      const acc=AccountingService.bankAccounts().find(a=>a.id===p.bankAccountId); const lender=((acc&&acc.bankName)||'').trim()||'(Chưa rõ NH)';
+      const _cc=(p.ccy||t.ccy||'VND'); const _cands=AccountingService.loans().filter(x=>x&&x.kuDraft&&!x._deleted&&x.status!=='closed'&&((x.lender||x.bankName||'').trim()===lender)&&(x.ccy||'VND')===_cc);
+      const l=_cands.find(x=>x.startDate===p.date)||_cands[0];
+      if(l){ l.principal=Math.max(0,(+l.principal||0)-amt); l.principal=(String(l.ccy||'VND')==='VND')?Math.round(l.principal):Math.round(l.principal*100)/100; if(l.principal<1){ l._deleted=true; l.status='discarded'; try{ markDeleted([l.id],'loans'); }catch(e){} } try{touchRecord(l);}catch(e){} kuTouched=true; }
+    }
+    try{touchRecord(t);}catch(e){}
+  },{action:'op_pay_undo', fields:kuTouched?['opTransactions','loans','deletedIds']:fields, onOk:()=>{
+    try{ logAuditEvent('op_pay_undo',{id:tid, amount:amt, method:p.method, actor:who}); }catch(e){}
+    toast('✓ Đã hủy đợt '+amt.toLocaleString('vi-VN')+' — Còn nợ '+opNccRemaining(t).toLocaleString('vi-VN')+' '+(t.ccy||'VND')+' về Chờ thanh toán','good');
+    try{ closeModal(); if(typeof showOpTxDetail==='function') showOpTxDetail(tid); if(typeof renderAll==='function') renderAll(); }catch(e){}
+  }});
 }
 function opSaveNccPayment(id){
   const t=VesselService.opTransactions().find(x=>x.id===id);
