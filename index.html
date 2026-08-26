@@ -3827,7 +3827,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.19.08';
+const APP_VERSION='3.19.09';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -38171,7 +38171,7 @@ function renderProjects(){
       : '';
     html+=`<tr style="${p.archived?'opacity:0.55;background:var(--paper-3)':''}">
       <td class="ds-t-sub" style="font-family:var(--font-mono)">${esc(p.code)}${p.archived?' <span class="ds-need" data-dot="bad" style="font-size:10px" title="Đã đánh dấu hoàn thành">⊘</span>':''}</td>
-      <td><b>${esc(p.name)}</b>${p.isOM?' <span class="ds-need" data-dot="good" style="font-size:10px;margin-left:4px" title="Dự án O&M độc lập — có NV phụ trách riêng">⚙ O&M</span>':''}<br><span style="color:var(--muted);font-size:11px">${esc(p.client) || '—'}</span>${(p.docs&&p.docs.length)?`<div style="font-size:10.5px;margin-top:2px">${p.docs.map(d=>`<a href="${esc(d.url)}" target="_blank" rel="noopener" title="${esc(d.name)} · ${esc(String(d.at||'').slice(0,10))} · ${esc(d.by||'')}">📎 ${esc(String(d.name).length>28?String(d.name).slice(0,26)+'…':d.name)}</a>${adminMode?` <a href="#" onclick="event.preventDefault();projectDocRemove('${p.id}','${esc(d.id)}')" style="color:var(--bad)" title="Gỡ link">✕</a>`:''}`).join(' · ')}</div>`:''}</td>
+      <td><b>${esc(p.name)}</b>${p.isOM?' <span class="ds-need" data-dot="good" style="font-size:10px;margin-left:4px" title="Dự án O&M độc lập — có NV phụ trách riêng">⚙ O&M</span>':''}<br><span style="color:var(--muted);font-size:11px">${esc(p.client) || '—'}</span>${(p.docs&&p.docs.length)?`<div style="font-size:10.5px;margin-top:2px">${p.docs.map(d=>`<a href="${esc(d.url)}" target="_blank" rel="noopener" title="${esc(d.name)} · ${esc(String(d.at||'').slice(0,10))} · ${esc(d.by||'')}">📎 ${esc(String(d.name).length>28?String(d.name).slice(0,26)+'…':d.name)}</a>${isAdmin()?` <a href="#" onclick="event.preventDefault();projectDocRemove('${p.id}','${esc(d.id)}')" style="color:var(--bad)" title="Gỡ link">✕</a>`:''}`).join(' · ')}</div>`:''}</td>
       <td>${v?'<b>'+v.name+'</b>':'<span style="color:var(--muted)">—</span>'}</td>
       ${(()=>{ const hs=projectHireSpan(p.id,_allEv); tDays+=hs.days; const f=s=>s?String(s).slice(0,10).split('-').reverse().join('/'):'';
         return hs.n?`<td style="font-family:var(--font-mono);font-size:11px;white-space:nowrap">${f(hs.first)} → ${f(hs.last)}${hs.n>1?`<div style="color:var(--muted);font-size:10px">${hs.n} đoạn</div>`:''}</td><td class="r mono" style="font-size:11px">${hs.days}</td>`
