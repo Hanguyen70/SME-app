@@ -3825,7 +3825,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.18.88';
+const APP_VERSION='3.18.90';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -23667,7 +23667,7 @@ function payExtrasOpen(prefPeriod, fromPeriodId){
       <button class="btn-sec" style="font-size:11px" onclick="payExtraForm()">➕ Nhập 1 khoản</button>
       <button class="btn-sec" style="font-size:11px" onclick="pexImportOpen()" title="File Excel: MSNV | Loại | Số tiền | Kỳ | Chịu thuế | Mô tả | Chứng từ — tạo hàng loạt NHÁP chờ KTT duyệt">📥 Nhập lô Excel</button>
       <button class="btn-ghost" style="font-size:11px" onclick="pexTemplateDownload()" title="v3.18.76: file mẫu 7 cột + sheet Loai liệt kê mã loại">⬇ Tải mẫu</button>
-      <button class="btn-sec" style="font-size:11px" onclick="pexbOpen()" title="v3.18.73: thưởng/trợ cấp đột xuất KHÔNG chi cùng kỳ lương — nhập file HR → KTT duyệt → bảng NH riêng → Chuyển kế toán (tách theo Khối)">💸 Đợt chi riêng</button>
+      <!-- v3.18.90 (Sếp 26/8 "Đợt chi riêng: trùng — bỏ tại Khoản PS cho đỡ rối"): nút 💸 Đợt chi riêng chỉ còn ở thanh Kỳ lương; màn này chỉ khoản chi CÙNG kỳ -->
       ${window._pexFromPeriodId?`<button class="btn-primary" style="font-size:11px" onclick="payApplyExtras(window._pexFromPeriodId)" title="v3.15.40: chuyển từ thanh nút kỳ vào đây — áp khoản ĐÃ DUYỆT đúng kỳ vào bảng lương (Tính lại các dòng liên quan), tự quay về kỳ">🧮 Áp phát sinh vào kỳ</button>`:''}
       <!-- v3.15.33 B1 (audit Sếp 11/8): nút "Import Excel" trực tiếp gỡ — TRÙNG mục đích với "Nhập lô Excel"
            nhưng KHÁC cơ chế duyệt → dễ nhập kép, khó truy vết. MỘT đường: 📥 Nhập lô Excel (pexImportOpen,
@@ -23682,7 +23682,7 @@ function payExtrasOpen(prefPeriod, fromPeriodId){
            v3.15.27: 🗂 Hồ sơ thuế năm cũng CHUYỂN theo — trọn cụm thuế về card Thuế TNCN kỳ -->
     </div>
     <div style="max-height:56vh;overflow:auto"><table style="width:100%;border-collapse:collapse"><thead><tr style="text-align:left;font-size:10px;color:var(--muted)"><th style="padding:4px 6px">Nhân viên</th><th style="padding:4px 6px">Kỳ</th><th style="padding:4px 6px;text-align:right">Số tiền</th><th style="padding:4px 6px">Cờ</th><th style="padding:4px 6px">Diễn giải</th><th style="padding:4px 6px">TT</th><th></th></tr></thead><tbody>${rowsH||'<tr><td colspan="7" style="padding:10px;text-align:center;color:var(--muted)">Chưa có khoản nào</td></tr>'}</tbody></table></div>
-    <div style="font-size:10px;color:var(--muted);margin-top:6px">Chỉ khoản ĐÃ DUYỆT + đúng kỳ mới vào lương (nút 🧮 Áp phát sinh tại kỳ). Mẫu Excel: MSNV · Kỳ (YYYY-MM) · Loại (THU/CHI) · Số tiền · Chịu thuế (x) · Tính BHXH (x) · Ẩn payslip (x) · Diễn giải · Chứng từ.</div>`,
+    <div style="font-size:10px;color:var(--muted);margin-top:6px">Chỉ khoản ĐÃ DUYỆT + đúng kỳ mới vào lương (nút 🧮 Áp phát sinh tại kỳ). Thưởng/trợ cấp chi <b>ngoài</b> kỳ lương → dùng 💸 Đợt chi riêng ở thanh Kỳ lương. Mẫu Excel: MSNV · Kỳ (YYYY-MM) · Loại (THU/CHI) · Số tiền · Chịu thuế (x) · Tính BHXH (x) · Ẩn payslip (x) · Diễn giải · Chứng từ.</div>`,
     '<button class="btn-sec" onclick="closeModal()">Đóng</button>');
 }
 function payAdjustLocked(periodId){
@@ -34240,7 +34240,7 @@ function renderCatalog(){
         </tr>`;
       };
       /* v3.18.71: nút ＋ Nhóm (admin) — chữ cái cấp 1 mới = nhóm hệ thống mới, màu app tự gán */
-      if(adminMode) h += `<tr><td colspan="${colspan}" style="padding:4px 12px"><button class="btn-sec" style="font-size:11px;padding:2px 8px" onclick="_etCatGroupAdd()" title="Thêm nhóm chi phí mới = một chữ cái cấp 1 (vd S · Khảo sát)">＋ Nhóm</button></td></tr>`;
+      if(adminMode) h += `<tr><td colspan="${colspan}" style="padding:4px 12px"><button class="btn-sec" style="font-size:11px;padding:2px 8px" onclick="_etCatGroupAdd()" title="Thêm nhóm chi phí mới = một chữ cái cấp 1 (vd S · Khảo sát)">＋ Nhóm</button> <button class="btn-sec" style="font-size:11px;padding:2px 8px" onclick="openExpenseTreeManager()" title="v3.18.89 (Sếp 26/8): Bảng tên nhánh — toàn bộ mã nhánh (chữ cái › con › cháu) và tên; sửa/xóa nhánh tại đây">🌳 Bảng tên nhánh</button> <span style="font-size:10.5px;color:var(--muted)">Cây bên dưới vẽ từ Bảng tên nhánh + các loại đang có; nhánh chưa có loại vẫn hiện (0 loại).</span></td></tr>`;
       /* v3.18.84: nhánh lạc cấp (≥4 cấp) do tạo nhầm bằng ＋ nhánh — danh mục không vẽ được → cảnh báo + lối xử lý */
       if(adminMode){ const stray=(typeof _etCatStrayBranches==='function')?_etCatStrayBranches():[]; if(stray.length) h += `<tr><td colspan="${colspan}" style="padding:6px 12px;font-size:12px;background:rgba(192,57,43,.07)">⚠ ${stray.length} mã trong Bảng tên nhánh có 4 cấp trở lên (mã 4 cấp là LOẠI chi phí, không phải nhánh) nên danh mục không hiện: ${stray.map(n=>`<span style="white-space:nowrap;margin-right:8px"><b>${esc(n.code)}</b> ${esc(n.name||'')} <button class="btn-sec" style="font-size:10.5px;padding:1px 6px" onclick="_etCatStrayToType('${esc(String(n.code))}')" title="Mở form Thêm loại với mã + tên điền sẵn">➕ tạo loại</button> <button class="icon-btn danger" style="font-size:10.5px" onclick="_etCatStrayDelete('${esc(String(n.code))}')" title="Xóa nhánh lạc cấp">🗑</button></span>`).join('')}</td></tr>`; }
       order.forEach(gk => {
