@@ -3825,7 +3825,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.18.79';
+const APP_VERSION='3.18.81';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -17342,10 +17342,11 @@ function expGroupIsDynamic(gk){ return !!(EXPENSE_GROUPS[gk] && EXPENSE_GROUPS[g
 function expGroupsSync(){
   try{
     const fixedLetters=(typeof ETYPE_LETTER_GROUP!=='undefined')?ETYPE_LETTER_GROUP:{};
-    const letters=(typeof expTreeList==='function'?expTreeList():[])
-      .filter(n=>n && /^[A-Z]$/.test(String(n.code||'')) && !fixedLetters[String(n.code)])
-      .map(n=>({code:String(n.code), name:String(n.name||'').trim()}))
-      .sort((a,b)=>a.code.localeCompare(b.code));
+    const byL={};
+    (typeof expTreeList==='function'?expTreeList():[]).forEach(n=>{ if(n && /^[A-Z]$/.test(String(n.code||'')) && !fixedLetters[String(n.code)]) byL[String(n.code)]=String(n.name||'').trim(); });
+    /* v3.18.81: chữ cái đang là đầu mã của loại (vd O.01.10.001) mà chưa có nhánh cấp 1 → vẫn là nhóm riêng (tên = chữ cái), KHÔNG rơi về nhóm cũ */
+    (S.expenseTypes||[]).forEach(t=>{ if(!t||t.archived) return; const m=String(t.treeCode||t.code||'').toUpperCase().match(/^([A-Z])\./); if(m && !fixedLetters[m[1]] && byL[m[1]]==null) byL[m[1]]=''; });
+    const letters=Object.keys(byL).sort().map(L=>({code:L, name:byL[L]}));
     const keep=new Set(letters.map(l=>l.code));
     Object.keys(EXPENSE_GROUPS).forEach(k=>{ if(EXPENSE_GROUPS[k].dynamic && !keep.has(k)) delete EXPENSE_GROUPS[k]; });
     letters.forEach((l,i)=>{
@@ -17374,7 +17375,7 @@ function expGroupLabel(gk){
 function expGroupsActive(opts){
   opts=opts||{}; try{ expGroupsSync(); }catch(e){}
   const f=(typeof ETYPE_LETTER_GROUP!=='undefined')?ETYPE_LETTER_GROUP:{};
-  const fixedOrder=['M','F','T','O','C'].map(L=>f[L]).filter(k=>k&&EXPENSE_GROUPS[k]);
+  const fixedOrder=['M','F','T','O','C'].map(L=>etypeLetterGroup(L)).filter(k=>k&&EXPENSE_GROUPS[k]);   /* v3.18.81: O là nhóm riêng */
   const dyn=Object.keys(EXPENSE_GROUPS).filter(k=>EXPENSE_GROUPS[k].dynamic).sort();
   const out=fixedOrder.concat(dyn.filter(k=>!fixedOrder.includes(k)));
   if(!opts.forNew){
@@ -23198,7 +23199,8 @@ function _pexbNum(v){
   return +clean||0;
 }
 function _pexbDate(v){
-  if(v instanceof Date && !isNaN(v)) return v.toISOString().slice(0,10);
+  /* v3.18.80: ô ngày Excel → Date địa phương; toISOString() lệch múi giờ (VN +7: 02/09 00:00 → "2026-09-01") → dùng thành phần địa phương */
+  if(v instanceof Date && !isNaN(v)) return v.getFullYear()+'-'+String(v.getMonth()+1).padStart(2,'0')+'-'+String(v.getDate()).padStart(2,'0');
   const s=_pexbNorm(v); let m;
   if((m=s.match(/^(\d{4})-(\d{2})-(\d{2})/))) return m[1]+'-'+m[2]+'-'+m[3];
   if((m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/))) return m[3]+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0');
@@ -23309,6 +23311,51 @@ function pexbImportOpen(){
   };
   inp.click();
 }
+/* v3.18.80 (Sếp 26/8: "các dòng đỏ: click xem và sửa tại chỗ"): MSNV không khớp hồ sơ → bấm dòng đỏ mở bảng sửa
+   ngay dưới sheet: mỗi dòng lỗi chọn đúng nhân sự (gợi ý theo tên, bỏ dấu) hoặc bỏ dòng; chọn xong lưu vào imp.fixes,
+   đếm lại tức thì; Tạo đợt áp fix. Không sửa file gốc. */
+function _pexbNameKey(s){ return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[đĐ]/g,'d').toLowerCase().replace(/[^a-z0-9 ]/g,' ').split(/\s+/).filter(Boolean); }
+function pexbSuggestEmp(name, emps){
+  const q=_pexbNameKey(name); if(!q.length) return [];
+  const last=q[q.length-1];
+  return (emps||[]).map(e=>{ const k=_pexbNameKey(e.fullName||e.name||''); if(!k.length) return null;
+      const shared=q.filter(t=>k.includes(t)).length; const lastHit=k[k.length-1]===last?1:0; const firstHit=k[0]===q[0]?1:0;
+      const score=shared*2+lastHit*3+firstHit; return score>=4?{e,score}:null; })
+    .filter(Boolean).sort((a,b)=>b.score-a.score).slice(0,5).map(x=>x.e);
+}
+function _pexbFixOf(si, idx){ const imp=window._pexbImp; return (imp&&imp.fixes&&imp.fixes[si]&&imp.fixes[si][idx])||''; }
+function pexbFixOpen(si){
+  const imp=window._pexbImp; if(!imp) return; const sh=imp.sheets[si]; if(!sh) return;
+  const box=document.getElementById('pexb-fix-'+si); if(!box) return;
+  if(box.style.display!=='none' && box.innerHTML){ box.style.display='none'; return; }
+  const all=HRService.employees().filter(e=>e&&!e._deleted); const emps={}; all.forEach(e=>{ emps[String(e.smartId||'').trim().toUpperCase()]=e; });
+  const sorted=all.slice().sort((a,b)=>String(a.fullName||'').localeCompare(String(b.fullName||''),'vi'));
+  const fm=v=>Math.round(+v||0).toLocaleString('vi-VN');
+  const rows=sh.parsed.rows.map((r,idx)=>({r,idx})).filter(x=>!emps[x.r.smartId]).map(({r,idx})=>{
+    const cur=_pexbFixOf(si,idx); const sug=pexbSuggestEmp(r.name, all);
+    const opt=(e,pre)=>`<option value="${esc(String(e.smartId||'').toUpperCase())}"${String(e.smartId||'').toUpperCase()===cur?' selected':''}>${pre||''}${esc(e.fullName||'')} · ${esc(e.smartId||'')}${e.dept?' · '+esc(e.dept):''}</option>`;
+    return `<tr style="border-bottom:1px solid var(--rule)"><td style="padding:3px 6px;font-family:monospace">${esc(r.smartId)}</td><td style="padding:3px 6px">${esc(r.name)}<div style="font-size:10px;color:var(--muted)">${esc(r.block)}${r.dept?' · '+esc(r.dept):''}</div></td><td style="padding:3px 6px;text-align:right;font-family:monospace">${fm(r.amount)}</td>
+      <td style="padding:3px 6px"><select data-pexbfix="${si}:${idx}" onchange="pexbFixSet(${si},${idx},this.value)" style="max-width:280px;font-size:12px${cur?';border-color:#1e7d44':''}">
+        <option value="">— bỏ dòng này —</option>${sug.length?`<optgroup label="Gợi ý theo tên">${sug.map(e=>opt(e,'★ ')).join('')}</optgroup>`:''}<optgroup label="Tất cả nhân sự">${sorted.map(e=>opt(e)).join('')}</optgroup></select></td></tr>`; }).join('');
+  box.innerHTML=`<div style="font-size:11px;color:var(--muted);margin:4px 0">Chọn đúng nhân sự cho từng dòng (★ gợi ý theo tên) — chọn xong app tự đếm lại; để "bỏ dòng" nếu người này không nhận.</div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:var(--rule);text-align:left"><th style="padding:3px 6px">MSNV file</th><th style="padding:3px 6px">Họ tên (file)</th><th style="padding:3px 6px;text-align:right">Tiền</th><th style="padding:3px 6px">Nhân sự trong app</th></tr></thead><tbody>${rows||'<tr><td colspan="4" style="padding:8px;color:var(--muted)">Không còn dòng lỗi</td></tr>'}</tbody></table>`;
+  box.style.display='';
+}
+function pexbFixSet(si, idx, smartId){
+  const imp=window._pexbImp; if(!imp) return; imp.fixes=imp.fixes||{}; imp.fixes[si]=imp.fixes[si]||{};
+  if(smartId) imp.fixes[si][idx]=String(smartId).toUpperCase(); else delete imp.fixes[si][idx];
+  const sel=document.querySelector('select[data-pexbfix="'+si+':'+idx+'"]'); if(sel) sel.style.borderColor=smartId?'#1e7d44':'';
+  pexbFixRecount(si);
+}
+function pexbFixRecount(si){
+  const imp=window._pexbImp; if(!imp) return; const sh=imp.sheets[si]; if(!sh) return;
+  const emps={}; HRService.employees().forEach(e=>{ if(e&&!e._deleted) emps[String(e.smartId||'').trim().toUpperCase()]=e; });
+  const miss=sh.parsed.rows.filter((r,idx)=>!emps[r.smartId] && !_pexbFixOf(si,idx));
+  const fixed=Object.keys((imp.fixes&&imp.fixes[si])||{}).length;
+  const el=document.getElementById('pexb-miss-'+si); if(!el) return;
+  el.innerHTML=(miss.length?`⚠ ${miss.length} MSNV không khớp hồ sơ (bị bỏ): ${esc(miss.slice(0,6).map(m=>m.smartId).join(', '))}${miss.length>6?'…':''}`:'✓ Mọi MSNV đã khớp')+(fixed?` · <span style="color:#1e7d44">đã sửa ${fixed}</span>`:'')+' <u>bấm để xem/sửa</u>';
+  el.style.color=miss.length?'#c0392b':'#1e7d44';
+}
 function pexbImportPreview(){
   const imp=window._pexbImp; if(!imp) return;
   const emps={}; HRService.employees().forEach(e=>{ if(e&&!e._deleted) emps[String(e.smartId||'').trim().toUpperCase()]=e; });
@@ -23330,7 +23377,7 @@ function pexbImportPreview(){
       <label style="font-size:12px"><input type="checkbox" class="pexb-sh" data-si="${si}"${isAll[si]?'':' checked'}> <b>Sheet "${esc(sh.name)}"</b> — ${p.rows.length} người · <b>${fm(p.total)}</b> đ${p.skippedZero?` · bỏ ${p.skippedZero} dòng tiền 0`:''}${isAll[si]?' · <span style="color:#b8730a">sheet tổng hợp — trùng MSNV với sheet khác, mặc định bỏ</span>':''}</label>
       <div style="font-size:11.5px;margin-top:4px">Pháp nhân: ${coSel}</div>
       <div style="font-size:11px;color:var(--muted);margin-top:3px">Theo khối: ${Object.keys(byBlock).map(b=>esc(b)+' '+fm(byBlock[b])).join(' · ')}</div>
-      ${miss.length?`<div style="font-size:11px;color:#c0392b;margin-top:3px">⚠ ${miss.length} MSNV không khớp hồ sơ (bị bỏ): ${esc(miss.slice(0,6).map(m=>m.smartId).join(', '))}${miss.length>6?'…':''}</div>`:''}
+      ${miss.length?`<div id="pexb-miss-${si}" style="font-size:11px;color:#c0392b;margin-top:3px;cursor:pointer" onclick="pexbFixOpen(${si})" title="Bấm để xem từng dòng và chọn đúng nhân sự">⚠ ${miss.length} MSNV không khớp hồ sơ (bị bỏ): ${esc(miss.slice(0,6).map(m=>m.smartId).join(', '))}${miss.length>6?'…':''} <u>bấm để xem/sửa</u></div><div id="pexb-fix-${si}" style="display:none;margin-top:4px;border-top:1px dashed var(--rule);padding-top:4px"></div>`:''}
     </div>`; }).join('');
   openModal('📥 Nhập đợt chi riêng từ file HR — xem trước', `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px;margin-bottom:10px">
@@ -23361,8 +23408,10 @@ function pexbCreateBatches(){
   const batches=[]; let nSkip=0;
   picked.forEach(si=>{ const sh=imp.sheets[si]; if(!sh) return;
     const coId=(document.getElementById('pexb-co-'+si)||{}).value||'';
-    const items=[]; sh.parsed.rows.forEach(r=>{ const e=emps[r.smartId]; if(!e){ nSkip++; return; }
-      items.push({empId:e.id, smartId:r.smartId, name:e.fullName||r.name, block:r.block, dept:r.dept, title:r.title, phanLoai:r.phanLoai, amount:Math.round(r.amount), note:r.note}); });
+    const items=[]; sh.parsed.rows.forEach((r,idx)=>{ let e=emps[r.smartId]; let sid=r.smartId;
+      if(!e){ const fx=_pexbFixOf(si,idx); if(fx&&emps[fx]){ e=emps[fx]; sid=fx; } }   /* v3.18.80: áp sửa tại chỗ */
+      if(!e){ nSkip++; return; }
+      items.push({empId:e.id, smartId:sid, name:e.fullName||r.name, block:r.block, dept:r.dept, title:r.title, phanLoai:r.phanLoai, amount:Math.round(r.amount), note:r.note, fileSmartId:(sid!==r.smartId?r.smartId:undefined)}); });
     if(!items.length) return;
     batches.push({ id:'pexb_'+uid(), name:(picked.length>1?name+' — '+sh.name:name), payDate:date, period:date.slice(0,7), companyId:coId,
       presetType:preset, taxable, items, status:'draft', sheetName:sh.name,
@@ -33173,7 +33222,12 @@ function _etCatBranchAdd(parent){
 /* v3.18.70 (Sếp 25/8: "mã C: phải là Quản lý chung"): CHỮ CÁI = NHÓM HỆ THỐNG CỐ ĐỊNH theo bộ mã 24/8.
    Bỏ học đa số cho chữ cái trong bảng — v3.18.65 học đa số khiến C.* kế thừa nhóm Nhân sự cũ, vòng luẩn quẩn
    không tự thoát. Học đa số CHỈ còn cho chữ cái ngoài bảng (fallback). */
-const ETYPE_LETTER_GROUP={M:'VESSEL',F:'PO',T:'TECH',O:'OTHER',C:'OVERHEAD'};
+/* v3.18.81 (Sếp 26/8: "Không được tự suy diễn. O là O&M có danh mục chi tiết theo nhánh. Tại sao lại tự áp?"):
+   BỎ O→OTHER. Ánh xạ O→'Khác' có từ 3.18.65 và bị em khóa cứng ở 3.18.70 mà chưa hỏi — SAI. O là O&M, một nhóm
+   riêng theo Bảng tên nhánh (nhánh chữ cái O), không phải nhóm 'Khác' cũ. Chỉ còn 4 ánh xạ đã đối chiếu tên nhánh
+   (M Vận hành tàu · F Nhiên liệu · T Kỹ thuật) và C Quản lý chung Sếp chốt 25/8. Chữ cái nào KHÔNG có trong bảng
+   này = nhóm riêng theo tên nhánh (expGroupsSync), không suy sang nhóm cũ. */
+const ETYPE_LETTER_GROUP={M:'VESSEL',F:'PO',T:'TECH',C:'OVERHEAD'};
 function _etypeGroupOfPrefix(code){
   const m=String(code||'').trim().toUpperCase().match(/^([A-Z])\./); if(!m) return '';
   const L=m[1];
