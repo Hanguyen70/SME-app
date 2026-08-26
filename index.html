@@ -3827,7 +3827,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.19.09';
+const APP_VERSION='3.19.12';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -38003,7 +38003,7 @@ function ctlParseContractText(text, vesselNames){
     ['notice',/(?:Notice\s*No\.?|Thông báo số)\s*[:：]/gi],
     ['endClient',/End\s*Client(?:'s name)?\s*[:：]/gi],
     ['client',/(?:^|\s)(?:Client(?:'s name)?|Charterer|Customer|Khách hàng|Bên A|Bên thuê)\s*[:：]/gi],
-    ['projectName',/(?:Name of Project|Project name|Project|Tên dự án|Dự án|Scope of work|Scope)\s*[:：]/gi],
+    ['projectName',/(?:Name of Project|Project name|Project|Tên dự án|Dự án|Scope of work(?:\s*\(SOW\))?|Scope)\s*[:：]/gi],
     ['location',/(?:Location|Địa điểm)\s*[:：]/gi],
     ['vessel',/(?:Vessel(?: name)?|Tàu)\s*[:：]/gi],
     ['hireRate',/(?:Vessel hire rate|Hire rate|Day rate|Daily rate|Charter rate|Đơn giá)[^:：]{0,30}[:：]/gi],
@@ -38028,7 +38028,7 @@ function ctlParseContractText(text, vesselNames){
   const dt=v=>{ const s=String(v||''); const m=s.match(/(\d{1,2}:\d{2}\s+\d{1,2}\/\d{1,2}\/\d{4}|\d{4}-\d{2}-\d{2}(?:[ T]\d{1,2}:\d{2})?|\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{4}(?:\s+\d{1,2}:\d{2})?)/); if(!m) return ''; const d=ctlDate(m[1]); return d?ctlIsoLocal(d).slice(0,10):_aiDateISO(m[1]); };
   out.startDate=dt(vals.startDate); out.endDate=dt(vals.endDate);
   const tk=ctlKey(T); (vesselNames||[]).forEach(n=>{ if(!out.vessel && n && tk.indexOf(ctlKey(n))>=0) out.vessel=n; });
-  if(!out.vessel) out.vessel=(vals.vessel||'').slice(0,40);
+  if(!out.vessel){ const vv=String(vals.vessel||'').split(/\s+(?:[•e○o▪]\s+|-\s+)|\s{2,}/)[0]; out.vessel=vv.replace(/[^A-Za-z0-9 .\-]/g,'').trim().slice(0,40); }   /* OCR: cắt trước dấu bullet đọc thành 'e' */
   out._fields=Object.keys(out).filter(k=>k[0]!=='_' && out[k]).length;
   return out;
 }
@@ -38059,6 +38059,21 @@ function projectDocRemove(projectId, docId){
   if(!confirm('Gỡ link "'+d.name+'" khỏi dự án? (file trên Drive giữ nguyên)')) return;
   commitMutation(()=>{ p.docs=p.docs.filter(x=>x.id!==docId); try{touchRecord(p);}catch(e){} },{action:'project_doc_remove', fields:['projects'], onOk:()=>{ toast('Đã gỡ link'); try{ renderProjects(); }catch(e){} }});
 }
+/* OCR trên máy: PDF → render trang (pdf.js, scale 2) → Tesseract eng+vie; ảnh → nhận dạng thẳng. Tối đa 3 trang. */
+async function ctlOcrFile(file){
+  if(!window.Tesseract){ await _loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.1.1/tesseract.min.js','Tesseract'); }
+  if(!window.Tesseract) throw new Error('Không tải được Tesseract');
+  const imgs=[];
+  if(/pdf$/i.test(file.name)||file.type==='application/pdf'){
+    if(!window.pdfjsLib){ await _loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js','pdfjsLib'); if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; }
+    const pdf=await pdfjsLib.getDocument({data:new Uint8Array(await file.arrayBuffer())}).promise;
+    for(let p=1;p<=Math.min(pdf.numPages,3);p++){ const pg=await pdf.getPage(p); const vp=pg.getViewport({scale:2}); const cv=document.createElement('canvas'); cv.width=vp.width; cv.height=vp.height; await pg.render({canvasContext:cv.getContext('2d'), viewport:vp}).promise; imgs.push(cv); }
+  } else imgs.push(file);
+  let out=''; let i=0;
+  for(const im of imgs){ i++; toast('🔎 OCR trang '+i+'/'+imgs.length+' (máy này, lần đầu tải bộ nhận dạng ~10MB)…','warn');
+    const r=await Tesseract.recognize(im,'eng+vie',{logger:()=>{}}); out+=' '+((r&&r.data&&r.data.text)||''); }
+  return out;
+}
 async function ctlReadContractPdf(inputEl){
   const file=inputEl&&inputEl.files&&inputEl.files[0]; if(!file) return; try{ inputEl.value=''; }catch(e){}
   toast('⏳ Đang đọc PDF…','warn');
@@ -38071,10 +38086,24 @@ async function ctlReadContractPdf(inputEl){
     }catch(e){ text=''; }
   }
   let d=null;
-  if(text.replace(/\s+/g,'').length>80){ d=ctlParseContractText(text, VesselService.vessels().map(v=>v.name)); d._method='text'; }
-  if(!d || d._fields<2){ /* PDF scan/ảnh hoặc bóc chữ không ra → thử AI nếu backend có */
+  const _vNames=[]; VesselService.vessels().forEach(v=>{ _vNames.push(v.name); (v.ctlAliases||[]).forEach(a=>_vNames.push(a)); });   /* v3.19.11: tên + tên khác đã chấp nhận */
+  if(text.replace(/\s+/g,'').length>80){ d=ctlParseContractText(text, _vNames); d._method='text'; }
+  /* v3.19.11 (Sếp 26/8 "App đã xây dựng để đọc được bản scan/bản chụp"): PDF scan / ảnh → OCR NGAY TRÊN MÁY (Tesseract.js từ CDN,
+     eng+vie) — vẽ trang PDF bằng pdf.js ra ảnh rồi nhận dạng; không cần backend. AI backend chỉ còn là dự phòng cuối. */
+  if(!d || d._fields<2){
+    try{
+      const ocrText=await ctlOcrFile(file);
+      if(ocrText && ocrText.replace(/\s+/g,'').length>80){ const d2=ctlParseContractText(ocrText, _vNames); d2._method='ocr'; if(!d || d2._fields>d._fields){ d=d2; text=ocrText; } }
+    }catch(e){ console.warn('[ctl ocr]',e); }
+  }
+  if(!d || d._fields<2){ /* OCR không ra → thử AI nếu backend có */
     try{ const ai=await aiExtract(file,'service_contract'); d=Object.assign({},d||{},ai,{_method:'ai'}); }
-    catch(e){ if(!d||d._fields<1){ toast('Không bóc được chữ từ PDF ('+String(e&&e.message||e)+') — file scan cần backend AI','bad'); return; } }
+    catch(e){ if(!d||d._fields<1){
+      /* v3.19.10 (Sếp 26/8 'không đọc được file pdf' — Contract Validation là bản SCAN, không có lớp chữ): nói rõ vì sao + 2 lối đi */
+      openModal('📄 Chưa đọc được nội dung', `<div style="font-size:13px;line-height:1.7">File <b>${esc(file.name)}</b>: không có lớp chữ, OCR trên máy không nhận ra đủ trường (ảnh mờ/nghiêng?), AI backend trả: <span style="color:var(--bad)">${esc(String(e&&e.message||e))}</span>.<br><br>
+        <b>Cách xử lý:</b><br>1. Scan lại rõ hơn (thẳng, ≥200dpi) rồi đọc lại.<br>2. Nhập tay dự án rồi bấm <b>📎</b> để đính PDF (lưu Drive).<br>3. Cập nhật Apps Script mode <code>service_contract</code> (file GAS em gửi) để AI đọc.</div>`,
+        `<button class="btn-ghost" onclick="closeModal()">Đóng</button>`);
+      return; } }
   }
   /* v3.19.05 (Sếp 26/8: "Đọc PDF rồi phải mở 1 màn có các thông tin của bản tóm tắt: để đọc, lưu các thông tin cần"):
      mở màn XEM & SỬA các trường đọc được → chọn đích (tạo dự án mới / điền vào dự án đã có) + đính PDF → Lưu. */
@@ -38083,7 +38112,7 @@ async function ctlReadContractPdf(inputEl){
 }
 function ctlContractReview(){
   const st=window._ctlPdf; if(!st) return; const d=st.d||{};
-  const vs=VesselService.vessels(); const vv=d.vessel?vs.find(v=>ctlKey(v.name)===ctlKey(d.vessel)||ctlKey(v.name).indexOf(ctlKey(d.vessel))>=0||ctlKey(d.vessel).indexOf(ctlKey(v.name))>=0):null;
+  const vs=VesselService.vessels(); const _vk=ctlKey(d.vessel||''); const vv=_vk?vs.find(v=>ctlKey(v.name)===_vk||(v.ctlAliases||[]).some(a=>ctlKey(a)===_vk)||ctlKey(v.name).indexOf(_vk)>=0||_vk.indexOf(ctlKey(v.name))>=0):null;
   const ex=(d.contractNo||d.notice)?(S.projects||[]).find(x=>x&&!x._deleted&&((d.contractNo&&(ctlKey(x.contractNo)===ctlKey(d.contractNo)||ctlKey(x.code)===ctlKey(d.contractNo)))||(d.notice&&ctlKey(x.code)===ctlKey(d.notice)))):null;
   const fm=v=>Math.round(+v||0).toLocaleString('vi-VN');
   const F=(id,label,val,type,extra)=>`<div class="field"><label>${label}</label><input id="${id}" type="${type||'text'}" value="${esc(val==null?'':val)}" ${extra||''}></div>`;
@@ -55381,6 +55410,26 @@ function _arEditorBody(r,isPayable){
 /* v3.18.62 (Sếp): dropdown thông minh — mở LẦN LƯỢT theo nhánh (cấp 1 → cấp 2 → loại), không xổ 64 loại. */
 /* v3.19.08 (Sếp 26/8: "Khi chọn: cho chọn đến chắt trong Phải trả"): cây NHÁNH TẠI CHỖ cho nhóm chữ cái đã chọn —
    con ▸ cháu ▸ loại (chắt) gập/bung tại chỗ, không đổi màn từng cấp; bấm loại → chọn vào ô Loại chi phí. */
+/* v3.19.12 (Sếp 26/8 "Cho phép admin tạo mã chi phí khi nhập liệu/sửa"): TẠO NHANH LOẠI CHI PHÍ ngay tại form phiếu —
+   chau = nhánh cháu (vd M.01.10) → mã tự gợi ý (etypeNextCode), hỏi tên → ghi expenseTypes (commitMutation, cùng khuôn
+   _doAddExpenseType: nhóm theo chữ cái, treeCode = cháu) → chọn luôn vào ô loại (selectId) hoặc dòng nhiều dòng (lineTmpId). */
+function _etQuickCreate(chau, selectId, lineTmpId){
+  if(!isAdmin()){ toast('Chỉ admin tạo loại chi phí','bad'); return; }
+  chau=String(chau||'').trim().toUpperCase();
+  if(!/^[A-Z]\.\d+\.\d+$/.test(chau)){ const a=prompt('Nhánh cháu để đặt loại (vd M.01.10):', chau||''); if(a===null) return; chau=String(a).trim().toUpperCase(); if(!/^[A-Z]\.\d+\.\d+$/.test(chau)){ toast('Nhánh phải dạng M.01.10','bad'); return; } }
+  const code=etypeNextCode(chau);
+  const label=prompt('Tên loại chi phí mới — mã '+code+' (nhánh '+chau+(typeof expTreeName==='function'&&expTreeName(chau)?' · '+expTreeName(chau):'')+'):','');
+  if(label===null) return; if(!label.trim()){ toast('Nhập tên loại','bad'); return; }
+  if((S.expenseTypes||[]).some(t=>t&&String(t.code).toUpperCase()===code)){ toast('Mã '+code+' đã có','bad'); return; }
+  const group=(typeof _etypeGroupOfPrefix==='function')?_etypeGroupOfPrefix(code):'';
+  const rec={ id:'ET-'+code+'-'+uid().slice(-4), code, label:label.trim(), group:group||'OTHER', icon:'📄', isPO:false, treeCode:chau, createdAt:new Date().toISOString(), createdBy:(typeof actorName==='function'?actorName():''), _quick:true };
+  commitMutation(()=>{ (S.expenseTypes=S.expenseTypes||[]).push(rec); },{action:'etype_quick_add', fields:['expenseTypes'], onOk:()=>{
+    try{ logAuditEvent('etype_quick_add',{code, label:rec.label, from:'ap_form', actor:rec.createdBy}); }catch(e){}
+    toast('✓ Đã tạo loại '+code+' · '+rec.label+' — có mặt trong Danh mục (đồng bộ mọi máy)','good');
+    try{ if(selectId==='ar-expense-type'){ _etPick(code); const L=code.charAt(0); if(window._arEtLetter===L) try{ _etTreeRender(L); }catch(e){} }
+         else if(lineTmpId){ if(typeof _mrLineExpenseType==='function') _mrLineExpenseType(lineTmpId, code); if(typeof _renderMultiRowModal==='function') _renderMultiRowModal(); } }catch(e){}
+  }});
+}
 /* chọn loại từ cây → ô Loại chi phí (thêm option nếu dropdown đang lọc không có), đóng cây */
 function _etPick(code){
   const s2=document.getElementById('ar-expense-type'); if(!s2) return;
@@ -55406,7 +55455,9 @@ function _etTreeRender(rootL){
     c.types.forEach(t=>{ h+=leafRow(t,26); });
     Object.keys(c.chaus).sort((a,b)=>a.localeCompare(b,'vi',{numeric:true})).forEach((chk,hi)=>{ const ch=c.chaus[chk]; const idH=idC+'h'+hi;
       h+=`<div style="padding:3px 6px 3px 22px;border-bottom:1px dotted var(--rule);cursor:pointer" onclick="${tog(idH)}"><span class="ettg" style="display:inline-block;width:12px;font-size:10px">▸</span><b style="font-variant-numeric:tabular-nums">${esc(ch.code)}</b> ${esc(ch.name)} <span style="color:var(--muted)">(${ch.types.length} loại)</span></div><div id="${idH}" style="display:none">`;
-      ch.types.forEach(t=>{ h+=leafRow(t,40); }); h+='</div>'; });
+      ch.types.forEach(t=>{ h+=leafRow(t,40); });
+      if(isAdmin()) h+=`<div style="padding:3px 6px 3px 40px;border-bottom:1px dotted var(--rule);cursor:pointer;color:var(--accent);font-size:11px" onclick="event.stopPropagation();_etQuickCreate('${esc(ch.code)}','ar-expense-type')">＋ Tạo loại mới dưới ${esc(ch.code)} (admin)</div>`;   /* v3.19.12 */
+      h+='</div>'; });
     h+='</div>'; });
   pn.innerHTML=h||'<div style="padding:6px;color:var(--muted)">Nhóm '+esc(rootL)+' chưa có nhánh/loại</div>'; pn.style.display='';
   /* tự bung nhánh chứa loại đang chọn */
@@ -57750,7 +57801,7 @@ function _renderMrLine(l, i){
       <td class="row-idx">${i+1}</td>
       <td><input type="text" value="${esc(l.invoiceNo||'')}" placeholder="INV-001" oninput="_mrLineChange('${l.tmpId}','invoiceNo',this.value)"></td>
       ${isPayable
-        ? `<td><select onchange="_mrLineExpenseType('${l.tmpId}',this.value)" title="Nhóm ★ = ưu tiên theo mảng">${(function(){ try{ return expenseTypeOptsPref(l.expenseType, expGroupsForSegment(l.segment||(_multiRowState&&_multiRowState.segment)||''), ''); }catch(e){ return expenseTypeOpts(l.expenseType); } })()}</select></td>`
+        ? `<td><select onchange="if(this.value==='__NEW__'){ this.value='${esc(l.expenseType||'')}'; _etQuickCreate('','',  '${l.tmpId}'); } else _mrLineExpenseType('${l.tmpId}',this.value)" title="Nhóm ★ = ưu tiên theo mảng">${(function(){ try{ return expenseTypeOptsPref(l.expenseType, expGroupsForSegment(l.segment||(_multiRowState&&_multiRowState.segment)||''), ''); }catch(e){ return expenseTypeOpts(l.expenseType); } })()}${isAdmin()?'<option value="__NEW__">＋ Tạo loại chi phí mới… (admin)</option>':''}</select></td>`
         : `<td><select onchange="_mrLineRevenueType('${l.tmpId}',this.value)">${revenueTypeOpts(l.revenueType)}</select></td>`}
       <td><input type="text" value="${esc(l.desc||'')}" placeholder="${esc((_multiRowState.noteHeader||'').trim()||'Diễn giải...')}" oninput="_mrLineChange('${l.tmpId}','desc',this.value)" style="min-width:220px"></td>
       ${isHR ? `<td class="mr-hr-col"${anyHR?'':' style="display:none"'}><input type="text" value="${esc(l.recipientName||'')}" placeholder="Tên NV nhận" oninput="_mrLineChange('${l.tmpId}','recipientName',this.value)"></td>` : `<td class="mr-hr-col" style="background:var(--paper-2)${anyHR?'':';display:none'}"></td>`}
