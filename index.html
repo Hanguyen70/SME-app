@@ -3825,7 +3825,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.18.75';
+const APP_VERSION='3.18.78';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -17354,6 +17354,35 @@ function expGroupsSync(){
     });
   }catch(e){}
 }
+/* ═══ v3.18.78 (Sếp 26/8 ảnh form Thêm loại: "Các nhóm cố định tại các mục tham chiếu chưa đúng bảng danh mục mới"):
+   NHÓM THAM CHIẾU = CHỮ CÁI của bảng danh mục mới. Nhãn nhóm = "<chữ cái> · <tên>"; nhóm không có chữ cái
+   (Nhân sự/Di chuyển/Tài chính/BOD…) là NHÓM CŨ: chỉ hiện khi còn loại đang dùng, KHÔNG cho chọn khi tạo loại mới.
+   Ba hàm THUẦN dùng chung cho form loại, dropdown chọn chi phí, header danh mục. */
+function expGroupLetter(gk){
+  const f=(typeof ETYPE_LETTER_GROUP!=='undefined')?ETYPE_LETTER_GROUP:{};
+  const L=Object.keys(f).find(k=>f[k]===gk); if(L) return L;
+  if(EXPENSE_GROUPS[gk] && EXPENSE_GROUPS[gk].dynamic) return gk;
+  return '';
+}
+function expGroupLabel(gk){
+  const g=EXPENSE_GROUPS[gk]; if(!g) return String(gk||'');
+  const L=expGroupLetter(gk);
+  return L ? (L+' · '+g.label) : (g.label+' (mã cũ)');
+}
+/* Danh sách nhóm đang hiệu lực, thứ tự bảng mới: M F T O C → chữ cái động (A–Z) → nhóm cũ còn loại đang dùng.
+   opts.forNew=true → chỉ nhóm chữ cái (tạo loại mới không được rơi vào nhóm cũ). */
+function expGroupsActive(opts){
+  opts=opts||{}; try{ expGroupsSync(); }catch(e){}
+  const f=(typeof ETYPE_LETTER_GROUP!=='undefined')?ETYPE_LETTER_GROUP:{};
+  const fixedOrder=['M','F','T','O','C'].map(L=>f[L]).filter(k=>k&&EXPENSE_GROUPS[k]);
+  const dyn=Object.keys(EXPENSE_GROUPS).filter(k=>EXPENSE_GROUPS[k].dynamic).sort();
+  const out=fixedOrder.concat(dyn.filter(k=>!fixedOrder.includes(k)));
+  if(!opts.forNew){
+    const used=new Set((S.expenseTypes||[]).filter(t=>t&&!t.archived).map(t=>t.group));
+    Object.keys(EXPENSE_GROUPS).forEach(k=>{ if(!out.includes(k) && used.has(k)) out.push(k); });
+  }
+  return out;
+}
 /* Chữ cái → key nhóm: bảng cố định thắng; chữ cái động → chính nó (nếu đã sync thành nhóm); lạ → rỗng. */
 function etypeLetterGroup(L){
   L=String(L||'').toUpperCase();
@@ -17453,15 +17482,16 @@ function revenueTypeOpts(selectedCode){
 function expenseTypeOpts(selectedCode){
   const types = activeExpenseTypes();
   const groups={};
+  try{ expGroupsSync(); }catch(e){}   /* v3.18.71 */
   types.forEach(t=>{
-    if(!groups[t.group]) groups[t.group]=[];
-    groups[t.group].push(t);
+    const dg=(typeof etypeDisplayGroup==='function')?(etypeDisplayGroup(t)||t.group):t.group;   /* v3.18.78: nhóm theo chữ cái mã */
+    if(!groups[dg]) groups[dg]=[];
+    groups[dg].push(t);
   });
   let html='<option value="">— Chọn loại chi phí —</option>';
-  try{ expGroupsSync(); }catch(e){}   /* v3.18.71 */
-  Object.keys(EXPENSE_GROUPS).forEach(gk=>{
+  expGroupsActive().concat(Object.keys(groups).filter(k=>!expGroupsActive().includes(k))).forEach(gk=>{
     if(!groups[gk]) return;
-    html+=`<optgroup label="${EXPENSE_GROUPS[gk].label}">`;
+    html+=`<optgroup label="${esc(expGroupLabel(gk))}">`;
     groups[gk].forEach(t=>{
       const sel=(selectedCode===t.code)?'selected':'';
       html+=`<option value="${esc(t.code)}" ${sel}>${t.icon} ${esc(t.label)}${t.isPO?' (PO)':''}</option>`;
@@ -21511,6 +21541,97 @@ function _payFlowWizard(p, id, projBtn){
     ${opt.length?`<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px;padding-top:6px;border-top:1px dashed var(--rule)"><span style="font-size:10px;color:var(--muted)">Tùy chọn:</span>${opt.join('')}</div>`:''}
   </div>`;
 }
+/* ═══ v3.18.76 GĐ2 (Sếp 25/8 "trong kỳ lương tháng nên có các dòng: trợ cấp 2/9…, thưởng khác…, lương — dễ đối chiếu"):
+   CẤU PHẦN KỲ — THUẦN. rows = p.rows (người trong kỳ), extras = khoản PS đã duyệt của kỳ (mọi người),
+   gross = Σ thu nhập chịu thuế kỳ (_payPeriodTotals.gross). Gom theo ĐỢT/LÔ: đợt chi riêng (pexBatchId) →
+   lô nhập (batchId) → khoản lẻ (id). Người ngoài kỳ không tính. Dòng đầu = Lương theo công/thẻ = gross − Σ chịu thuế. */
+function payPeriodComposition(rows, extras, gross){
+  const inRows=new Set((rows||[]).map(r=>r&&r.empId));
+  const g={}; let taxableTotal=0, sepTotal=0;
+  (extras||[]).forEach(x=>{
+    if(!x || !inRows.has(x.empId)) return;
+    const amt=(x.sign<0?-1:1)*(+x.amount||0);
+    const sep=x.payout==='separate';
+    const key=x.pexBatchId?('pexb:'+x.pexBatchId):(x.batchId?('pex:'+x.batchId):('pex:'+x.id));
+    if(!g[key]) g[key]={key, kind:'extra', label:x.desc||'Khoản phát sinh', amount:0, count:0, emps:new Set(), taxable:!!x.taxable, payout:sep?'separate':'period', payDate:x.payDate||'', pexBatchId:x.pexBatchId||'', batchId:x.batchId||'', mixedTax:false};
+    const L=g[key]; L.amount+=amt; L.emps.add(x.empId); L.count=L.emps.size; if(L.taxable!==!!x.taxable) L.mixedTax=true;
+    if(x.taxable) taxableTotal+=amt; if(sep) sepTotal+=amt;
+  });
+  const lines=[{key:'salary', kind:'salary', label:'Lương theo công / thẻ lương', amount:(+gross||0)-taxableTotal, count:(rows||[]).length, taxable:true, payout:'period'}]
+    .concat(Object.keys(g).sort((a,b)=>(g[a].payout===g[b].payout?0:(g[a].payout==='separate'?-1:1))||String(g[a].label).localeCompare(String(g[b].label))).map(k=>{ const L=g[k]; delete L.emps; return L; }));
+  return {lines, taxableTotal, sepTotal, gross:+gross||0};
+}
+function _payCompositionOf(p){
+  const per=p.period; const seen=new Set(); const ex=[];
+  (p.rows||[]).forEach(r=>{ payExtrasFor(r.empId, per).forEach(x=>{ if(!seen.has(x.id)){ seen.add(x.id); ex.push(x); } }); });
+  const t=_payPeriodTotals(p);
+  return {comp:payPeriodComposition(p.rows||[], ex, t.gross), t};
+}
+function _payCompositionHtml(p, id){
+  const {comp,t}=_payCompositionOf(p); const usd=!!t.usd;
+  const fm=v=>usd?(+v||0).toLocaleString('en-US'):Math.round(+v||0).toLocaleString('vi-VN');
+  if(comp.lines.length<=1) return '';   /* không có khoản PS → không chiếm chỗ */
+  const rows=comp.lines.map(L=>{
+    let tag='', links='';
+    if(L.kind==='salary'){ tag='<span style="color:var(--muted)">theo công · thẻ lương</span>'; }
+    else {
+      tag=(L.payout==='separate'?`<b style="color:#b8730a">đã chi riêng${L.payDate?' '+esc(L.payDate):''}</b>`:'<span style="color:#1e7d44">chi cùng kỳ</span>')+' · '+(L.mixedTax?'thuế hỗn hợp':(L.taxable?'chịu thuế':'miễn thuế'));
+      if(L.pexBatchId){ const b=(typeof _pexbById==='function')?_pexbById(L.pexBatchId):null;
+        links=`<a href="#" onclick="event.preventDefault();pexbView('${esc(L.pexBatchId)}')" title="Mở đợt chi">🔗 đợt</a>`
+          +(b&&b.apIds&&b.apIds.length?` · <a href="#" onclick="event.preventDefault();openPayableModal('${esc(b.apIds[0])}')" title="Phiếu kế toán của đợt">🔗 phiếu KT</a>`:'')
+          +(b&&b.sourceFile&&b.sourceFile.driveUrl?` · <a href="${esc(b.sourceFile.driveUrl)}" target="_blank" title="File gốc HR trên Drive">📎 file HR</a>`:''); }
+      else links=`<a href="#" onclick="event.preventDefault();payExtrasOpen('${esc(p.period)}','${esc(id)}')" title="Mở Khoản PS">🔗 khoản PS</a>`;
+    }
+    return `<tr style="border-bottom:1px dotted var(--rule)"><td style="padding:3px 8px">${esc(L.label)}${L.kind==='salary'?'':''}</td><td style="padding:3px 8px;font-size:10.5px">${tag}</td><td style="padding:3px 8px;text-align:center;color:var(--muted)">${L.count} NV</td><td style="padding:3px 8px;text-align:right;font-family:monospace;color:${L.amount<0?'var(--bad)':'inherit'}">${fm(L.amount)}</td><td style="padding:3px 8px;font-size:10.5px;white-space:nowrap">${links}</td></tr>`; }).join('');
+  const bh=usd?0:(t.bhxh+(t.bhxhCo||0));
+  return `<details open style="margin-bottom:8px;border:1px solid var(--rule);border-radius:8px;padding:6px 8px;background:#fbfcfe">
+    <summary style="cursor:pointer;font-size:12px;font-weight:600">🧾 Cấu phần kỳ ${esc(p.period)} <span style="font-weight:400;color:var(--muted)">— lương và các đợt/lô khoản PS (đối chiếu với file HR)</span></summary>
+    <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:6px">
+      <thead><tr style="text-align:left;color:var(--muted);font-size:10.5px"><th style="padding:2px 8px">Cấu phần</th><th style="padding:2px 8px">Cách chi · thuế</th><th style="padding:2px 8px;text-align:center">NV</th><th style="padding:2px 8px;text-align:right">Số tiền (${esc(t.ccy)})</th><th></th></tr></thead>
+      <tbody>${rows}</tbody>
+      <tfoot><tr style="border-top:1px solid var(--rule);font-size:11.5px"><td colspan="5" style="padding:4px 8px">Σ thu nhập chịu thuế <b style="font-family:monospace">${fm(t.gross)}</b> · Thuế TNCN <b style="font-family:monospace">${fm(t.pit)}</b>${usd?'':` · BHXH 32% <b style="font-family:monospace">${fm(bh)}</b>`} · <b>Thực lãnh kỳ</b> <b style="font-family:monospace;color:#1e7d44">${fm(t.takeHome)}</b>${comp.sepTotal?` <span style="color:#b8730a">(đã trừ ${fm(comp.sepTotal)} chi riêng — bảng NH kỳ không gồm)</span>`:''}</td></tr></tfoot>
+    </table></details>`;
+}
+/* Cột "Khoản PS" trên bảng dòng: bấm bung từng khoản của 1 người trong kỳ. */
+function payRowExtrasView(periodId, empId){
+  const p=payPeriodById(periodId); if(!p) return;
+  const usd=_payCcyIsFx(p); const fm=v=>usd?(+v||0).toLocaleString('en-US'):Math.round(+v||0).toLocaleString('vi-VN');
+  const r=(p.rows||[]).find(x=>x.empId===empId)||{}; const ex=payExtrasFor(empId, p.period);
+  const rows=ex.map(x=>{ const amt=(x.sign<0?-1:1)*(+x.amount||0); const sep=x.payout==='separate';
+    return `<tr style="border-bottom:1px solid var(--rule)"><td style="padding:4px 6px">${esc(x.desc||'')}<div style="font-size:10.5px;color:var(--muted)">${esc((PEX_PRESETS[x.sourceType]||{}).label||x.sourceType||'')}${x.docRef?' · '+esc(x.docRef):''}</div></td>
+      <td style="padding:4px 6px;font-size:11px">${x.taxable?'chịu thuế TNCN':'miễn thuế'}<br>${sep?`<b style="color:#b8730a">đã chi riêng ${esc(x.payDate||'')}</b>`:'<span style="color:#1e7d44">chi cùng kỳ</span>'}</td>
+      <td style="padding:4px 6px;text-align:right;font-family:monospace;color:${amt<0?'var(--bad)':'inherit'}">${amt>0?'+':''}${fm(amt)}</td></tr>`; }).join('');
+  const tot=ex.reduce((s,x)=>s+(x.sign<0?-1:1)*(+x.amount||0),0), sep=ex.filter(x=>x.payout==='separate').reduce((s,x)=>s+(x.sign<0?-1:1)*(+x.amount||0),0);
+  openModal('Khoản PS · '+esc(r.name||empId)+' · kỳ '+esc(p.period), `
+    <div style="font-size:12px;color:var(--muted);margin-bottom:6px">Khoản đã duyệt của kỳ. Chịu thuế → vào thu nhập chịu thuế; miễn thuế chi cùng kỳ → cộng thực lãnh; <b>đã chi riêng</b> → thuế trừ trong kỳ, tiền không trả lại.</div>
+    <table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr style="background:var(--rule);text-align:left"><th style="padding:4px 6px">Khoản</th><th style="padding:4px 6px">Thuế · cách chi</th><th style="padding:4px 6px;text-align:right">Số tiền</th></tr></thead>
+    <tbody>${rows||'<tr><td colspan="3" style="padding:10px;text-align:center;color:var(--muted)">Không có khoản PS</td></tr>'}</tbody>
+    <tfoot><tr style="border-top:1px solid var(--rule)"><td colspan="2" style="padding:4px 6px;font-weight:600">Σ ${ex.length} khoản${sep?` · trong đó chi riêng ${fm(sep)}`:''}</td><td style="padding:4px 6px;text-align:right;font-family:monospace;font-weight:600">${fm(tot)}</td></tr></tfoot></table>`,
+    `<button class="btn-ghost" onclick="openPayPeriodDetail('${esc(periodId)}')">← Kỳ lương</button>`);
+}
+/* Payslip: khối "Khoản phát sinh trong kỳ" — liệt kê TỪNG khoản (thay vì 1 dòng gộp), chỉ để đối chiếu; tổng vẫn theo engine. */
+function _payslipPexRows(p, row, fm, en){
+  const ex=payExtrasFor(row.empId, p.period); if(!ex.length) return '';
+  const head=en?'Additional items this period (detail)':'Khoản phát sinh trong kỳ (chi tiết)';
+  const lines=ex.map(x=>{ const amt=(x.sign<0?-1:1)*(+x.amount||0); const sep=x.payout==='separate';
+    const tag=(x.taxable?(en?'taxable':'chịu thuế'):(en?'tax-free':'miễn thuế'))+' · '+(sep?((en?'paid separately ':'đã chi riêng ')+(x.payDate||'')):(en?'paid with payroll':'chi cùng kỳ'));
+    return `<tr><td style="padding:2px 0;color:#333;padding-left:12px;font-size:11.5px">${esc(x.desc||'')} <span style="font-size:10px;color:#888">${esc(tag)}</span></td><td style="text-align:right;font-family:monospace;font-size:11.5px;color:${amt<0?'#c0392b':'#333'}">${amt>0?'+':''}${fm(amt)}</td></tr>`; }).join('');
+  return `<tr><td colspan="2" style="padding-top:6px;font-size:11px;font-weight:600;color:#1c3a5c">${head}</td></tr>${lines}`;
+}
+/* Tải mẫu Excel nhập lô khoản PS (7 cột) + sheet Loại. */
+function pexTemplateDownload(){
+  if(typeof XLSX==='undefined'){ toast('Thư viện Excel chưa sẵn sàng','bad'); return; }
+  const per=new Date().toISOString().slice(0,7);
+  const aoa=[['MSNV','Loại','Số tiền','Kỳ','Chịu thuế','Mô tả','Chứng từ'],
+    ['SME0003','bonus',5000000,per,'x','Thưởng dự án X','QĐ 12/QĐ-SME'],
+    ['SME0007','support_nt',1000000,per,'','Hỗ trợ trong trần (miễn thuế)','']];
+  const ws=XLSX.utils.aoa_to_sheet(aoa); ws['!cols']=[{wch:10},{wch:14},{wch:12},{wch:9},{wch:9},{wch:34},{wch:16}];
+  const ws2=XLSX.utils.aoa_to_sheet([['Mã loại','Tên','Dấu','Chịu thuế mặc định','Ghi chú']].concat(Object.keys(PEX_PRESETS).map(k=>{ const q=PEX_PRESETS[k]; return [k, q.label, q.sign<0?'trừ (−)':'cộng (+)', q.taxable?'có':'không', q.hint||'']; })));
+  ws2['!cols']=[{wch:13},{wch:38},{wch:9},{wch:18},{wch:40}];
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'KhoanPS'); XLSX.utils.book_append_sheet(wb,ws2,'Loai');
+  XLSX.writeFile(wb,'Mau_KhoanPS.xlsx'); toast('Đã tải mẫu Mau_KhoanPS.xlsx (sheet Loai: mã loại)','good');
+}
+
 function openPayPeriodDetail(id){
   if(!(payCanViewPayroll() || isHrRole())){ toast('Bảng lương chỉ dành cho Kế toán / Kế toán trưởng / HR','bad'); return; }  /* v3.12.40: HR vào được, số tiền ẩn */
   const p=payPeriodById(id); if(!p){ toast('Không tìm thấy kỳ','bad'); return; }
@@ -21571,6 +21692,7 @@ function openPayPeriodDetail(id){
       ${comp}
       <td style="padding:5px 6px;text-align:right;font-family:monospace;font-size:12px">${_fm(bh)}</td>
       <td style="padding:5px 6px;text-align:right;font-family:monospace;font-size:12px">${_fm(tax)}</td>
+      <td style="padding:5px 6px;text-align:right;font-family:monospace;font-size:12px">${(()=>{ try{ const ex=payExtrasFor(r.empId,p.period); if(!ex.length) return '<span style="color:var(--muted)">—</span>'; const tot=ex.reduce((s,x)=>s+(x.sign<0?-1:1)*(+x.amount||0),0); const nSep=ex.filter(x=>x.payout==='separate').length; return `<a href="#" onclick="event.preventDefault();payRowExtrasView('${id}','${r.empId}')" style="color:${tot<0?'var(--bad)':'inherit'}" title="${ex.length} khoản${nSep?' · '+nSep+' chi riêng':''} — bấm xem">${_fm(tot)}</a><div style="font-size:9.5px;color:var(--muted)">${ex.length} khoản${nSep?' · '+nSep+' chi riêng':''}</div>`; }catch(e){ return '—'; } })()}</td>
       <td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:600">${th?th.toLocaleString(ccy==='USD'?'en-US':'vi-VN'):'—'}${adj?`<div style="font-size:10px;color:${adj<0?'var(--bad)':'#1e7d44'}">đc ${adj>0?'+':''}${Math.round(adj).toLocaleString('vi-VN')}</div>`:''}</td>
       <td style="padding:5px 8px;text-align:right;white-space:nowrap">${editable?`<button class="btn-ghost" style="font-size:11px;padding:2px 6px" onclick="payRowEdit('${id}','${r.empId}')">Nhập</button><button class="btn-ghost" style="font-size:11px;padding:2px 6px" onclick="payOpenAdjust('${id}','${r.empId}')" title="Điều chỉnh (thưởng/phạt/truy lĩnh)">➕</button>${(typeof isAdmin==='function'&&isAdmin())?`<button class="btn-ghost" style="font-size:11px;padding:2px 6px" onclick="spEditVersionForm('${r.empId}','${p.period}','${id}')" title="v3.14.44: Sửa thẻ lương bản hiệu lực tại kỳ — in-place, chỉ Admin (nhập liệu ban đầu, khỏi tạo lại thẻ)">🪪✏</button>`:''}`:''}<button class="btn-ghost" style="font-size:11px;padding:2px 6px" onclick="payslipShow('${id}','${r.empId}')" title="Phiếu lương">🧾</button></td>`;
   });   /* v3.14.80 ROOT CAUSE bug 19105 + bảng đội tàu trắng dòng (Sếp 08-09/8): trước đây .join('')
@@ -21578,7 +21700,7 @@ function openPayPeriodDetail(id){
      nhân sự" chỉ là 1 KÝ TỰ của chuỗi (rác "ty=rpxdvr(-ul)" nổi trên đầu bảng = các ký tự lẻ bị HTML parser
      đẩy ra ngoài <table>), còn kỳ VP thì rows.join('') ném TypeError vì chuỗi không có .join — KHÔNG phải
      máy chạy bản cũ. Fix: GIỮ MẢNG, join tại điểm dùng. */
-  const _rowsEmpty=`<tr><td colspan="${(_pcCols?_pcCols.length:1)+5}" style="padding:12px;text-align:center;color:var(--muted)">Chưa có NV. Thêm NV vào nhóm trong HRM rồi tạo lại kỳ.</td></tr>`;
+  const _rowsEmpty=`<tr><td colspan="${(_pcCols?_pcCols.length:1)+6}" style="padding:12px;text-align:center;color:var(--muted)">Chưa có NV. Thêm NV vào nhóm trong HRM rồi tạo lại kỳ.</td></tr>`;
   const _pcHead=_pcCols?_pcCols.map(([lb])=>`<th style="padding:5px 6px;text-align:right;font-size:11px" title="Mức theo thẻ lương / ô nhập của kỳ">${lb}</th>`).join('')
     :'<th style="padding:5px 6px;text-align:right;font-size:11px">Tổng lương</th>';
   const auditHtml=(p.audit||[]).slice().reverse().slice(0,40).map(a=>`<div style="font-size:10px;padding:3px 0;border-bottom:1px dotted var(--rule)"><span style="color:var(--muted)">${esc(a.ts.replace('T',' ').slice(0,16))}</span> · <b>${esc(a.user)}</b> · ${esc(a.action)}${a.detail?' — '+esc(a.detail):''}</div>`).join('')||'<div style="color:var(--muted);font-size:11px">Chưa có nhật ký</div>';
@@ -21662,8 +21784,9 @@ function openPayPeriodDetail(id){
       </div>
     </div>
     ${p.validationMsg?`<div style="font-size:11px;padding:6px 10px;border-radius:6px;cursor:pointer;margin-bottom:8px;background:${p.validationOk?'#eafaf0;color:#1e7d44':'#fdeaea;color:var(--bad)'}" onclick="payShowExceptions(\'${p.id}\')" title="Bấm xem chi tiết từng cảnh báo (Báo cáo ngoại lệ)">${esc(p.validationMsg)}</div>`:''}
+    ${(()=>{ try{ return _payCompositionHtml(p,id); }catch(e){ return ''; } })()}
     <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Tổng thực lĩnh: <b style="font-family:monospace;color:#1e7d44">${total.toLocaleString(ccy==='USD'?'en-US':'vi-VN')} ${ccy}</b>${p.approvedBy?` · Duyệt bởi <b>${esc(p.approvedBy)}</b>`:''}${p._postedApId?' · <b>Đã ghi sổ KT</b>':''}</div>
-    <div style="max-height:280px;overflow:auto;border:1px solid var(--rule);border-radius:6px"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:var(--rule);text-align:left;position:sticky;top:0"><th style="padding:5px 8px">Nhân viên</th>${_pcHead}<th style="padding:5px 6px;text-align:right;font-size:11px">BHXH</th><th style="padding:5px 6px;text-align:right;font-size:11px">Thuế TNCN</th><th style="padding:5px 8px;text-align:right">Thực lĩnh (${ccy})</th><th style="padding:5px 8px"></th></tr></thead><tbody>${_rowsPayHtml}</tbody></table></div>
+    <div style="max-height:280px;overflow:auto;border:1px solid var(--rule);border-radius:6px"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:var(--rule);text-align:left;position:sticky;top:0"><th style="padding:5px 8px">Nhân viên</th>${_pcHead}<th style="padding:5px 6px;text-align:right;font-size:11px">BHXH</th><th style="padding:5px 6px;text-align:right;font-size:11px">Thuế TNCN</th><th style="padding:5px 6px;text-align:right;font-size:11px" title="v3.18.76: Σ khoản PS đã duyệt của người này trong kỳ — bấm số để xem từng khoản">Khoản PS</th><th style="padding:5px 8px;text-align:right">Thực lĩnh (${ccy})</th><th style="padding:5px 8px"></th></tr></thead><tbody>${_rowsPayHtml}</tbody></table></div>
     <details style="margin-top:10px"><summary style="cursor:pointer;font-size:13px;font-weight:600">📋 Nhật ký thao tác (Audit Log) — không xóa</summary><div style="margin-top:6px;max-height:160px;overflow:auto">${auditHtml}</div></details>`;
   openModal('📅 Kỳ lương '+esc(p.period)+' · '+(p.companyId?esc(companyName(p.companyId)):'⚠ chưa gán pháp nhân'), body,   /* v3.14.41 (Sếp 06/8): tiêu đề ghi rõ pháp nhân */ `<button class="btn-ghost" onclick="openPayrollPeriods()">← Danh sách</button>`);
 }
@@ -23359,6 +23482,7 @@ function payExtrasOpen(prefPeriod, fromPeriodId){
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
       <button class="btn-sec" style="font-size:11px" onclick="payExtraForm()">➕ Nhập 1 khoản</button>
       <button class="btn-sec" style="font-size:11px" onclick="pexImportOpen()" title="File Excel: MSNV | Loại | Số tiền | Kỳ | Chịu thuế | Mô tả | Chứng từ — tạo hàng loạt NHÁP chờ KTT duyệt">📥 Nhập lô Excel</button>
+      <button class="btn-ghost" style="font-size:11px" onclick="pexTemplateDownload()" title="v3.18.76: file mẫu 7 cột + sheet Loai liệt kê mã loại">⬇ Tải mẫu</button>
       <button class="btn-sec" style="font-size:11px" onclick="pexbOpen()" title="v3.18.73: thưởng/trợ cấp đột xuất KHÔNG chi cùng kỳ lương — nhập file HR → KTT duyệt → bảng NH riêng → Chuyển kế toán (tách theo Khối)">💸 Đợt chi riêng</button>
       ${window._pexFromPeriodId?`<button class="btn-primary" style="font-size:11px" onclick="payApplyExtras(window._pexFromPeriodId)" title="v3.15.40: chuyển từ thanh nút kỳ vào đây — áp khoản ĐÃ DUYỆT đúng kỳ vào bảng lương (Tính lại các dòng liên quan), tự quay về kỳ">🧮 Áp phát sinh vào kỳ</button>`:''}
       <!-- v3.15.33 B1 (audit Sếp 11/8): nút "Import Excel" trực tiếp gỡ — TRÙNG mục đích với "Nhập lô Excel"
@@ -28094,8 +28218,13 @@ function payPeriodExportExcel(id){
   ws['!cols']=cols.map(c=>({wch:c[2]||12}));
   ws['!merges']=merges;
   const fname=((usd?'Payroll ':'Bang luong ')+(PAY_PROFILE_LABEL[p.profile]||p.profile)+' '+p.period+(p.companyId?(' '+p.companyId):'')).replace(/[\/\\:*?"<>|]/g,'_')+'.xlsx';
-  if(styled){ const wb=XS.utils.book_new(); XS.utils.book_append_sheet(wb,ws,'Payroll '+p.period); XS.writeFile(wb,fname); }
-  else { const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Payroll '+p.period); XLSX.writeFile(wb,fname); }
+  /* v3.18.76: sheet "Cau phan ky" — y hệt khối Cấu phần kỳ trên màn, để đối chiếu với file HR */
+  const _cpAoa=(function(){ try{ const {comp,t}=_payCompositionOf(p); const a=[['Cấu phần','Cách chi','Thuế','Số NV','Số tiền ('+t.ccy+')','Ngày chi']];
+    comp.lines.forEach(L=>a.push([L.label, L.kind==='salary'?'theo công/thẻ':(L.payout==='separate'?'đã chi riêng':'chi cùng kỳ'), L.kind==='salary'?'':(L.mixedTax?'hỗn hợp':(L.taxable?'chịu thuế':'miễn thuế')), L.count, Math.round((+L.amount||0)*100)/100, L.payDate||'']));
+    a.push([]); a.push(['Σ thu nhập chịu thuế','','','',Math.round(t.gross*100)/100,'']); a.push(['Thuế TNCN','','','',Math.round(t.pit*100)/100,'']); if(!t.usd) a.push(['BHXH 32%','','','',Math.round((t.bhxh+(t.bhxhCo||0))*100)/100,'']);
+    a.push(['Thực lãnh kỳ'+(comp.sepTotal?' (đã trừ chi riêng '+Math.round(comp.sepTotal).toLocaleString('vi-VN')+')':''),'','','',Math.round(t.takeHome*100)/100,'']); return a; }catch(e){ return null; } })();
+  if(styled){ const wb=XS.utils.book_new(); XS.utils.book_append_sheet(wb,ws,'Payroll '+p.period); if(_cpAoa){ const w2=XS.utils.aoa_to_sheet(_cpAoa); w2['!cols']=[{wch:36},{wch:14},{wch:11},{wch:7},{wch:18},{wch:12}]; XS.utils.book_append_sheet(wb,w2,'Cau phan ky'); } XS.writeFile(wb,fname); }
+  else { const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Payroll '+p.period); if(_cpAoa){ const w2=XLSX.utils.aoa_to_sheet(_cpAoa); w2['!cols']=[{wch:36},{wch:14},{wch:11},{wch:7},{wch:18},{wch:12}]; XLSX.utils.book_append_sheet(wb,w2,'Cau phan ky'); } XLSX.writeFile(wb,fname); }
   _payAudit(p,'export_excel','Xuất bảng lương Excel đủ tham số ('+cols.length+' cột'+(styled?', styled':', trơn')+')'); saveState();
   toast('Đã xuất bảng lương '+cols.length+' cột'+(styled?' (chuẩn style)':''),'good');
 }
@@ -28300,7 +28429,8 @@ function _payslipHtml(p, row, opts){
       <table style="width:100%;font-size:13px;border-collapse:collapse">
         <thead><tr style="border-bottom:1px solid #ccc"><th style="text-align:left;padding:5px 0">Description</th><th style="text-align:right">Amount (USD)</th></tr></thead>
         <tbody>${_psRows}
-        ${adjLines.map(l=>`<tr><td style="padding:4px 0;color:#333">${esc(l[0])}</td><td style="text-align:right;font-family:monospace;color:${l[1]<0?'#c0392b':'#1e7d44'}">${l[1]>0?'+':''}${fm(l[1])}</td></tr>`).join('')}</tbody>
+        ${adjLines.map(l=>`<tr><td style="padding:4px 0;color:#333">${esc(l[0])}</td><td style="text-align:right;font-family:monospace;color:${l[1]<0?'#c0392b':'#1e7d44'}">${l[1]>0?'+':''}${fm(l[1])}</td></tr>`).join('')}
+        ${(()=>{ try{ return _payslipPexRows(p,row,fm,true); }catch(e){ return ''; } })()}</tbody>
         <tfoot><tr style="border-top:2px solid #1c3a5c"><td style="padding:8px 0;font-weight:700">NET PAY</td><td style="text-align:right;font-weight:700;font-family:monospace;font-size:16px;color:#1e7d44">${fm(net)} USD</td></tr></tfoot>
       </table>
       ${_psTaxBlock}
@@ -28430,6 +28560,7 @@ function _payslipHtml(p, row, opts){
           <tr style="border-top:1px solid #ddd"><td style="padding:4px 0;padding-left:12px;font-weight:600">Cộng A</td><td style="text-align:right;font-family:monospace;font-weight:600">${fm(det.total)}</td></tr>
           <tr><td colspan="2" style="padding-top:8px;font-weight:600;color:#1c3a5c">C · PHẢI THU / PHẢI TRẢ KHÁC <span style="font-weight:400;color:#93a4b0">/ Other deductions and additions</span></td></tr>
           ${adjHtml}
+          ${(()=>{ try{ return _payslipPexRows(p,row,fm,false); }catch(e){ return ''; } })()}
           ${coBlock}
         </tbody>
         <tfoot><tr style="border-top:2px solid #1c3a5c"><td style="padding:8px 0;font-weight:700">TỔNG THỰC NHẬN THÁNG</td><td style="text-align:right;font-weight:700;font-family:monospace;font-size:16px;color:#1e7d44">${fm(take)} đ</td></tr></tfoot>
@@ -32738,7 +32869,7 @@ function addExpenseType(){
       <div class="field">
         <label>Nhóm * <span id="etype-group-auto" style="font-weight:400;font-size:11px;color:var(--good,#1a7a4c)"></span></label>
         <select id="etype-group">
-          ${Object.entries(EXPENSE_GROUPS).map(([k,v])=>`<option value="${k}">${v.label}</option>`).join('')}
+          ${expGroupsActive({forNew:true}).map(k=>`<option value="${k}">${esc(expGroupLabel(k))}</option>`).join('')}
         </select>
       </div>
       <div class="field">
@@ -32899,6 +33030,25 @@ function _etCatConToggle(gi){
 /* ═══ v3.18.69 (Sếp 25/8: "Các nút danh mục trong app: mặc định gập" + "Tạo/sửa/thêm mới nhánh cha?") ═══
    (1) Dòng NHÓM CHA cũng là nút gập/bung — mặc định GẬP cả 3 cấp (cha ▸ con ▸ cháu).
        Bung nhóm cha CHỈ hiện dòng CON (mọi dòng dưới con mang cgkid vẫn ẩn, caret con về ▸). */
+/* v3.18.77 (Sếp 26/8 "Không lưu khi tạo mới/sửa danh mục chi phí"): kiểm bằng máy — thêm/sửa đều ghi OK;
+   nguyên nhân THẬT: từ 3.18.69 cây gập mặc định 3 cấp → loại vừa thêm/sửa nằm trong nhánh gập, không thấy → tưởng
+   không lưu. VÁ: sau Lưu/Cập nhật/Dời nhóm → vẽ lại rồi TỰ BUNG đúng nhánh, cuộn tới và nháy sáng dòng loại. */
+function _etCatReveal(code){
+  try{
+    const tr=document.querySelector('tr[data-etcode="'+String(code||'').replace(/"/g,'&quot;')+'"]'); if(!tr) return false;
+    const openAbove=(sel, carSel)=>{ /* bung nhóm/con/cháu chứa dòng: tìm dòng header gần nhất phía trên có caret ▸ */
+      let r=tr.previousElementSibling; while(r){ const c=r.querySelector(carSel); if(c && sel(r)){ if(c.textContent==='▸') r.click(); break; } r=r.previousElementSibling; } };
+    /* thứ tự từ ngoài vào: nhóm cha (ctgg) → con (ctgc) → cháu (ctc) */
+    openAbove(r=>/_etCatGroupToggle\(/.test(r.getAttribute('onclick')||''), '[id^="ctgg-"]');
+    if(tr.dataset.cgkid) openAbove(r=>/_etCatConToggle\(/.test(r.getAttribute('onclick')||''), '[id^="ctgc-"]');
+    if(tr.dataset.ctkid) openAbove(r=>/ct-\d+/.test(r.getAttribute('onclick')||''), '[id^="ctc-"]');
+    tr.style.display='';
+    tr.style.transition='background .2s'; tr.style.background='#fff3c4';
+    setTimeout(()=>{ try{ tr.scrollIntoView({block:'center',behavior:'smooth'}); }catch(e){} },50);
+    setTimeout(()=>{ tr.style.background=''; },2500);
+    return true;
+  }catch(e){ return false; }
+}
 function _etCatGroupToggle(ggi){
   const rows=document.querySelectorAll('.gg-'+ggi);
   const car=document.getElementById('ctgg-'+ggi);
@@ -32996,7 +33146,7 @@ function _etCatRegroup(){
   const sum={}; off.forEach(t=>{ const k=(t.group||'?')+' → '+etypeDisplayGroup(t); sum[k]=(sum[k]||0)+1; });
   if(!confirm('Dời '+off.length+' loại về đúng nhóm theo chữ cái mã?\n'+Object.keys(sum).map(k=>'• '+k+': '+sum[k]+' loại').join('\n')+'\n\nChỉ đổi nhóm hiển thị/báo cáo — mã, tên, phiếu KHÔNG đổi.')) return;
   commitMutation(()=>{ (S.expenseTypes||[]).forEach(t=>{ if(!t||t.archived) return; const g=etypeDisplayGroup(t); if(g&&g!==t.group){ t.group=g; try{touchRecord(t);}catch(e){} } }); },
-    {action:'etype_regroup', fields:['expenseTypes'], onOk:()=>{ try{ logAuditEvent('etype_regroup',{n:off.length,actor:actorName()}); }catch(e){} toast('✓ Đã dời '+off.length+' loại về đúng nhóm (đồng bộ mọi máy)','good'); try{ renderCatalog(); }catch(e){} }});
+    {action:'etype_regroup', fields:['expenseTypes'], onOk:()=>{ try{ logAuditEvent('etype_regroup',{n:off.length,actor:actorName()}); }catch(e){} toast('✓ Đã dời '+off.length+' loại về đúng nhóm (đồng bộ mọi máy)','good'); try{ renderCatalog(); }catch(e){} setTimeout(()=>{ try{ _etCatReveal(off[0].code); }catch(e){} },120); }});
 }
 function _etypeCodeSmart(){
   const cIn=document.getElementById('etype-code'); if(!cIn) return;
@@ -33019,7 +33169,7 @@ function _etypeEditCodeSmart(lab){
   if(out){ const path=(tc&&typeof expTreePath==='function')?expTreePath(tc,(document.getElementById('etype-edit-label')||{}).value||lab||''):'';
     out.innerHTML=path?('📁 '+esc(path)):(code?'<span style="color:var(--muted)">mã ngoài bộ chuẩn — giữ phân cấp cũ (nếu có)</span>':''); }
   const g=_etypeGroupOfPrefix(code), gl=document.getElementById('etype-edit-group-auto');
-  if(gl) gl.textContent=g?('🧭 lưu là chuyển về nhóm '+(((EXPENSE_GROUPS||{})[g]||{}).label||g)+' theo mã'):'';
+  if(gl) gl.textContent=g?('🧭 lưu là chuyển về nhóm '+expGroupLabel(g)+' theo mã'):'';
 }
 function _etypePreviewPath(){
   const el=document.getElementById('etype-treecode'); const out=document.getElementById('etype-treepath');
@@ -33069,9 +33219,10 @@ function _doAddExpenseType(){
     createdBy:actorName()
   });
   },{action:'etype_add', fields:['expenseTypes'], onOk:()=>{
-    toast('Đã thêm loại chi phí: '+codeRaw+' (tổng '+S.expenseTypes.length+' loại)');
+    toast('Đã thêm loại chi phí: '+codeRaw+' (tổng '+S.expenseTypes.length+' loại) — đã bung nhánh chứa loại','good');
     try{ if(typeof renderCatalog==='function') renderCatalog(); }catch(e){}
     closeModal();
+    setTimeout(()=>{ try{ _etCatReveal(codeRaw); }catch(e){} },120);   /* v3.18.77 */
     /* v3.18.62: không bật lại Cài đặt sau Lưu — Sếp tưởng app đòi đồng bộ; sync tự chạy trong Lưu */
   }});
 }
@@ -33088,6 +33239,8 @@ function editExpenseType(id){
         <input type="text" id="etype-edit-code" value="${esc(t.code)}" maxlength="30" style="font-variant-numeric:tabular-nums" oninput="_etypeEditCodeSmart('${esc(t.label||'')}')">
         <div id="etype-edit-treepath" style="font-size:12px;color:var(--good,#1a7a4c);margin-top:4px"></div>
         <div id="etype-edit-group-auto" style="font-size:11px;color:var(--good,#1a7a4c);margin-top:2px"></div>
+        ${(!/^[A-Z]\./.test(String(t.code||'').toUpperCase()))?`<div style="margin-top:6px"><label style="font-size:11px">Nhóm <span style="font-weight:400;color:var(--muted)">(mã ngoài bộ chuẩn — chọn nhóm chữ cái theo bảng mới; đổi sang mã chuẩn thì nhóm tự suy)</span></label>
+          <select id="etype-edit-group">${(function(){ const ks=expGroupsActive(); if(t.group&&EXPENSE_GROUPS[t.group]&&!ks.includes(t.group)) ks.push(t.group); return ks.map(k=>`<option value="${k}"${k===t.group?' selected':''}>${esc(expGroupLabel(k))}</option>`).join(''); })()}</select></div>`:''}
         <div style="font-size:11px;color:var(--muted);margin-top:2px"><a href="#" onclick="_etypeTreePanelToggle();return false">Bảng tên nhánh ▾</a></div>
         <div id="etype-tree-panel" style="display:none;border:1px solid var(--rule);border-radius:8px;padding:8px;margin-top:6px;max-height:220px;overflow:auto;background:var(--paper-2)"></div>
       </div>
@@ -33183,6 +33336,7 @@ function _doEditExpenseType(id){
     icon:document.getElementById('etype-edit-icon').value.trim()||'',
     treeCode:_etypeDeriveTree(newCode)||String(t0.treeCode||''),   /* v3.18.65: mã chuẩn TỰ LÀ phân cấp; mã ngoài bộ giữ phân cấp cũ */
     group:_etypeGroupOfPrefix(newCode),                            /* v3.18.65: mã chuẩn → nhóm theo chữ đầu; nhóm cũ rỗng dần tự biến khỏi danh mục */
+    groupPick:((document.getElementById('etype-edit-group')||{}).value)||'',   /* v3.18.78 */
     isPO:document.getElementById('etype-edit-isPO').checked,
     isFuel:document.getElementById('etype-edit-isFuel').checked,
     fuelKind:((document.getElementById('etype-edit-fuelKind')||{}).value)||'do',
@@ -33213,6 +33367,7 @@ function _doEditExpenseType(id){
     t.icon=vals.icon;
     if(vals.treeCode) t.treeCode=vals.treeCode; else delete t.treeCode;
     if(vals.group && EXPENSE_GROUPS[vals.group]) t.group=vals.group;   /* v3.18.65: dời nhóm theo mã — loại cuối rời nhóm cũ là header nhóm cũ tự biến */
+    else if(vals.groupPick && EXPENSE_GROUPS[vals.groupPick]) t.group=vals.groupPick;   /* v3.18.78: mã ngoài bộ chuẩn → nhóm chọn tay theo bảng mới */
     t.isPO=vals.isPO;
     t.isFuel=vals.isFuel;
     if(t.isFuel) t.fuelKind=vals.fuelKind; else delete t.fuelKind;
@@ -33221,9 +33376,10 @@ function _doEditExpenseType(id){
     if(vals.hint) t.hint=vals.hint; else delete t.hint;
     t.updatedAt=new Date().toISOString();
   },{action:'etype_edit', fields:['expenseTypes','payables'], onOk:()=>{
-    toast('Đã cập nhật loại chi phí'+migMsg);
+    toast('Đã cập nhật loại chi phí'+migMsg+' — đã bung nhánh chứa loại','good');
     closeModal();
     try{ if(typeof renderCatalog==='function') renderCatalog(); }catch(e){}   /* v3.18.62: trang Danh mục đang mở phía dưới phải vẽ lại ngay */
+    setTimeout(()=>{ try{ const tt=(S.expenseTypes||[]).find(x=>x.id===id); _etCatReveal(tt?tt.code:''); }catch(e){} },120);   /* v3.18.77: bung + nháy dòng loại vừa sửa (mã mới nếu đổi mã) */
     try{ if(typeof renderAll==='function') renderAll(); }catch(e){}
     /* v3.18.62: không bật lại Cài đặt sau Lưu — Sếp tưởng app đòi đồng bộ; sync tự chạy trong Lưu */
   }});
@@ -33836,7 +33992,7 @@ function renderCatalog(){
       h += '</tr></thead><tbody>';
       const colspan = adminMode ? 3 : 2;
       // thứ tự nhóm theo EXPENSE_GROUPS; loại nào group lạ → dồn vào cuối nhóm '?'
-      const order = grpKeys.concat(['?']);
+      const order = expGroupsActive().concat(grpKeys.filter(k=>!expGroupsActive().includes(k))).concat(['?']);   /* v3.18.78: thứ tự bảng mới */
       const byGroup = {};
       /* v3.18.70: gom theo nhóm HIỂN THỊ (chữ cái mã → nhóm cố định); mã ngoài bộ theo group ghi. */
       list.forEach(t => { const dgp=(typeof etypeDisplayGroup==='function')?etypeDisplayGroup(t):t.group; const g = (EXPENSE_GROUPS && EXPENSE_GROUPS[dgp]) ? dgp : '?'; (byGroup[g] = byGroup[g]||[]).push(t); });
@@ -33849,7 +34005,7 @@ function renderCatalog(){
         if(t.isCapEx) flags.push('<span class="ds-need" style="font-size:10px;margin-left:3px" title="CapEx — cộng nguyên giá TSCĐ, không vào P&L">CapEx</span>');
         if(t.isAsset) flags.push('<span class="ds-need" data-dot="good" style="font-size:10px;margin-left:3px" title="Tạo món vào Sổ CCDC/MMTB">Tài sản</span>');
         if(t.isAdvance) flags.push('<span class="ds-need" style="font-size:10px;margin-left:3px" title="Ứng quỹ tiền mặt">Ứng quỹ</span>');
-        return `<tr>
+        return `<tr data-etcode="${esc(String(t.code||''))}">
           <td class="ds-t-sub" style="font-family:var(--font-mono)" style="padding-left:22px"><b>${esc(t.code)}</b>${fuelChip}${flags.join('')}</td>
           <td>${t.icon?esc(t.icon)+' ':''}${esc(t.label)}${t.treeCode?`<div style="font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums">🔢 ${esc(t.treeCode)} · ${esc((typeof expTreePath==='function'?expTreePath(t.treeCode,t.label):'')||'')}</div>`:''}</td>
           ${adminMode?`<td><div class="row-actions">
@@ -33870,7 +34026,7 @@ function renderCatalog(){
         const letter=expGroupIsDynamic(gk)?gk:(function(){ const v={}; items.forEach(t=>{ const m=String(t.treeCode||t.code||'').match(/^([A-Z])\./); if(m) v[m[1]]=(v[m[1]]||0)+1; }); let b='',bn=0; Object.keys(v).forEach(k=>{ if(v[k]>bn){bn=v[k];b=k;} }); return b; })();
         const _bq=(fn,title,ic)=>adminMode?`<button class="icon-btn" style="font-size:11px;padding:0 5px;margin-left:4px" title="${title}" onclick="event.stopPropagation();${fn}">${ic}</button>`:'';
         h += `<tr style="background:${g.color}14;cursor:pointer" onclick="_etCatGroupToggle(${ggi})"><td colspan="${colspan}" style="font-weight:600;font-size:11px;color:${g.color};text-transform:uppercase;letter-spacing:.04em;padding:7px 12px;border-top:1px solid var(--rule)">
-          <span id="ctgg-${ggi}" style="display:inline-block;width:12px;font-size:10px">▸</span> ${esc(g.label)} <span style="font-weight:400;color:var(--muted);margin-left:4px">${items.length} loại</span>${letter?`<span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted);margin-left:8px">· mã <b>${esc(letter)}</b> ${esc((typeof expTreeName==='function'&&expTreeName(letter))||'')}</span>${_bq(`_etCatBranchEdit('${esc(letter)}')`,'Sửa tên nhánh '+esc(letter)+' (Bảng tên nhánh)','✎')}${_bq(`_etCatBranchAdd('${esc(letter)}')`,'Thêm nhánh con dưới '+esc(letter),'＋ nhánh')}`:''}</td></tr>`;
+          <span id="ctgg-${ggi}" style="display:inline-block;width:12px;font-size:10px">▸</span> ${esc(expGroupLabel(gk))} <span style="font-weight:400;color:var(--muted);margin-left:4px">${items.length} loại</span>${letter?`<span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted);margin-left:8px">· tên nhánh: ${esc((typeof expTreeName==='function'&&expTreeName(letter))||'(chưa đặt)')}</span>${_bq(`_etCatBranchEdit('${esc(letter)}')`,'Sửa tên nhánh '+esc(letter)+' (Bảng tên nhánh)','✎')}${_bq(`_etCatBranchAdd('${esc(letter)}')`,'Thêm nhánh con dưới '+esc(letter),'＋ nhánh')}`:''}</td></tr>`;
         /* v3.18.62 (Sếp): cha(nhóm) → CON đậm → CHÁU gập ▸ (bấm bung loại/chắt); loại chưa theo bộ mã dồn cuối.
            v3.18.65 (Sếp): (1) dòng CON thành nút GẬP/BUNG cả nhóm lớn; (2) hiện ĐỦ nhóm cháu từ
            Bảng tên nhánh kể cả nhánh CHƯA có loại nào (0 loại — KT đang dựng bộ mã cần thấy khung). */
@@ -54044,8 +54200,9 @@ function _arEditorBody(r,isPayable){
     const etTypes = (typeof expenseTypesForUser==='function') ? expenseTypesForUser() : (activeExpenseTypes ? activeExpenseTypes() : []);
     const etGroups = {};
     etTypes.forEach(t=>{
-      if(!etGroups[t.group]) etGroups[t.group]=[];
-      etGroups[t.group].push(t);
+      const dg=(typeof etypeDisplayGroup==='function')?(etypeDisplayGroup(t)||t.group):t.group;   /* v3.18.78 */
+      if(!etGroups[dg]) etGroups[dg]=[];
+      etGroups[dg].push(t);
     });
     let etHtml = '<option value="">— Chọn loại chi phí —</option>';
     // v2.99.32: 'Dự kiến chi' là một LOẠI đặc biệt — NV chọn để đánh dấu khoản AP là dự kiến
@@ -54053,9 +54210,9 @@ function _arEditorBody(r,isPayable){
     etHtml += `<option value="__BUDGET__" ${r._isBudget?'selected':''}>📋 Dự kiến chi (chưa phát sinh)</option>`;
     if(typeof EXPENSE_GROUPS!=='undefined'){
       try{ expGroupsSync(); }catch(e){}   /* v3.18.71 */
-      Object.keys(EXPENSE_GROUPS).forEach(gk=>{
+      expGroupsActive().concat(Object.keys(etGroups).filter(k=>!expGroupsActive().includes(k))).forEach(gk=>{   /* v3.18.78: thứ tự + nhãn bảng mới */
         if(!etGroups[gk]) return;
-        etHtml += `<optgroup label="${esc(EXPENSE_GROUPS[gk].label)}">`;
+        etHtml += `<optgroup label="${esc(expGroupLabel(gk))}">`;
         etGroups[gk].forEach(t=>{
           const fuelMark = t.isFuel ? ' ⛽FUEL' : '';
           etHtml += `<option value="${esc(t.code)}" ${t.code===r.expenseType?'selected':''} data-isfuel="${t.isFuel?'1':'0'}">${t.icon} ${esc(t.label)}${fuelMark}</option>`;
