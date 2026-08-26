@@ -3825,7 +3825,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.18.90';
+const APP_VERSION='3.18.93';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -17479,6 +17479,33 @@ function revenueTypeOpts(selectedCode){
   return html;
 }
 
+/* ═══ v3.18.92 (Sếp 26/8: "Nhập liệu tại AP nên lọc theo Nhóm chi phí. Lọc thông minh: chọn nhóm nào ưu tiên lọc
+   chi phí tại nhóm đó"): nhóm ưu tiên theo MẢNG KD — bảng KHAI RÕ, không suy diễn:
+   mảng tàu (Tàu dịch vụ / Tàu kỹ thuật / QL vận hành tàu) → M · F · T ; Tư vấn O&M → O ; Quản lý chung → C ;
+   Cảng biển → (không ưu tiên). Chỉ đổi THỨ TỰ/LỌC hiển thị, không đổi dữ liệu. */
+const SEGMENT_PREF_LETTERS={VESSEL_SERVICE:['M','F','T'], VESSEL_TECH:['M','F','T'], VESSEL_MGMT:['M','F','T'], OM:['O'], OTHER:['C'], PORT:[]};
+function expGroupsForSegment(seg){
+  const Ls=SEGMENT_PREF_LETTERS[String(seg||'')]||[];
+  return Ls.map(L=>(typeof etypeLetterGroup==='function')?etypeLetterGroup(L):'').filter(k=>k&&EXPENSE_GROUPS[k]);
+}
+/* Dropdown loại chi phí có ƯU TIÊN: nhóm ưu tiên lên đầu (optgroup nhãn ★), nhóm khác vẫn còn phía dưới; onlyGroup → chỉ nhóm đó */
+function expenseTypeOptsPref(selectedCode, prefGroups, onlyGroup){
+  const types=activeExpenseTypes(); const groups={};
+  try{ expGroupsSync(); }catch(e){}
+  types.forEach(t=>{ const dg=(typeof etypeDisplayGroup==='function')?(etypeDisplayGroup(t)||t.group):t.group; (groups[dg]=groups[dg]||[]).push(t); });
+  const act=expGroupsActive().concat(Object.keys(groups).filter(k=>!expGroupsActive().includes(k)));
+  const pref=(prefGroups||[]).filter(k=>groups[k]);
+  let order=pref.concat(act.filter(k=>!pref.includes(k)));
+  if(onlyGroup && groups[onlyGroup]) order=[onlyGroup];
+  let html='<option value="">— Chọn loại chi phí —</option>';
+  /* loại đang chọn không thuộc nhóm lọc → vẫn giữ để không mất giá trị */
+  if(onlyGroup && selectedCode){ const t=types.find(x=>x.code===selectedCode); const dg=t?((typeof etypeDisplayGroup==='function')?(etypeDisplayGroup(t)||t.group):t.group):''; if(t && dg!==onlyGroup) html+=`<optgroup label="Đang chọn"><option value="${esc(t.code)}" selected>${t.icon} ${esc(t.label)}</option></optgroup>`; }
+  order.forEach(gk=>{ if(!groups[gk]) return;
+    html+=`<optgroup label="${pref.includes(gk)&&!onlyGroup?'★ ':''}${esc(expGroupLabel(gk))}" data-grp="${esc(gk)}">`;
+    groups[gk].forEach(t=>{ html+=`<option value="${esc(t.code)}" ${selectedCode===t.code?'selected':''}>${t.icon} ${esc(t.label)}${t.isPO?' (PO)':''}</option>`; });
+    html+='</optgroup>'; });
+  return html;
+}
 /* Build option HTML for expenseType dropdown — grouped */
 function expenseTypeOpts(selectedCode){
   const types = activeExpenseTypes();
@@ -23676,7 +23703,7 @@ function payExtrasOpen(prefPeriod, fromPeriodId){
            → nguy cơ trừ tiền chuyên gia 2 LẦN. MỘT đường chính thức: Import lương chuyên gia O&M →
            📥 Allowance/Deduction (có đối chiếu PAF + nạp ngày Q). Hàm pexImportAdExcel giữ nguyên bên dưới,
            chỉ chặn đầu vào — đường lui: khôi phục 2 dòng nút này. -->
-      <button class="btn-sec" style="font-size:11px" onclick="payExtraRollbackBatch()">↩ Rollback batch</button>
+      <button class="btn-sec" style="font-size:11px" onclick="payExtraRollbackBatch()" title="Hủy một lần Nhập lô: xóa mọi khoản còn NHÁP của lô đó; khoản đã duyệt giữ nguyên (đảo bằng khoản ngược)">↩ Hủy lô nhập</button>
       <!-- v3.15.26 (Sếp 11/8): 🧾 Quyết toán TNCN + 🛡 BHXH biến động CHUYỂN ra Dashboard NS —
            gắn cạnh card 'Thuế TNCN kỳ' / 'BHXH kỳ' (đúng ngữ cảnh nghiệp vụ, hàm tự kiểm quyền)
            v3.15.27: 🗂 Hồ sơ thuế năm cũng CHUYỂN theo — trọn cụm thuế về card Thuế TNCN kỳ -->
@@ -23778,18 +23805,36 @@ function payExtraDelete(id){
   try{touchRecord(x);}catch(e){}
   saveState(); payExtrasOpen();
 }
+/* v3.18.91 (Sếp 26/8 "Rollback batch để làm gì?"): đổi thành ↩ Hủy lô nhập — chọn lô từ danh sách (không gõ Batch ID),
+   chỉ xóa khoản còn NHÁP của lô (bia mộ), khoản đã duyệt giữ; ghi qua commitMutation (saveState trần không đẩy cloud). */
+function payExtraBatchSummary(){   /* THUẦN: gom lô nhập */
+  const g={};
+  (S.payExtras||[]).forEach(x=>{ if(!x||x._deleted||!x.batchId) return; const k=x.batchId;
+    if(!g[k]) g[k]={batchId:k, desc:x.desc||'', docRef:x.docRef||'', at:x.createdAt||'', by:x.createdBy||'', period:x.effectivePeriod||x.period||'', draft:0, approved:0, other:0, total:0, sep:!!x.pexBatchId};
+    const L=g[k]; if(x.status==='draft') L.draft++; else if(x.status==='approved') L.approved++; else L.other++; L.total+=(x.sign<0?-1:1)*(+x.amount||0);
+    if(x.createdAt&&x.createdAt<L.at) L.at=x.createdAt; if(!L.desc&&x.desc) L.desc=x.desc; });
+  return Object.keys(g).map(k=>g[k]).sort((a,b)=>String(b.at).localeCompare(String(a.at)));
+}
 function payExtraRollbackBatch(){
-  const b=prompt('Nhập Batch ID cần rollback (chỉ xóa các khoản còn NHÁP của batch; khoản đã duyệt phải đảo bằng khoản ngược):');
-  if(!b) return;
-  const before=(S.payExtras||[]).length;
-  const kept=[], removed=[];
-  (S.payExtras||[]).forEach(x=>{ (x.batchId===b.trim() && x.status==='draft') ? removed.push(x) : kept.push(x); });
-  const approvedLeft=(kept.filter(x=>x.batchId===b.trim())).length;
-  S.payExtras=kept;
-  try{ markDeleted(removed.map(x=>x.id),'payExtras'); }catch(e){}   /* v3.14.06: cùng lớp lỗi xóa kỳ — hard-delete thiếu bia mộ sống lại sau sync */
-  saveState();
-  toast('Rollback batch '+b+': xóa '+removed.length+' khoản nháp'+(approvedLeft?(' · '+approvedLeft+' khoản đã duyệt GIỮ (cần đảo tay)'):''),'good');
-  payExtrasOpen();
+  if(!pexCanCreate_() && !isAdmin()){ toast('Hủy lô: NS tiền lương / KT / Admin','bad'); return; }
+  const list=payExtraBatchSummary();
+  const fm=v=>Math.round(+v||0).toLocaleString('vi-VN');
+  const rows=list.map(L=>`<tr style="border-bottom:1px solid var(--rule)"><td style="padding:4px 6px">${esc(L.desc||'(không mô tả)')}<div style="font-size:10.5px;color:var(--muted)">${esc(String(L.at||'').replace('T',' ').slice(0,16))} · ${esc(L.by||'')}${L.docRef?' · '+esc(L.docRef):''}${L.sep?' · <b>đợt chi riêng</b>':''}</div></td>
+    <td style="padding:4px 6px;font-size:11px">kỳ ${esc(L.period)}</td><td style="padding:4px 6px;text-align:right;font-family:monospace">${fm(L.total)}</td>
+    <td style="padding:4px 6px;font-size:11px"><span style="color:#b8730a">${L.draft} nháp</span> · <span style="color:#1e7d44">${L.approved} đã duyệt</span>${L.other?' · '+L.other+' khác':''}</td>
+    <td style="padding:4px 6px;white-space:nowrap">${L.draft?`<button class="btn-sec" style="font-size:11px;color:var(--bad)" onclick="payExtraRollbackBatchGo('${esc(L.batchId)}')">↩ Hủy ${L.draft} nháp</button>`:'<span style="font-size:10.5px;color:var(--muted)">không còn nháp</span>'}</td></tr>`).join('');
+  openModal('↩ Hủy lô nhập khoản PS', `<div style="font-size:12px;color:var(--muted);margin-bottom:6px">Chọn lô nhập nhầm để xóa các khoản <b>còn nháp</b> của lô đó. Khoản đã KTT duyệt giữ nguyên — muốn hủy phải tạo khoản ngược. Lô của đợt chi riêng: xóa đợt ở màn Đợt chi riêng.</div>
+    <div style="max-height:52vh;overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr style="background:var(--rule);text-align:left"><th style="padding:4px 6px">Lô</th><th style="padding:4px 6px">Kỳ</th><th style="padding:4px 6px;text-align:right">Σ</th><th style="padding:4px 6px">Trạng thái</th><th></th></tr></thead><tbody>${rows||'<tr><td colspan="5" style="padding:12px;text-align:center;color:var(--muted)">Chưa có lô nhập nào</td></tr>'}</tbody></table></div>`,
+    `<button class="btn-ghost" onclick="payExtrasOpen()">← Khoản PS</button>`);
+}
+function payExtraRollbackBatchGo(b){
+  const drafts=(S.payExtras||[]).filter(x=>x&&!x._deleted&&x.batchId===b&&x.status==='draft');
+  if(!drafts.length){ toast('Lô không còn khoản nháp','warn'); return; }
+  const approvedLeft=(S.payExtras||[]).filter(x=>x&&!x._deleted&&x.batchId===b&&x.status==='approved').length;
+  if(!confirm('Xóa '+drafts.length+' khoản NHÁP của lô "'+(drafts[0].desc||b)+'"?'+(approvedLeft?('\n'+approvedLeft+' khoản đã duyệt sẽ GIỮ (đảo bằng khoản ngược).'):''))) return;
+  const who=(typeof actorName==='function'?actorName():''), now=new Date().toISOString();
+  commitMutation(()=>{ drafts.forEach(x=>{ x._deleted=true; (x.auditTrail=x.auditTrail||[]).push({at:now,by:who,act:'rollback_batch'}); try{touchRecord(x);}catch(e){} }); try{ markDeleted(drafts.map(x=>x.id),'payExtras'); }catch(e){} },
+    {action:'pex_rollback_batch', fields:['payExtras','deletedIds'], onOk:()=>{ try{ logAuditEvent('pex_rollback_batch',{batchId:b, n:drafts.length, actor:who}); }catch(e){} toast('Đã hủy '+drafts.length+' khoản nháp của lô'+(approvedLeft?(' · '+approvedLeft+' đã duyệt giữ'):''),'good'); payExtrasOpen(); }});
 }
 /* v3.15.11 (Sếp 11/8 — thống nhất luồng, bước 3/3): IMPORT FILE A-D CHUYÊN GIA
    NGAY TẠI THU/CHI PHÁT SINH. Mỗi cột tiền (House/Phone/Car/Advance/Others/Mob-Demob/Refund)
@@ -33310,6 +33355,19 @@ function _etCatStrayDelete(code){
   if(!confirm('Xóa nhánh lạc cấp '+code+' khỏi Bảng tên nhánh?')) return;
   commitMutation(()=>{ expTreeRemove(code); },{action:'exptree_del_stray', fields:['expenseTree'], onOk:()=>{ toast('Đã xóa nhánh '+code,'good'); try{ renderCatalog(); }catch(e){} }});
 }
+/* v3.18.93 (Sếp 26/8 "cách xóa nhánh"): ⊘ ngay trên dòng con/cháu KHÔNG còn loại nào dưới nó (kể cả loại lưu trữ);
+   xóa cả nhánh con rỗng bên dưới; nhánh còn loại → chỉ đường đổi mã loại trước. Ghi qua commitMutation. */
+function _etCatBranchDelete(code){
+  if(!isAdmin()){ toast('Chỉ admin xóa nhánh','bad'); return; }
+  code=String(code||'').trim();
+  const used=(S.expenseTypes||[]).filter(t=>t && String(t.treeCode||t.code||'').toUpperCase().indexOf(code+'.')===0);
+  if(used.length){ toast('Nhánh '+code+' còn '+used.length+' loại chi phí (kể cả lưu trữ) — đổi mã các loại đó sang nhánh khác trước','bad'); return; }
+  const subs=(typeof expTreeList==='function'?expTreeList():[]).filter(n=>n && String(n.code||'').indexOf(code+'.')===0).map(n=>String(n.code));
+  const nm=(typeof expTreeName==='function')?expTreeName(code):'';
+  if(!confirm('Xóa nhánh '+code+(nm?' · '+nm:'')+(subs.length?('\nvà '+subs.length+' nhánh con rỗng bên dưới: '+subs.join(', ')):'')+'?')) return;
+  commitMutation(()=>{ subs.forEach(c=>expTreeRemove(c)); expTreeRemove(code); },
+    {action:'exptree_del', fields:['expenseTree'], onOk:()=>{ try{ logAuditEvent('exptree_del',{code, subs:subs.length, actor:(typeof actorName==='function'?actorName():'')}); }catch(e){} toast('Đã xóa nhánh '+code+(subs.length?' (+'+subs.length+' nhánh con)':''),'good'); try{ renderCatalog(); }catch(e){} }});
+}
 /* Thêm nhánh con dưới nhánh cha (chữ cái → con; con → cháu). Mã gợi ý sẵn, admin sửa được. */
 function _etCatBranchAdd(parent){
   if(!isAdmin()){ toast('Chỉ admin thêm nhánh','bad'); return; }
@@ -34277,7 +34335,7 @@ function renderCatalog(){
             const its=cons[con];
             window.__cgSeq=(window.__cgSeq||0)+1; const gi=window.__cgSeq;
             /* v3.18.69: CON mặc định gập (▸), ẩn chờ bung nhóm cha; ✎ sửa tên nhánh + ＋ thêm cháu (admin). */
-            h+=`<tr class="gg-${ggi}" style="display:none;cursor:pointer" onclick="_etCatConToggle(${gi})"><td colspan="${colspan}" style="font-weight:700;font-size:12px;padding:6px 12px;background:rgba(18,58,92,.05)"><span id="ctgc-${gi}" style="display:inline-block;width:12px;font-size:10px">▸</span> ${esc(con)} ${esc(nm(con))} <span style="font-weight:400;color:var(--muted)">(${its.length} loại)</span>${_bq(`_etCatBranchEdit('${esc(con)}')`,'Sửa tên nhánh '+esc(con),'✎')}${_bq(`_etCatBranchAdd('${esc(con)}')`,'Thêm nhánh cháu dưới '+esc(con),'＋')}</td></tr>`;
+            h+=`<tr class="gg-${ggi}" style="display:none;cursor:pointer" onclick="_etCatConToggle(${gi})"><td colspan="${colspan}" style="font-weight:700;font-size:12px;padding:6px 12px;background:rgba(18,58,92,.05)"><span id="ctgc-${gi}" style="display:inline-block;width:12px;font-size:10px">▸</span> ${esc(con)} ${esc(nm(con))} <span style="font-weight:400;color:var(--muted)">(${its.length} loại)</span>${_bq(`_etCatBranchEdit('${esc(con)}')`,'Sửa tên nhánh '+esc(con),'✎')}${_bq(`_etCatBranchAdd('${esc(con)}')`,'Thêm nhánh cháu dưới '+esc(con),'＋')}${its.length?'':_bq(`_etCatBranchDelete('${esc(con)}')`,'Xóa nhánh '+esc(con)+' (không còn loại)','⊘')}</td></tr>`;
             /* nhóm cháu = HỢP của nhánh khai trong Bảng tên nhánh + cháu suy từ mã loại đang có */
             const chauSet=new Set(branch.filter(c=>c.indexOf(con+'.')===0&&c.split('.').length===3));
             its.forEach(t=>{ const s=tcOf(t).split('.'); if(s.length>=3) chauSet.add(s.slice(0,3).join('.')); });
@@ -34288,7 +34346,7 @@ function renderCatalog(){
               const kids=its.filter(x=>{ const xc=tcOf(x); return xc===chau||xc.indexOf(chau+'.')===0; });
               window.__ctSeq=(window.__ctSeq||0)+1; const ci=window.__ctSeq;
               h+=`<tr class="cg-${gi} gg-${ggi}" data-cgkid="1" style="display:none;cursor:pointer" onclick="document.querySelectorAll('.ct-${ci}').forEach(r=>r.style.display=r.style.display==='none'?'':'none');const c=document.getElementById('ctc-${ci}');if(c)c.textContent=c.textContent==='▸'?'▾':'▸'">
-                <td colspan="${colspan}" style="font-size:11.5px;padding:5px 12px 5px 26px;color:${kids.length?'#33475c':'var(--muted)'}"><span id="ctc-${ci}" style="display:inline-block;width:12px;font-size:10px">▸</span> <b>${esc(chau)}</b> ${esc(nm(chau))} <span style="color:var(--muted)">(${kids.length} loại${kids.length?'':' — nhánh khai sẵn, chưa có loại'})</span>${_bq(`_etCatBranchEdit('${esc(chau)}')`,'Sửa tên nhánh '+esc(chau),'✎')}${_bq(`_etCatTypeAdd('${esc(chau)}')`,'Thêm LOẠI chi phí dưới '+esc(chau)+' (mã tự gợi ý)','＋ loại')}</td></tr>`;
+                <td colspan="${colspan}" style="font-size:11.5px;padding:5px 12px 5px 26px;color:${kids.length?'#33475c':'var(--muted)'}"><span id="ctc-${ci}" style="display:inline-block;width:12px;font-size:10px">▸</span> <b>${esc(chau)}</b> ${esc(nm(chau))} <span style="color:var(--muted)">(${kids.length} loại${kids.length?'':' — nhánh khai sẵn, chưa có loại'})</span>${_bq(`_etCatBranchEdit('${esc(chau)}')`,'Sửa tên nhánh '+esc(chau),'✎')}${_bq(`_etCatTypeAdd('${esc(chau)}')`,'Thêm LOẠI chi phí dưới '+esc(chau)+' (mã tự gợi ý)','＋ loại')}${kids.length?'':_bq(`_etCatBranchDelete('${esc(chau)}')`,'Xóa nhánh '+esc(chau)+' (không còn loại)','⊘')}</td></tr>`;
               kids.forEach(t=>{ h+=rowOf(t).replace('<tr',`<tr class="ct-${ci} cg-${gi} gg-${ggi}" data-ctkid="1" data-cgkid="1" style="display:none"`); });
             });
           });
@@ -53885,7 +53943,16 @@ function _arVesselOptsForSegment(segment, selectedId){
 
 /* v1.82.0: Khi NV đổi Mảng → cập nhật lại dropdown Tàu cho khớp.
    QL chung (OTHER) → vô hiệu ô tàu. */
+/* v3.18.92: chip nhóm chi phí trên form AP — bấm chip lọc select theo nhóm; Tất cả = đủ nhóm (nhóm ưu tiên theo mảng lên đầu ★) */
+function _arEtChip(gk){
+  const sel=document.getElementById('ar-expense-type'); if(!sel) return;
+  const seg=(document.getElementById('ar-segment')||{}).value||''; const pref=expGroupsForSegment(seg);
+  sel.innerHTML=expenseTypeOptsPref(sel.value, pref, gk||'');
+  document.querySelectorAll('#ar-et-chips [data-etchip]').forEach(b=>{ const on=(b.getAttribute('data-etchip')||'')===(gk||''); b.style.border='1px solid '+(on?'var(--accent)':'var(--rule)'); b.style.fontWeight=on?'700':''; });
+}
 function _arSegmentChanged(){
+  /* v3.18.92: đổi mảng → ưu tiên nhóm chi phí theo mảng (chỉ đổi thứ tự/lọc hiển thị) */
+  try{ const pref=expGroupsForSegment((document.getElementById('ar-segment')||{}).value||''); _arEtChip(pref.length===1?pref[0]:''); }catch(e){}
   const segEl=document.getElementById('ar-segment');
   const vesEl=document.getElementById('ar-vessel');
   if(!segEl || !vesEl) return;
@@ -54457,7 +54524,10 @@ function _arEditorBody(r,isPayable){
     expenseTypeBlock = `
       <div class="field" style="grid-column:span 3">
         <label>Loại chi phí <span style="color:var(--muted);text-transform:none;font-weight:400;font-size:10px">(chọn loại để tự kích hoạt trường nhiên liệu nếu có)</span></label>
-        <select id="ar-expense-type" onchange="arExpenseTypeChanged()">${etHtml}</select>
+        <div id="ar-et-chips" style="display:flex;gap:4px;flex-wrap:wrap;margin:2px 0 4px">${(function(){ try{ const seg=r.segment||''; const pref=expGroupsForSegment(seg);
+          const chip=(k,lab,on)=>`<button type="button" class="btn-ghost" data-etchip="${esc(k)}" style="font-size:10.5px;padding:1px 8px;border:1px solid ${on?'var(--accent)':'var(--rule)'};border-radius:10px;${on?'font-weight:700':''}" onclick="_arEtChip('${esc(k)}')">${lab}</button>`;
+          return chip('', 'Tất cả', !pref.length)+expGroupsActive().map(k=>chip(k, esc(expGroupLabel(k)), pref.length===1&&pref[0]===k)).join(''); }catch(e){ return ''; } })()}</div>
+        <select id="ar-expense-type" onchange="arExpenseTypeChanged()">${(function(){ try{ const pref=expGroupsForSegment(r.segment||''); return expenseTypeOptsPref(r.expenseType, pref, pref.length===1?pref[0]:''); }catch(e){ return etHtml; } })()}</select>
         <a href="#" style="font-size:11px" onclick="_etCascade(0);return false">🧭 Chọn theo nhánh</a>
         <div id="et-cascade" style="display:none;border:1px solid var(--rule);border-radius:8px;padding:6px;margin-top:4px;background:var(--paper-2);max-height:200px;overflow:auto;font-size:12px"></div>
       </div>
@@ -57250,7 +57320,7 @@ function _renderMrLine(l, i){
       <td class="row-idx">${i+1}</td>
       <td><input type="text" value="${esc(l.invoiceNo||'')}" placeholder="INV-001" oninput="_mrLineChange('${l.tmpId}','invoiceNo',this.value)"></td>
       ${isPayable
-        ? `<td><select onchange="_mrLineExpenseType('${l.tmpId}',this.value)">${expenseTypeOpts(l.expenseType)}</select></td>`
+        ? `<td><select onchange="_mrLineExpenseType('${l.tmpId}',this.value)" title="Nhóm ★ = ưu tiên theo mảng">${(function(){ try{ return expenseTypeOptsPref(l.expenseType, expGroupsForSegment(l.segment||(_multiRowState&&_multiRowState.segment)||''), ''); }catch(e){ return expenseTypeOpts(l.expenseType); } })()}</select></td>`
         : `<td><select onchange="_mrLineRevenueType('${l.tmpId}',this.value)">${revenueTypeOpts(l.revenueType)}</select></td>`}
       <td><input type="text" value="${esc(l.desc||'')}" placeholder="${esc((_multiRowState.noteHeader||'').trim()||'Diễn giải...')}" oninput="_mrLineChange('${l.tmpId}','desc',this.value)" style="min-width:220px"></td>
       ${isHR ? `<td class="mr-hr-col"${anyHR?'':' style="display:none"'}><input type="text" value="${esc(l.recipientName||'')}" placeholder="Tên NV nhận" oninput="_mrLineChange('${l.tmpId}','recipientName',this.value)"></td>` : `<td class="mr-hr-col" style="background:var(--paper-2)${anyHR?'':';display:none'}"></td>`}
