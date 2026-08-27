@@ -1465,6 +1465,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
         </div>
         <div class="field"><label>Tên</label><input type="text" id="prj-name" oninput="_prjCodeAutoSuggest()"></div>
         <div class="field"><label>Khách hàng</label><input type="text" id="prj-client" oninput="_prjCodeAutoSuggest()"></div>
+        <div class="field"><label>End client <span style="font-weight:400;color:var(--muted);text-transform:none">(KH cuối · v3.19.17)</span></label><input type="text" id="prj-endclient" placeholder="VD: Vietsovpetro"></div>
         <div class="field"><label>Mảng</label>
           <select id="prj-segment">
             <option value="VESSEL_SERVICE">Tàu dịch vụ</option>
@@ -3827,7 +3828,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.19.13';
+const APP_VERSION='3.19.17';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -16949,6 +16950,7 @@ function apCountsInPL(r){
   // v3.03.74: phiếu hoàn ứng CHỜ Manager duyệt → CHƯA vào P&L (chỉ vào khi duyệt xong).
   if(r._fundPending || r.status==='pending_fund') return false;
   if(r._cashClear){
+    if(String(r.status||'')!=='approved') return false;   /* v3.19.14: phiếu chi từ quỹ chỉ vào P&L khi L2 đã duyệt */
     if(_isOpManagedAp(r)) return false;
     if(isExpensePO(r.expenseType)) return false;
     return true;
@@ -37721,6 +37723,7 @@ function addProject(){
     id:uid(),
     code,name,
     client:document.getElementById('prj-client').value.trim(),
+    endClient:((document.getElementById('prj-endclient')||{}).value||'').trim(),   /* v3.19.17 */
     segment:document.getElementById('prj-segment').value,
     vesselId:document.getElementById('prj-vessel').value||null,
     ccy:document.getElementById('prj-ccy').value,
@@ -37738,7 +37741,7 @@ function addProject(){
     updatedAt:new Date().toISOString()  // v2.61.0: timestamp ngay từ khi tạo để sync nhận diện đúng
   });
   saveState();
-  ['prj-code','prj-name','prj-client'].forEach(i=>document.getElementById(i).value='');
+  ['prj-code','prj-name','prj-client','prj-endclient'].forEach(i=>{ const el=document.getElementById(i); if(el) el.value=''; });
   document.getElementById('prj-vessel').value='';
   document.getElementById('prj-value').value=0;
   document.getElementById('prj-unitprice').value=0;
@@ -37763,7 +37766,8 @@ function editProject(id){
   openEditModal('Sửa dự án',[
     {key:'code',label:'Mã dự án'},
     {key:'name',label:'Tên dự án',span:2},
-    {key:'client',label:'Khách hàng',span:2},
+    {key:'client',label:'Khách hàng'},
+    {key:'endClient',label:'End client (KH cuối)',placeholder:'VD: Vietsovpetro — chủ đầu tư/khách của khách'},   /* v3.19.17 */
     {key:'segment',label:'Mảng',type:'select',options:Object.keys(SEGMENTS).map(k=>({v:k,t:SEGMENTS[k].name}))},
     {key:'vesselId',label:'Tàu',type:'select',options:[{v:'',t:'— Không gắn —'}].concat(VesselService.vessels().map(v=>({v:v.id,t:v.name})))},
     {key:'ccy',label:'CCY',type:'select',options:[{v:'VND',t:'VND'},{v:'USD',t:'USD'}]},
@@ -37867,29 +37871,60 @@ function ctlParse(aoa){
   return out;
 }
 function ctlKey(s){ return ctlNorm(s).toUpperCase().replace(/[^A-Z0-9]/g,''); }
+/* v3.19.16 (Sếp 26/8) — mã dự án theo quy ước: <2 ký tự tàu>-<năm>-<số HĐ ngắn>, vd GS-2026-006A */
+function ctlVesselInitials(name){ const w=String(name||'').replace(/[^A-Za-z0-9 ]/g,' ').trim().split(/\s+/).filter(Boolean); if(!w.length) return ''; if(w.length===1){ return w[0].slice(0,2).toUpperCase(); } return (w[0][0]+w[1][0]).toUpperCase(); }
+function ctlContractShort(contractNo, fallbackYear){
+  let c=String(contractNo||'').trim();
+  if(!c || /^nil$/i.test(c)) return {short:'', year:'', amend:''};
+  let amend=''; const am=c.match(/^(?:Amendment|Addendum|Appendix)\s*(\d+)\s*(?:of|to)\s*(.+)$/i); if(am){ amend='A'+am[1].padStart(2,'0'); c=am[2]; }
+  c=c.replace(/\(.*?\)/g,'').replace(/\band\b.*$/i,'').trim();
+  c=c.replace(/^No\.?\s*/i,'');
+  const y=(c.match(/(20\d{2})/)||[])[1]||'';
+  const yy=String(y||fallbackYear||'').slice(-2);
+  const toks=c.split('/').map(t=>t.replace(/\s*-\s*20\d{2}.*$/,'').replace(/\s+/g,'').toUpperCase()).filter(Boolean);   // bỏ "-2026"
+  let short=toks.find(t=>/\d/.test(t) && !/^20\d{2}$/.test(t) && !(yy && t===yy))||'';   // token đầu tiên có số, không phải năm (2026/26)
+  return {short, year:y, amend};
+}
+function ctlProjectCode(vesselName, contractNo, notice, fallbackYear){
+  const ini=ctlVesselInitials(vesselName); let {short,year,amend}=ctlContractShort(contractNo, fallbackYear);
+  if(!short){ const n=ctlContractShort(notice, fallbackYear); short=n.short; year=year||n.year; }
+  year=year||fallbackYear||'';
+  if(!ini||!short||!year) return '';
+  return ini+'-'+year+'-'+short+(amend?'-'+amend:'');
+}
+
 /* ctx = {projects:[...], events:[...], vessels:[{id,name,type}]} */
 function ctlReconcile(parsed, ctx){
   const plan={projects:[], events:[], unmatchedVessels:[]};
+  const override=ctx.override||{};   /* v3.19.16: {ctlKey(contractNo) → mã app hiện có} từ sheet DoiChieu hoặc người dùng sửa trên màn */
   const vByName={}; (ctx.vessels||[]).forEach(v=>{ vByName[ctlKey(v.name)]=v; (v.ctlAliases||[]).forEach(a=>{ vByName[ctlKey(a)]=v; }); });   /* v3.19.04: tên khác đã chấp nhận */
   const _lev=(a,b)=>{ const m=a.length,n=b.length; if(!m) return n; if(!n) return m; let prev=[...Array(n+1).keys()]; for(let i=1;i<=m;i++){ const cur=[i]; for(let j=1;j<=n;j++){ cur[j]=Math.min(prev[j]+1, cur[j-1]+1, prev[j-1]+(a[i-1]===b[j-1]?0:1)); } prev=cur; } return prev[n]; };
   plan.suggest={};
   const projByKey={}; (ctx.projects||[]).forEach(p=>{ if(p.contractNo) projByKey['C:'+ctlKey(p.contractNo)]=p; projByKey['P:'+ctlKey(p.code)]=p; });
   (parsed.vessels||[]).forEach(v=>{
-    const vv=vByName[ctlKey(v.name)] || (ctx.vessels||[]).find(x=>ctlKey(x.name).indexOf(ctlKey(v.name))>=0 || ctlKey(v.name).indexOf(ctlKey(x.name))>=0);
+    const _sq=k=>String(k).replace(/(.)\1+/g,'$1');   /* v3.19.16: gộp chữ lặp — GEOSUPORTER ~ GEO SUPPORTER */
+    const vv=vByName[ctlKey(v.name)] || (ctx.vessels||[]).find(x=>ctlKey(x.name).indexOf(ctlKey(v.name))>=0 || ctlKey(v.name).indexOf(ctlKey(x.name))>=0 || _sq(ctlKey(x.name))===_sq(ctlKey(v.name)));
     if(!vv){ plan.unmatchedVessels.push(v.name);
       /* gợi ý tàu gần tên nhất (khoảng cách chỉnh sửa ≤ 3, vd GEO SUPPORTER ~ GEOSUPORTER) — chỉ gợi ý, người dùng chấp nhận */
       const k=ctlKey(v.name); let best=null,bd=99; (ctx.vessels||[]).forEach(x=>{ const d=_lev(k, ctlKey(x.name)); if(d<bd){ bd=d; best=x; } }); if(best && bd<=3) plan.suggest[v.name]={id:best.id, name:best.name, dist:bd};
       return; }
     v.contracts.forEach(c=>{
       if(!c.contractNo) return;
-      const ex=projByKey['C:'+ctlKey(c.contractNo)] || projByKey['P:'+ctlKey(c.notice)] || projByKey['P:'+ctlKey(c.contractNo)];
-      const wantCode=(c.notice&&!/^nil$/i.test(c.notice))?c.notice:c.contractNo;
+      /* v3.19.16: mã theo quy ước <2 ký tự tàu>-<năm>-<số HĐ ngắn>; ghép dự án đã có theo: mã ghép tay → số HĐ → mã quy ước → mã app kết thúc bằng -<số HĐ ngắn> cùng tàu+năm */
+      const yr=(c.contractNo.match(/20\d{2}/)||[])[0]||(c.segments.length?String(c.segments[0].on.y):String(new Date().getFullYear()));
+      const _ini=(vv.shortCode||vv.code2||'')||(String(v.name).trim().split(/\s+/).length>=2?ctlVesselInitials(v.name):ctlVesselInitials(vv.name));   /* 2 ký tự tàu: mã ngắn khai trên tàu → tên 2 từ trong file → tên app */
+      const conv=(function(){ const r=ctlContractShort(c.contractNo, yr); let sh=r.short, y=r.year||yr, am=r.amend; if(!sh){ const n=ctlContractShort(c.notice, yr); sh=n.short; y=y||n.year; } return (_ini&&sh&&y)?(_ini+'-'+y+'-'+sh+(am?'-'+am:'')):''; })();
+      const ov=override[ctlKey(c.contractNo)]||override[ctlKey(c.notice)]||'';
+      const sh=ctlContractShort(c.contractNo, yr).short||ctlContractShort(c.notice, yr).short;
+      const ex=(ov&&projByKey['P:'+ctlKey(ov)]) || projByKey['C:'+ctlKey(c.contractNo)] || (conv&&projByKey['P:'+ctlKey(conv)]) || (c.notice&&!/^nil$/i.test(c.notice)&&projByKey['P:'+ctlKey(c.notice)]) || projByKey['P:'+ctlKey(c.contractNo)]
+        || (ctx.projects||[]).find(p=>p&&sh&&p.vesselId===vv.id&&new RegExp('-'+yr+'-'+sh.replace(/[^A-Z0-9]/g,'.?')+'$','i').test(String(p.code||'')));
+      const wantCode=conv||((c.notice&&!/^nil$/i.test(c.notice))?c.notice:c.contractNo);
       const rec={vesselId:vv.id, vesselName:vv.name, contractNo:c.contractNo, code:wantCode, name:c.project||c.contractNo, client:c.client, endClient:c.endClient,
         ccy:c.price.ccy||c.rate.ccy||'VND', value:c.price.amount, unitPrice:c.rate.amount, segment:(vv.type==='TECH'?'VESSEL_TECH':'VESSEL_SERVICE'),
         start:c.segments.length?ctlIsoLocal(c.segments[0].on).slice(0,10):'', end:c.segments.length?ctlIsoLocal(c.segments[c.segments.length-1].off).slice(0,10):''};
       if(!ex){ plan.projects.push({action:'new', rec, fill:[], diffs:[]}); return; }
       const fill=[], diffs=[];
-      [['contractNo',rec.contractNo],['client',rec.client],['unitPrice',rec.unitPrice],['value',rec.value],['vesselId',rec.vesselId],['start',rec.start],['end',rec.end],['ccy',rec.ccy]].forEach(([k,nv])=>{
+      [['contractNo',rec.contractNo],['client',rec.client],['endClient',rec.endClient],['unitPrice',rec.unitPrice],['value',rec.value],['vesselId',rec.vesselId],['start',rec.start],['end',rec.end],['ccy',rec.ccy]].forEach(([k,nv])=>{
         const cur=ex[k]; const empty=(cur==null||cur===''||cur===0);
         if(nv==null||nv===''||nv===0) return;
         if(empty) fill.push({k,nv}); else if(String(cur)!==String(nv)) diffs.push({k,cur,nv});
@@ -37927,8 +37962,11 @@ function ctlImportOpen(){
       const sn=wb.SheetNames.find(n=>/main contract/i.test(n))||wb.SheetNames[0];
       const aoa=XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,raw:true});
       const parsed=ctlParse(aoa);
-      const plan=ctlReconcile(parsed,{projects:(S.projects||[]).filter(p=>p&&!p._deleted), events:VesselService.events(), vessels:VesselService.vessels()});
-      window._ctlPlan={file:f.name, sheet:sn, parsed, plan}; ctlImportPreview();
+      /* v3.19.16: sheet DoiChieu (bảng em xuất) — cột 'Contract No.' + 'Mã app HIỆN CÓ' → bảng ghép */
+      const override={}; const dcn=wb.SheetNames.find(n=>/doichieu|đối chiếu/i.test(n));
+      if(dcn){ const rows=XLSX.utils.sheet_to_json(wb.Sheets[dcn],{header:1,raw:false}); const H=(rows[0]||[]).map(x=>ctlNorm(x).toLowerCase()); const iC=H.findIndex(x=>/contract no/.test(x)), iE=H.findIndex(x=>/hiện có|hien co/.test(x)); if(iC>=0&&iE>=0) rows.slice(1).forEach(r=>{ const cn=ctlNorm(r[iC]), ex=ctlNorm(r[iE]); if(cn&&ex) override[ctlKey(cn)]=ex; }); }
+      const plan=ctlReconcile(parsed,{projects:(S.projects||[]).filter(p=>p&&!p._deleted), events:VesselService.events(), vessels:VesselService.vessels(), override});
+      window._ctlPlan={file:f.name, sheet:sn, parsed, plan, override}; ctlImportPreview();
     }catch(err){ toast('Lỗi đọc file: '+(err&&err.message||err),'bad'); } };
     rd.readAsArrayBuffer(f); };
   inp.click();
@@ -37945,12 +37983,21 @@ function ctlVesselMapAccept(fileName){
       toast('✓ "'+fileName+'" = '+v.name+' — đã nhớ','good');
       st.plan=ctlReconcile(st.parsed,{projects:(S.projects||[]).filter(p=>p&&!p._deleted), events:VesselService.events(), vessels:VesselService.vessels()}); ctlImportPreview(); }});
 }
+/* v3.19.16: sửa mã trên màn xem trước → mã đã có = ghép (điền ô trống); mã mới = tạo với mã đó; đối chiếu lại ngay */
+function ctlCodeOverride(cnKey, code){
+  const st=window._ctlPlan; if(!st) return; st.override=st.override||{}; code=ctlNorm(code).toUpperCase();
+  if(code) st.override[cnKey]=code; else delete st.override[cnKey];
+  st.plan=ctlReconcile(st.parsed,{projects:(S.projects||[]).filter(p=>p&&!p._deleted), events:VesselService.events(), vessels:VesselService.vessels(), override:st.override});
+  /* mã mới gõ tay cho dự án tạo mới */
+  st.plan.projects.forEach(x=>{ if(x.action==='new' && st.override[ctlKey(x.rec.contractNo)]) x.rec.code=st.override[ctlKey(x.rec.contractNo)]; });
+  ctlImportPreview();
+}
 function ctlImportPreview(){
   const st=window._ctlPlan; if(!st) return; const plan=st.plan; const fm=v=>Math.round(+v||0).toLocaleString('vi-VN');
   const fDT=s=>String(s||'').replace('T',' ').slice(0,16);
-  const kLabel={contractNo:'Số HĐ',client:'Khách hàng',unitPrice:'Đơn giá',value:'Giá trị HĐ',vesselId:'Tàu',start:'Bắt đầu',end:'Kết thúc',ccy:'CCY'};
+  const kLabel={contractNo:'Số HĐ',client:'Khách hàng',endClient:'End client',unitPrice:'Đơn giá',value:'Giá trị HĐ',vesselId:'Tàu',start:'Bắt đầu',end:'Kết thúc',ccy:'CCY'};
   const pr=plan.projects.map(x=>`<tr style="border-bottom:1px solid var(--rule)"><td style="padding:4px 6px">${x.action==='new'?'<b style="color:#1e7d44">MỚI</b>':x.action==='update'?'<b style="color:#b8730a">ĐIỀN THÊM</b>':'<span style="color:var(--muted)">đã có</span>'}</td>
-    <td style="padding:4px 6px"><b>${esc(x.rec.code)}</b> · ${esc(x.rec.name)}<div style="font-size:10.5px;color:var(--muted)">${esc(x.rec.contractNo)} · ${esc(x.rec.client)}${x.rec.endClient?' / '+esc(x.rec.endClient):''} · ${esc(x.rec.vesselName)}</div>
+    <td style="padding:4px 6px"><input value="${esc(x.action==='new'?x.rec.code:(x.existing&&x.existing.code||x.rec.code))}" data-ctlcode="${esc(ctlKey(x.rec.contractNo))}" onchange="ctlCodeOverride('${esc(ctlKey(x.rec.contractNo))}',this.value)" style="width:150px;font-family:var(--font-mono);font-size:11.5px;font-weight:700" title="Mã dự án: quy ước <2 ký tự tàu>-<năm>-<số HĐ ngắn>. Gõ mã ĐÃ CÓ trong app để ghép (chỉ điền ô trống), hoặc sửa mã sẽ tạo mới"> · ${esc(x.rec.name)}<div style="font-size:10.5px;color:var(--muted)">${esc(x.rec.contractNo)} · ${esc(x.rec.client)}${x.rec.endClient?' / '+esc(x.rec.endClient):''} · ${esc(x.rec.vesselName)}</div>
       ${x.fill.length?`<div style="font-size:10.5px;color:#1e7d44">điền: ${x.fill.map(f=>kLabel[f.k]+' = '+(typeof f.nv==='number'?fm(f.nv):esc(String(f.nv)))).join(' · ')}</div>`:''}
       ${x.diffs.length?`<div style="font-size:10.5px;color:#b8730a">⚠ lệch (giữ số app): ${x.diffs.map(d=>kLabel[d.k]+' app='+(typeof d.cur==='number'?fm(d.cur):esc(String(d.cur)))+' / file='+(typeof d.nv==='number'?fm(d.nv):esc(String(d.nv)))).join(' · ')}</div>`:''}</td>
     <td style="padding:4px 6px;text-align:right;font-family:monospace">${fm(x.rec.unitPrice)}</td><td style="padding:4px 6px;text-align:right;font-family:monospace">${fm(x.rec.value)} ${esc(x.rec.ccy)}</td></tr>`).join('');
@@ -37959,7 +38006,7 @@ function ctlImportPreview(){
     <td style="padding:4px 6px;text-align:right;font-family:monospace">${x.seg.days}</td><td style="padding:4px 6px;font-size:11px">${esc(x.seg.contractNo)}${x.seg.parts>1?' · gộp '+x.seg.parts+' đoạn tháng':''}</td></tr>`).join('');
   const nP=plan.projects.filter(x=>x.action!=='same').length, nE=plan.events.filter(x=>x.action!=='same').length;
   openModal('📥 Contract Tracking List — đối chiếu ('+esc(st.file)+')', `
-    <div style="font-size:12px;color:var(--muted);margin-bottom:6px">Sheet <b>${esc(st.sheet)}</b>. Dự án khớp theo Số HĐ/Mã: chỉ <b>điền ô trống</b>, ô đã có mà lệch thì giữ số app và báo. Đoạn On/Off-hire: cùng tàu + cùng giờ bắt đầu → <b>cập nhật theo file</b>; đoạn nối tiếp cùng HĐ đã gộp liền.${plan.unmatchedVessels.length?plan.unmatchedVessels.map(vn=>{ const sg=plan.suggest&&plan.suggest[vn]; const vs=VesselService.vessels();
+    <div style="font-size:12px;color:var(--muted);margin-bottom:6px">Sheet <b>${esc(st.sheet)}</b>. Mã dự án theo quy ước <b>&lt;2 ký tự tàu&gt;-&lt;năm&gt;-&lt;số HĐ ngắn&gt;</b> (vd GS-2026-006A); dự án khớp (mã ghép/số HĐ/mã quy ước): chỉ <b>điền ô trống</b>, không tạo mới, ô đã có mà lệch thì giữ số app và báo. Sửa ô mã để ghép vào mã đã có. Đoạn On/Off-hire: cùng tàu + cùng giờ bắt đầu → <b>cập nhật theo file</b>; đoạn nối tiếp cùng HĐ đã gộp liền.${plan.unmatchedVessels.length?plan.unmatchedVessels.map(vn=>{ const sg=plan.suggest&&plan.suggest[vn]; const vs=VesselService.vessels();
       return `<div style="color:#c0392b;margin-top:4px">⚠ Tàu trong file "<b>${esc(vn)}</b>" không khớp tên trong app${sg?` — gần nhất: <b>${esc(sg.name)}</b>`:''}.
         <select id="ctl-vmap-${esc(ctlKey(vn))}" style="font-size:11px;margin:0 4px">${vs.map(v=>`<option value="${esc(v.id)}"${sg&&sg.id===v.id?' selected':''}>${esc(v.name)}</option>`).join('')}</select>
         <button class="btn-primary" style="font-size:10.5px;padding:2px 8px" onclick="ctlVesselMapAccept('${esc(vn)}')" title="Ghi tên này là tên khác của tàu đã chọn — lần sau tự khớp">✓ Chấp nhận (nhớ)</button>
@@ -37978,7 +38025,7 @@ function ctlImportCommit(){
   commitMutation(()=>{
     S.projects=S.projects||[];
     plan.projects.forEach(x=>{
-      if(x.action==='new'){ const p={id:uid(), code:x.rec.code, name:x.rec.name, client:x.rec.client, segment:x.rec.segment, vesselId:x.rec.vesselId, ccy:x.rec.ccy, start:x.rec.start, end:x.rec.end, value:x.rec.value, unitPrice:x.rec.unitPrice, experts:0, workDays:0, contractNo:x.rec.contractNo, projectManager:'', projStatus:'', isOM:false, _source:'ctl_import', _sourceFile:st.file, createdBy:who, createdAt:now, updatedAt:now}; S.projects.push(p); codeToId[ctlKey(x.rec.contractNo)]=p.id; nPn++; }
+      if(x.action==='new'){ const p={id:uid(), code:x.rec.code, name:x.rec.name, client:x.rec.client, endClient:x.rec.endClient||'', segment:x.rec.segment, vesselId:x.rec.vesselId, ccy:x.rec.ccy, start:x.rec.start, end:x.rec.end, value:x.rec.value, unitPrice:x.rec.unitPrice, experts:0, workDays:0, contractNo:x.rec.contractNo, projectManager:'', projStatus:'', isOM:false, _source:'ctl_import', _sourceFile:st.file, createdBy:who, createdAt:now, updatedAt:now}; S.projects.push(p); codeToId[ctlKey(x.rec.contractNo)]=p.id; nPn++; }
       else { const p=x.existing; codeToId[ctlKey(x.rec.contractNo)]=p.id; if(x.fill.length){ x.fill.forEach(f=>{ p[f.k]=f.nv; }); try{touchRecord(p);}catch(e){} nPu++; } }
     });
     plan.events.forEach(x=>{
@@ -38021,13 +38068,17 @@ function ctlParseContractText(text, vesselNames){
   out.contractNo=code(vals.contractNo); out.notice=code(vals.notice);
   const tidy=v=>String(v||'').replace(/\s*\(\s*$/,'').replace(/\).*$/,'').replace(/\s+(?:Owner|Contractor|Bên B)\b.*$/i,'').trim();   /* cắt "(", ")" và phần 'Owner:' phía sau */
   out.client=tidy(vals.client).slice(0,80); out.endClient=tidy(vals.endClient).slice(0,80); out.projectName=(vals.projectName||'').slice(0,160); out.location=(vals.location||'').slice(0,60);
+  if(!out.projectName){ const m=T.match(/(?:Scope of Work|Contract Title|Tên dự án|Project)\s*(?:\(SOW\))?\s*[:：]?\s*([A-Z].{15,200}?)(?:\.\s(?=[A-Z0-9])|\s(?:\d\.|[A-Z]\.)\s|$)/); if(m) out.projectName=ctlNorm(m[1]).replace(/\.$/,'').slice(0,160); }
+  if(/^(?:item|vessel hire|hire rate|day rate|measure)/i.test(String(vals.totalValue||''))) vals.totalValue='';   /* 'Contract Price:' là tiêu đề bảng, không phải tổng */
   let rate=ctlMoney(vals.hireRate||''), total=ctlMoney(vals.totalValue||'');
   /* khuôn Contract Validation: bảng 'Vessel hire rate | Day | 513.000.000' không có dấu ':' → bắt trực tiếp */
-  if(!rate.amount){ const m=T.match(/Vessel hire rate\s+(?:Day\s+)?([\d.,]{6,})/i); if(m) rate=ctlMoney((/\bVND\b/i.test(T)?'VND ':'')+m[1].replace(/\.(?=\d{3}\b)/g,',')); }
+  if(!rate.amount){ const m=T.match(/(?:Vessel )?(?:hire|charter|day|daily)\s*rate[^\d]{0,40}?([\d][\d.,]{5,})\s*(VND|USD)?/i)||T.match(/(VND|USD)\s*([\d][\d.,]{5,})[^\d]{0,20}(?:per|\/)\s*day/i); if(m){ const num=(m[2]&&/^\d/.test(m[2]))?m[2]:m[1]; const cc=(m[1]&&/^[A-Z]{3}$/.test(m[1]))?m[1]:(m[2]&&/^[A-Z]{3}$/.test(m[2])?m[2]:''); rate=ctlMoney((cc||(/\bVND\b/i.test(T)?'VND':''))+' '+String(num).replace(/\.(?=\d{3}\b)/g,',')); } }
+  if(!total.amount){ const m=T.match(/total\s*(?:contract\s*)?(?:price|value|amount)[^\d]{0,40}?([\d][\d.,]{6,})\s*(VND|USD)?/i)||T.match(/(?:contract|giá trị)\s*(?:hợp đồng\s*)?(?:value|amount)[^\d]{0,40}?([\d][\d.,]{6,})\s*(VND|USD)?/i); if(m) total=ctlMoney(((m[2]||(/\bVND\b/i.test(T)?'VND':''))+' '+String(m[1]).replace(/\.(?=\d{3}\b)/g,','))); }
   out.hireRate=rate.amount; out.totalValue=total.amount; out.ccy=total.ccy||rate.ccy||(/\bVND\b|đồng/i.test(T)?'VND':(/\bUSD\b/.test(T)?'USD':''));
   const dt=v=>{ const s=String(v||''); const m=s.match(/(\d{1,2}:\d{2}\s+\d{1,2}\/\d{1,2}\/\d{4}|\d{4}-\d{2}-\d{2}(?:[ T]\d{1,2}:\d{2})?|\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{4}(?:\s+\d{1,2}:\d{2})?)/); if(!m) return ''; const d=ctlDate(m[1]); return d?ctlIsoLocal(d).slice(0,10):_aiDateISO(m[1]); };
   out.startDate=dt(vals.startDate); out.endDate=dt(vals.endDate);
-  const tk=ctlKey(T); (vesselNames||[]).forEach(n=>{ if(!out.vessel && n && tk.indexOf(ctlKey(n))>=0) out.vessel=n; });
+  const tk=ctlKey(T), tk2=tk.replace(/(.)\1+/g,'$1');   /* v3.19.15: gộp chữ lặp — GEOSUPORTER (app) ~ GEO SUPPORTER (file) */
+  (vesselNames||[]).forEach(n=>{ if(out.vessel||!n) return; const k=ctlKey(n); if(tk.indexOf(k)>=0 || tk2.indexOf(k.replace(/(.)\1+/g,'$1'))>=0) out.vessel=n; });
   if(!out.vessel){ const vv=String(vals.vessel||'').split(/\s+(?:[•e○o▪]\s+|-\s+)|\s{2,}/)[0]; out.vessel=vv.replace(/[^A-Za-z0-9 .\-]/g,'').trim().slice(0,40); }   /* OCR: cắt trước dấu bullet đọc thành 'e' */
   out._fields=Object.keys(out).filter(k=>k[0]!=='_' && out[k]).length;
   return out;
@@ -38090,10 +38141,11 @@ async function ctlReadContractPdf(inputEl){
   if(text.replace(/\s+/g,'').length>80){ d=ctlParseContractText(text, _vNames); d._method='text'; }
   /* v3.19.11 (Sếp 26/8 "App đã xây dựng để đọc được bản scan/bản chụp"): PDF scan / ảnh → OCR NGAY TRÊN MÁY (Tesseract.js từ CDN,
      eng+vie) — vẽ trang PDF bằng pdf.js ra ảnh rồi nhận dạng; không cần backend. AI backend chỉ còn là dự phòng cuối. */
-  if(!d || d._fields<2){
+  if(!d || d._fields<6){   /* v3.19.15: lớp chữ nghèo (bảng/ô ảnh) → OCR thêm, gộp trường còn trống */
     try{
       const ocrText=await ctlOcrFile(file);
-      if(ocrText && ocrText.replace(/\s+/g,'').length>80){ const d2=ctlParseContractText(ocrText, _vNames); d2._method='ocr'; if(!d || d2._fields>d._fields){ d=d2; text=ocrText; } }
+      if(ocrText && ocrText.replace(/\s+/g,'').length>80){ const d2=ctlParseContractText(ocrText, _vNames); d2._method='ocr';
+        if(!d){ d=d2; text=ocrText; } else { Object.keys(d2).forEach(k=>{ if(k[0]!=='_' && (d[k]==null||d[k]===''||d[k]===0) && d2[k]) d[k]=d2[k]; }); d._fields=Object.keys(d).filter(k=>k[0]!=='_'&&d[k]).length; d._method='text+ocr'; text=text+'\n--- OCR ---\n'+ocrText; } }
     }catch(e){ console.warn('[ctl ocr]',e); }
   }
   if(!d || d._fields<2){ /* OCR không ra → thử AI nếu backend có */
@@ -38180,8 +38232,8 @@ function renderProjects(){
   else if(_prjFilterVessel) list=list.filter(p=>p.vesselId===_prjFilterVessel);
   // v3.06.23: BẢNG RÚT GỌN ở tab 02 (Dự án) — chỉ Tên · Đơn giá · Giá trị HĐ.
   //   NV phân quyền tab Dự án CHỈ thấy mức này — KHÔNG thấy DT/CP/Margin (chuyển sang tab 01 Báo cáo định kỳ).
-  let html=`<thead><tr><th>Mã</th><th>Tên / Khách hàng</th><th>Tàu</th><th style="white-space:nowrap" title="v3.18.98: On-hire đầu → Off-hire cuối của các đoạn On-hire gắn dự án">On-hire → Off-hire</th><th class="r" title="Tổng ngày On-hire của dự án (từ Vessel Employment)">Ngày DA</th><th class="r">Đơn giá <span style="font-weight:400;text-transform:none">(đ/ngày)</span></th><th class="r">Giá trị HĐ (dự kiến)</th><th class="r">Thực hiện <span style="font-weight:400;text-transform:none">(đã phát HĐ)</span></th><th class="r">% TH</th><th></th></tr></thead><tbody>`;
-  if(!list.length){ html+='<tr><td class="empty" colspan="10">Không có dự án khớp bộ lọc</td></tr></tbody>'; tbl.innerHTML=html; return; }
+  let html=`<thead><tr><th>Mã</th><th>Tên / Khách hàng</th><th title="v3.19.17: End client — chủ đầu tư/khách của khách (từ Contract Tracking List hoặc tóm tắt HĐ)">End client</th><th>Tàu</th><th style="white-space:nowrap" title="v3.18.98: On-hire đầu → Off-hire cuối của các đoạn On-hire gắn dự án">On-hire → Off-hire</th><th class="r" title="Tổng ngày On-hire của dự án (từ Vessel Employment)">Ngày DA</th><th class="r">Đơn giá <span style="font-weight:400;text-transform:none">(đ/ngày)</span></th><th class="r">Giá trị HĐ (dự kiến)</th><th class="r">Thực hiện <span style="font-weight:400;text-transform:none">(đã phát HĐ)</span></th><th class="r">% TH</th><th></th></tr></thead><tbody>`;
+  if(!list.length){ html+='<tr><td class="empty" colspan="11">Không có dự án khớp bộ lọc</td></tr></tbody>'; tbl.innerHTML=html; return; }
   let tValue=0, tIssued=0, tDays=0; const _allEv=(typeof VesselService!=='undefined'&&VesselService.events)?VesselService.events():[];
   list.forEach(p=>{
     tValue+=(+p.value||0);
@@ -38201,6 +38253,7 @@ function renderProjects(){
     html+=`<tr style="${p.archived?'opacity:0.55;background:var(--paper-3)':''}">
       <td class="ds-t-sub" style="font-family:var(--font-mono)">${esc(p.code)}${p.archived?' <span class="ds-need" data-dot="bad" style="font-size:10px" title="Đã đánh dấu hoàn thành">⊘</span>':''}</td>
       <td><b>${esc(p.name)}</b>${p.isOM?' <span class="ds-need" data-dot="good" style="font-size:10px;margin-left:4px" title="Dự án O&M độc lập — có NV phụ trách riêng">⚙ O&M</span>':''}<br><span style="color:var(--muted);font-size:11px">${esc(p.client) || '—'}</span>${(p.docs&&p.docs.length)?`<div style="font-size:10.5px;margin-top:2px">${p.docs.map(d=>`<a href="${esc(d.url)}" target="_blank" rel="noopener" title="${esc(d.name)} · ${esc(String(d.at||'').slice(0,10))} · ${esc(d.by||'')}">📎 ${esc(String(d.name).length>28?String(d.name).slice(0,26)+'…':d.name)}</a>${isAdmin()?` <a href="#" onclick="event.preventDefault();projectDocRemove('${p.id}','${esc(d.id)}')" style="color:var(--bad)" title="Gỡ link">✕</a>`:''}`).join(' · ')}</div>`:''}</td>
+      <td style="font-size:12px">${p.endClient?esc(p.endClient):'<span style="color:var(--muted)">—</span>'}</td>
       <td>${v?'<b>'+v.name+'</b>':'<span style="color:var(--muted)">—</span>'}</td>
       ${(()=>{ const hs=projectHireSpan(p.id,_allEv); tDays+=hs.days; const f=s=>s?String(s).slice(0,10).split('-').reverse().join('/'):'';
         return hs.n?`<td style="font-family:var(--font-mono);font-size:11px;white-space:nowrap">${f(hs.first)} → ${f(hs.last)}${hs.n>1?`<div style="color:var(--muted);font-size:10px">${hs.n} đoạn</div>`:''}</td><td class="r mono" style="font-size:11px">${hs.days}</td>`
@@ -38220,7 +38273,7 @@ function renderProjects(){
   const tValDisp=list.reduce((s,p)=>s+toDisplay(+p.value||0,p.ccy||'USD'),0);
   const tPct = tValDisp>0.01 ? (tIssued/tValDisp*100) : 0;
   html+=`<tr style="border-top:2px solid var(--ink);font-weight:700;background:var(--paper-2,var(--paper-3))">
-    <td colspan="4" class="r">TỔNG (${list.length} dự án${_prjFilterVessel&&_prjFilterVessel!=='__none__'?' · '+esc((VesselService.vessels().find(x=>x.id===_prjFilterVessel)||{}).name||''):''})</td>
+    <td colspan="5" class="r">TỔNG (${list.length} dự án${_prjFilterVessel&&_prjFilterVessel!=='__none__'?' · '+esc((VesselService.vessels().find(x=>x.id===_prjFilterVessel)||{}).name||''):''})</td>
     <td class="r mono" style="font-size:11px">${Math.round(tDays*100)/100}</td><td></td>
     <td class="r num">${fmt(tValue)}</td>
     <td class="r num">${fmt(tIssued)}</td>
@@ -43695,7 +43748,7 @@ function _opSelIds(level){
 function _apSelRecs(level){
   const lv=level||((document.getElementById('appr-level')||{}).value||'pending_l1');
   const out=[];
-  try{ scopedView(S.payables||[],'ap').forEach(r=>{ if(!r||r._deleted||r._cashClear) return;
+  try{ scopedView(S.payables||[],'ap').forEach(r=>{ if(!r||r._deleted) return;   /* v3.19.14: gồm phiếu quỹ */
     if(((typeof wfStatus==='function')?wfStatus(r):(r.status||''))!==lv) return;
     if(APPROVAL_SELECTED.has(r.id)) out.push(r); }); }catch(e){}
   return out;
@@ -44341,7 +44394,7 @@ function _apprRenderLevelChips(){
     let n=0;
     try{ VesselService.opTransactions().forEach(t=>{ if(t&&!t._deleted&&t.type==='OUT'&&((typeof opWfStatus==='function')?opWfStatus(t):t.ncStatus)===v) n++; }); }catch(e){}
     if(v==='pending_acc'){ try{ n+=(typeof apNeedProposeRows==='function')?apNeedProposeRows().length:0; }catch(e){} }
-    else { try{ scopedView(S.payables||[],'ap').forEach(r=>{ if(r&&!r._deleted&&!r._cashClear&&(typeof wfStatus==='function')&&wfStatus(r)===v) n++; }); }catch(e){} }
+    else { try{ scopedView(S.payables||[],'ap').forEach(r=>{ if(r&&!r._deleted&&(typeof wfStatus==='function')&&wfStatus(r)===v) n++; }); }catch(e){} }   /* v3.19.14 */
     return n; }catch(e){ return 0; } };
   /* v3.17.79 HOTFIX: 3.17.76 viết `return` XUỐNG DÒNG trước template → ASI chèn ';' → mọi chip
      thành undefined → thanh chip RỖNG, mất bộ chọn cấp (ảnh Sếp). return cùng dòng + test render THẬT. */
@@ -47958,10 +48011,10 @@ function cashImportWrite(){
     return;
   }
   const _scopeLine = (f.fundType==='VESSEL'&&f.vesselId)
-    ? ('• Chi phí gắn TÀU: '+((VesselService.vessels().find(x=>x.id===f.vesselId)||{}).name||'?')+' → vào P&L tàu\n')
+    ? ('• Chi phí gắn TÀU: '+((VesselService.vessels().find(x=>x.id===f.vesselId)||{}).name||'?')+' → phiếu chi phí sang Kế toán (KT kiểm → L1 → L2) rồi vào P&L tàu\n')
     : (f.fundType==='PROJECT'&&f.projectId)
-    ? ('• Chi phí gắn DỰ ÁN O&M: '+(((S.projects||[]).find(x=>x.id===f.projectId)||{}).code||'?')+' → vào P&L dự án\n')
-    : (f.fundType==='OFFICE' ? ('• Chi phí vào '+cashFundPlLabel(f)+'\n') : '• Chi phí vào Quản lý chung\n');
+    ? ('• Chi phí gắn DỰ ÁN O&M: '+(((S.projects||[]).find(x=>x.id===f.projectId)||{}).code||'?')+' → phiếu sang Kế toán duyệt rồi vào P&L dự án\n')
+    : (f.fundType==='OFFICE' ? ('• Chi phí vào '+cashFundPlLabel(f)+' — phiếu sang Kế toán duyệt (KT kiểm → L1 → L2) rồi mới vào P&L\n') : '• Chi phí vào Quản lý chung\n');
   if(!confirm(`Ghi vào sổ quỹ "${f.name}" tháng ${importMonth}:\n\n`
     +`• ${allRows.length} dòng chi → gom thành ${nTypes} phiếu hoàn ứng (theo loại CP)\n`
     +_scopeLine
@@ -48002,10 +48055,10 @@ function cashImportWrite(){
       _cashClear:true, _cashFundId:f.id, _batchId:batchId,
       _cashImport:true,  // đánh dấu nguồn từ import Excel
       _cashDetails:rows.map(r=>({date:r.date,desc:r.desc,invoiceNo:r.invoiceNo,amount:r.amount,note:r.note})),  // chi tiết để tra cứu
-      status:'approved', submittedBy:me, submittedAt:nowIso,
-      approvedL1By:'(Nhập sổ quỹ — '+me+')', approvedL1At:nowIso,
-      approvedL2By:'(Nhập sổ quỹ — '+me+')', approvedL2At:nowIso,
-      payments:[{date:(rows[0].date||importMonth+'-01'), amount:net, ccy, note:'Chi từ quỹ '+(f.name||'')+' (import)'}],
+      /* v3.19.14 (Sếp 26/8): sổ quỹ chỉ giữ TIỀN — chi phí đi đường AP: phiếu vào Chờ KT kiểm → L1 → L2 như mọi AP
+         (không còn đóng dấu duyệt giả); đã chi từ quỹ nên đợt trả ghi sẵn, còn nợ 0 → sau L2 không vào Chờ TT; vào P&L khi L2 duyệt. */
+      status:'pending_acc', submittedBy:me, submittedAt:nowIso, _cashPaid:true, _cashPaidAt:nowIso,
+      payments:[{date:(rows[0].date||importMonth+'-01'), amount:net, ccy, method:'cash', fundId:f.id, note:'Chi từ quỹ '+(f.name||'')+' (import)'}],
       createdBy:me, createdAt:nowIso
     };
     touchRecord(rec); AccountingService.addPayable(rec); nPhieu++;
@@ -48487,11 +48540,9 @@ function saveCashClear(){
       rec.submittedBy=me; rec.submittedAt=nowIso;
       rec._fundPending=true;
     } else {
-      // Ghi sổ NGAY (đã chi qua quỹ) — status approved để vào P&L. Số dư quỹ giảm bên dưới.
-      rec.status='approved'; rec.submittedBy=me; rec.submittedAt=nowIso;
-      rec.approvedL1By='(Hoàn ứng — '+me+')'; rec.approvedL1At=nowIso;
-      rec.approvedL2By='(Hoàn ứng — '+me+')'; rec.approvedL2At=nowIso;
-      rec.payments=[{date:st.date, amount:gross, ccy, note:'Chi từ quỹ '+(f.name||'')}];
+      // v3.19.14: đã chi qua quỹ (trừ quỹ bên dưới) nhưng CHI PHÍ đi luồng AP: Chờ KT kiểm → L1 → L2 (vào P&L khi L2 duyệt).
+      rec.status='pending_acc'; rec.submittedBy=me; rec.submittedAt=nowIso; rec._cashPaid=true; rec._cashPaidAt=nowIso;
+      rec.payments=[{date:st.date, amount:gross, ccy, method:'cash', fundId:f.id, note:'Chi từ quỹ '+(f.name||'')}];
     }
     // v3.03.36: phiếu do THUYỀN TRƯỞNG khai → thêm nhãn HẬU KIỂM (chỉ để theo dõi, KHÔNG ảnh hưởng số đã ghi sổ).
     if(_byCrew){
@@ -48548,14 +48599,12 @@ function approveFundClear(fundId, batchId){
   if(!canApproveFundFor(fundId)){ toast('🔒 Bạn không được gán quản lý quỹ này — không duyệt được.','bad'); return; }
   const info=acFundClearInfo(fundId, batchId); if(!info.ok){ toast(info.reason,'bad'); return; }
   const f=info.fund, recs=info.recs, total=info.total, ccy=info.ccy;
-  if(!confirm(`Duyệt phiếu hoàn ứng (${recs.length} khoản · ${fmtCcy(total,ccy)})?\n\nDuyệt xong sẽ TRỪ QUỸ + ghi chi phí vào P&L.`)) return;
+  if(!confirm(`Duyệt phiếu hoàn ứng (${recs.length} khoản · ${fmtCcy(total,ccy)})?\n\nDuyệt xong sẽ TRỪ QUỸ; phiếu chi phí chuyển sang Kế toán (Chờ KT kiểm → L1 → L2) rồi mới vào P&L.`)) return;
   const me=actorName(); const nowIso=new Date().toISOString();
   commitMutation(()=>{
   recs.forEach(r=>{
-    r.status='approved'; r._fundPending=false;
-    r.approvedL1By='(Hoàn ứng — duyệt: '+me+')'; r.approvedL1At=nowIso;
-    r.approvedL2By='(Hoàn ứng — duyệt: '+me+')'; r.approvedL2At=nowIso;
-    r.payments=[{date:r.issueDate||todayISO(), amount:+r.amount||0, ccy:r.ccy, note:'Chi từ quỹ '+(f.name||'')+' (Manager duyệt)'}];
+    r.status='pending_acc'; r._fundPending=false; r._cashPaid=true; r._cashPaidAt=nowIso;   /* v3.19.14: Manager duyệt quỹ → trừ quỹ, phiếu sang luồng KT */
+    r.payments=[{date:r.issueDate||todayISO(), amount:+r.amount||0, ccy:r.ccy, method:'cash', fundId:f.id, note:'Chi từ quỹ '+(f.name||'')+' (Manager duyệt)'}];
     r.fundApprovedBy=me; r.fundApprovedAt=nowIso;
     touchRecord(r);
   });
@@ -53539,7 +53588,8 @@ function renderArAp(kind){
   const hideYtdHistorical = isAp && !stFilter && !creatorFilter && !vendorFilter && !vpFilter && !etypeFilter;
   let rows=all.filter(r=>{
     if(hideYtdHistorical && r && r._isYtdHistorical) return false;
-    if(isAp && r && r._cashClear) return false;  // v3.02.38: phiếu hoàn ứng quỹ — ẩn khỏi Sổ Phải trả (đã chi qua quỹ)
+    /* v3.19.14: phiếu chi từ quỹ HIỆN trong Sổ Phải trả (đã trả, đi luồng duyệt như AP khác) — bỏ ẩn v3.02.38 */
+    if(false && isAp && r && r._cashClear) return false;  // v3.02.38: phiếu hoàn ứng quỹ — ẩn khỏi Sổ Phải trả (đã chi qua quỹ)
     if(stFilter){
       if(isPaymentFilter){
         // Chỉ áp filter thanh toán cho các bản ghi ĐÃ DUYỆT (đã vào sổ)
@@ -60983,11 +61033,14 @@ function deleteAr(kind,id){
     // v3.09.74: DELETE qua CHUẨN TRANSACTION (ADR-015) — recycle + xóa + bia mộ là 1 commit nguyên tử.
     //   _recycleBin nằm TRONG fields → nếu commit fail, rollback hẹp khôi phục cả recycle (không để rác).
     //   Chỉ renderAll + báo thành công khi đã VERIFY ghi xuống localStorage (chống hồi sinh khi quota đầy).
+    /* v3.19.14: xóa phiếu chi từ quỹ → tự HOÀN QUỸ đúng số đã trừ (giao dịch IN đảo, có vết) */
+    const _cashBack=(kind==='ap')?recs.filter(x=>x&&x._cashClear&&x._cashFundId):[];
     commitTransaction(()=>{
       try{ _recycleRecords(list, recs); }catch(e){ console.warn('[recycle] lỗi:', e&&e.message); }
       S[list]=S[list].filter(x=>!delIds.has(x.id));
       recs.forEach(x=>markDeleted(x.id));
-    }, { action:(kind==='ap'?'delete_ap':'delete_ar'), fields:[list,'deletedIds','_recycleBin'] }).then(r=>{
+      _cashBack.forEach(x=>{ const amt=(x.payments||[]).reduce((t,p)=>t+(+p.amount||0),0); if(amt>0){ try{ AccountingService.addCashTxn({id:uid(), fundId:x._cashFundId, date:todayISO(), direction:'IN', amount:amt, ccy:x.ccy||'VND', category:'Hoàn quỹ', desc:'Hoàn quỹ do xóa phiếu '+(x.invoiceNo||x.desc||x.id), sourceType:'ap_delete_refund', sourceId:x.id, recordedBy:(typeof actorName==='function'?actorName():''), recordedAt:new Date().toISOString()}); }catch(e){} } });
+    }, { action:(kind==='ap'?'delete_ap':'delete_ar'), fields:_cashBack.length?[list,'deletedIds','_recycleBin','cashTxns']:[list,'deletedIds','_recycleBin'] }).then(r=>{
       if(r.success){
         renderAll();
         try{ toast('✓ Đã xóa'+(recs.length>1?' '+recs.length+' dòng':'')+' (đã lưu)','good'); }catch(_){}
@@ -86145,7 +86198,7 @@ function openApprovalOrderPdf(level){
   // v3.10.26 — FIX: dùng scopedRecords TRỰC TIẾP thay _arExportRows('ap'). _arExportRows áp BỘ LỌC
   //   của TRANG PHẢI TRẢ (ap-filter-creator/status/vendor...) — màn Duyệt là màn khác, bộ lọc còn
   //   dính từ lần lọc trước làm 3 phiếu đã tích bị loại → báo sai "Không có phiếu nào ở cấp L2".
-  const _apprSrc=scopedView(S.payables||[],'ap').filter(r=>r && !r._cashClear);
+  const _apprSrc=scopedView(S.payables||[],'ap');   /* v3.19.14: phiếu chi từ quỹ (_cashClear) cũng qua duyệt */
   let rows=_apprSrc.filter(r=>wfStatus(r)===want && APPROVAL_SELECTED.has(r.id));
   /* v3.17.70 (Sếp — chốt): chi hộ đi TRỌN luồng công nợ như AP. Duyệt = chỉ chuyển bước trạng thái
      (L1→L2, L2→Chờ Thanh Toán); NGUỒN TIỀN chọn ở BƯỚC THANH TOÁN khi KT ghi đợt chi (op-ncc-bank,
@@ -87863,10 +87916,8 @@ function excelConfirmImport(){
         amount:grossC, amountNet:netC, vatAmount:vatC, vatPercent:vatPctC, ccy:ccyF,
         vesselId:vC?vC.id:'', projectId:pC?pC.id:'', segment:segC||'OTHER',
         issueDate:d.issueDate, dueDate:d.issueDate, dueMonth:(d.issueDate||'').slice(0,7),
-        status:'approved', submittedBy:meC, submittedAt:nowC,
-        approvedL1By:'(Hoàn ứng — import)', approvedL1At:nowC,
-        approvedL2By:'(Hoàn ứng — import)', approvedL2At:nowC,
-        payments:[{date:d.issueDate, amount:grossC, ccy:ccyF, note:'Chi từ quỹ '+(f.name||'')+' (import)'}],
+        status:'pending_acc', submittedBy:meC, submittedAt:nowC, _cashPaid:true, _cashPaidAt:nowC,   /* v3.19.14: đi luồng KT */
+        payments:[{date:d.issueDate, amount:grossC, ccy:ccyF, method:'cash', fundId:f.id, note:'Chi từ quỹ '+(f.name||'')+' (import)'}],
         _cashClear:true, _cashFundId:f.id, _batchId:'CASHCLEAR-'+IMPORT_BATCH_ID.slice(-6),
         _importedFromExcel:true, _importBatch:IMPORT_BATCH_ID,
         createdBy:meC, createdAt:nowC
