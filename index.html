@@ -1488,6 +1488,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
         <div class="field"><label>Số chuyên gia <span style="color:var(--muted);text-transform:none;font-weight:400">(O&M)</span></label><input type="number" class="num" id="prj-experts" value="0"></div>
         <div class="field"><label>Số ngày làm việc <span style="color:var(--muted);text-transform:none;font-weight:400">(O&M)</span></label><input type="number" class="num" id="prj-workdays" value="0"></div>
         <!-- v3.07.40: Project Integration — Số HĐ + Quản lý dự án + Trạng thái -->
+        <div class="field"><label>Notice No. <span style="color:var(--muted);text-transform:none;font-weight:400">(TBTT · v3.19.20)</span></label><input type="text" id="prj-notice" placeholder="VD: 001-2026/TBTT-GS"></div>
         <div class="field"><label>Số hợp đồng <span style="color:var(--muted);text-transform:none;font-weight:400">(Contract No.)</span></label><input type="text" id="prj-contract" placeholder="VD: HĐ-2024/GEO-01"></div>
         <div class="field"><label>Quản lý dự án <span style="color:var(--muted);text-transform:none;font-weight:400">(PM)</span></label><input type="text" id="prj-pm" placeholder="Tên Project Manager"></div>
         <div class="field"><label>Trạng thái dự án</label>
@@ -3829,7 +3830,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.19.19';
+const APP_VERSION='3.19.20';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -37725,6 +37726,7 @@ function addProject(){
     code,name,
     client:document.getElementById('prj-client').value.trim(),
     endClient:((document.getElementById('prj-endclient')||{}).value||'').trim(),   /* v3.19.17 */
+    notice:((document.getElementById('prj-notice')||{}).value||'').trim(),   /* v3.19.20 */
     segment:document.getElementById('prj-segment').value,
     vesselId:document.getElementById('prj-vessel').value||null,
     ccy:document.getElementById('prj-ccy').value,
@@ -37742,7 +37744,7 @@ function addProject(){
     updatedAt:new Date().toISOString()  // v2.61.0: timestamp ngay từ khi tạo để sync nhận diện đúng
   });
   saveState();
-  ['prj-code','prj-name','prj-client','prj-endclient'].forEach(i=>{ const el=document.getElementById(i); if(el) el.value=''; });
+  ['prj-code','prj-name','prj-client','prj-endclient','prj-notice'].forEach(i=>{ const el=document.getElementById(i); if(el) el.value=''; });
   document.getElementById('prj-vessel').value='';
   document.getElementById('prj-value').value=0;
   document.getElementById('prj-unitprice').value=0;
@@ -37778,7 +37780,8 @@ function editProject(id){
     {key:'unitPrice',label:'Đơn giá (đ/ngày — vd cho thuê tàu)',type:'number',span:2},
     {key:'experts',label:'Số chuyên gia (O&M)',type:'number'},
     {key:'workDays',label:'Số ngày làm việc (O&M)',type:'number'},
-    {key:'contractNo',label:'Số hợp đồng (Contract No.)',span:2},
+    {key:'contractNo',label:'Số hợp đồng (Contract No.)'},
+    {key:'notice',label:'Notice No. (TBTT — thông báo thuê tàu)',placeholder:'VD: 001-2026/TBTT-GS'},   /* v3.19.20 */
     {key:'projectManager',label:'Quản lý dự án (PM)',span:2},
     {key:'projStatus',label:'Trạng thái dự án',type:'select',options:[{v:'',t:'— Chưa đặt —'},{v:'planned',t:'Planned (Lập kế hoạch)'},{v:'active',t:'Active (Đang chạy)'},{v:'completed',t:'Completed (Hoàn thành)'},{v:'closed',t:'Closed (Đã đóng)'}]},
     {key:'isOM',label:'Là Dự án O&M độc lập — tick để có NV phụ trách riêng + theo dõi chi tiết CP/Doanh thu',type:'checkbox'}
@@ -38303,8 +38306,8 @@ function renderProjects(){
   else if(_prjFilterVessel) list=list.filter(p=>p.vesselId===_prjFilterVessel);
   // v3.06.23: BẢNG RÚT GỌN ở tab 02 (Dự án) — chỉ Tên · Đơn giá · Giá trị HĐ.
   //   NV phân quyền tab Dự án CHỈ thấy mức này — KHÔNG thấy DT/CP/Margin (chuyển sang tab 01 Báo cáo định kỳ).
-  let html=`<thead><tr><th>Mã</th><th>Tên / Khách hàng</th><th title="v3.19.17: End client — chủ đầu tư/khách của khách (từ Contract Tracking List hoặc tóm tắt HĐ)">End client</th><th>Tàu</th><th style="white-space:nowrap" title="v3.18.98: On-hire đầu → Off-hire cuối của các đoạn On-hire gắn dự án">On-hire → Off-hire</th><th class="r" title="Tổng ngày On-hire của dự án (từ Vessel Employment)">Ngày DA</th><th class="r">Đơn giá <span style="font-weight:400;text-transform:none">(đ/ngày)</span></th><th class="r">Giá trị HĐ (dự kiến)</th><th class="r">Thực hiện <span style="font-weight:400;text-transform:none">(đã phát HĐ)</span></th><th class="r">% TH</th><th></th></tr></thead><tbody>`;
-  if(!list.length){ html+='<tr><td class="empty" colspan="11">Không có dự án khớp bộ lọc</td></tr></tbody>'; tbl.innerHTML=html; return; }
+  let html=`<thead><tr><th>Mã</th><th title="v3.19.20: Contract No. (dòng trên) · Notice No. / TBTT (dòng dưới) — ghép từ Contract Tracking List">Contract No. / Notice</th><th>Tên / Khách hàng</th><th title="v3.19.17: End client — chủ đầu tư/khách của khách (từ Contract Tracking List hoặc tóm tắt HĐ)">End client</th><th>Tàu</th><th style="white-space:nowrap" title="v3.18.98: On-hire đầu → Off-hire cuối của các đoạn On-hire gắn dự án">On-hire → Off-hire</th><th class="r" title="Tổng ngày On-hire của dự án (từ Vessel Employment)">Ngày DA</th><th class="r">Đơn giá <span style="font-weight:400;text-transform:none">(đ/ngày)</span></th><th class="r">Giá trị HĐ (dự kiến)</th><th class="r">Thực hiện <span style="font-weight:400;text-transform:none">(đã phát HĐ)</span></th><th class="r">% TH</th><th></th></tr></thead><tbody>`;
+  if(!list.length){ html+='<tr><td class="empty" colspan="12">Không có dự án khớp bộ lọc</td></tr></tbody>'; tbl.innerHTML=html; return; }
   let tValue=0, tIssued=0, tDays=0; const _allEv=(typeof VesselService!=='undefined'&&VesselService.events)?VesselService.events():[];
   list.forEach(p=>{
     tValue+=(+p.value||0);
@@ -38323,8 +38326,9 @@ function renderProjects(){
       : '';
     html+=`<tr style="${p.archived?'opacity:0.55;background:var(--paper-3)':''}">
       <td class="ds-t-sub" style="font-family:var(--font-mono)">${esc(p.code)}${p.archived?' <span class="ds-need" data-dot="bad" style="font-size:10px" title="Đã đánh dấu hoàn thành">⊘</span>':''}</td>
+      <td style="font-size:11px;font-family:var(--font-mono);white-space:nowrap">${p.contractNo?esc(p.contractNo):'<span style="color:var(--muted)">—</span>'}${p.notice?`<div style="color:var(--muted)" title="Notice No. / TBTT">${esc(p.notice)}</div>`:''}</td>
       <td><b>${esc(p.name)}</b>${p.isOM?' <span class="ds-need" data-dot="good" style="font-size:10px;margin-left:4px" title="Dự án O&M độc lập — có NV phụ trách riêng">⚙ O&M</span>':''}<br><span style="color:var(--muted);font-size:11px">${esc(p.client) || '—'}</span>${(p.docs&&p.docs.length)?`<div style="font-size:10.5px;margin-top:2px">${p.docs.map(d=>`<a href="${esc(d.url)}" target="_blank" rel="noopener" title="${esc(d.name)} · ${esc(String(d.at||'').slice(0,10))} · ${esc(d.by||'')}">📎 ${esc(String(d.name).length>28?String(d.name).slice(0,26)+'…':d.name)}</a>${isAdmin()?` <a href="#" onclick="event.preventDefault();projectDocRemove('${p.id}','${esc(d.id)}')" style="color:var(--bad)" title="Gỡ link">✕</a>`:''}`).join(' · ')}</div>`:''}</td>
-      <td style="font-size:12px">${p.endClient?esc(p.endClient):'<span style="color:var(--muted)">—</span>'}${p.notice?`<div style="font-size:10px;color:var(--muted)" title="Số TBTT (ghi chú)">${esc(p.notice)}</div>`:''}</td>
+      <td style="font-size:12px">${p.endClient?esc(p.endClient):'<span style="color:var(--muted)">—</span>'}</td>
       <td>${v?'<b>'+v.name+'</b>':'<span style="color:var(--muted)">—</span>'}</td>
       ${(()=>{ const hs=projectHireSpan(p.id,_allEv); tDays+=hs.days; const f=s=>s?String(s).slice(0,10).split('-').reverse().join('/'):'';
         return hs.n?`<td style="font-family:var(--font-mono);font-size:11px;white-space:nowrap">${f(hs.first)} → ${f(hs.last)}${hs.n>1?`<div style="color:var(--muted);font-size:10px">${hs.n} đoạn</div>`:''}</td><td class="r mono" style="font-size:11px">${hs.days}</td>`
@@ -38344,7 +38348,7 @@ function renderProjects(){
   const tValDisp=list.reduce((s,p)=>s+toDisplay(+p.value||0,p.ccy||'USD'),0);
   const tPct = tValDisp>0.01 ? (tIssued/tValDisp*100) : 0;
   html+=`<tr style="border-top:2px solid var(--ink);font-weight:700;background:var(--paper-2,var(--paper-3))">
-    <td colspan="5" class="r">TỔNG (${list.length} dự án${_prjFilterVessel&&_prjFilterVessel!=='__none__'?' · '+esc((VesselService.vessels().find(x=>x.id===_prjFilterVessel)||{}).name||''):''})</td>
+    <td colspan="6" class="r">TỔNG (${list.length} dự án${_prjFilterVessel&&_prjFilterVessel!=='__none__'?' · '+esc((VesselService.vessels().find(x=>x.id===_prjFilterVessel)||{}).name||''):''})</td>
     <td class="r mono" style="font-size:11px">${Math.round(tDays*100)/100}</td><td></td>
     <td class="r num">${fmt(tValue)}</td>
     <td class="r num">${fmt(tIssued)}</td>
@@ -38398,7 +38402,7 @@ function renderProjectsFull(){
   });
   const tM=tRev-tCost;
   html+=`<tr style="border-top:2px solid var(--ink);font-weight:700;background:var(--paper-2,var(--paper-3))">
-    <td colspan="5" class="r">TỔNG (${list.length} dự án${_prjFullFilterVessel&&_prjFullFilterVessel!=='__none__'?' · '+esc((VesselService.vessels().find(x=>x.id===_prjFullFilterVessel)||{}).name||''):''})</td>
+    <td colspan="4" class="r">TỔNG (${list.length} dự án${_prjFullFilterVessel&&_prjFullFilterVessel!=='__none__'?' · '+esc((VesselService.vessels().find(x=>x.id===_prjFullFilterVessel)||{}).name||''):''})</td>
     <td class="r num">${fmt(tRev)}</td>
     <td class="r num">${fmt(tCost)}</td>
     <td class="r num" style="color:${tM>=0?'var(--good)':'var(--bad)'}">${fmt(tM)}</td>
