@@ -3831,7 +3831,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.19.23';
+const APP_VERSION='3.19.25';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -37762,8 +37762,9 @@ function delProject(id){
   const p=S.projects.find(x=>x.id===id);if(!p)return;
   const linked=S.transactions.filter(t=>t.projectId===id).length;
   confirmDelete('dự án này',
-    `${esc(p.code)} · ${esc(p.name)}<br>${esc(p.client) || ''} · ${SEGMENTS[p.segment].name}<br>${linked?`<b style="color:var(--bad)">⚠ ${linked} bút toán đang liên kết</b> sẽ bị mất tham chiếu (vẫn giữ trong sổ).`:'Không có bút toán liên kết.'}`,
-    ()=>{S.projects=S.projects.filter(x=>x.id!==id);markDeleted(id,'projects');saveState();toast('Đã xóa dự án');renderAll();});
+    `${esc(p.code)} · ${esc(p.name)}<br>${esc(p.client) || ''} · ${(SEGMENTS[p.segment]||{}).name||'(chưa mảng)'}<br>${linked?`<b style="color:var(--bad)">⚠ ${linked} bút toán đang liên kết</b> sẽ bị mất tham chiếu (vẫn giữ trong sổ).`:'Không có bút toán liên kết.'}`,
+    /* v3.19.25 (Sếp 27/8 'Xóa các dự án — không lưu được'): xóa qua commitMutation (đẩy cloud + bia mộ) thay saveState trần; thiếu mảng không vỡ hộp xác nhận */
+    ()=>{ commitMutation(()=>{ S.projects=S.projects.filter(x=>x.id!==id); try{ markDeleted(id,'projects'); }catch(e){} },{action:'project_delete', fields:['projects','deletedIds'], onOk:()=>{ toast('Đã xóa dự án'); try{ renderAll(); }catch(e){} }}); });
 }
 function editProject(id){
   const p=S.projects.find(x=>x.id===id);if(!p)return;
@@ -37878,7 +37879,10 @@ function ctlParse(aoa){
 }
 function ctlKey(s){ return ctlNorm(s).toUpperCase().replace(/[^A-Z0-9]/g,''); }
 /* v3.19.16 (Sếp 26/8) — mã dự án theo quy ước: <2 ký tự tàu>-<năm>-<số HĐ ngắn>, vd GS-2026-006A */
-function ctlVesselInitials(name){ const w=String(name||'').replace(/[^A-Za-z0-9 ]/g,' ').trim().split(/\s+/).filter(Boolean); if(!w.length) return ''; if(w.length===1){ return w[0].slice(0,2).toUpperCase(); } return (w[0][0]+w[1][0]).toUpperCase(); }
+function ctlVesselInitials(name){ const w=String(name||'').replace(/[^A-Za-z0-9 ]/g,' ').trim().split(/\s+/).filter(Boolean); if(!w.length) return '';
+  if(w.length===1){ const u=w[0].toUpperCase(); if(/^GEO[A-Z]/.test(u)) return 'G'+u.charAt(3);   /* v3.19.25: GEOMARINE → GM, GEOSUPORTER → GS */
+    if(/^SEAHORSE[A-Z]/.test(u)) return 'S'+u.charAt(8); return u.slice(0,2); }
+  return (w[0][0]+w[1][0]).toUpperCase(); }
 function ctlContractShort(contractNo, fallbackYear){
   let c=String(contractNo||'').trim();
   if(!c || /^nil$/i.test(c)) return {short:'', year:'', amend:''};
@@ -37955,9 +37959,13 @@ function ctlReconcile(parsed, ctx){
 function projectHireSpan(projectId, events){
   const evs=(events||[]).filter(e=>e && e.projectId===projectId && e.type==='onhire' && e.startAt && e.endAt);
   if(!evs.length) return {n:0, first:'', last:'', days:0};
-  let first=null,last=null,days=0;
-  evs.forEach(e=>{ const s=new Date(e.startAt), t=new Date(e.endAt); if(!first||s<first) first=s; if(!last||t>last) last=t; days+=Math.max(0,(t-s)/864e5); });
-  return {n:evs.length, first:first.toISOString(), last:last.toISOString(), days:Math.round(days*100)/100};
+  /* v3.19.24 (Sếp 27/8 'Số ngày dự án tính thiếu?' — 006A hiện 29,92 ngày cho 15 ngày vì có 2 đoạn ghi trùng):
+     ngày DA = HỢP các khoảng (union) — đoạn trùng/chồng nhau chỉ đếm một lần; báo số đoạn chồng để dọn */
+  const iv=evs.map(e=>[new Date(e.startAt).getTime(), new Date(e.endAt).getTime()]).filter(x=>x[1]>x[0]).sort((a,b)=>a[0]-b[0]);
+  let first=null,last=null,days=0,overlap=0; let cs=null,ce=null;
+  iv.forEach(([a,b])=>{ if(!first||a<first) first=a; if(!last||b>last) last=b; if(cs===null){ cs=a; ce=b; return; } if(a<=ce){ if(a<ce) overlap++; ce=Math.max(ce,b); } else { days+=(ce-cs)/864e5; cs=a; ce=b; } });
+  if(cs!==null) days+=(ce-cs)/864e5;
+  return {n:evs.length, overlap, first:new Date(first).toISOString(), last:new Date(last).toISOString(), days:Math.round(days*100)/100};
 }
 /* ---- UI ---- */
 /* ═══ v3.19.19 (Sếp 27/8 ảnh Dự án GEOSUPORTER: GS-2026-020A và 001-2026/TBTT-GS là MỘT hợp đồng ghi 2 lần — bản nhập 3.18.98
@@ -37976,7 +37984,10 @@ function projectDupKey(p){
 function projectIsConventionCode(code){ return /^[A-Z]{2}-20\d{2}-[A-Z0-9][A-Z0-9\-]*$/.test(String(code||'').toUpperCase()); }
 function projectDupGroups(projects){
   const g={}; (projects||[]).forEach(p=>{ if(!p||p._deleted) return; const k=projectDupKey(p); if(!k) return; (g[k]=g[k]||[]).push(p); });
-  return Object.keys(g).map(k=>g[k]).filter(arr=>arr.length>1).map(arr=>{ const keep=arr.find(p=>projectIsConventionCode(p.code))||arr.slice().sort((a,b)=>String(a.createdAt||'').localeCompare(String(b.createdAt||'')))[0]; return {keep, dups:arr.filter(p=>p!==keep)}; });
+  /* v3.19.25: ưu tiên bản có 2 ký tự tàu ĐÚNG (GM-… cho GEOMARINE) > mã quy ước bất kỳ > bản tạo sớm nhất */
+  const iniOf=vid=>{ const v=VesselService.vessels().find(x=>x.id===vid); if(!v) return ''; const nm=(v.ctlAliases&&v.ctlAliases.find(a=>String(a).trim().split(/\s+/).length>=2))||v.name; return ctlVesselInitials(nm); };
+  return Object.keys(g).map(k=>g[k]).filter(arr=>arr.length>1).map(arr=>{ const ini=iniOf(arr[0].vesselId);
+    const keep=arr.find(p=>ini&&String(p.code||'').toUpperCase().indexOf(ini+'-')===0&&projectIsConventionCode(p.code))||arr.find(p=>projectIsConventionCode(p.code))||arr.slice().sort((a,b)=>String(a.createdAt||'').localeCompare(String(b.createdAt||'')))[0]; return {keep, dups:arr.filter(p=>p!==keep)}; });
 }
 function projectMergePlan(keep, dups){
   const fill=[]; const FIELDS=['contractNo','client','endClient','location','unitPrice','value','ccy','start','end','vesselId','notice','projectManager','experts','workDays'];
@@ -37987,9 +37998,12 @@ function projectMergePlan(keep, dups){
 }
 /* dự án lẻ còn mã kiểu Notice (001-2026/TBTT-GS) → đổi sang mã quy ước, mã cũ vào ghi chú */
 function projectRenameCandidates(projects){
-  const out=[]; (projects||[]).forEach(p=>{ if(!p||p._deleted||projectIsConventionCode(p.code)) return; if(!/TBTT/i.test(String(p.code||''))) return;
+  const out=[]; (projects||[]).forEach(p=>{ if(!p||p._deleted) return;
     const v=VesselService.vessels().find(x=>x.id===p.vesselId); if(!v) return;
     const nameFor=(v.ctlAliases&&v.ctlAliases.find(a=>String(a).trim().split(/\s+/).length>=2))||v.name;
+    /* v3.19.25: mã quy ước nhưng SAI 2 ký tự tàu (GE-2026-02 cho GEOMARINE) → đổi về GM-2026-02 */
+    if(projectIsConventionCode(p.code)){ const ini=ctlVesselInitials(nameFor); const m=String(p.code).toUpperCase().match(/^([A-Z]{2})-(20\d{2}-.+)$/); if(ini&&m&&m[1]!==ini){ const code=ini+'-'+m[2]; if(!(projects||[]).some(x=>x&&!x._deleted&&x!==p&&ctlKey(x.code)===ctlKey(code))) out.push({p, code}); } return; }
+    if(!/TBTT/i.test(String(p.code||''))) return;
     const yr=(String(p.contractNo||'').match(/20\d{2}/)||[])[0]||(String(p.code||'').match(/20\d{2}/)||[])[0]||String(p.start||'').slice(0,4);
     const code=ctlProjectCode(nameFor, p.contractNo||'', p.code, yr); if(!code||code===p.code) return;
     if((projects||[]).some(x=>x&&!x._deleted&&x!==p&&ctlKey(x.code)===ctlKey(code))) return;   /* đã có bản quy ước → thuộc nhóm gộp */
@@ -38346,7 +38360,7 @@ function renderProjects(){
       <td style="font-size:12px">${p.endClient?esc(p.endClient):'<span style="color:var(--muted)">—</span>'}</td>
       <td>${v?'<b>'+v.name+'</b>':'<span style="color:var(--muted)">—</span>'}</td>
       ${(()=>{ const hs=projectHireSpan(p.id,_allEv); tDays+=hs.days; const f=s=>s?String(s).slice(0,10).split('-').reverse().join('/'):'';
-        return hs.n?`<td style="font-family:var(--font-mono);font-size:11px;white-space:nowrap">${f(hs.first)} → ${f(hs.last)}${hs.n>1?`<div style="color:var(--muted);font-size:10px">${hs.n} đoạn</div>`:''}</td><td class="r mono" style="font-size:11px">${hs.days}</td>`
+        return hs.n?`<td style="font-family:var(--font-mono);font-size:11px;white-space:nowrap">${f(hs.first)} → ${f(hs.last)}${hs.n>1?`<div style="color:${hs.overlap?'var(--bad)':'var(--muted)'};font-size:10px">${hs.n} đoạn${hs.overlap?' · ⚠ '+hs.overlap+' chồng nhau (ghi 2 lần?) — Vessel Employment › 🔁 Gộp đoạn trùng':''}</div>`:''}</td><td class="r mono" style="font-size:11px">${hs.days}</td>`
         :`<td style="font-size:11px;color:var(--muted)">${p.start?f(p.start)+' → '+f(p.end)+' <span style="font-size:10px">(KH)</span>':'—'}</td><td class="r" style="color:var(--muted);font-size:11px">${p.workDays?p.workDays+' <span style="font-size:10px">(KH)</span>':'—'}</td>`; })()}
       <td class="r num">${p.unitPrice?fmt(p.unitPrice,p.ccy):'<span style="color:var(--muted)">—</span>'}</td>
       <td class="r num">${fmt(p.value,p.ccy)}</td>
@@ -39641,7 +39655,7 @@ function _vohBody(vid, inner){
   const html=`
     <div style="font-size:11px;color:var(--muted);font-style:normal;margin-bottom:10px">All employment periods (On/Off-Hire · Standby · Drydocking…) and daily reports for <b>${esc(v.name)}</b>. Log entries here.</div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin:14px 0 6px">
-      <div style="font-family:var(--font-display);font-weight:600;font-size:13px"><span class="tag">⚓</span> Vessel Employment Log (${evs.length})</div>
+      <div style="font-family:var(--font-display);font-weight:600;font-size:13px"><span class="tag">⚓</span> Vessel Employment Log (${evs.length})${(function(){ try{ const n=isAdmin()?eventDupGroups(evs).length:0; return n?` <button class="btn-sec" style="font-size:11px;border-color:var(--bad);color:var(--bad);margin-left:8px" onclick="eventMergeOpen('${vid}')" title="v3.19.24: đoạn ghi 2 lần (cùng loại, cùng giờ bắt đầu)">🔁 Gộp đoạn trùng (${n})</button>`:''; }catch(e){ return ''; } })()}</div>
       <button class="btn-sec" style="font-size:11px" onclick="openEventModal(null,'${vid}')">+ Add Period</button>
       <button class="btn-sec" style="font-size:11px" onclick="_vohImport('onhire-import-file')">📥 Excel</button>
       <button class="btn-sec" style="font-size:11px" onclick="_vohImport('onhire-pdf-file')">📄 PDF Statement</button>
@@ -41843,6 +41857,39 @@ function _extractDateTime(T){
   return '';
 }
 
+/* v3.19.24: ĐOẠN GHI 2 LẦN (cùng tàu, cùng loại, cùng giờ bắt đầu ±1 phút — ảnh GEOSUPORTER 27/8: mỗi HĐ 2 dòng ON, một từ Wizard
+   PDF có nhiên liệu, một bản trơn) → gộp: giữ bản có nhiên liệu/PDF/dài hơn, gộp dự án + ghi chú + số nhiên liệu còn trống, bia mộ bản kia. */
+function eventDupGroups(evs){
+  const list=(evs||[]).filter(e=>e&&!e._deleted&&e.startAt).slice().sort((a,b)=>new Date(a.startAt)-new Date(b.startAt));
+  const groups=[]; const used=new Set();
+  list.forEach((e,i)=>{ if(used.has(e.id)) return; const g=[e]; for(let j=i+1;j<list.length;j++){ const o=list[j]; if(used.has(o.id)) continue; if(o.vesselId!==e.vesselId||o.type!==e.type) continue; if(Math.abs(new Date(o.startAt)-new Date(e.startAt))>60000) break; g.push(o); }
+    if(g.length>1){ g.forEach(x=>used.add(x.id)); const score=x=>((x.fuelStart&&Object.values(x.fuelStart).some(f=>f&&+f.qty))?4:0)+((x.fuelEnd&&Object.values(x.fuelEnd).some(f=>f&&+f.qty))?4:0)+(/wizard|\.pdf/i.test(String(x.notes||''))?2:0)+(x.endAt?1:0)+(x.projectId?1:0);
+      const keep=g.slice().sort((a,b)=>score(b)-score(a))[0]; groups.push({keep, dups:g.filter(x=>x!==keep)}); } });
+  return groups;
+}
+function eventMergeOpen(vid){
+  if(!isAdmin()){ toast('Chỉ admin gộp đoạn','bad'); return; }
+  const groups=eventDupGroups(VesselService.events().filter(e=>!vid||e.vesselId===vid));
+  if(!groups.length){ toast('Không có đoạn ghi 2 lần','good'); return; }
+  const pn=id=>{ const p=(S.projects||[]).find(x=>x.id===id); return p?p.code:''; };
+  const rows=groups.map((g,gi)=>`<div style="border:1px solid var(--rule);border-radius:8px;padding:6px 10px;margin-bottom:6px;font-size:12px"><label><input type="checkbox" data-eg="${gi}" checked> <b>${esc(evtType(g.keep.type).label)}</b> ${fmtDateTime(g.keep.startAt)} → ${g.keep.endAt?fmtDateTime(g.keep.endAt):'—'} · giữ bản ${pn(g.keep.projectId)||'(không dự án)'} ${/wizard|\.pdf/i.test(String(g.keep.notes||''))?'· có PDF':''}${(g.keep.fuelStart&&Object.values(g.keep.fuelStart).some(f=>f&&+f.qty))?' · có nhiên liệu':''}</label><div style="font-size:11px;color:var(--muted);margin-left:20px">gộp: ${g.dups.map(d=>(pn(d.projectId)||'(không dự án)')+' '+(d.endAt?fmtDateTime(d.endAt):'—')).join(' · ')}</div></div>`).join('');
+  window._evMergeGroups=groups;
+  openModal('🔁 Gộp đoạn ghi 2 lần ('+groups.length+')', `<div style="font-size:12px;color:var(--muted);margin-bottom:6px">Cùng tàu, cùng loại, cùng giờ bắt đầu. Giữ bản có nhiên liệu/PDF/dài hơn; dự án, ghi chú, số nhiên liệu còn trống lấy từ bản kia; bản kia ẩn (bia mộ). Ngày DA và tiêu hao hết tính 2 lần.</div>${rows}`,
+    `<button class="btn-ghost" onclick="closeModal()">Đóng</button><button class="btn-primary" onclick="eventMergeGo('${esc(vid||'')}')">✓ Gộp đã tick</button>`);
+}
+function eventMergeGo(vid){
+  const groups=(window._evMergeGroups||[]).filter((g,gi)=>{ const cb=document.querySelector('input[data-eg="'+gi+'"]'); return cb&&cb.checked; });
+  if(!groups.length){ toast('Chưa tick','warn'); return; }
+  const who=(typeof actorName==='function'?actorName():''), now=new Date().toISOString(); let n=0;
+  commitMutation(()=>{ groups.forEach(g=>{ const k=g.keep; g.dups.forEach(d=>{
+      if(!k.projectId&&d.projectId) k.projectId=d.projectId; if(!k.endAt&&d.endAt) k.endAt=d.endAt;
+      ['fuelStart','fuelPumped','fuelEnd'].forEach(fk=>{ if(!d[fk]) return; k[fk]=k[fk]||{}; Object.keys(d[fk]).forEach(f=>{ if(!(k[fk][f]&&+k[fk][f].qty) && d[fk][f]&&+d[fk][f].qty) k[fk][f]=d[fk][f]; }); });
+      if(d.notes&&String(k.notes||'').indexOf(d.notes)<0) k.notes=(k.notes?k.notes+' · ':'')+d.notes;
+      d._deleted=true; d._mergedInto=k.id; try{touchRecord(d);}catch(e){} try{ markDeleted([d.id]); }catch(e){} n++; });
+    (k.auditTrail=k.auditTrail||[]).push({at:now,by:who,act:'merge_absorb',from:g.dups.map(d=>d.id)}); try{touchRecord(k);}catch(e){} });
+    S.events=VesselService.events().filter(e=>!e._deleted); try{ syncEventsToOnhires(); }catch(e){}
+  },{action:'event_merge', fields:['events','deletedIds'], onOk:()=>{ try{ logAuditEvent('event_merge',{n, actor:who}); }catch(e){} toast('✓ Đã gộp '+n+' đoạn trùng','good'); closeModal(); try{ renderAll(); if(vid&&typeof openVesselOnHire==='function') setTimeout(()=>openVesselOnHire(vid),60); }catch(e){} }});
+}
 function deleteEvent(eid){
   const e=VesselService.events().find(x=>x.id===eid);if(!e)return;
   if(!confirm('Xóa đoạn '+evtType(e.type).label+' ('+fmtDateTime(e.startAt)+')?')) return;
