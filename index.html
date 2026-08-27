@@ -3831,7 +3831,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.19.38';
+const APP_VERSION='3.19.40';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -29607,6 +29607,12 @@ function mergeByID(cloudArr, localArr, idField, skipTombstone, fieldName){
       // (legacy) vẫn áp như trước để giữ chống "hồi sinh" AP/giao dịch đã xóa.
       const tomb=deletedIdSetForField(fieldName);
       merged=merged.filter(r=>!tomb.has(String(r[idField])));
+    } else {
+      /* v3.19.40 (Sếp 27/8 'xóa các dòng: không lưu, mở lại vẫn hiện lại'): danh mục nền được bảo vệ khỏi bia mộ LEGACY (không ghi
+         field) — nhưng bia mộ ghi ĐÚNG field (xóa trực tiếp trên chính danh mục: markDeleted(id,'projects')) thì PHẢI áp, nếu không
+         bản cloud cũ hồi sinh mỗi lần merge. Chỉ áp bia mộ có field === fieldName. */
+      const tombExact=new Set(); _deletedIds().forEach(d=>{ if(d && d.id!=null && d.field===fieldName) tombExact.add(String(d.id)); });
+      if(tombExact.size) merged=merged.filter(r=>!tombExact.has(String(r[idField])));
     }
     // v3.04.34: CHẶN THEO NỘI DUNG — loại bản ghi khớp khóa đã purge (bất kể ID).
     //   Chỉ áp cho payables / opTransactions (bút toán tiền). Danh mục nền không đụng.
@@ -38058,8 +38064,15 @@ function ctlReconcile(parsed, ctx){
       const _kEv=(ctx.keepEv&&ctx.keepEv[vv.id+'|'+ctlIsoLocal(m.on)])?hits.find(h=>h.id===ctx.keepEv[vv.id+'|'+ctlIsoLocal(m.on)]):null;
       const hit=_kEv||hits[0]||null;
       const seg={vesselId:vv.id, vesselName:vv.name, startAt:ctlIsoLocal(m.on), endAt:ctlIsoLocal(m.off), contractNo:m.contract.contractNo, notice:m.contract.notice, parts:m.parts, rows:m.rows, month:m.month||'', value:+m.value||0, days:Math.round((en-st)/864e5*100)/100};
-      if(!hit) plan.events.push({action:'add', seg});
-      else { const changed=!hit.endAt || Math.abs(new Date(hit.endAt).getTime()-en)>60000; plan.events.push({action:(changed||hits.length>1)?'update':'same', existing:hit, seg, cands:hits, absorb:hits.filter(h=>h!==hit)}); }   /* v3.19.28: đoạn đang mở → cập nhật giờ kết thúc theo file */
+      /* v3.19.39 (Sếp 27/8 'ghi chú đỏ xử lý thế nào?'): đoạn app CHỒNG lên đợt file nhưng KHÁC giờ bắt đầu (đoạn gộp cũ 15/05→26/08,
+         đoạn đang mở…) → liệt kê 'chồng', mặc định GỘP vào đợt file khi ghi (bỏ tick = giữ); không còn ghi 2 lần. */
+      const usedIds=new Set(hits.map(h=>h.id));
+      const overlaps=exEv.filter(e=>!usedIds.has(e.id) && !(plan._claimed&&plan._claimed.has(e.id))).filter(e=>{ const a=new Date(e.startAt).getTime(), b=e.endAt?new Date(e.endAt).getTime():Infinity; return a<en && b>st; });
+      plan._claimed=plan._claimed||new Set(); hits.forEach(h=>plan._claimed.add(h.id)); overlaps.forEach(o=>plan._claimed.add(o.id));
+      const ovKey=vv.id+'|'+ctlIsoLocal(m.on);
+      const ovSel=overlaps.map(o=>({ev:o, absorb:!(ctx.keepOv&&ctx.keepOv[ovKey]&&ctx.keepOv[ovKey][o.id]===false)}));
+      if(!hit) plan.events.push({action:(ovSel.some(x=>x.absorb)?'update':'add'), seg, overlaps:ovSel, absorb:ovSel.filter(x=>x.absorb).map(x=>x.ev)});
+      else { const changed=!hit.endAt || Math.abs(new Date(hit.endAt).getTime()-en)>60000; plan.events.push({action:(changed||hits.length>1||ovSel.some(x=>x.absorb))?'update':'same', existing:hit, seg, cands:hits, overlaps:ovSel, absorb:hits.filter(h=>h!==hit).concat(ovSel.filter(x=>x.absorb).map(x=>x.ev))}); }   /* v3.19.28: đoạn đang mở → cập nhật giờ kết thúc theo file */
     });
   });
   return plan;
@@ -38150,7 +38163,7 @@ function projectMergeGo(){
       g.dups.forEach(d=>{ if(d.docs&&d.docs.length){ g.keep.docs=(g.keep.docs||[]).concat(d.docs); }
         /* trỏ lại tham chiếu projectId ở mọi store */
         (typeof ALL_DATA_FIELDS!=='undefined'?ALL_DATA_FIELDS:[]).forEach(f=>{ const arr=S[f]; if(!Array.isArray(arr)||f==='projects') return; let hit=0; arr.forEach(r=>{ if(r&&r.projectId===d.id){ r.projectId=g.keep.id; hit++; try{touchRecord(r);}catch(e){} } if(r&&r.costObject&&r.costObject.type==='project'&&r.costObject.id===d.id){ r.costObject.id=g.keep.id; r.costObject.name=g.keep.name||r.costObject.name; hit++; } }); if(hit){ touched.add(f); nRef+=hit; } });
-        d._deleted=true; d._mergedInto=g.keep.id; (d.auditTrail=d.auditTrail||[]).push({at:now,by:who,act:'merged_into',to:g.keep.code}); try{touchRecord(d);}catch(e){} try{ markDeleted([d.id],'projects'); }catch(e){} nDup++; });
+        d._deleted=true; d._mergedInto=g.keep.id; (d.auditTrail=d.auditTrail||[]).push({at:now,by:who,act:'merged_into',to:g.keep.code}); try{touchRecord(d);}catch(e){} try{ markDeleted([d.id],'projects'); }catch(e){} S.projects=S.projects.filter(x=>x!==d); nDup++; });
       (g.keep.auditTrail=g.keep.auditTrail||[]).push({at:now,by:who,act:'merge_absorb',from:g.dups.map(d=>d.code)}); try{touchRecord(g.keep);}catch(e){} });
     renames.forEach(r=>{ const old=r.p.code; r.p.code=r.code; if(!r.p.notice) r.p.notice=old; (r.p.auditTrail=r.p.auditTrail||[]).push({at:now,by:who,act:'code_renamed',from:old,to:r.code}); try{touchRecord(r.p);}catch(e){} });
   },{action:'project_merge', fields:Array.from(touched).concat(['deletedIds']), onOk:()=>{ try{ logAuditEvent('project_merge',{groups:groups.length, dups:nDup, refs:nRef, actor:who}); }catch(e){} toast('✓ Gộp '+nDup+' dự án trùng · trỏ lại '+nRef+' tham chiếu · đổi mã '+renames.length,'good'); closeModal(); window._projMergeGroups=null; try{ renderProjects(); }catch(e){} }});
@@ -38192,7 +38205,7 @@ function ctlVesselMapAccept(fileName){
 function ctlCodeOverride(cnKey, code){
   const st=window._ctlPlan; if(!st) return; st.override=st.override||{}; code=ctlNorm(code).toUpperCase();
   if(code) st.override[cnKey]=code; else delete st.override[cnKey];
-  st.plan=ctlReconcile(st.parsed,{projects:(S.projects||[]).filter(p=>p&&!p._deleted), events:VesselService.events(), vessels:VesselService.vessels(), override:st.override, keep:st.keep||{}, keepEv:st.keepEv||{}});
+  st.plan=ctlReconcile(st.parsed,{projects:(S.projects||[]).filter(p=>p&&!p._deleted), events:VesselService.events(), vessels:VesselService.vessels(), override:st.override, keep:st.keep||{}, keepEv:st.keepEv||{}, keepOv:st.keepOv||{}});
   /* mã mới gõ tay cho dự án tạo mới */
   st.plan.projects.forEach(x=>{ if(x.action==='new' && st.override[ctlKey(x.rec.contractNo)]) x.rec.code=st.override[ctlKey(x.rec.contractNo)]; });
   ctlImportPreview();
@@ -38207,8 +38220,9 @@ function ctlReparse(){
 /* v3.19.38: chọn bản giữ khi trùng → đối chiếu lại với lựa chọn */
 function ctlKeepPick(cnKey, pid){ const st=window._ctlPlan; if(!st) return; st.keep=st.keep||{}; st.keep[cnKey]=pid; _ctlRerun(); }
 function ctlKeepEvPick(evKey, eid){ const st=window._ctlPlan; if(!st) return; st.keepEv=st.keepEv||{}; st.keepEv[evKey]=eid; _ctlRerun(); }
+function ctlOvPick(evKey, eid, on){ const st=window._ctlPlan; if(!st) return; st.keepOv=st.keepOv||{}; st.keepOv[evKey]=st.keepOv[evKey]||{}; st.keepOv[evKey][eid]=!!on; _ctlRerun(); }
 function _ctlRerun(){ const st=window._ctlPlan; if(!st) return; const takes={}; st.plan.projects.forEach(x=>{ (x.diffs||[]).forEach(d=>{ takes[ctlKey(x.rec.contractNo)+'|'+d.k]=d.take; }); });
-  st.plan=ctlReconcile(st.parsed,{projects:(S.projects||[]).filter(p=>p&&!p._deleted), events:VesselService.events(), vessels:VesselService.vessels(), override:st.override||{}, keep:st.keep||{}, keepEv:st.keepEv||{}});
+  st.plan=ctlReconcile(st.parsed,{projects:(S.projects||[]).filter(p=>p&&!p._deleted), events:VesselService.events(), vessels:VesselService.vessels(), override:st.override||{}, keep:st.keep||{}, keepEv:st.keepEv||{}, keepOv:st.keepOv||{}});
   st.plan.projects.forEach(x=>{ (x.diffs||[]).forEach(d=>{ const t=takes[ctlKey(x.rec.contractNo)+'|'+d.k]; if(t) d.take=t; }); if(x.action==='same'&&(x.diffs||[]).some(d=>d.take==='excel')) x.action='update'; }); ctlImportPreview(); }
 function ctlDiffAll(take){ const st=window._ctlPlan; if(!st) return; st.plan.projects.forEach(x=>{ (x.diffs||[]).forEach(d=>{ d.take=take; }); if(x.action==='same'&&(x.diffs||[]).some(d=>d.take==='excel')) x.action='update'; }); ctlImportPreview(); }
 function ctlDiffPick(cnKey, k, take){
@@ -38227,7 +38241,7 @@ function ctlImportPreview(){
       ${x.diffs.length?`<div style="font-size:10.5px;color:#b8730a">⚠ lệch — chọn giữ: ${x.diffs.map(d=>`<span style="white-space:nowrap;margin-right:6px">${kLabel[d.k]}: <label><input type="radio" name="ctl-diff-${esc(ctlKey(x.rec.contractNo))}-${d.k}" value="app" ${d.take==='excel'?'':'checked'} onchange="ctlDiffPick('${esc(ctlKey(x.rec.contractNo))}','${d.k}','app')"> app ${typeof d.cur==='number'?fm(d.cur):esc(String(d.cur))}</label> <label><input type="radio" name="ctl-diff-${esc(ctlKey(x.rec.contractNo))}-${d.k}" value="excel" ${d.take==='excel'?'checked':''} onchange="ctlDiffPick('${esc(ctlKey(x.rec.contractNo))}','${d.k}','excel')"> Excel ${typeof d.nv==='number'?fm(d.nv):esc(String(d.nv))}</label></span>`).join('')}</div>`:''}</td>
     <td style="padding:4px 6px;text-align:right;font-family:monospace">${fm(x.rec.unitPrice)}</td><td style="padding:4px 6px;text-align:right;font-family:monospace">${fm(x.rec.value)} ${esc(x.rec.ccy)}</td></tr>`).join('');
   const ev=plan.events.map(x=>`<tr style="border-bottom:1px solid var(--rule)"><td style="padding:4px 6px">${x.action==='add'?'<b style="color:#1e7d44">THÊM</b>':x.action==='update'?'<b style="color:#b8730a">CẬP NHẬT</b>':'<span style="color:var(--muted)">đã có</span>'}</td>
-    <td style="padding:4px 6px">${esc(x.seg.vesselName)}</td><td style="padding:4px 6px;font-family:monospace">${fDT(x.seg.startAt)} → ${fDT(x.seg.endAt)}${x.action==='update'?`<div style="font-size:10.5px;color:#b8730a">app: kết thúc ${fDT(x.existing.endAt)||'— (đang mở)'}</div>`:''}${(x.cands&&x.cands.length>1)?`<div style="font-size:10.5px;color:var(--bad)">⚠ ${x.cands.length} đoạn app cùng giờ bắt đầu — giữ: ${x.cands.map(ev=>`<label style="margin-right:8px"><input type="radio" name="ctl-keepev-${esc(x.seg.vesselId)}-${esc(x.seg.startAt)}" ${ev===x.existing?'checked':''} onchange="ctlKeepEvPick('${esc(x.seg.vesselId+'|'+x.seg.startAt)}','${esc(ev.id)}')"> ${ev.endAt?fDT(ev.endAt):'đang mở'}${(ev.fuelStart&&Object.values(ev.fuelStart).some(f=>f&&+f.qty))?' · nhiên liệu':''}${/wizard|\.pdf/i.test(String(ev.notes||''))?' · PDF':''}</label>`).join('')}<span style="color:var(--muted)">(đoạn khác gộp vào)</span></div>`:''}</td>
+    <td style="padding:4px 6px">${esc(x.seg.vesselName)}</td><td style="padding:4px 6px;font-family:monospace">${fDT(x.seg.startAt)} → ${fDT(x.seg.endAt)}${x.action==='update'?`<div style="font-size:10.5px;color:#b8730a">app: kết thúc ${fDT(x.existing.endAt)||'— (đang mở)'}</div>`:''}${(x.overlaps&&x.overlaps.length)?`<div style="font-size:10.5px;color:var(--bad)">⚠ ${x.overlaps.length} đoạn app chồng lên đợt này (khác giờ bắt đầu): ${x.overlaps.map(o=>`<label style="margin-right:8px"><input type="checkbox" ${o.absorb?'checked':''} onchange="ctlOvPick('${esc(x.seg.vesselId+'|'+x.seg.startAt)}','${esc(o.ev.id)}',this.checked)"> gộp ${fDT(o.ev.startAt)} → ${o.ev.endAt?fDT(o.ev.endAt):'đang mở'}${(o.ev.fuelStart&&Object.values(o.ev.fuelStart).some(f=>f&&+f.qty))?' · nhiên liệu':''}</label>`).join('')}<span style="color:var(--muted)">(bỏ tick = giữ nguyên đoạn app)</span></div>`:''}${(x.cands&&x.cands.length>1)?`<div style="font-size:10.5px;color:var(--bad)">⚠ ${x.cands.length} đoạn app cùng giờ bắt đầu — giữ: ${x.cands.map(ev=>`<label style="margin-right:8px"><input type="radio" name="ctl-keepev-${esc(x.seg.vesselId)}-${esc(x.seg.startAt)}" ${ev===x.existing?'checked':''} onchange="ctlKeepEvPick('${esc(x.seg.vesselId+'|'+x.seg.startAt)}','${esc(ev.id)}')"> ${ev.endAt?fDT(ev.endAt):'đang mở'}${(ev.fuelStart&&Object.values(ev.fuelStart).some(f=>f&&+f.qty))?' · nhiên liệu':''}${/wizard|\.pdf/i.test(String(ev.notes||''))?' · PDF':''}</label>`).join('')}<span style="color:var(--muted)">(đoạn khác gộp vào)</span></div>`:''}</td>
     <td style="padding:4px 6px;text-align:right;font-family:monospace">${x.seg.days}</td><td style="padding:4px 6px;font-size:11px">${esc(x.seg.contractNo)}${x.seg.month?' · <b>'+esc(x.seg.month)+'</b>':''}${x.seg.value?' · '+fm(x.seg.value):''}${x.seg.parts>1?' · gộp '+x.seg.parts+' đoạn':''}</td></tr>`).join('');
   const nP=plan.projects.filter(x=>x.action!=='same'||(x.diffs||[]).some(d=>d.take==='excel')).length, nE=plan.events.filter(x=>x.action!=='same').length;
   openModal('📥 Contract Tracking List — đối chiếu ('+esc(st.file)+')', `
@@ -38255,11 +38269,11 @@ function ctlImportCommit(){
         /* v3.19.38: dự án trùng → gộp vào bản giữ (điền ô trống, dồn file/notice, trỏ lại tham chiếu, bia mộ) */
         (x.absorb||[]).forEach(d=>{ if(!d||d===p) return; const fill=projectMergePlan(p,[d]); fill.forEach(f=>{ p[f.k]=f.nv; }); if(d.docs&&d.docs.length) p.docs=(p.docs||[]).concat(d.docs);
           (typeof ALL_DATA_FIELDS!=='undefined'?ALL_DATA_FIELDS:[]).forEach(f=>{ const arr=S[f]; if(!Array.isArray(arr)||f==='projects') return; let hit=0; arr.forEach(r=>{ if(r&&r.projectId===d.id){ r.projectId=p.id; hit++; try{touchRecord(r);}catch(_){} } if(r&&r.costObject&&r.costObject.type==='project'&&r.costObject.id===d.id){ r.costObject.id=p.id; hit++; } }); if(hit) _absFields.add(f); });
-          d._deleted=true; d._mergedInto=p.id; try{touchRecord(d);}catch(_){} try{ markDeleted([d.id],'projects'); }catch(_){} nPa++; }); }
+          d._deleted=true; d._mergedInto=p.id; try{touchRecord(d);}catch(_){} try{ markDeleted([d.id],'projects'); }catch(_){} S.projects=S.projects.filter(x=>x!==d); nPa++; }); }
     });
     plan.events.forEach(x=>{
       const pid=codeToId[ctlKey(x.seg.contractNo)]||null;
-      if(x.action==='add'){ VesselService.events().push({id:uid(), vesselId:x.seg.vesselId, type:'onhire', startAt:x.seg.startAt, endAt:x.seg.endAt, projectId:pid, hireValue:x.seg.value||undefined, hireLabel:x.seg.month||undefined, notes:(x.seg.notice&&!/^nil$/i.test(x.seg.notice)?x.seg.notice+' · ':'')+(x.seg.month?x.seg.month+' · ':'')+'CTL '+st.file+(x.seg.parts>1?' (gộp '+x.seg.parts+' đoạn)':''), _source:'ctl_import', createdBy:who, createdAt:now, updatedAt:now}); nEa++; }
+      if(x.action==='add'||(x.action==='update'&&!x.existing)){ const ne={id:uid(), vesselId:x.seg.vesselId, type:'onhire', startAt:x.seg.startAt, endAt:x.seg.endAt, projectId:pid, hireValue:x.seg.value||undefined, hireLabel:x.seg.month||undefined, notes:(x.seg.notice&&!/^nil$/i.test(x.seg.notice)?x.seg.notice+' · ':'')+(x.seg.month?x.seg.month+' · ':'')+'CTL '+st.file+(x.seg.parts>1?' (gộp '+x.seg.parts+' đoạn)':''), _source:'ctl_import', createdBy:who, createdAt:now, updatedAt:now}; VesselService.events().push(ne); x.existing=ne; nEa++; }
       else if(x.action==='update'){ const e=x.existing; e.endAt=x.seg.endAt; if(!e.projectId&&pid) e.projectId=pid; if(x.seg.value&&!e.hireValue) e.hireValue=x.seg.value; if(x.seg.month&&!e.hireLabel) e.hireLabel=x.seg.month; e.notes=(e.notes?e.notes+' · ':'')+'CTL cập nhật '+now.slice(0,10); try{touchRecord(e);}catch(_){} nEu++; }
       (x.absorb||[]).forEach(d=>{ const k=x.existing; if(!k||!d||d===k) return; ['fuelStart','fuelPumped','fuelEnd'].forEach(fk=>{ if(!d[fk]) return; k[fk]=k[fk]||{}; Object.keys(d[fk]).forEach(f=>{ if(!(k[fk][f]&&+k[fk][f].qty) && d[fk][f]&&+d[fk][f].qty) k[fk][f]=d[fk][f]; }); }); if(d.notes&&String(k.notes||'').indexOf(d.notes)<0) k.notes=(k.notes?k.notes+' · ':'')+d.notes; d._deleted=true; d._mergedInto=k.id; try{touchRecord(d);}catch(_){} try{ markDeleted([d.id]); }catch(_){} nAb++; });
     });
@@ -38468,7 +38482,7 @@ function renderProjects(){
     esel.value=_prjFilterEndClient||''; if(esel.value!==(_prjFilterEndClient||'')) { _prjFilterEndClient=''; esel.value=''; }
   }
   const canArchive=canArchiveItem();
-  let list=S.projects.slice();
+  let list=S.projects.filter(p=>p&&!p._deleted);   /* v3.19.40 */
   if(_prjFilterEndClient==='__none__') list=list.filter(p=>!p.endClient);
   else if(_prjFilterEndClient) list=list.filter(p=>_ecKey(p.endClient)===_prjFilterEndClient);
   if(_prjFilterVessel==='__none__') list=list.filter(p=>!p.vesselId);
