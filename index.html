@@ -1282,8 +1282,9 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
     <div class="section-head"><div class="section-title"><span class="tag">∑</span>Danh sách dự án <span style="text-transform:none;font-weight:400;color:var(--muted);font-size:11px">(tên · đơn giá · giá trị HĐ)</span></div>
       <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
         <label style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Lọc theo tàu</label>
+        <select id="prj-filter-endclient" onchange="_prjFilterEndClient=this.value;renderProjects()" title="v3.19.23: lọc theo End client (khách hàng cuối)" style="padding:6px 10px;font-size:13px;border:1px solid var(--rule);border-radius:6px;min-width:170px"></select>
         <select id="prj-filter-vessel" onchange="_prjFilterVessel=this.value;renderProjects()" style="padding:6px 10px;font-size:13px;border:1px solid var(--rule);border-radius:6px;min-width:180px"></select>
-        <button class="btn-sec" style="font-size:12px" onclick="projectMergeOpen()" title="v3.19.19: tìm dự án ghi 2 lần (cùng tàu + cùng số HĐ) và gộp về bản mã quy ước">🔁 Gộp trùng</button>
+        <button class="btn-sec" id="prj-merge-btn" style="font-size:12px;display:none;border-color:var(--bad);color:var(--bad)" onclick="projectMergeOpen()" title="v3.19.21: chỉ hiện khi app thấy dự án ghi 2 lần hoặc mã kiểu cũ — dọn xong tự ẩn">🔁 Gộp trùng</button>
         <button class="btn-sec" style="font-size:12px" onclick="ctlImportOpen()" title="v3.18.98: đọc file Contract Tracking List (sheet Main Contract) → dự án + đơn giá + đoạn On/Off-hire; đối chiếu với app, chỉ ghi phần phát sinh">📥 Contract Tracking List</button>
         <label class="btn-sec" style="font-size:12px;cursor:pointer" title="v3.18.98: AI đọc PDF tóm tắt hợp đồng → điền form Thêm dự án (ô trống)">📄 Đọc PDF tóm tắt HĐ<input type="file" accept=".pdf,image/*" style="display:none" onchange="ctlReadContractPdf(this)"></label>
       </div>
@@ -3830,7 +3831,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.19.20';
+const APP_VERSION='3.19.23';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -37795,6 +37796,7 @@ function editProject(id){
     <div style="margin-top:4px">${(p.docs&&p.docs.length)?p.docs.map(d=>`<div>📎 <a href="${esc(d.url)}" target="_blank" rel="noopener">${esc(d.name)}</a> <span style="color:var(--muted);font-size:10.5px">${esc(String(d.at||'').slice(0,10))} · ${esc(d.by||'')}</span>${isAdmin()?` <a href="#" onclick="event.preventDefault();closeModal();projectDocRemove('${p.id}','${esc(d.id)}')" style="color:var(--bad)">✕</a>`:''}</div>`).join(''):'<span style="color:var(--muted)">Chưa đính file nào — dùng nút 📎 trên dòng dự án.</span>'}</div></div>`);
 }
 let _prjFilterVessel='';  // v3.03.78: bộ lọc dự án theo tàu
+let _prjFilterEndClient='';  // v3.19.23 (Sếp 27/8): bộ lọc dự án theo End client
 /* v3.07.40: nhãn trạng thái dự án (Project Integration). */
 const PROJECT_STATUS={
   planned:  {label:'Planned',   vi:'Lập kế hoạch', color:'#5a4a8c'},
@@ -38287,6 +38289,8 @@ async function ctlContractSave(){
   window._ctlPdf=null; closeModal(); try{ renderProjects(); }catch(e){}
 }
 function renderProjects(){
+  /* v3.19.21 (Sếp 27/8 "Gộp trùng có cần thiết?"): nút chỉ hiện khi CÒN việc — dọn xong tự ẩn */
+  try{ const b=document.getElementById('prj-merge-btn'); if(b && isAdmin()){ const nG=projectDupGroups(S.projects||[]).length, nR=projectRenameCandidates(S.projects||[]).length; b.style.display=(nG+nR)?'':'none'; b.textContent='🔁 Gộp trùng ('+(nG?nG+' nhóm':'')+(nG&&nR?' · ':'')+(nR?nR+' mã cũ':'')+')'; } }catch(e){}
   const tbl=document.getElementById('prj-table');
   if(!S.projects.length){tbl.innerHTML='<tr><td class="empty">Chưa có dự án</td></tr>';return;}
   // v3.03.78: populate bộ lọc theo tàu (giữ lựa chọn hiện tại)
@@ -38300,13 +38304,24 @@ function renderProjects(){
     fsel.innerHTML=opts.join('');
     fsel.value=cur;
   }
+  /* v3.19.23: bộ lọc End client — danh sách lấy từ dự án đang có (bỏ dấu để gom 'Vietsov Petro' = 'Vietsovpetro') */
+  const esel=document.getElementById('prj-filter-endclient');
+  const _ecKey=v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/gi,'').toLowerCase();
+  if(esel){
+    const map={}; S.projects.forEach(p=>{ if(!p||p._deleted||!p.endClient) return; const k=_ecKey(p.endClient); if(!map[k]) map[k]=p.endClient; });
+    const keys=Object.keys(map).sort((a,b)=>map[a].localeCompare(map[b],'vi'));
+    esel.innerHTML=['<option value="">— Tất cả end client —</option>'].concat(keys.map(k=>`<option value="${esc(k)}">${esc(map[k])}</option>`)).concat(S.projects.some(p=>p&&!p._deleted&&!p.endClient)?['<option value="__none__">— Chưa có end client —</option>']:[]).join('');
+    esel.value=_prjFilterEndClient||''; if(esel.value!==(_prjFilterEndClient||'')) { _prjFilterEndClient=''; esel.value=''; }
+  }
   const canArchive=canArchiveItem();
   let list=S.projects.slice();
+  if(_prjFilterEndClient==='__none__') list=list.filter(p=>!p.endClient);
+  else if(_prjFilterEndClient) list=list.filter(p=>_ecKey(p.endClient)===_prjFilterEndClient);
   if(_prjFilterVessel==='__none__') list=list.filter(p=>!p.vesselId);
   else if(_prjFilterVessel) list=list.filter(p=>p.vesselId===_prjFilterVessel);
   // v3.06.23: BẢNG RÚT GỌN ở tab 02 (Dự án) — chỉ Tên · Đơn giá · Giá trị HĐ.
   //   NV phân quyền tab Dự án CHỈ thấy mức này — KHÔNG thấy DT/CP/Margin (chuyển sang tab 01 Báo cáo định kỳ).
-  let html=`<thead><tr><th>Mã</th><th title="v3.19.20: Contract No. (dòng trên) · Notice No. / TBTT (dòng dưới) — ghép từ Contract Tracking List">Contract No. / Notice</th><th>Tên / Khách hàng</th><th title="v3.19.17: End client — chủ đầu tư/khách của khách (từ Contract Tracking List hoặc tóm tắt HĐ)">End client</th><th>Tàu</th><th style="white-space:nowrap" title="v3.18.98: On-hire đầu → Off-hire cuối của các đoạn On-hire gắn dự án">On-hire → Off-hire</th><th class="r" title="Tổng ngày On-hire của dự án (từ Vessel Employment)">Ngày DA</th><th class="r">Đơn giá <span style="font-weight:400;text-transform:none">(đ/ngày)</span></th><th class="r">Giá trị HĐ (dự kiến)</th><th class="r">Thực hiện <span style="font-weight:400;text-transform:none">(đã phát HĐ)</span></th><th class="r">% TH</th><th></th></tr></thead><tbody>`;
+  let html=`<thead><tr><th>Mã</th><th style="max-width:150px" title="v3.19.20: Contract No. (dòng trên) · Notice No. / TBTT (dòng dưới) — ghép từ Contract Tracking List">Contract No. / Notice</th><th style="min-width:240px">Tên / Khách hàng</th><th title="v3.19.17: End client — chủ đầu tư/khách của khách (từ Contract Tracking List hoặc tóm tắt HĐ)">End client</th><th>Tàu</th><th style="white-space:nowrap" title="v3.18.98: On-hire đầu → Off-hire cuối của các đoạn On-hire gắn dự án">On-hire → Off-hire</th><th class="r" title="Tổng ngày On-hire của dự án (từ Vessel Employment)">Ngày DA</th><th class="r">Đơn giá <span style="font-weight:400;text-transform:none">(đ/ngày)</span></th><th class="r">Giá trị HĐ (dự kiến)</th><th class="r">Thực hiện <span style="font-weight:400;text-transform:none">(đã phát HĐ)</span></th><th class="r">% TH</th><th></th></tr></thead><tbody>`;
   if(!list.length){ html+='<tr><td class="empty" colspan="12">Không có dự án khớp bộ lọc</td></tr></tbody>'; tbl.innerHTML=html; return; }
   let tValue=0, tIssued=0, tDays=0; const _allEv=(typeof VesselService!=='undefined'&&VesselService.events)?VesselService.events():[];
   list.forEach(p=>{
@@ -38326,7 +38341,7 @@ function renderProjects(){
       : '';
     html+=`<tr style="${p.archived?'opacity:0.55;background:var(--paper-3)':''}">
       <td class="ds-t-sub" style="font-family:var(--font-mono)">${esc(p.code)}${p.archived?' <span class="ds-need" data-dot="bad" style="font-size:10px" title="Đã đánh dấu hoàn thành">⊘</span>':''}</td>
-      <td style="font-size:11px;font-family:var(--font-mono);white-space:nowrap">${p.contractNo?esc(p.contractNo):'<span style="color:var(--muted)">—</span>'}${p.notice?`<div style="color:var(--muted)" title="Notice No. / TBTT">${esc(p.notice)}</div>`:''}</td>
+      <td style="font-size:10.5px;font-family:var(--font-mono);max-width:150px;word-break:break-all;line-height:1.35">${p.contractNo?esc(p.contractNo):'<span style="color:var(--muted)">—</span>'}${p.notice?`<div style="color:var(--muted)" title="Notice No. / TBTT">${esc(p.notice)}</div>`:''}</td>
       <td><b>${esc(p.name)}</b>${p.isOM?' <span class="ds-need" data-dot="good" style="font-size:10px;margin-left:4px" title="Dự án O&M độc lập — có NV phụ trách riêng">⚙ O&M</span>':''}<br><span style="color:var(--muted);font-size:11px">${esc(p.client) || '—'}</span>${(p.docs&&p.docs.length)?`<div style="font-size:10.5px;margin-top:2px">${p.docs.map(d=>`<a href="${esc(d.url)}" target="_blank" rel="noopener" title="${esc(d.name)} · ${esc(String(d.at||'').slice(0,10))} · ${esc(d.by||'')}">📎 ${esc(String(d.name).length>28?String(d.name).slice(0,26)+'…':d.name)}</a>${isAdmin()?` <a href="#" onclick="event.preventDefault();projectDocRemove('${p.id}','${esc(d.id)}')" style="color:var(--bad)" title="Gỡ link">✕</a>`:''}`).join(' · ')}</div>`:''}</td>
       <td style="font-size:12px">${p.endClient?esc(p.endClient):'<span style="color:var(--muted)">—</span>'}</td>
       <td>${v?'<b>'+v.name+'</b>':'<span style="color:var(--muted)">—</span>'}</td>
@@ -38348,7 +38363,7 @@ function renderProjects(){
   const tValDisp=list.reduce((s,p)=>s+toDisplay(+p.value||0,p.ccy||'USD'),0);
   const tPct = tValDisp>0.01 ? (tIssued/tValDisp*100) : 0;
   html+=`<tr style="border-top:2px solid var(--ink);font-weight:700;background:var(--paper-2,var(--paper-3))">
-    <td colspan="6" class="r">TỔNG (${list.length} dự án${_prjFilterVessel&&_prjFilterVessel!=='__none__'?' · '+esc((VesselService.vessels().find(x=>x.id===_prjFilterVessel)||{}).name||''):''})</td>
+    <td colspan="6" class="r">TỔNG (${list.length} dự án${_prjFilterVessel&&_prjFilterVessel!=='__none__'?' · '+esc((VesselService.vessels().find(x=>x.id===_prjFilterVessel)||{}).name||''):''}${_prjFilterEndClient&&_prjFilterEndClient!=='__none__'&&list.length?' · '+esc(list[0].endClient||''):''})</td>
     <td class="r mono" style="font-size:11px">${Math.round(tDays*100)/100}</td><td></td>
     <td class="r num">${fmt(tValue)}</td>
     <td class="r num">${fmt(tIssued)}</td>
