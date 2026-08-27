@@ -3831,7 +3831,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.19.25';
+const APP_VERSION='3.19.35';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -19897,6 +19897,7 @@ function openPayrollEngine(){
       <button class="pe-tab-btn" id="pe-tab-test" onclick="payEngineTab('test')" style="padding:7px 14px;border:none;background:none;cursor:pointer;font-size:13px;color:var(--muted)">Thử công thức</button>
       <button class="pe-tab-btn" id="pe-tab-office" onclick="payEngineTab('office')" style="padding:7px 14px;border:none;background:none;cursor:pointer;font-size:13px;color:var(--muted)">Lương Văn phòng</button>
       <button class="pe-tab-btn" id="pe-tab-crew" onclick="payEngineTab('crew')" style="padding:7px 14px;border:none;background:none;cursor:pointer;font-size:13px;color:var(--muted)">Lương Đội tàu</button>
+      <button class="pe-tab-btn" id="pe-tab-tech" onclick="payEngineTab('tech')" style="padding:7px 14px;border:none;background:none;cursor:pointer;font-size:13px;color:var(--muted)">Lương Kỹ thuật</button>
       <button class="pe-tab-btn" id="pe-tab-expert" onclick="payEngineTab('expert')" style="padding:7px 14px;border:none;background:none;cursor:pointer;font-size:13px;color:var(--muted)">Lương Chuyên gia</button>
       <button class="pe-tab-btn" id="pe-tab-expat" onclick="payEngineTab('expat')" style="padding:7px 14px;border:none;background:none;cursor:pointer;font-size:13px;color:var(--muted)">Lương Expat VP</button>
       <button class="pe-tab-btn" id="pe-tab-tpl" onclick="payEngineTab('tpl')" style="padding:7px 14px;border:none;background:none;cursor:pointer;font-size:13px;color:var(--muted)">Mẫu Import</button>
@@ -19977,6 +19978,25 @@ function payEngineTab(tab){
       </div>
       <button class="btn-primary" style="font-size:13px;margin-top:10px" onclick="payExpertTest()">▶ Tính lương</button>
       <div id="px-result" style="margin-top:10px"></div>`;
+  } else if(tab==='tech'){
+    /* v3.19.33 (Sếp 27/8 'Thêm cấu hình lương: Kỹ thuật'): tab tham số + tính thử cho engine payComputeTech (chưa có tab dù engine đã có) */
+    const prof=payEngine().profiles.tech||defaultPayProfiles().tech;
+    const num=(id,v,w)=>`<input id="${id}" value="${v}" style="width:${w||90}px;padding:3px 6px;border:1px solid var(--rule);border-radius:4px;font-size:12px">`;
+    host.innerHTML=`<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Profile <b>Lương Bộ phận Kỹ thuật</b> (VND) — lương = mức/ngày theo loại công × số công (VP · biển · dock · ngoài giờ · công tác) + tăng ca (×2 cuối tuần, ×3 lễ); ngoài giờ/dock ×1.8 miễn thuế; BHXH theo trần như đội tàu (nền = ô Nền BHXH trên thẻ / LCB).</div>
+      <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:12px"><tbody>
+        <tr style="border-bottom:1px solid var(--rule)"><td style="padding:5px 8px;color:var(--muted)">Ngày công chuẩn/tháng</td><td style="padding:5px 8px">${num('pt-sd',prof.standardDays||21)}</td></tr>
+        <tr style="border-bottom:1px solid var(--rule)"><td style="padding:5px 8px;color:var(--muted)">Mức dock (× mức VP)</td><td style="padding:5px 8px">${num('pt-dock',prof.dockMult||1.5)}</td></tr>
+        <tr style="border-bottom:1px solid var(--rule)"><td style="padding:5px 8px;color:var(--muted)">Mức ngoài giờ (× mức VP)</td><td style="padding:5px 8px">${num('pt-ot',prof.otMult||1.8)}</td></tr>
+        <tr style="border-bottom:1px solid var(--rule)"><td style="padding:5px 8px;color:var(--muted)">Giảm trừ bản thân / người phụ thuộc</td><td style="padding:5px 8px">${num('pt-gs',prof.gtgcSelf||15500000,120)} / ${num('pt-gd',prof.gtgcDependent||6200000,120)}</td></tr>
+        <tr><td style="padding:5px 8px;color:var(--muted)">BHXH</td><td style="padding:5px 8px;font-size:11px">BHTN ${((prof.rateBHTN||0.01)*100)}% trên ≤${((prof.capBHTN||106200000)/1e6).toLocaleString('vi-VN')}tr · BHXH+BHYT ${((prof.rateBHXHYT||0.095)*100)}% trên ≤${((prof.capBHXH||50600000)/1e6).toLocaleString('vi-VN')}tr · công ty ${(((prof.rateBHTNco||0.01)+(prof.rateBHXHYTco||0.205))*100).toFixed(1)}%</td></tr>
+      </tbody></table>
+      <button class="btn-sec" style="font-size:11px;margin-bottom:14px" onclick="payTechSaveParams()">💾 Lưu tham số</button>
+      <div style="font-size:13px;font-weight:600;margin-bottom:6px">▶ Tính thử 1 nhân viên kỹ thuật</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;font-size:11px">
+        ${[['G','Nền BHXH (LCB)','12000000'],['H','Mức biển/ngày','1500000'],['I','Mức VP/ngày','600000'],['F','Người phụ thuộc','0'],['Q','Công biển','10'],['R','Công dock','0'],['S','Công ngoài giờ','0'],['T','Công VP','11'],['U','Công phép/lễ','0'],['W','Tăng ca cuối tuần (ngày)','0'],['X','Tăng ca lễ (ngày)','0'],['Y','Ngày công tác','0'],['M','PC công tác/ngày','0'],['Z','Ngày công tác NN','0'],['N','PC công tác NN/ngày','0'],['L','Bổ sung','0'],['O','PC dự án (tháng)','0'],['P','PC khác','0']].map(([k,lb,dv])=>`<label style="display:flex;flex-direction:column;gap:2px;min-width:120px">${lb}<input id="pt-in-${k}" value="${dv}" style="padding:4px 6px;border:1px solid var(--rule);border-radius:4px;font-size:12px"></label>`).join('')}
+      </div>
+      <button class="btn-primary" style="font-size:13px;margin-top:10px" onclick="payTechTest()">▶ Tính lương</button>
+      <div id="pt-result" style="margin-top:10px"></div>`;
   } else if(tab==='crew'){
     const prof=payEngine().profiles.crew;
     host.innerHTML=`<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Profile <b>Lương Đội tàu</b> — nạp từ Excel "Đội tàu" (59 NV, đối chiếu 0 đồng). Gồm cả tàu quản lý hộ. Lương theo loại công tàu.</div>
@@ -19994,6 +20014,22 @@ function payEngineTab(tab){
       <button class="btn-primary" style="font-size:13px;margin-top:10px" onclick="payCrewTest()">▶ Tính lương</button>
       <div id="pc-result" style="margin-top:10px"></div>`;
   }
+}
+function payTechSaveParams(){ _payConfirmSaveChange('Tham số lương Kỹ thuật', _payTechApply); }
+function _payTechApply(){
+  const g=id=>(document.getElementById(id)||{}).value;
+  _paySubmitConfigChange('tech','Tham số lương Kỹ thuật',{ standardDays:+g('pt-sd')||21, dockMult:+g('pt-dock')||1.5, otMult:+g('pt-ot')||1.8, gtgcSelf:+g('pt-gs')||15500000, gtgcDependent:+g('pt-gd')||6200000 });
+}
+function payTechTest(){
+  const g=id=>{ const el=document.getElementById('pt-in-'+id); return el?(el.value===''?'':+_unformatNumber(el.value)):0; };
+  const inp={G:g('G'),H:g('H'),I:g('I'),F:g('F'),Q:g('Q'),R:g('R'),S:g('S'),T:g('T'),U:g('U'),W:g('W'),X:g('X'),Y:g('Y'),M:g('M'),Z:g('Z'),N:g('N'),L:g('L'),O:g('O'),P:g('P')};
+  const o=payComputeTech(inp, payEngine().profiles.tech||defaultPayProfiles().tech);
+  const fm=v=>Math.round(+v||0).toLocaleString('vi-VN');
+  const row=(l,v)=>`<tr style="border-bottom:1px solid var(--rule)"><td style="padding:5px 8px;color:var(--muted)">${l}</td><td style="padding:5px 8px;text-align:right;font-family:monospace">${fm(v)}</td></tr>`;
+  const el=document.getElementById('pt-result');
+  if(el) el.innerHTML=`<table style="width:100%;border-collapse:collapse;font-size:13px;border:1px solid var(--rule)"><tbody>
+    ${row('Tổng lương NET (AC)',o.AC)}${row('Thu nhập miễn thuế (AD)',o.AD)}${row('Giảm trừ gia cảnh (AJ)',o.AJ)}${row('NET chịu thuế (AE)',o.AE)}${row('Gross quy đổi (AH)',o.AH)}${row('BHXH NV (AP)',o.AP)}${row('BHXH công ty',o.APco)}${row('Tổng gross (AI)',o.AI)}${row('Thu nhập tính thuế (AK)',o.AKtax)}${row('Thuế TNCN (AM)',o.AM)}
+    <tr><td style="padding:5px 8px;font-weight:600">Thực lĩnh (AT)</td><td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:600">${fm(o.AT)}</td></tr></tbody></table>`;
 }
 function payCrewSaveParams(){ _payConfirmSaveChange('Tham số lương Đội tàu', _payCrewApply); }
 function _payCrewApply(){
@@ -21586,6 +21622,8 @@ function _payFlowWizard(p, id, projBtn){
   const main=steps.map((st,i)=>chip(st,i)).join(arrow);
   const opt=[];
   if(s3) opt.push(`<button class="btn-ghost" style="font-size:10.5px;padding:2px 8px" onclick="payExtrasOpen('${p.period}','${id}')" title="Tùy chọn — nhập/duyệt khoản phát sinh rồi 🧮 Áp vào kỳ (trong modal); áp xong nên chạy lại bước ⑤">➕ Khoản PS</button>`);
+  /* v3.19.32: nền BHXH thuyền viên tự = LCB trong bộ đọc thẻ → không cần nút điền; chỉ hiện ghi chú nhỏ */
+  try{ const _nb=(/^crew/.test(String(p.profile||'')))?payBhxhBaseCandidates(p).length:0; if(_nb) opt.push(`<span style="font-size:10.5px;color:var(--muted)" title="Thẻ trống nền BHXH → app tự dùng LCB (Sếp 27/8); muốn nền khác thì sửa thẻ">🛡 ${_nb} thẻ nền BHXH = LCB (tự)</span>`); }catch(e){}
   if(s3) opt.push(`<button class="btn-ghost" style="font-size:10.5px;padding:2px 8px" onclick="phOpen('${id}')" title="Tùy chọn — 🩺 chạy bộ phép kiểm sức khỏe trước khi Validate">🩺 Sức khỏe</button>`);
   if(projBtn) opt.push(projBtn);
   if(p.status==='validated') opt.push(`<button class="btn-ghost" style="font-size:10.5px;padding:2px 8px" onclick="payPeriodBack('${id}')">↩ Về Nháp</button>`);
@@ -21709,8 +21747,8 @@ function openPayPeriodDetail(id){
     office:[['Lương NET',i=>+i.G||0],['KPI',i=>+i.K||0],['PC trách nhiệm',i=>+i.H||0],['PC khác',i=>(+i.V||0)+(p.projAllow===true?((+i.W||0)+(+i.WD||0)*(+i.WN||0)):0)+(+i.I||0)*(+i.T||0)+(+i.J||0)*(+i.U||0)]  /* v3.14.34: cột PC khác NHÂN BẢN GATE của engine (19510) — kỳ TẮT: không cộng W dù Kéo thẻ đã đổ mức; kỳ BẬT: W + WD×WN (trước đây hiện W cả khi tắt & thiếu phần /ngày khi bật) */],
     office_gross:[['LCB GROSS',i=>+i.G||0],['Thưởng',i=>+i.K||0],['Tiền nhà',i=>+i.H||0],['Khác',i=>+i.V||0]],
     tech:[['Mức biển/ngày',i=>+i.H||0],['Mức VP/ngày',i=>+i.I||0],['PC công tác',i=>(+i.M||0)*(+i.Y||0)+(+i.N||0)*(+i.Z||0)],['Bổ sung + PC dự án',i=>(+i.O||0)+(p.projAllow===true?(+i.P||0):0)]],   /* v3.14.35: cột nhân bản gate công tắc như VP */
-    crew:[['Lương CB',i=>+i.N||0],['Mức biển/ngày',i=>+i.O||0],['Mức DP/ngày',i=>+i.T||0],['Điều chỉnh',i=>+i.AA||0]],
-    crew_khoan:[['Lương bờ (CB+KPI)',i=>+i.N||0],['Đơn giá/ngày',i=>+i.O||0],['Mức DP/ngày',i=>+i.T||0],['Điều chỉnh',i=>+i.AA||0]]
+    crew:[['Ngày công',i=>['G','H','I','J','K','L','M'].reduce((t,k)=>t+(+i[k]||0),0),'days'],['Lương CB',i=>+i.N||0],['Mức biển/ngày',i=>+i.O||0],['Mức DP/ngày',i=>+i.T||0],['Điều chỉnh',i=>+i.AA||0]],   /* v3.19.29: cột Ngày công (biển+dock+bờ+DP) */
+    crew_khoan:[['Ngày công',i=>['G','H','I','J','K','L','M'].reduce((t,k)=>t+(+i[k]||0),0),'days'],['Lương bờ (CB+KPI)',i=>+i.N||0],['Đơn giá/ngày',i=>+i.O||0],['Mức DP/ngày',i=>+i.T||0],['Điều chỉnh',i=>+i.AA||0]]
   };
   const _pcCols=_PC_COLS[p.profile]||null;
   const _bccVMap=(p.profile==='crew'||p.profile==='crew_khoan')?_payBccVesselMap(p):null;   /* v3.14.81: BCC của kỳ — nguồn tàu duy nhất */
@@ -21728,7 +21766,7 @@ function openPayPeriodDetail(id){
     const _rm=_RES_MAP[p.profile]||{};
     const bh=(_rm.bh&&res[_rm.bh]!=null&&isFinite(res[_rm.bh]))?+res[_rm.bh]:null;
     const tax=(_rm.tax&&res[_rm.tax]!=null&&isFinite(res[_rm.tax]))?+res[_rm.tax]:null;
-    const comp=_pcCols?_pcCols.map(([lb,fn])=>`<td style="padding:5px 6px;text-align:right;font-family:monospace;font-size:12px">${_fm(fn(inp))}</td>`).join('')
+    const comp=_pcCols?_pcCols.map(([lb,fn,kind])=>`<td style="padding:5px 6px;text-align:right;font-family:monospace;font-size:12px${kind==='days'&&!(+fn(inp))?';color:var(--bad);font-weight:600':''}" ${kind==='days'?'title="Ngày công kéo từ BCC (biển+dock+bờ+DP) — 0 = BCC tháng chưa có công của người này"':''}>${kind==='days'?((+fn(inp))?(+fn(inp)).toLocaleString('vi-VN',{maximumFractionDigits:2}):'0'):_fm(fn(inp))}</td>`).join('')
       :`<td style="padding:5px 6px;text-align:right;font-family:monospace;font-size:12px">${_fm(_resPick(res,['AB','AC','total']))}</td>`;
     return `<tr style="border-bottom:1px solid var(--rule)">
       <td style="padding:5px 8px">${esc(r.name||'?')}<div style="font-size:10px;color:var(--muted)">${esc(r.smartId||'')}${(()=>{ /* v3.14.65 (Sếp 08/8): VP → Bộ phận · Chức danh; thuyền viên → Tàu · Chức danh */
@@ -21838,6 +21876,8 @@ function openPayPeriodDetail(id){
     </div>
     ${p.validationMsg?`<div style="font-size:11px;padding:6px 10px;border-radius:6px;cursor:pointer;margin-bottom:8px;background:${p.validationOk?'#eafaf0;color:#1e7d44':'#fdeaea;color:var(--bad)'}" onclick="payShowExceptions(\'${p.id}\')" title="Bấm xem chi tiết từng cảnh báo (Báo cáo ngoại lệ)">${esc(p.validationMsg)}</div>`:''}
     ${(()=>{ try{ return _payCompositionHtml(p,id); }catch(e){ return ''; } })()}
+    ${(function(){ try{ if(total===0 && rowsArr.length){ const mp=PAY_ATT_MAP[p.profile]; const keys=mp?Object.keys(mp):[]; const nDays=keys.length?rowsArr.filter(r=>keys.some(k=>+((r.inputs||{})[k])>0)).length:-1;
+      return `<div style="font-size:12px;padding:8px 12px;border:1px solid var(--bad);border-radius:8px;background:#fdecec;margin-bottom:6px">⚠ <b>Cả kỳ thực lĩnh = 0</b>${nDays>=0?` — <b>${nDays}/${rowsArr.length}</b> NV có ngày công trong ô nhập`:''}. Thường do bảng chấm công (BCC) tháng ${esc(p.period)} chưa có công hoặc mã công không khớp map (${keys.length?keys.map(k=>k+'='+mp[k].join('/')).join(' · '):'—'}). Kiểm: Chấm công NS → 📥 Lấy BCC từ các bộ phận → khóa → về đây bước 1 Kéo chấm công → 3 Tính lại.</div>`; } }catch(e){} return ''; })()}
     <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Tổng thực lĩnh: <b style="font-family:monospace;color:#1e7d44">${total.toLocaleString(ccy==='USD'?'en-US':'vi-VN')} ${ccy}</b>${p.approvedBy?` · Duyệt bởi <b>${esc(p.approvedBy)}</b>`:''}${p._postedApId?' · <b>Đã ghi sổ KT</b>':''}</div>
     <div style="max-height:280px;overflow:auto;border:1px solid var(--rule);border-radius:6px"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:var(--rule);text-align:left;position:sticky;top:0"><th style="padding:5px 8px">Nhân viên</th>${_pcHead}<th style="padding:5px 6px;text-align:right;font-size:11px">BHXH</th><th style="padding:5px 6px;text-align:right;font-size:11px">Thuế TNCN</th><th style="padding:5px 6px;text-align:right;font-size:11px" title="v3.18.76: Σ khoản PS đã duyệt của người này trong kỳ — bấm số để xem từng khoản">Khoản PS</th><th style="padding:5px 8px;text-align:right">Thực lĩnh (${ccy})</th><th style="padding:5px 8px"></th></tr></thead><tbody>${_rowsPayHtml}</tbody></table></div>
     <details style="margin-top:10px"><summary style="cursor:pointer;font-size:13px;font-weight:600">📋 Nhật ký thao tác (Audit Log) — không xóa</summary><div style="margin-top:6px;max-height:160px;overflow:auto">${auditHtml}</div></details>`;
@@ -33042,11 +33082,13 @@ function openAddDepartmentForm(){
   // v3.06.00: gợi ý tên tiếng Anh chuẩn (sửa được)
   const suggestEn=suggestDeptNameEn(codeClean, name);
   const nameEn=(prompt('Tên tiếng Anh chuẩn (gợi ý — sửa nếu cần):', suggestEn)||'').trim();
+  const payEngine=_deptAskPayEngine('');   /* v3.19.34 */
   HRService.addDepartment({
     id:'D-'+codeClean+'-'+uid().slice(-4),
     code:codeClean,
     name:name.trim(),
     nameEn:nameEn,
+    payEngine:payEngine||'',
     createdBy:actorName(),
     createdAt:new Date().toISOString(),
     updatedAt:new Date().toISOString()
@@ -33059,6 +33101,15 @@ function openAddDepartmentForm(){
   if(isAdmin()) setTimeout(()=>{const m=document.getElementById('modal');if(m&&m.classList.contains('show')) openSettings();},100);
 }
 
+/* v3.19.34 (Sếp 27/8 'HR tạo bộ phận mới: gắn Engine thế nào?'): mỗi phòng/ban khai ENGINE LƯƠNG MẶC ĐỊNH — khi tạo thẻ lương cho
+   NV thuộc phòng đó, form thẻ tự chọn sẵn engine này (đổi tay được, thẻ đã có không đụng). Kỳ lương vẫn lấy người theo engine THẺ. */
+const DEPT_PAY_ENGINES=[['','— không đặt (chọn tay trên thẻ) —'],['office','Văn phòng (NET)'],['office_gross','Văn phòng GROSS (cty con)'],['tech','Kỹ thuật'],['crew','Đội tàu'],['crew_khoan','Đội tàu — khoán'],['expert_om','Chuyên gia O&M (USD)'],['expat','Expat VP (USD)']];
+function _deptAskPayEngine(cur){
+  const list=DEPT_PAY_ENGINES.map(([k,l],i)=>(i)+' = '+l+(k===cur?'  ◀ hiện tại':'')).join('\n');
+  const a=prompt('Engine lương MẶC ĐỊNH cho phòng/ban (số thứ tự):\n'+list, String(Math.max(0,DEPT_PAY_ENGINES.findIndex(x=>x[0]===cur))));
+  if(a===null) return null; const i=parseInt(a,10); if(isNaN(i)||!DEPT_PAY_ENGINES[i]){ toast('Giữ nguyên engine phòng ban','warn'); return cur||''; }
+  return DEPT_PAY_ENGINES[i][0];
+}
 function editDepartment(id){
   if(!(isAdmin()||canSignHr())){toast('Chỉ Trưởng phòng NS / admin','bad');return;}   // v3.16.75
   const d=HRService.departments().find(x=>x.id===id);
@@ -33070,6 +33121,7 @@ function editDepartment(id){
   const curEn=d.nameEn || suggestDeptNameEn(d.code, d.name);
   const newEn=prompt('Tên tiếng Anh chuẩn:', curEn);
   if(newEn!==null) d.nameEn=newEn.trim();
+  { const pe=_deptAskPayEngine(d.payEngine||''); if(pe!==null) d.payEngine=pe; }   /* v3.19.34 */
   // v3.06.00 FIX: bản phòng ban CŨ có thể thiếu createdAt → bổ sung để timestamp so sánh ổn định.
   if(!d.createdAt) d.createdAt=new Date().toISOString();
   // đóng dấu updatedAt — nếu thiếu, sync coi bản này là cũ → autosync kéo bản cloud cũ ĐÈ
@@ -34126,9 +34178,9 @@ function renderCatalog(){
         h += `<tr>
           <td><span class="ds-need">🏢 ${esc(d.code)}</span></td>
           <td><b>${esc(d.name)}</b>${d.archived?' <span style="font-size:10px;color:#b26a00;background:#fff3e0;padding:1px 6px;border-radius:8px">ẨN</span>':''}${d.nameEn?`<div style="font-size:11px;color:var(--muted);font-style:normal">${esc(d.nameEn)}</div>`:''}</td>
-          <td style="font-size:11px;color:var(--muted)">${esc(d.createdBy||'—')}</td>
+          <td style="font-size:11px;color:var(--muted)">${esc(d.createdBy||'—')}${(function(){ const pe=d.payEngine||(typeof deptImpliedEngine==='function'?deptImpliedEngine(d.code):''); const lb=(typeof DEPT_PAY_ENGINES!=='undefined'?(DEPT_PAY_ENGINES.find(x=>x[0]===pe)||[])[1]:pe); return pe?`<div style="font-size:10.5px;color:#1c5a8c" title="Engine lương mặc định khi tạo thẻ cho NV phòng này (v3.19.34)">⚙ ${esc(lb||pe)}${d.payEngine?'':' (tự suy)'}</div>`:'<div style="font-size:10.5px;color:#b8730a" title="Chưa đặt engine — tạo thẻ phải chọn tay">⚙ chưa đặt engine</div>'; })()}</td>
           ${_deptEdit?`<td><div class="row-actions">
-            <button class="icon-btn" title="Sửa" onclick="editDepartment('${d.id}')">✎</button>
+            <button class="icon-btn" title="Sửa (tên · tên EN · engine lương mặc định)" onclick="editDepartment('${d.id}')">✎</button>
             ${d.archived?`<button class="icon-btn" title="Bỏ ẩn — hiện lại" onclick="unarchiveDepartment('${d.id}')">↩</button>`:`<button class="icon-btn" title="Ẩn (chỉ khi không còn NV gán)" onclick="archiveDepartment('${d.id}')">⊘</button>`}
             ${isAdmin()?`<button class="icon-btn danger" title="Xóa" onclick="deleteDepartment('${d.id}')">✕</button>`:''}
           </div></td>`:''}
@@ -35497,6 +35549,7 @@ function _bkAmtFill(v, ccy){
 function _bkAmtParse(val, ccy){
   const c=String(ccy||'VND').toUpperCase(); let str=String(val==null?'':val).trim();
   if(c!=='VND' && /^-?[\d.]+,\d{1,2}$/.test(str)) str=str.replace(/\./g,'').replace(',','.');
+  if(c==='VND' && str.indexOf(',')!==-1 && str.indexOf('.')===-1) str=str.replace(/,/g,'');   /* v3.19.30: VND ở bảng kê giữ luật cũ (phẩy = nghìn) */
   return _unformatNumber(str);
 }
 function _unformatNumber(s){
@@ -35505,6 +35558,17 @@ function _unformatNumber(s){
   /* v3.16.52: chuỗi chuẩn vừa phát ra từ getter ô nhóm nghìn (đã theo ý người gõ) → KHÔNG đoán lại.
      Chỉ văn bản import (PDF/XML/Excel) và ô chưa nâng cấp mới đi qua luật đoán bên dưới. */
   if(typeof _nfCanonTrust!=='undefined' && _nfCanonTrust.has(str)) return +str||0;
+  /* v3.19.30 (Sếp 27/8: thẻ lương import '2.266.669,5' bị đọc thành 22.666.695): chuỗi có CẢ '.' và ',' → dấu đứng SAU là
+     thập phân (VN 2.266.669,5 → 2266669.5 · US 12,020.23 → 12020.23); chỉ có ',' mà sau nó 1–2 chữ số (298,56) → thập phân;
+     ',' + đúng 3 chữ số hoặc nhiều ',' → nhóm nghìn US. */
+  if(str.indexOf(',')!==-1 && str.indexOf('.')!==-1){
+    const lastDot=str.lastIndexOf('.'), lastComma=str.lastIndexOf(',');
+    if(lastComma>lastDot){ str=str.replace(/\./g,'').replace(',','.'); }   /* VN: chấm = nghìn, phẩy = thập phân */
+    else { str=str.replace(/,/g,''); }                                        /* US: phẩy = nghìn */
+  } else if(str.indexOf(',')!==-1){
+    const parts=str.split(','); const tail=parts[parts.length-1].replace(/[^0-9]/g,'');
+    if(parts.length===2 && tail.length>0 && tail.length<=2){ str=str.replace(',','.'); }   /* 298,56 → 298.56 */
+  }
   // v3.04.29: dấu PHẨY = phân nhóm nghìn kiểu US (12,020.23) → bỏ trước khi xử lý.
   //   VND không bao giờ dùng phẩy. Sau bước này chỉ còn số + dấu chấm.
   if(str.indexOf(',')!==-1) str=str.replace(/,/g,'');
@@ -35525,7 +35589,7 @@ function _unformatNumber(s){
       // thập phân (USD cents) → giữ dấu chấm, bỏ ký tự lạ khác
       const neg=str.startsWith('-');
       const cleaned=str.replace(/[^0-9.]/g,'');
-      result=(neg?'−':'')+cleaned;
+      result=(neg?'-':'')+cleaned;
     } else {
       // 3 chữ số sau hoặc khác → phân cách nghìn → bỏ chấm
       result=str.replace(/\./g,'').replace(/[^0-9-]/g,'');
@@ -35540,7 +35604,7 @@ function _unformatNumber(s){
       if(after.length===1 || after.length===2){
         const neg=str.startsWith('-');
         const intp=str.slice(0,lastDot).replace(/[^0-9]/g,'');
-        result=(neg?'−':'')+intp+'.'+after;
+        result=(neg?'-':'')+intp+'.'+after;
       } else {
         result=str.replace(/\./g,'').replace(/[^0-9-]/g,'');
       }
@@ -37847,7 +37911,8 @@ function ctlDate(v){
 function ctlIsoLocal(d){ if(!d) return ''; const p=n=>String(n).padStart(2,'0'); return d.y+'-'+p(d.M)+'-'+p(d.d)+'T'+p(d.h)+':'+p(d.m)+':00'; }
 function ctlMs(d){ return d?new Date(d.y,d.M-1,d.d,d.h,d.m).getTime():0; }
 function ctlMoney(s){ const t=ctlNorm(s); const m=t.match(/^([A-Z]{3})?\s*([\d.,]+)/); if(!m) return {ccy:'',amount:0}; const num=+m[2].replace(/,/g,'')||0; return {ccy:m[1]||'',amount:num}; }
-function ctlParse(aoa){
+function ctlParse(aoa, opts){
+  opts=opts||{};   /* v3.19.26 (Sếp 27/8: HĐ 022A có 2 dòng tháng = 2 TBTT/đợt riêng → KHÔNG gộp; mỗi dòng con = 1 đoạn on/off-hire, mang giá trị dòng) */
   const out={vessels:[], errors:[]};
   let hdr=-1; for(let i=0;i<Math.min((aoa||[]).length,10);i++){ const r=aoa[i]||[]; if(r.some(c=>/^on-?hire$/i.test(ctlNorm(c))) && r.some(c=>/contract no/i.test(ctlNorm(c)))){ hdr=i; break; } }
   if(hdr<0){ out.errors.push('Không tìm thấy dòng tiêu đề (Contract No. + On-hire)'); return out; }
@@ -37864,20 +37929,43 @@ function ctlParse(aoa){
     if(!con){ out.errors.push('Dòng '+(i+1)+' ('+ves.name+'): có on/off nhưng chưa thuộc hợp đồng nào'); continue; }
     if(!on || !off){ out.errors.push('Dòng '+(i+1)+' ('+ves.name+' · '+con.contractNo+'): thiếu '+(on?'Off-hire':'On-hire')+' → bỏ'); continue; }
     if(ctlMs(off)<=ctlMs(on)){ out.errors.push('Dòng '+(i+1)+' ('+ves.name+'): Off-hire ≤ On-hire → bỏ'); continue; }
-    const sg={row:i+1, on, off, contract:con, month:ctlNorm(r[iEst])}; ves.segments.push(sg); con.segments.push(sg);
+    const sg={row:i+1, on, off, contract:con, month:ctlNorm(r[iEst]), value:ctlMoney(r[iPrice]).amount}; ves.segments.push(sg); con.segments.push(sg);
   }
   out.vessels.forEach(v=>{
     v.segments.sort((x,y)=>ctlMs(x.on)-ctlMs(y.on));
     const merged=[];
     v.segments.forEach(sg=>{ const last=merged[merged.length-1];
-      if(last && last.contract===sg.contract && Math.abs(ctlMs(sg.on)-ctlMs(last.off))<=60000){ last.off=sg.off; last.rows.push(sg.row); last.parts++; }
-      else merged.push({on:sg.on, off:sg.off, contract:sg.contract, rows:[sg.row], parts:1}); });
+      if(opts.mergeContiguous && last && last.contract===sg.contract && Math.abs(ctlMs(sg.on)-ctlMs(last.off))<=60000){ last.off=sg.off; last.rows.push(sg.row); last.parts++; last.value=(+last.value||0)+(+sg.value||0); last.month=(last.month?last.month+'+':'')+(sg.month||''); }
+      else merged.push({on:sg.on, off:sg.off, contract:sg.contract, rows:[sg.row], parts:1, month:sg.month||'', value:+sg.value||0}); });
     for(let k=1;k<merged.length;k++){ if(ctlMs(merged[k].on)<ctlMs(merged[k-1].off)) out.errors.push(v.name+': đoạn '+ctlIsoLocal(merged[k].on)+' chồng lên đoạn trước ('+merged[k-1].contract.contractNo+')'); }
     v.merged=merged;
   });
   return out;
 }
 function ctlKey(s){ return ctlNorm(s).toUpperCase().replace(/[^A-Z0-9]/g,''); }
+/* v3.19.28 (Sếp 27/8 'Lọc lại từ file excel và tạo file chuẩn (có áp mã dự án) để import 1 lần'): FILE CHUẨN 2 sheet
+   DuAn (1 HĐ/dòng, cột A = Mã dự án) + OnOffHire (1 đợt/dòng, đầy đủ giờ on/off, gắn mã) → đọc THẲNG theo tiêu đề, không đoán.
+   Trả cùng cấu trúc với ctlParse để ctlReconcile dùng chung; mã ở cột A là mã áp (override). */
+function ctlParseStandard(wsDuAn, wsSeg){
+  const H=(row)=>(row||[]).map(c=>ctlNorm(c).toLowerCase());
+  const col=(h,re)=>h.findIndex(x=>re.test(x));
+  const out={vessels:[], errors:[], override:{}, standard:true};
+  const byV={}; const V=n=>{ const k=ctlKey(n); if(!byV[k]) { byV[k]={letter:'',name:ctlNorm(n),segments:[],contracts:[],merged:[]}; out.vessels.push(byV[k]); } return byV[k]; };
+  const cons={};
+  if(wsDuAn&&wsDuAn.length){ const h=H(wsDuAn[0]); const iCode=col(h,/^mã dự án/), iV=col(h,/^tàu/), iCon=col(h,/contract no/), iNo=col(h,/notice/), iCl=col(h,/^khách hàng/), iEC=col(h,/end client/), iName=col(h,/tên dự án/), iLoc=col(h,/địa điểm/), iRate=col(h,/đơn giá/), iTot=col(h,/giá trị/), iCcy=col(h,/tiền tệ/), iSt=col(h,/^bắt đầu/), iEn=col(h,/^kết thúc/);
+    wsDuAn.slice(1).forEach((r,i)=>{ if(!r||!ctlNorm(r[iCode])||!ctlNorm(r[iV])) return; const v=V(r[iV]); const ccy=ctlNorm(r[iCcy])||'VND';
+      const c={no:String(i+1), notice:ctlNorm(r[iNo]), contractNo:ctlNorm(r[iCon]), client:ctlNorm(r[iCl]), endClient:ctlNorm(r[iEC]), project:ctlNorm(r[iName]), location:ctlNorm(r[iLoc]), rate:{ccy, amount:+String(r[iRate]||'').replace(/[^\d.]/g,'')||0}, price:{ccy, amount:+String(r[iTot]||'').replace(/[^\d.]/g,'')||0}, est:'', segments:[], codeGiven:ctlNorm(r[iCode]).toUpperCase(), startGiven:ctlNorm(r[iSt]), endGiven:ctlNorm(r[iEn])};
+      v.contracts.push(c); cons[ctlKey(c.contractNo)+'|'+ctlKey(v.name)]=c; cons['CODE|'+ctlKey(c.codeGiven)]=c; if(!/^nil$/i.test(c.contractNo)) out.override[ctlKey(c.contractNo)]=c.codeGiven; if(c.notice&&!/^nil$/i.test(c.notice)) out.override[ctlKey(c.notice)]=c.codeGiven; }); }
+  if(wsSeg&&wsSeg.length){ const h=H(wsSeg[0]); const iV=col(h,/^tàu/), iCode=col(h,/^mã dự án/), iCon=col(h,/contract no/), iNo=col(h,/notice/), iM=col(h,/tháng|đợt/), iOn=col(h,/on-?hire/), iOff=col(h,/off-?hire/), iVal=col(h,/giá trị/), iCcy=col(h,/tiền tệ/);
+    wsSeg.slice(1).forEach((r,i)=>{ if(!r||!ctlNorm(r[iV])) return; const v=V(r[iV]); const on=ctlDate(r[iOn]), off=ctlDate(r[iOff]);
+      if(!on||!off){ out.errors.push('OnOffHire dòng '+(i+2)+': thiếu giờ on/off'); return; } if(ctlMs(off)<=ctlMs(on)){ out.errors.push('OnOffHire dòng '+(i+2)+': off ≤ on'); return; }
+      let c=cons['CODE|'+ctlKey(r[iCode])]||cons[ctlKey(r[iCon])+'|'+ctlKey(v.name)];
+      if(!c){ c={no:'', notice:ctlNorm(r[iNo]), contractNo:ctlNorm(r[iCon]), client:'', endClient:'', project:'', location:'', rate:{ccy:'',amount:0}, price:{ccy:'',amount:0}, est:'', segments:[], codeGiven:ctlNorm(r[iCode]).toUpperCase()}; v.contracts.push(c); cons['CODE|'+ctlKey(c.codeGiven)]=c; if(c.codeGiven) out.override[ctlKey(c.contractNo)]=c.codeGiven; }
+      const sg={row:i+2, on, off, contract:c, month:ctlNorm(r[iM]), value:+String(r[iVal]||'').replace(/[^\d.]/g,'')||0}; v.segments.push(sg); c.segments.push(sg); }); }
+  out.vessels.forEach(v=>{ v.segments.sort((a,b)=>ctlMs(a.on)-ctlMs(b.on)); v.merged=v.segments.map(sg=>({on:sg.on,off:sg.off,contract:sg.contract,rows:[sg.row],parts:1,month:sg.month||'',value:+sg.value||0}));
+    for(let k=1;k<v.merged.length;k++){ if(ctlMs(v.merged[k].on)<ctlMs(v.merged[k-1].off)) out.errors.push(v.name+': đợt '+ctlIsoLocal(v.merged[k].on)+' chồng đợt trước'); } });
+  return out;
+}
 /* v3.19.16 (Sếp 26/8) — mã dự án theo quy ước: <2 ký tự tàu>-<năm>-<số HĐ ngắn>, vd GS-2026-006A */
 function ctlVesselInitials(name){ const w=String(name||'').replace(/[^A-Za-z0-9 ]/g,' ').trim().split(/\s+/).filter(Boolean); if(!w.length) return '';
   if(w.length===1){ const u=w[0].toUpperCase(); if(/^GEO[A-Z]/.test(u)) return 'G'+u.charAt(3);   /* v3.19.25: GEOMARINE → GM, GEOSUPORTER → GS */
@@ -37924,13 +38012,14 @@ function ctlReconcile(parsed, ctx){
       const yr=(c.contractNo.match(/20\d{2}/)||[])[0]||(c.segments.length?String(c.segments[0].on.y):String(new Date().getFullYear()));
       const _ini=(vv.shortCode||vv.code2||'')||(String(v.name).trim().split(/\s+/).length>=2?ctlVesselInitials(v.name):ctlVesselInitials(vv.name));   /* 2 ký tự tàu: mã ngắn khai trên tàu → tên 2 từ trong file → tên app */
       const conv=(function(){ const r=ctlContractShort(c.contractNo, yr); let sh=r.short, y=r.year||yr, am=r.amend; if(!sh){ const n=ctlContractShort(c.notice, yr); sh=n.short; y=y||n.year; } return (_ini&&sh&&y)?(_ini+'-'+y+'-'+sh+(am?'-'+am:'')):''; })();
-      const ov=override[ctlKey(c.contractNo)]||override[ctlKey(c.notice)]||'';
+      const _nil=x=>!x||/^nil$/i.test(String(x));
+      const ov=c.codeGiven||(!_nil(c.contractNo)?override[ctlKey(c.contractNo)]:'')||(!_nil(c.notice)?override[ctlKey(c.notice)]:'')||'';   /* v3.19.28: mã cột A file chuẩn thắng; 'Nil' không làm khóa */
       const sh=ctlContractShort(c.contractNo, yr).short||ctlContractShort(c.notice, yr).short;
       const _dk=(sh&&vv.id)?(vv.id+'|'+yr+'|'+sh):'';
       const ex=(ov&&projByKey['P:'+ctlKey(ov)]) || projByKey['C:'+ctlKey(c.contractNo)] || (conv&&projByKey['P:'+ctlKey(conv)]) || (c.notice&&!/^nil$/i.test(c.notice)&&projByKey['P:'+ctlKey(c.notice)]) || projByKey['P:'+ctlKey(c.contractNo)]
         || (_dk&&(ctx.projects||[]).find(p=>p&&projectDupKey(p)===_dk&&projectIsConventionCode(p.code))) || (_dk&&(ctx.projects||[]).find(p=>p&&projectDupKey(p)===_dk))   /* v3.19.19: cùng tàu + số HĐ ngắn */
         || (ctx.projects||[]).find(p=>p&&sh&&p.vesselId===vv.id&&new RegExp('-'+yr+'-'+sh.replace(/[^A-Z0-9]/g,'.?')+'$','i').test(String(p.code||'')));
-      const wantCode=conv||((c.notice&&!/^nil$/i.test(c.notice))?c.notice:c.contractNo);
+      const wantCode=c.codeGiven||conv||((c.notice&&!/^nil$/i.test(c.notice))?c.notice:c.contractNo);   /* v3.19.28: file chuẩn có mã cột A → dùng thẳng */
       const rec={vesselId:vv.id, vesselName:vv.name, contractNo:c.contractNo, notice:c.notice, code:wantCode, name:c.project||c.contractNo, client:c.client, endClient:c.endClient,
         ccy:c.price.ccy||c.rate.ccy||'VND', value:c.price.amount, unitPrice:c.rate.amount, segment:(vv.type==='TECH'?'VESSEL_TECH':'VESSEL_SERVICE'),
         start:c.segments.length?ctlIsoLocal(c.segments[0].on).slice(0,10):'', end:c.segments.length?ctlIsoLocal(c.segments[c.segments.length-1].off).slice(0,10):''};
@@ -37948,24 +38037,28 @@ function ctlReconcile(parsed, ctx){
     v.merged.forEach(m=>{
       const st=ctlMs(m.on), en=ctlMs(m.off);
       const hit=exEv.find(e=>Math.abs(new Date(e.startAt).getTime()-st)<=60000);
-      const seg={vesselId:vv.id, vesselName:vv.name, startAt:ctlIsoLocal(m.on), endAt:ctlIsoLocal(m.off), contractNo:m.contract.contractNo, notice:m.contract.notice, parts:m.parts, rows:m.rows, days:Math.round((en-st)/864e5*100)/100};
+      const seg={vesselId:vv.id, vesselName:vv.name, startAt:ctlIsoLocal(m.on), endAt:ctlIsoLocal(m.off), contractNo:m.contract.contractNo, notice:m.contract.notice, parts:m.parts, rows:m.rows, month:m.month||'', value:+m.value||0, days:Math.round((en-st)/864e5*100)/100};
       if(!hit) plan.events.push({action:'add', seg});
-      else { const changed=Math.abs(new Date(hit.endAt).getTime()-en)>60000; plan.events.push({action:changed?'update':'same', existing:hit, seg}); }
+      else { const changed=!hit.endAt || Math.abs(new Date(hit.endAt).getTime()-en)>60000; plan.events.push({action:changed?'update':'same', existing:hit, seg}); }   /* v3.19.28: đoạn đang mở (chưa off-hire) → cập nhật giờ kết thúc theo file */
     });
   });
   return plan;
 }
 /* Cột mới bảng Dự án: On-hire đầu → Off-hire cuối + tổng ngày On-hire */
-function projectHireSpan(projectId, events){
-  const evs=(events||[]).filter(e=>e && e.projectId===projectId && e.type==='onhire' && e.startAt && e.endAt);
-  if(!evs.length) return {n:0, first:'', last:'', days:0};
+function projectHireSpan(projectId, events, nowMs){
+  /* v3.19.27 (Sếp 27/8 'Có thời gian kết thúc: app chưa tính số ngày? Số ngày HĐ = tổng các đợt thuê theo TBTT'):
+     ngày DA = Σ các đợt On-hire gắn dự án (hợp khoảng, không đếm trùng); đợt CHƯA có giờ kết thúc (đang thuê) tính tới hiện tại và
+     đánh dấu 'đang thuê' thay vì bỏ qua (trước: bỏ → hiện —). */
+  const _now=nowMs||Date.now();
+  const evs=(events||[]).filter(e=>e && e.projectId===projectId && e.type==='onhire' && e.startAt).map(e=>({startAt:e.startAt, endAt:e.endAt||new Date(_now).toISOString(), open:!e.endAt}));
+  if(!evs.length) return {n:0, first:'', last:'', days:0, open:0};
   /* v3.19.24 (Sếp 27/8 'Số ngày dự án tính thiếu?' — 006A hiện 29,92 ngày cho 15 ngày vì có 2 đoạn ghi trùng):
      ngày DA = HỢP các khoảng (union) — đoạn trùng/chồng nhau chỉ đếm một lần; báo số đoạn chồng để dọn */
   const iv=evs.map(e=>[new Date(e.startAt).getTime(), new Date(e.endAt).getTime()]).filter(x=>x[1]>x[0]).sort((a,b)=>a[0]-b[0]);
   let first=null,last=null,days=0,overlap=0; let cs=null,ce=null;
   iv.forEach(([a,b])=>{ if(!first||a<first) first=a; if(!last||b>last) last=b; if(cs===null){ cs=a; ce=b; return; } if(a<=ce){ if(a<ce) overlap++; ce=Math.max(ce,b); } else { days+=(ce-cs)/864e5; cs=a; ce=b; } });
   if(cs!==null) days+=(ce-cs)/864e5;
-  return {n:evs.length, overlap, first:new Date(first).toISOString(), last:new Date(last).toISOString(), days:Math.round(days*100)/100};
+  return {n:evs.length, overlap, open:evs.filter(e=>e.open).length, first:new Date(first).toISOString(), last:new Date(last).toISOString(), days:Math.round(days*100)/100};
 }
 /* ---- UI ---- */
 /* ═══ v3.19.19 (Sếp 27/8 ảnh Dự án GEOSUPORTER: GS-2026-020A và 001-2026/TBTT-GS là MỘT hợp đồng ghi 2 lần — bản nhập 3.18.98
@@ -38049,11 +38142,13 @@ function ctlImportOpen(){
   inp.onchange=function(){ const f=inp.files&&inp.files[0]; if(!f) return; const rd=new FileReader();
     rd.onload=function(ev){ try{
       const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array',cellDates:true});
-      const sn=wb.SheetNames.find(n=>/main contract/i.test(n))||wb.SheetNames[0];
-      const aoa=XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,raw:true});
-      const parsed=ctlParse(aoa);
+      /* v3.19.28: file CHUẨN (sheet DuAn + OnOffHire) → đọc thẳng; không thì đọc Main Contract như cũ */
+      const snD=wb.SheetNames.find(n=>/^duan$|^dự án$/i.test(n)), snS=wb.SheetNames.find(n=>/onoffhire|on\/off/i.test(n));
+      let sn, aoa=null, parsed;
+      if(snD||snS){ sn=[snD,snS].filter(Boolean).join(' + '); parsed=ctlParseStandard(snD?XLSX.utils.sheet_to_json(wb.Sheets[snD],{header:1,raw:false}):null, snS?XLSX.utils.sheet_to_json(wb.Sheets[snS],{header:1,raw:false}):null); window._ctlAoa=null; }
+      else { sn=wb.SheetNames.find(n=>/main contract/i.test(n))||wb.SheetNames[0]; aoa=XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,raw:true}); parsed=ctlParse(aoa,{mergeContiguous:!!window._ctlMerge}); window._ctlAoa=aoa; }
       /* v3.19.16: sheet DoiChieu (bảng em xuất) — cột 'Contract No.' + 'Mã app HIỆN CÓ' → bảng ghép */
-      const override={}; const dcn=wb.SheetNames.find(n=>/doichieu|đối chiếu/i.test(n));
+      const override=Object.assign({}, parsed.override||{}); const dcn=wb.SheetNames.find(n=>/doichieu|đối chiếu/i.test(n));
       if(dcn){ const rows=XLSX.utils.sheet_to_json(wb.Sheets[dcn],{header:1,raw:false}); const H=(rows[0]||[]).map(x=>ctlNorm(x).toLowerCase()); const iC=H.findIndex(x=>/contract no/.test(x)), iE=H.findIndex(x=>/hiện có|hien co/.test(x)); if(iC>=0&&iE>=0) rows.slice(1).forEach(r=>{ const cn=ctlNorm(r[iC]), ex=ctlNorm(r[iE]); if(cn&&ex) override[ctlKey(cn)]=ex; }); }
       const plan=ctlReconcile(parsed,{projects:(S.projects||[]).filter(p=>p&&!p._deleted), events:VesselService.events(), vessels:VesselService.vessels(), override});
       window._ctlPlan={file:f.name, sheet:sn, parsed, plan, override}; ctlImportPreview();
@@ -38082,6 +38177,18 @@ function ctlCodeOverride(cnKey, code){
   st.plan.projects.forEach(x=>{ if(x.action==='new' && st.override[ctlKey(x.rec.contractNo)]) x.rec.code=st.override[ctlKey(x.rec.contractNo)]; });
   ctlImportPreview();
 }
+function ctlReparse(){
+  const st=window._ctlPlan; if(!st||!window._ctlAoa){ toast('File chuẩn: mỗi dòng đợt = 1 đoạn, không có tùy chọn gộp','warn'); return; }
+  st.parsed=ctlParse(window._ctlAoa,{mergeContiguous:!!window._ctlMerge});
+  st.plan=ctlReconcile(st.parsed,{projects:(S.projects||[]).filter(p=>p&&!p._deleted), events:VesselService.events(), vessels:VesselService.vessels(), override:st.override||{}});
+  ctlImportPreview();
+}
+/* v3.19.35 (Sếp 27/8: 'khi import phát hiện lệch: cho mở xem và chọn giữ lại giá trị nào, của Excel hay của app') */
+function ctlDiffPick(cnKey, k, take){
+  const st=window._ctlPlan; if(!st) return; const x=st.plan.projects.find(p=>ctlKey(p.rec.contractNo)===cnKey); if(!x) return;
+  const d=(x.diffs||[]).find(y=>y.k===k); if(d) d.take=take;
+  if(x.action==='same' && (x.diffs||[]).some(y=>y.take==='excel')) x.action='update';
+}
 function ctlImportPreview(){
   const st=window._ctlPlan; if(!st) return; const plan=st.plan; const fm=v=>Math.round(+v||0).toLocaleString('vi-VN');
   const fDT=s=>String(s||'').replace('T',' ').slice(0,16);
@@ -38089,14 +38196,14 @@ function ctlImportPreview(){
   const pr=plan.projects.map(x=>`<tr style="border-bottom:1px solid var(--rule)"><td style="padding:4px 6px">${x.action==='new'?'<b style="color:#1e7d44">MỚI</b>':x.action==='update'?'<b style="color:#b8730a">ĐIỀN THÊM</b>':'<span style="color:var(--muted)">đã có</span>'}</td>
     <td style="padding:4px 6px"><input value="${esc(x.action==='new'?x.rec.code:(x.existing&&x.existing.code||x.rec.code))}" data-ctlcode="${esc(ctlKey(x.rec.contractNo))}" onchange="ctlCodeOverride('${esc(ctlKey(x.rec.contractNo))}',this.value)" style="width:150px;font-family:var(--font-mono);font-size:11.5px;font-weight:700" title="Mã dự án: quy ước <2 ký tự tàu>-<năm>-<số HĐ ngắn>. Gõ mã ĐÃ CÓ trong app để ghép (chỉ điền ô trống), hoặc sửa mã sẽ tạo mới"> · ${esc(x.rec.name)}<div style="font-size:10.5px;color:var(--muted)">${esc(x.rec.contractNo)} · ${esc(x.rec.client)}${x.rec.endClient?' / '+esc(x.rec.endClient):''} · ${esc(x.rec.vesselName)}</div>
       ${x.fill.length?`<div style="font-size:10.5px;color:#1e7d44">điền: ${x.fill.map(f=>kLabel[f.k]+' = '+(typeof f.nv==='number'?fm(f.nv):esc(String(f.nv)))).join(' · ')}</div>`:''}
-      ${x.diffs.length?`<div style="font-size:10.5px;color:#b8730a">⚠ lệch (giữ số app): ${x.diffs.map(d=>kLabel[d.k]+' app='+(typeof d.cur==='number'?fm(d.cur):esc(String(d.cur)))+' / file='+(typeof d.nv==='number'?fm(d.nv):esc(String(d.nv)))).join(' · ')}</div>`:''}</td>
+      ${x.diffs.length?`<div style="font-size:10.5px;color:#b8730a">⚠ lệch — chọn giữ: ${x.diffs.map(d=>`<span style="white-space:nowrap;margin-right:6px">${kLabel[d.k]}: <label><input type="radio" name="ctl-diff-${esc(ctlKey(x.rec.contractNo))}-${d.k}" value="app" ${d.take==='excel'?'':'checked'} onchange="ctlDiffPick('${esc(ctlKey(x.rec.contractNo))}','${d.k}','app')"> app ${typeof d.cur==='number'?fm(d.cur):esc(String(d.cur))}</label> <label><input type="radio" name="ctl-diff-${esc(ctlKey(x.rec.contractNo))}-${d.k}" value="excel" ${d.take==='excel'?'checked':''} onchange="ctlDiffPick('${esc(ctlKey(x.rec.contractNo))}','${d.k}','excel')"> Excel ${typeof d.nv==='number'?fm(d.nv):esc(String(d.nv))}</label></span>`).join('')}</div>`:''}</td>
     <td style="padding:4px 6px;text-align:right;font-family:monospace">${fm(x.rec.unitPrice)}</td><td style="padding:4px 6px;text-align:right;font-family:monospace">${fm(x.rec.value)} ${esc(x.rec.ccy)}</td></tr>`).join('');
   const ev=plan.events.map(x=>`<tr style="border-bottom:1px solid var(--rule)"><td style="padding:4px 6px">${x.action==='add'?'<b style="color:#1e7d44">THÊM</b>':x.action==='update'?'<b style="color:#b8730a">CẬP NHẬT</b>':'<span style="color:var(--muted)">đã có</span>'}</td>
     <td style="padding:4px 6px">${esc(x.seg.vesselName)}</td><td style="padding:4px 6px;font-family:monospace">${fDT(x.seg.startAt)} → ${fDT(x.seg.endAt)}${x.action==='update'?`<div style="font-size:10.5px;color:#b8730a">app: kết thúc ${fDT(x.existing.endAt)}</div>`:''}</td>
-    <td style="padding:4px 6px;text-align:right;font-family:monospace">${x.seg.days}</td><td style="padding:4px 6px;font-size:11px">${esc(x.seg.contractNo)}${x.seg.parts>1?' · gộp '+x.seg.parts+' đoạn tháng':''}</td></tr>`).join('');
-  const nP=plan.projects.filter(x=>x.action!=='same').length, nE=plan.events.filter(x=>x.action!=='same').length;
+    <td style="padding:4px 6px;text-align:right;font-family:monospace">${x.seg.days}</td><td style="padding:4px 6px;font-size:11px">${esc(x.seg.contractNo)}${x.seg.month?' · <b>'+esc(x.seg.month)+'</b>':''}${x.seg.value?' · '+fm(x.seg.value):''}${x.seg.parts>1?' · gộp '+x.seg.parts+' đoạn':''}</td></tr>`).join('');
+  const nP=plan.projects.filter(x=>x.action!=='same'||(x.diffs||[]).some(d=>d.take==='excel')).length, nE=plan.events.filter(x=>x.action!=='same').length;
   openModal('📥 Contract Tracking List — đối chiếu ('+esc(st.file)+')', `
-    <div style="font-size:12px;color:var(--muted);margin-bottom:6px">Sheet <b>${esc(st.sheet)}</b>. Mã dự án theo quy ước <b>&lt;2 ký tự tàu&gt;-&lt;năm&gt;-&lt;số HĐ ngắn&gt;</b> (vd GS-2026-006A); dự án khớp (mã ghép/số HĐ/mã quy ước): chỉ <b>điền ô trống</b>, không tạo mới, ô đã có mà lệch thì giữ số app và báo. Sửa ô mã để ghép vào mã đã có. Đoạn On/Off-hire: cùng tàu + cùng giờ bắt đầu → <b>cập nhật theo file</b>; đoạn nối tiếp cùng HĐ đã gộp liền.${plan.unmatchedVessels.length?plan.unmatchedVessels.map(vn=>{ const sg=plan.suggest&&plan.suggest[vn]; const vs=VesselService.vessels();
+    <div style="font-size:12px;color:var(--muted);margin-bottom:6px">Sheet <b>${esc(st.sheet)}</b>. Mã dự án theo quy ước <b>&lt;2 ký tự tàu&gt;-&lt;năm&gt;-&lt;số HĐ ngắn&gt;</b> (vd GS-2026-006A); dự án khớp (mã ghép/số HĐ/mã quy ước): chỉ <b>điền ô trống</b>, không tạo mới, ô đã có mà lệch thì giữ số app và báo. Sửa ô mã để ghép vào mã đã có. Đoạn On/Off-hire: cùng tàu + cùng giờ bắt đầu → <b>cập nhật theo file</b>; <b>mỗi dòng tháng/đợt trong file = một đoạn</b> (mang giá trị dòng) — <label style="font-weight:400"><input type="checkbox" ${window._ctlMerge?'checked':''} onchange="window._ctlMerge=this.checked;ctlReparse()"> gộp các đoạn nối tiếp cùng HĐ</label>.${plan.unmatchedVessels.length?plan.unmatchedVessels.map(vn=>{ const sg=plan.suggest&&plan.suggest[vn]; const vs=VesselService.vessels();
       return `<div style="color:#c0392b;margin-top:4px">⚠ Tàu trong file "<b>${esc(vn)}</b>" không khớp tên trong app${sg?` — gần nhất: <b>${esc(sg.name)}</b>`:''}.
         <select id="ctl-vmap-${esc(ctlKey(vn))}" style="font-size:11px;margin:0 4px">${vs.map(v=>`<option value="${esc(v.id)}"${sg&&sg.id===v.id?' selected':''}>${esc(v.name)}</option>`).join('')}</select>
         <button class="btn-primary" style="font-size:10.5px;padding:2px 8px" onclick="ctlVesselMapAccept('${esc(vn)}')" title="Ghi tên này là tên khác của tàu đã chọn — lần sau tự khớp">✓ Chấp nhận (nhớ)</button>
@@ -38116,12 +38223,12 @@ function ctlImportCommit(){
     S.projects=S.projects||[];
     plan.projects.forEach(x=>{
       if(x.action==='new'){ const p={id:uid(), code:x.rec.code, name:x.rec.name, client:x.rec.client, endClient:x.rec.endClient||'', notice:(x.rec.notice&&!/^nil$/i.test(x.rec.notice))?x.rec.notice:'', segment:x.rec.segment, vesselId:x.rec.vesselId, ccy:x.rec.ccy, start:x.rec.start, end:x.rec.end, value:x.rec.value, unitPrice:x.rec.unitPrice, experts:0, workDays:0, contractNo:x.rec.contractNo, projectManager:'', projStatus:'', isOM:false, _source:'ctl_import', _sourceFile:st.file, createdBy:who, createdAt:now, updatedAt:now}; S.projects.push(p); codeToId[ctlKey(x.rec.contractNo)]=p.id; nPn++; }
-      else { const p=x.existing; codeToId[ctlKey(x.rec.contractNo)]=p.id; if(x.fill.length){ x.fill.forEach(f=>{ p[f.k]=f.nv; }); try{touchRecord(p);}catch(e){} nPu++; } }
+      else { const p=x.existing; codeToId[ctlKey(x.rec.contractNo)]=p.id; const takeEx=(x.diffs||[]).filter(d=>d.take==='excel'); if(x.fill.length||takeEx.length){ x.fill.forEach(f=>{ p[f.k]=f.nv; }); takeEx.forEach(d=>{ (p._ctlOverwrites=p._ctlOverwrites||[]).push({k:d.k,from:d.cur,to:d.nv,at:now,by:who}); p[d.k]=d.nv; }); try{touchRecord(p);}catch(e){} nPu++; } }
     });
     plan.events.forEach(x=>{
       const pid=codeToId[ctlKey(x.seg.contractNo)]||null;
-      if(x.action==='add'){ VesselService.events().push({id:uid(), vesselId:x.seg.vesselId, type:'onhire', startAt:x.seg.startAt, endAt:x.seg.endAt, projectId:pid, notes:(x.seg.notice&&!/^nil$/i.test(x.seg.notice)?x.seg.notice+' · ':'')+'CTL '+st.file+(x.seg.parts>1?' (gộp '+x.seg.parts+' đoạn tháng)':''), _source:'ctl_import', createdBy:who, createdAt:now, updatedAt:now}); nEa++; }
-      else if(x.action==='update'){ const e=x.existing; e.endAt=x.seg.endAt; if(!e.projectId&&pid) e.projectId=pid; e.notes=(e.notes?e.notes+' · ':'')+'CTL cập nhật '+now.slice(0,10); try{touchRecord(e);}catch(_){} nEu++; }
+      if(x.action==='add'){ VesselService.events().push({id:uid(), vesselId:x.seg.vesselId, type:'onhire', startAt:x.seg.startAt, endAt:x.seg.endAt, projectId:pid, hireValue:x.seg.value||undefined, hireLabel:x.seg.month||undefined, notes:(x.seg.notice&&!/^nil$/i.test(x.seg.notice)?x.seg.notice+' · ':'')+(x.seg.month?x.seg.month+' · ':'')+'CTL '+st.file+(x.seg.parts>1?' (gộp '+x.seg.parts+' đoạn)':''), _source:'ctl_import', createdBy:who, createdAt:now, updatedAt:now}); nEa++; }
+      else if(x.action==='update'){ const e=x.existing; e.endAt=x.seg.endAt; if(!e.projectId&&pid) e.projectId=pid; if(x.seg.value&&!e.hireValue) e.hireValue=x.seg.value; if(x.seg.month&&!e.hireLabel) e.hireLabel=x.seg.month; e.notes=(e.notes?e.notes+' · ':'')+'CTL cập nhật '+now.slice(0,10); try{touchRecord(e);}catch(_){} nEu++; }
     });
   },{action:'ctl_import', fields:['projects','events'], onOk:()=>{
     try{ logAuditEvent('ctl_import',{file:st.file, projectsNew:nPn, projectsFilled:nPu, eventsAdded:nEa, eventsUpdated:nEu, actor:who}); }catch(e){}
@@ -38360,7 +38467,7 @@ function renderProjects(){
       <td style="font-size:12px">${p.endClient?esc(p.endClient):'<span style="color:var(--muted)">—</span>'}</td>
       <td>${v?'<b>'+v.name+'</b>':'<span style="color:var(--muted)">—</span>'}</td>
       ${(()=>{ const hs=projectHireSpan(p.id,_allEv); tDays+=hs.days; const f=s=>s?String(s).slice(0,10).split('-').reverse().join('/'):'';
-        return hs.n?`<td style="font-family:var(--font-mono);font-size:11px;white-space:nowrap">${f(hs.first)} → ${f(hs.last)}${hs.n>1?`<div style="color:${hs.overlap?'var(--bad)':'var(--muted)'};font-size:10px">${hs.n} đoạn${hs.overlap?' · ⚠ '+hs.overlap+' chồng nhau (ghi 2 lần?) — Vessel Employment › 🔁 Gộp đoạn trùng':''}</div>`:''}</td><td class="r mono" style="font-size:11px">${hs.days}</td>`
+        return hs.n?`<td style="font-family:var(--font-mono);font-size:11px;white-space:nowrap">${f(hs.first)} → ${hs.open?'<span style="color:#1e7d44">đang thuê</span>':f(hs.last)}${(hs.n>1||hs.open)?`<div style="color:${hs.overlap?'var(--bad)':'var(--muted)'};font-size:10px">${hs.n>1?hs.n+' đợt (Σ)':''}${hs.open?(hs.n>1?' · ':'')+'tính tới hôm nay':''}${hs.overlap?` · ⚠ ${hs.overlap} chồng nhau (ghi 2 lần?) <a href="#" onclick="event.preventDefault();eventMergeOpen('${esc(p.vesselId||'')}')" style="color:var(--bad)">🔁 Gộp đoạn trùng</a>`:''}</div>`:''}</td><td class="r mono" style="font-size:11px" title="Σ ngày các đợt On-hire gắn dự án (hợp khoảng, không đếm trùng)">${hs.days}${hs.open?'<span style="color:#1e7d44">+</span>':''}</td>`
         :`<td style="font-size:11px;color:var(--muted)">${p.start?f(p.start)+' → '+f(p.end)+' <span style="font-size:10px">(KH)</span>':'—'}</td><td class="r" style="color:var(--muted);font-size:11px">${p.workDays?p.workDays+' <span style="font-size:10px">(KH)</span>':'—'}</td>`; })()}
       <td class="r num">${p.unitPrice?fmt(p.unitPrice,p.ccy):'<span style="color:var(--muted)">—</span>'}</td>
       <td class="r num">${fmt(p.value,p.ccy)}</td>
@@ -38376,8 +38483,8 @@ function renderProjects(){
   });
   const tValDisp=list.reduce((s,p)=>s+toDisplay(+p.value||0,p.ccy||'USD'),0);
   const tPct = tValDisp>0.01 ? (tIssued/tValDisp*100) : 0;
-  html+=`<tr style="border-top:2px solid var(--ink);font-weight:700;background:var(--paper-2,var(--paper-3))">
-    <td colspan="6" class="r">TỔNG (${list.length} dự án${_prjFilterVessel&&_prjFilterVessel!=='__none__'?' · '+esc((VesselService.vessels().find(x=>x.id===_prjFilterVessel)||{}).name||''):''}${_prjFilterEndClient&&_prjFilterEndClient!=='__none__'&&list.length?' · '+esc(list[0].endClient||''):''})</td>
+  html+=`<tr class="prj-total" style="border-top:2px solid var(--ink);font-weight:700;background:#f3f1ea;color:var(--ink)">
+    <td colspan="6" class="r" style="background:#f3f1ea;color:var(--ink)">TỔNG (${list.length} dự án${_prjFilterVessel&&_prjFilterVessel!=='__none__'?' · '+esc((VesselService.vessels().find(x=>x.id===_prjFilterVessel)||{}).name||''):''}${_prjFilterEndClient&&_prjFilterEndClient!=='__none__'&&list.length?' · '+esc(list[0].endClient||''):''})</td>
     <td class="r mono" style="font-size:11px">${Math.round(tDays*100)/100}</td><td></td>
     <td class="r num">${fmt(tValue)}</td>
     <td class="r num">${fmt(tIssued)}</td>
@@ -41862,7 +41969,9 @@ function _extractDateTime(T){
 function eventDupGroups(evs){
   const list=(evs||[]).filter(e=>e&&!e._deleted&&e.startAt).slice().sort((a,b)=>new Date(a.startAt)-new Date(b.startAt));
   const groups=[]; const used=new Set();
-  list.forEach((e,i)=>{ if(used.has(e.id)) return; const g=[e]; for(let j=i+1;j<list.length;j++){ const o=list[j]; if(used.has(o.id)) continue; if(o.vesselId!==e.vesselId||o.type!==e.type) continue; if(Math.abs(new Date(o.startAt)-new Date(e.startAt))>60000) break; g.push(o); }
+  const _t=x=>{ const d=new Date(x); return isNaN(d)?0:Math.floor(d.getTime()/60000); };   /* v3.19.35: so theo PHÚT, bỏ giây/mili */
+  const _ty=x=>String(x||'').toLowerCase().replace(/[^a-z]/g,'');
+  list.forEach((e,i)=>{ if(used.has(e.id)) return; const g=[e]; for(let j=i+1;j<list.length;j++){ const o=list[j]; if(used.has(o.id)) continue; if(o.vesselId!==e.vesselId||_ty(o.type)!==_ty(e.type)) continue; if(Math.abs(_t(o.startAt)-_t(e.startAt))>1) break; g.push(o); }
     if(g.length>1){ g.forEach(x=>used.add(x.id)); const score=x=>((x.fuelStart&&Object.values(x.fuelStart).some(f=>f&&+f.qty))?4:0)+((x.fuelEnd&&Object.values(x.fuelEnd).some(f=>f&&+f.qty))?4:0)+(/wizard|\.pdf/i.test(String(x.notes||''))?2:0)+(x.endAt?1:0)+(x.projectId?1:0);
       const keep=g.slice().sort((a,b)=>score(b)-score(a))[0]; groups.push({keep, dups:g.filter(x=>x!==keep)}); } });
   return groups;
@@ -41870,7 +41979,12 @@ function eventDupGroups(evs){
 function eventMergeOpen(vid){
   if(!isAdmin()){ toast('Chỉ admin gộp đoạn','bad'); return; }
   const groups=eventDupGroups(VesselService.events().filter(e=>!vid||e.vesselId===vid));
-  if(!groups.length){ toast('Không có đoạn ghi 2 lần','good'); return; }
+  if(!groups.length){
+    /* v3.19.35: không nhóm được → chỉ rõ các cặp gần nhau để Sếp thấy vì sao (khác loại / lệch giờ bắt đầu) */
+    const evs=VesselService.events().filter(e=>!vid||e.vesselId===vid).slice().sort((a,b)=>new Date(a.startAt)-new Date(b.startAt));
+    const near=[]; for(let i=1;i<evs.length;i++){ const a=evs[i-1], b=evs[i]; const dh=Math.abs(new Date(b.startAt)-new Date(a.startAt))/36e5; if(dh<=24) near.push(`${fmtDateTime(a.startAt)} (${evtType(a.type).label}) ↔ ${fmtDateTime(b.startAt)} (${evtType(b.type).label}) — lệch ${dh.toFixed(1)}h`); }
+    openModal('🔁 Gộp đoạn trùng', `<div style="font-size:12px">Không có 2 đoạn nào <b>cùng loại + cùng giờ bắt đầu</b> (so theo phút). ${near.length?'Các cặp gần nhau trong 24h (khác loại hoặc lệch giờ — sửa tay bằng ✎ nếu là một):<ul style="margin:6px 0 0 18px">'+near.map(esc).map(x=>'<li>'+x+'</li>').join('')+'</ul>':'Không có cặp đoạn nào cách nhau dưới 24h.'}</div>`, `<button class="btn-ghost" onclick="closeModal()">Đóng</button>`);
+    return; }
   const pn=id=>{ const p=(S.projects||[]).find(x=>x.id===id); return p?p.code:''; };
   const rows=groups.map((g,gi)=>`<div style="border:1px solid var(--rule);border-radius:8px;padding:6px 10px;margin-bottom:6px;font-size:12px"><label><input type="checkbox" data-eg="${gi}" checked> <b>${esc(evtType(g.keep.type).label)}</b> ${fmtDateTime(g.keep.startAt)} → ${g.keep.endAt?fmtDateTime(g.keep.endAt):'—'} · giữ bản ${pn(g.keep.projectId)||'(không dự án)'} ${/wizard|\.pdf/i.test(String(g.keep.notes||''))?'· có PDF':''}${(g.keep.fuelStart&&Object.values(g.keep.fuelStart).some(f=>f&&+f.qty))?' · có nhiên liệu':''}</label><div style="font-size:11px;color:var(--muted);margin-left:20px">gộp: ${g.dups.map(d=>(pn(d.projectId)||'(không dự án)')+' '+(d.endAt?fmtDateTime(d.endAt):'—')).join(' · ')}</div></div>`).join('');
   window._evMergeGroups=groups;
@@ -89945,6 +90059,7 @@ function hrDeptDisplay(code, nameOpt){
    không thêm màn cấu hình riêng (Sếp chốt 30/7: "app phải lấy nguồn từ hồ sơ nhân viên"). */
 function deptImpliedEngine(dept){
   const c=hrDeptCanon(dept||'');
+  try{ const d=HRService.departments().find(x=>x.code===c); if(d&&d.payEngine) return d.payEngine; }catch(e){}   /* v3.19.34: phòng ban khai engine mặc định */
   if(c==='OM') return 'expert_om';
   if(c==='EXPAT') return 'expat';
   return '';
@@ -91421,7 +91536,7 @@ function spEditVersionForm(empId, period, retPeriodId){
   const rowsH=fields.map(f=>{
     const [k,lb,typ]=f;
     if(typ==='bool') return `<div class="field"><label>${lb}</label><select id="spe-${k}"><option value="0" ${!d[k]?'selected':''}>Không</option><option value="1" ${d[k]?'selected':''}>Có</option></select></div>`;
-    return `<div class="field"><label>${lb}</label><input type="number" step="any" id="spe-${k}" value="${+(d[k])||0}"></div>`;
+    return `<div class="field"><label>${lb}${(k==='bhxhBase'&&/^crew/.test(String(v.engine||'')))?' <span style="font-weight:400;color:var(--muted);text-transform:none">(0 = tự lấy LCB)</span>':''}</label><input type="number" data-format-thousands="1" data-nf-int="0" id="spe-${k}" value="${+(d[k])||0}" title="v3.19.30: hiện nhóm nghìn để dễ soát (2.266.669,5)"></div>`;
   }).join('');
   openModal('🪪✏ Sửa thẻ lương (in-place) — '+esc(e.fullName||empId), `
     <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Bản <b>V${v.version}</b> · engine <b>${esc(v.engine)}</b> · hiệu lực <b>${esc(v.effectiveFrom||'?')}</b>${v.effectiveTo?(' → '+esc(v.effectiveTo)):''} — sửa TRỰC TIẾP, không tạo bản mới. Engine/hiệu lực không đổi được (đổi = tạo phiên bản mới).</div>
@@ -92061,6 +92176,37 @@ window.spPatchGo=function(){
   closeModal(); toast('💼 PC dự án: cập nhật '+upd+' bản · tạo mới '+made+' bản'+(skip?(' · bỏ qua '+skip):''), 'good');
   try{ renderAll(); }catch(e){}
 };
+/* ═══ v3.19.31 (Sếp chốt 27/8: nền BHXH đội tàu 'chính là LCB'): thẻ crew/crew_khoan hiệu lực tại kỳ có bhxhBase = 0 →
+   đặt bhxhBase = netBase (LCB) — xem trước từng người, xác nhận, ghi commitMutation salaryProfiles + log hồ sơ. Chỉ thẻ đội tàu
+   (Sếp chốt cho đội tàu); nhóm khác không đụng. Nút ở dòng Tùy chọn của kỳ lương + banner khi kỳ còn thẻ trống nền. */
+function payBhxhBaseCandidates(p){
+  const out=[]; (p&&p.rows||[]).forEach(r=>{ const v=salaryProfileAt(r.empId, p.period); if(!v) return; if(!/^crew/.test(String(v.engine||''))) return;
+    const d=v.data=v.data||{}; let g=null; try{ g=v.gradeId?salaryGradeById(v.gradeId):null; }catch(e){}
+    const base=+d.bhxhBase||0, lcb=+d.netBase||(g&&g.money?(+g.money.netBase||0):0); if(base>0||lcb<=0) return; out.push({empId:r.empId, v, d, lcb}); });   /* thẻ theo ngạch: LCB lấy từ ngạch */
+  return out;
+}
+function payBhxhBaseFillOpen(periodId){
+  const p=payPeriodById(periodId); if(!p) return;
+  if(!(isAdmin()||(typeof canOperatePayroll==='function'&&canOperatePayroll()))){ toast('Admin / NS tiền lương','bad'); return; }
+  const c=payBhxhBaseCandidates(p);
+  if(!c.length){ toast('Không còn thẻ đội tàu trống nền BHXH trong kỳ này','good'); return; }
+  const nm=id=>{ const e=HRService.employees().find(x=>x.id===id); return e?(e.fullName+' · '+(e.smartId||'')):id; };
+  const rows=c.map((x,i)=>`<tr><td style="padding:3px 6px"><label><input type="checkbox" data-bb="${i}" checked> ${esc(nm(x.empId))}</label></td><td style="padding:3px 6px;font-size:11px;color:var(--muted)">V${x.v.version||''} · ${esc(x.v.engine)} · từ ${esc(x.v.effectiveFrom||'')}</td><td style="padding:3px 6px;text-align:right;font-family:monospace">${x.lcb.toLocaleString('vi-VN')}</td></tr>`).join('');
+  window._bbFill={periodId, c};
+  openModal('🛡 Đặt nền BHXH = LCB — '+c.length+' thẻ đội tàu trống nền', `<div style="font-size:12px;color:var(--muted);margin-bottom:6px">Quy tắc Sếp chốt 27/8: nền BHXH đội tàu = Lương CB (LCB) trên thẻ. Ghi thẳng vào thẻ hiệu lực (không tạo bản mới), có log hồ sơ. Sau khi ghi: Kéo thẻ lương → Tính lại để BHXH và thuế cập nhật.</div>
+    <div style="max-height:50vh;overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr style="background:var(--rule);text-align:left"><th style="padding:3px 6px">Nhân viên</th><th style="padding:3px 6px">Thẻ</th><th style="padding:3px 6px;text-align:right">Nền BHXH = LCB</th></tr></thead><tbody>${rows}</tbody></table></div>`,
+    `<button class="btn-ghost" onclick="closeModal()">Đóng</button><button class="btn-primary" onclick="payBhxhBaseFillGo()">✓ Ghi các thẻ đã tick</button>`);
+}
+function payBhxhBaseFillGo(){
+  const st=window._bbFill; if(!st) return;
+  const sel=st.c.filter((x,i)=>{ const cb=document.querySelector('input[data-bb="'+i+'"]'); return cb&&cb.checked; });
+  if(!sel.length){ toast('Chưa tick','warn'); return; }
+  const who=(typeof actorName==='function'?actorName():''), now=new Date().toISOString();
+  commitMutation(()=>{ sel.forEach(x=>{ x.d.bhxhBase=x.lcb; x.v.reason=((x.v.reason||'')+' · Nền BHXH = LCB (Sếp 27/8, tự điền)').slice(0,400); try{ touchRecord(x.v); }catch(e){} }); },
+    {action:'salary_bhxh_base_fill', fields:['salaryProfiles'], onOk:()=>{ sel.forEach(x=>{ try{ hrmLogHistory(x.empId,'salary','Thẻ lương V'+(x.v.version||''),'Nền BHXH: 0 → '+x.lcb.toLocaleString('vi-VN'),'tự điền = LCB','Quy tắc Sếp 27/8'); }catch(e){} });
+      try{ logAuditEvent('salary_bhxh_base_fill',{n:sel.length, periodId:st.periodId, actor:who}); }catch(e){}
+      toast('✓ Đã đặt nền BHXH = LCB cho '+sel.length+' thẻ — bấm Kéo thẻ lương rồi Tính lại','good'); closeModal(); window._bbFill=null; try{ openPayPeriodDetail(st.periodId); }catch(e){} }});
+}
 function salaryProfileAt(empId, period){
   const list=_spList(empId); let hit=null;
   list.forEach(v=>{ if((v.effectiveFrom||'')<=period) hit=v; });
@@ -92709,8 +92855,10 @@ function salaryProfileBuildInp(empId, period){
 
   /* ĐỘI TÀU — crew & crew_khoan: cùng bộ input, khác PROFILE (v3.12.91) */
   if(v.engine==='crew'||v.engine==='crew_khoan')
+    /* v3.19.32 (Sếp chốt 27/8): nền BHXH thuyền viên TỰ theo nguyên tắc = LCB khi thẻ để trống; thẻ ghi nền khác (sửa tay) thì giữ số tay.
+       Không cần bấm nút điền — kéo thẻ/tính lại là áp. */
     return {N:R('netBase'), O:R('crewSeaRate'), T:R('crewDpRate'), F:F,
-            _bhxhBase:R('bhxhBase'), _v:v};
+            _bhxhBase:(R('bhxhBase')>0?R('bhxhBase'):R('netBase')), _bhxhAuto:!(R('bhxhBase')>0), _v:v};
 
   /* KỸ THUẬT — engine payComputeTech ĐÃ CÓ SẴN Office/Sea/Dock Day:
        H = mức biển/ngày · I = mức VP/ngày · J = mức dock/ngày (trống → engine tự I×1.5)
