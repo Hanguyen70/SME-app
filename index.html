@@ -1283,6 +1283,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
       <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
         <label style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Lọc theo tàu</label>
         <select id="prj-filter-vessel" onchange="_prjFilterVessel=this.value;renderProjects()" style="padding:6px 10px;font-size:13px;border:1px solid var(--rule);border-radius:6px;min-width:180px"></select>
+        <button class="btn-sec" style="font-size:12px" onclick="projectMergeOpen()" title="v3.19.19: tìm dự án ghi 2 lần (cùng tàu + cùng số HĐ) và gộp về bản mã quy ước">🔁 Gộp trùng</button>
         <button class="btn-sec" style="font-size:12px" onclick="ctlImportOpen()" title="v3.18.98: đọc file Contract Tracking List (sheet Main Contract) → dự án + đơn giá + đoạn On/Off-hire; đối chiếu với app, chỉ ghi phần phát sinh">📥 Contract Tracking List</button>
         <label class="btn-sec" style="font-size:12px;cursor:pointer" title="v3.18.98: AI đọc PDF tóm tắt hợp đồng → điền form Thêm dự án (ô trống)">📄 Đọc PDF tóm tắt HĐ<input type="file" accept=".pdf,image/*" style="display:none" onchange="ctlReadContractPdf(this)"></label>
       </div>
@@ -3828,7 +3829,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.19.17';
+const APP_VERSION='3.19.19';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -37916,15 +37917,17 @@ function ctlReconcile(parsed, ctx){
       const conv=(function(){ const r=ctlContractShort(c.contractNo, yr); let sh=r.short, y=r.year||yr, am=r.amend; if(!sh){ const n=ctlContractShort(c.notice, yr); sh=n.short; y=y||n.year; } return (_ini&&sh&&y)?(_ini+'-'+y+'-'+sh+(am?'-'+am:'')):''; })();
       const ov=override[ctlKey(c.contractNo)]||override[ctlKey(c.notice)]||'';
       const sh=ctlContractShort(c.contractNo, yr).short||ctlContractShort(c.notice, yr).short;
+      const _dk=(sh&&vv.id)?(vv.id+'|'+yr+'|'+sh):'';
       const ex=(ov&&projByKey['P:'+ctlKey(ov)]) || projByKey['C:'+ctlKey(c.contractNo)] || (conv&&projByKey['P:'+ctlKey(conv)]) || (c.notice&&!/^nil$/i.test(c.notice)&&projByKey['P:'+ctlKey(c.notice)]) || projByKey['P:'+ctlKey(c.contractNo)]
+        || (_dk&&(ctx.projects||[]).find(p=>p&&projectDupKey(p)===_dk&&projectIsConventionCode(p.code))) || (_dk&&(ctx.projects||[]).find(p=>p&&projectDupKey(p)===_dk))   /* v3.19.19: cùng tàu + số HĐ ngắn */
         || (ctx.projects||[]).find(p=>p&&sh&&p.vesselId===vv.id&&new RegExp('-'+yr+'-'+sh.replace(/[^A-Z0-9]/g,'.?')+'$','i').test(String(p.code||'')));
       const wantCode=conv||((c.notice&&!/^nil$/i.test(c.notice))?c.notice:c.contractNo);
-      const rec={vesselId:vv.id, vesselName:vv.name, contractNo:c.contractNo, code:wantCode, name:c.project||c.contractNo, client:c.client, endClient:c.endClient,
+      const rec={vesselId:vv.id, vesselName:vv.name, contractNo:c.contractNo, notice:c.notice, code:wantCode, name:c.project||c.contractNo, client:c.client, endClient:c.endClient,
         ccy:c.price.ccy||c.rate.ccy||'VND', value:c.price.amount, unitPrice:c.rate.amount, segment:(vv.type==='TECH'?'VESSEL_TECH':'VESSEL_SERVICE'),
         start:c.segments.length?ctlIsoLocal(c.segments[0].on).slice(0,10):'', end:c.segments.length?ctlIsoLocal(c.segments[c.segments.length-1].off).slice(0,10):''};
       if(!ex){ plan.projects.push({action:'new', rec, fill:[], diffs:[]}); return; }
       const fill=[], diffs=[];
-      [['contractNo',rec.contractNo],['client',rec.client],['endClient',rec.endClient],['unitPrice',rec.unitPrice],['value',rec.value],['vesselId',rec.vesselId],['start',rec.start],['end',rec.end],['ccy',rec.ccy]].forEach(([k,nv])=>{
+      [['contractNo',rec.contractNo],['client',rec.client],['endClient',rec.endClient],['notice',(c.notice&&!/^nil$/i.test(c.notice))?c.notice:''],['unitPrice',rec.unitPrice],['value',rec.value],['vesselId',rec.vesselId],['start',rec.start],['end',rec.end],['ccy',rec.ccy]].forEach(([k,nv])=>{
         const cur=ex[k]; const empty=(cur==null||cur===''||cur===0);
         if(nv==null||nv===''||nv===0) return;
         if(empty) fill.push({k,nv}); else if(String(cur)!==String(nv)) diffs.push({k,cur,nv});
@@ -37952,6 +37955,74 @@ function projectHireSpan(projectId, events){
   return {n:evs.length, first:first.toISOString(), last:last.toISOString(), days:Math.round(days*100)/100};
 }
 /* ---- UI ---- */
+/* ═══ v3.19.19 (Sếp 27/8 ảnh Dự án GEOSUPORTER: GS-2026-020A và 001-2026/TBTT-GS là MỘT hợp đồng ghi 2 lần — bản nhập 3.18.98
+   lấy Notice làm mã; End client không vào vì import khớp bản trùng). Chốt: mã dự án theo quy ước, số TBTT chỉ là ghi chú.
+   projectDupKey THUẦN: tàu + số HĐ ngắn (từ Số HĐ, không có thì từ đuôi mã / Notice) → nhóm trùng; gộp về bản mã quy ước,
+   điền ô trống, dồn file/notice, trỏ lại mọi tham chiếu projectId, bia mộ bản trùng. */
+function projectDupKey(p){
+  if(!p) return '';
+  const yr=(String(p.contractNo||'').match(/20\d{2}/)||[])[0]||(String(p.code||'').match(/20\d{2}/)||[])[0]||String(p.start||'').slice(0,4);
+  let sh=ctlContractShort(p.contractNo||'', yr).short;
+  if(!sh){ const m=String(p.code||'').toUpperCase().match(/^[A-Z]{2}-20\d{2}-([A-Z0-9][A-Z0-9\-]*?)(?:-A\d{2})?$/); if(m) sh=m[1]; }
+  if(!sh){ sh=ctlContractShort(p.notice||'', yr).short; }
+  if(!sh){ const m=String(p.code||'').toUpperCase().match(/^(\d{3}[A-Z]?)-20\d{2}\/TBTT/); if(m) sh=m[1]; }   /* mã kiểu Notice cũ */
+  return (sh&&(p.vesselId||''))?((p.vesselId||'')+'|'+(yr||'')+'|'+sh):'';
+}
+function projectIsConventionCode(code){ return /^[A-Z]{2}-20\d{2}-[A-Z0-9][A-Z0-9\-]*$/.test(String(code||'').toUpperCase()); }
+function projectDupGroups(projects){
+  const g={}; (projects||[]).forEach(p=>{ if(!p||p._deleted) return; const k=projectDupKey(p); if(!k) return; (g[k]=g[k]||[]).push(p); });
+  return Object.keys(g).map(k=>g[k]).filter(arr=>arr.length>1).map(arr=>{ const keep=arr.find(p=>projectIsConventionCode(p.code))||arr.slice().sort((a,b)=>String(a.createdAt||'').localeCompare(String(b.createdAt||'')))[0]; return {keep, dups:arr.filter(p=>p!==keep)}; });
+}
+function projectMergePlan(keep, dups){
+  const fill=[]; const FIELDS=['contractNo','client','endClient','location','unitPrice','value','ccy','start','end','vesselId','notice','projectManager','experts','workDays'];
+  dups.forEach(d=>{ FIELDS.forEach(k=>{ const cur=keep[k]; const nv=d[k]; if((cur==null||cur===''||cur===0) && nv!=null && nv!=='' && nv!==0 && !fill.some(f=>f.k===k)) fill.push({k, nv, from:d.code}); });
+    /* Notice/TBTT của bản trùng (mã kiểu cũ) → ghi chú */
+    if(!keep.notice && !fill.some(f=>f.k==='notice') && /TBTT/i.test(String(d.code||''))) fill.push({k:'notice', nv:d.code, from:d.code}); });
+  return fill;
+}
+/* dự án lẻ còn mã kiểu Notice (001-2026/TBTT-GS) → đổi sang mã quy ước, mã cũ vào ghi chú */
+function projectRenameCandidates(projects){
+  const out=[]; (projects||[]).forEach(p=>{ if(!p||p._deleted||projectIsConventionCode(p.code)) return; if(!/TBTT/i.test(String(p.code||''))) return;
+    const v=VesselService.vessels().find(x=>x.id===p.vesselId); if(!v) return;
+    const nameFor=(v.ctlAliases&&v.ctlAliases.find(a=>String(a).trim().split(/\s+/).length>=2))||v.name;
+    const yr=(String(p.contractNo||'').match(/20\d{2}/)||[])[0]||(String(p.code||'').match(/20\d{2}/)||[])[0]||String(p.start||'').slice(0,4);
+    const code=ctlProjectCode(nameFor, p.contractNo||'', p.code, yr); if(!code||code===p.code) return;
+    if((projects||[]).some(x=>x&&!x._deleted&&x!==p&&ctlKey(x.code)===ctlKey(code))) return;   /* đã có bản quy ước → thuộc nhóm gộp */
+    out.push({p, code}); });
+  return out;
+}
+function projectMergeOpen(){
+  if(!isAdmin()){ toast('Chỉ admin gộp dự án','bad'); return; }
+  const groups=projectDupGroups(S.projects||[]);
+  const renames=projectRenameCandidates(S.projects||[]);
+  const vName=id=>((VesselService.vessels().find(v=>v.id===id)||{}).name||'');
+  if(!groups.length && !renames.length){ toast('Không thấy dự án trùng hay mã kiểu cũ','good'); return; }
+  const rows=groups.map((g,gi)=>{ const fill=projectMergePlan(g.keep,g.dups);
+    return `<div style="border:1px solid var(--rule);border-radius:8px;padding:8px 10px;margin-bottom:8px"><div style="font-size:12px"><b>${esc(vName(g.keep.vesselId))}</b> · giữ <b style="color:#1e7d44">${esc(g.keep.code)}</b> ${esc(g.keep.name||'')}</div>
+      <div style="font-size:11.5px;color:var(--muted)">gộp: ${g.dups.map(d=>`<span style="color:var(--bad)">${esc(d.code)}</span> ${esc(d.name||'')}`).join(' · ')}</div>
+      ${fill.length?`<div style="font-size:11px;color:#1e7d44">điền: ${fill.map(f=>f.k+' = '+esc(typeof f.nv==='number'?f.nv.toLocaleString('vi-VN'):String(f.nv))).join(' · ')}</div>`:''}
+      <label style="font-size:11.5px"><input type="checkbox" data-mg="${gi}" checked> Gộp nhóm này</label></div>`; }).join('');
+  window._projMergeGroups=groups; window._projRenames=renames;
+  const rn=renames.map((r,ri)=>`<div style="font-size:11.5px;padding:4px 0;border-bottom:1px dotted var(--rule)"><label><input type="checkbox" data-rn="${ri}" checked> <b>${esc(vName(r.p.vesselId))}</b> · <span style="color:var(--bad)">${esc(r.p.code)}</span> → <b style="color:#1e7d44">${esc(r.code)}</b> ${esc(r.p.name||'')} <span style="color:var(--muted)">(mã cũ vào ghi chú)</span></label></div>`).join('');
+  openModal('🔁 Gộp dự án trùng · đổi mã quy ước', `<div style="font-size:12px;color:var(--muted);margin-bottom:6px">Trùng = cùng tàu + cùng số HĐ ngắn. Giữ bản có mã theo quy ước (GS-2026-006A), bản trùng bị ẩn (bia mộ); mọi đoạn on/off-hire, phiếu, file, khoán… đang trỏ bản trùng được trỏ lại bản giữ; ô trống bản giữ điền từ bản trùng; số TBTT lưu vào ghi chú.</div>${rows||'<div style="font-size:12px;color:var(--muted)">Không có nhóm trùng.</div>'}${renames.length?`<div style="font-weight:600;font-size:12px;margin:8px 0 2px">Đổi mã kiểu cũ → quy ước (${renames.length})</div>${rn}`:''}`,
+    `<button class="btn-ghost" onclick="closeModal()">Đóng</button><button class="btn-primary" onclick="projectMergeGo()">✓ Gộp các nhóm đã tick</button>`);
+}
+function projectMergeGo(){
+  const groups=(window._projMergeGroups||[]).filter((g,gi)=>{ const cb=document.querySelector('input[data-mg="'+gi+'"]'); return cb&&cb.checked; });
+  const renames=(window._projRenames||[]).filter((r,ri)=>{ const cb=document.querySelector('input[data-rn="'+ri+'"]'); return cb&&cb.checked; });
+  if(!groups.length && !renames.length){ toast('Chưa tick gì','warn'); return; }
+  const who=(typeof actorName==='function'?actorName():''), now=new Date().toISOString();
+  const touched=new Set(['projects']); let nRef=0, nDup=0;
+  commitMutation(()=>{
+    groups.forEach(g=>{ const fill=projectMergePlan(g.keep,g.dups); fill.forEach(f=>{ g.keep[f.k]=f.nv; });
+      g.dups.forEach(d=>{ if(d.docs&&d.docs.length){ g.keep.docs=(g.keep.docs||[]).concat(d.docs); }
+        /* trỏ lại tham chiếu projectId ở mọi store */
+        (typeof ALL_DATA_FIELDS!=='undefined'?ALL_DATA_FIELDS:[]).forEach(f=>{ const arr=S[f]; if(!Array.isArray(arr)||f==='projects') return; let hit=0; arr.forEach(r=>{ if(r&&r.projectId===d.id){ r.projectId=g.keep.id; hit++; try{touchRecord(r);}catch(e){} } if(r&&r.costObject&&r.costObject.type==='project'&&r.costObject.id===d.id){ r.costObject.id=g.keep.id; r.costObject.name=g.keep.name||r.costObject.name; hit++; } }); if(hit){ touched.add(f); nRef+=hit; } });
+        d._deleted=true; d._mergedInto=g.keep.id; (d.auditTrail=d.auditTrail||[]).push({at:now,by:who,act:'merged_into',to:g.keep.code}); try{touchRecord(d);}catch(e){} try{ markDeleted([d.id],'projects'); }catch(e){} nDup++; });
+      (g.keep.auditTrail=g.keep.auditTrail||[]).push({at:now,by:who,act:'merge_absorb',from:g.dups.map(d=>d.code)}); try{touchRecord(g.keep);}catch(e){} });
+    renames.forEach(r=>{ const old=r.p.code; r.p.code=r.code; if(!r.p.notice) r.p.notice=old; (r.p.auditTrail=r.p.auditTrail||[]).push({at:now,by:who,act:'code_renamed',from:old,to:r.code}); try{touchRecord(r.p);}catch(e){} });
+  },{action:'project_merge', fields:Array.from(touched).concat(['deletedIds']), onOk:()=>{ try{ logAuditEvent('project_merge',{groups:groups.length, dups:nDup, refs:nRef, actor:who}); }catch(e){} toast('✓ Gộp '+nDup+' dự án trùng · trỏ lại '+nRef+' tham chiếu · đổi mã '+renames.length,'good'); closeModal(); window._projMergeGroups=null; try{ renderProjects(); }catch(e){} }});
+}
 function ctlImportOpen(){
   if(!(isAdmin()||canCheckAcc())){ toast('Nhập Contract Tracking List: admin / kế toán','bad'); return; }
   if(typeof XLSX==='undefined'){ toast('Thư viện Excel chưa sẵn sàng','bad'); return; }
@@ -37995,7 +38066,7 @@ function ctlCodeOverride(cnKey, code){
 function ctlImportPreview(){
   const st=window._ctlPlan; if(!st) return; const plan=st.plan; const fm=v=>Math.round(+v||0).toLocaleString('vi-VN');
   const fDT=s=>String(s||'').replace('T',' ').slice(0,16);
-  const kLabel={contractNo:'Số HĐ',client:'Khách hàng',endClient:'End client',unitPrice:'Đơn giá',value:'Giá trị HĐ',vesselId:'Tàu',start:'Bắt đầu',end:'Kết thúc',ccy:'CCY'};
+  const kLabel={contractNo:'Số HĐ',client:'Khách hàng',endClient:'End client',notice:'Số TBTT (ghi chú)',unitPrice:'Đơn giá',value:'Giá trị HĐ',vesselId:'Tàu',start:'Bắt đầu',end:'Kết thúc',ccy:'CCY'};
   const pr=plan.projects.map(x=>`<tr style="border-bottom:1px solid var(--rule)"><td style="padding:4px 6px">${x.action==='new'?'<b style="color:#1e7d44">MỚI</b>':x.action==='update'?'<b style="color:#b8730a">ĐIỀN THÊM</b>':'<span style="color:var(--muted)">đã có</span>'}</td>
     <td style="padding:4px 6px"><input value="${esc(x.action==='new'?x.rec.code:(x.existing&&x.existing.code||x.rec.code))}" data-ctlcode="${esc(ctlKey(x.rec.contractNo))}" onchange="ctlCodeOverride('${esc(ctlKey(x.rec.contractNo))}',this.value)" style="width:150px;font-family:var(--font-mono);font-size:11.5px;font-weight:700" title="Mã dự án: quy ước <2 ký tự tàu>-<năm>-<số HĐ ngắn>. Gõ mã ĐÃ CÓ trong app để ghép (chỉ điền ô trống), hoặc sửa mã sẽ tạo mới"> · ${esc(x.rec.name)}<div style="font-size:10.5px;color:var(--muted)">${esc(x.rec.contractNo)} · ${esc(x.rec.client)}${x.rec.endClient?' / '+esc(x.rec.endClient):''} · ${esc(x.rec.vesselName)}</div>
       ${x.fill.length?`<div style="font-size:10.5px;color:#1e7d44">điền: ${x.fill.map(f=>kLabel[f.k]+' = '+(typeof f.nv==='number'?fm(f.nv):esc(String(f.nv)))).join(' · ')}</div>`:''}
@@ -38025,7 +38096,7 @@ function ctlImportCommit(){
   commitMutation(()=>{
     S.projects=S.projects||[];
     plan.projects.forEach(x=>{
-      if(x.action==='new'){ const p={id:uid(), code:x.rec.code, name:x.rec.name, client:x.rec.client, endClient:x.rec.endClient||'', segment:x.rec.segment, vesselId:x.rec.vesselId, ccy:x.rec.ccy, start:x.rec.start, end:x.rec.end, value:x.rec.value, unitPrice:x.rec.unitPrice, experts:0, workDays:0, contractNo:x.rec.contractNo, projectManager:'', projStatus:'', isOM:false, _source:'ctl_import', _sourceFile:st.file, createdBy:who, createdAt:now, updatedAt:now}; S.projects.push(p); codeToId[ctlKey(x.rec.contractNo)]=p.id; nPn++; }
+      if(x.action==='new'){ const p={id:uid(), code:x.rec.code, name:x.rec.name, client:x.rec.client, endClient:x.rec.endClient||'', notice:(x.rec.notice&&!/^nil$/i.test(x.rec.notice))?x.rec.notice:'', segment:x.rec.segment, vesselId:x.rec.vesselId, ccy:x.rec.ccy, start:x.rec.start, end:x.rec.end, value:x.rec.value, unitPrice:x.rec.unitPrice, experts:0, workDays:0, contractNo:x.rec.contractNo, projectManager:'', projStatus:'', isOM:false, _source:'ctl_import', _sourceFile:st.file, createdBy:who, createdAt:now, updatedAt:now}; S.projects.push(p); codeToId[ctlKey(x.rec.contractNo)]=p.id; nPn++; }
       else { const p=x.existing; codeToId[ctlKey(x.rec.contractNo)]=p.id; if(x.fill.length){ x.fill.forEach(f=>{ p[f.k]=f.nv; }); try{touchRecord(p);}catch(e){} nPu++; } }
     });
     plan.events.forEach(x=>{
@@ -38253,7 +38324,7 @@ function renderProjects(){
     html+=`<tr style="${p.archived?'opacity:0.55;background:var(--paper-3)':''}">
       <td class="ds-t-sub" style="font-family:var(--font-mono)">${esc(p.code)}${p.archived?' <span class="ds-need" data-dot="bad" style="font-size:10px" title="Đã đánh dấu hoàn thành">⊘</span>':''}</td>
       <td><b>${esc(p.name)}</b>${p.isOM?' <span class="ds-need" data-dot="good" style="font-size:10px;margin-left:4px" title="Dự án O&M độc lập — có NV phụ trách riêng">⚙ O&M</span>':''}<br><span style="color:var(--muted);font-size:11px">${esc(p.client) || '—'}</span>${(p.docs&&p.docs.length)?`<div style="font-size:10.5px;margin-top:2px">${p.docs.map(d=>`<a href="${esc(d.url)}" target="_blank" rel="noopener" title="${esc(d.name)} · ${esc(String(d.at||'').slice(0,10))} · ${esc(d.by||'')}">📎 ${esc(String(d.name).length>28?String(d.name).slice(0,26)+'…':d.name)}</a>${isAdmin()?` <a href="#" onclick="event.preventDefault();projectDocRemove('${p.id}','${esc(d.id)}')" style="color:var(--bad)" title="Gỡ link">✕</a>`:''}`).join(' · ')}</div>`:''}</td>
-      <td style="font-size:12px">${p.endClient?esc(p.endClient):'<span style="color:var(--muted)">—</span>'}</td>
+      <td style="font-size:12px">${p.endClient?esc(p.endClient):'<span style="color:var(--muted)">—</span>'}${p.notice?`<div style="font-size:10px;color:var(--muted)" title="Số TBTT (ghi chú)">${esc(p.notice)}</div>`:''}</td>
       <td>${v?'<b>'+v.name+'</b>':'<span style="color:var(--muted)">—</span>'}</td>
       ${(()=>{ const hs=projectHireSpan(p.id,_allEv); tDays+=hs.days; const f=s=>s?String(s).slice(0,10).split('-').reverse().join('/'):'';
         return hs.n?`<td style="font-family:var(--font-mono);font-size:11px;white-space:nowrap">${f(hs.first)} → ${f(hs.last)}${hs.n>1?`<div style="color:var(--muted);font-size:10px">${hs.n} đoạn</div>`:''}</td><td class="r mono" style="font-size:11px">${hs.days}</td>`
@@ -73126,7 +73197,7 @@ function openPendingInbound(myOnly){
       <td style="padding:5px 8px;font-size:11px">${(d.lines||[]).length} VT${nNoCode?` <span style="color:#b8730a" title="${nNoCode} dòng chưa có mã FAST">⚠${nNoCode}</span>`:''}</td>
       <td style="padding:5px 8px;white-space:nowrap">
         ${canEdit?(whIsVesselSideUser()?`<button class="btn-primary" style="font-size:11px" onclick="openVesselReceive('${d.id}')">✓ Nhận hàng</button>`:`<button class="btn-primary" style="font-size:11px" onclick="openConfirmInbound('${d.id}')">✓ Nhận hàng & xác nhận</button>`):''}
-        <button class="btn-ghost" style="font-size:11px" onclick="stockDocPreview('${d.id}')">📄</button>
+        <button class="btn-ghost" style="font-size:11px" onclick="stockDocPreview('${d.id}')">📄</button>${whCanConfirmByBbgn(d)?`<label class="btn-sec" style="font-size:11px;cursor:pointer" title="v3.19.18: đọc biên bản giao nhận đã ký (PDF/ảnh) → điền SL nhận từng dòng, đính biên bản lên Drive, xác nhận theo biên bản">📎 BBGN<input type="file" accept=".pdf,image/*" style="display:none" onchange="whBbgnPick('${d.id}',this)"></label>`:''}${d.bbgn&&d.bbgn.url?` <a href="${esc(d.bbgn.url)}" target="_blank" rel="noopener" style="font-size:10.5px" title="Biên bản giao nhận đã đính">📎 ${esc(d.bbgn.no||'BBGN')}</a>`:''}
       </td></tr>`;
   };
   const blocks = groupKeys.length ? groupKeys.map(k=>{
@@ -73145,9 +73216,101 @@ function openPendingInbound(myOnly){
 }
 /* ---- Thủ kho xác nhận: sửa SL thực + Landed Cost → confirmed ---- */
 let _confDraft=null;
+/* ═══ v3.19.18 (Sếp 26/8: "Chờ nhập kho: cho NV nhập liệu import biên bản giao nhận, xác nhận số liệu như tàu — tàu nhận hay kho
+   nhận đều phải ký biên bản này"; NV nhập liệu = nhân viên đang nhập liệu bình thường trong app):
+   📎 BBGN → bóc chữ/OCR (bộ đọc sẵn có) → whParseBbgn THUẦN nhận bảng STT · Mã · Tên · ĐVT · SL → khớp dòng phiếu theo mã,
+   không có mã thì theo tên (bỏ dấu) → điền SL nhận vào màn xác nhận (kho: _confDraft; tàu: ô vr-q-*), đính file lên Drive
+   (stockDoc.bbgn), phiếu ghi 'xác nhận theo BBGN … bởi …'. Dòng lệch tô vàng, dòng BBGN không có trên phiếu liệt kê riêng. */
+function whCanConfirmByBbgn(d){
+  if(!CURRENT_USER) return false;
+  if(isAdmin()||canManageStock()||whIsSiteSideUser()||(typeof isVesselManager==='function'&&isVesselManager())) return true;
+  return !isVesselAccountUser();   /* nhân viên đang nhập liệu bình thường trong app */
+}
+function whParseBbgn(text){
+  const T=String(text||'').replace(/\u00a0/g,' ');
+  const out={no:'', date:'', rows:[], signers:[]};
+  const m1=T.match(/(?:Số|No\.?|Ref\.?)\s*[:：]\s*([A-Z0-9][A-Z0-9\/\-\.]{3,30})/i)||T.match(/\b(BBGN[-\/][A-Z0-9\/\-\.]{3,30})\b/i); if(m1) out.no=m1[1];
+  const m2=T.match(/(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{4})/); if(m2){ const d=ctlDate(m2[1]); if(d) out.date=ctlIsoLocal(d).slice(0,10); }
+  const lines=T.split(/\n+/).map(l=>l.replace(/\s+/g,' ').trim()).filter(Boolean);
+  const isHeader=l=>/(stt|tên hàng|tên vật tư|mô tả|description|item)/i.test(l) && /(đvt|đơn vị|unit|số lượng|sl|qty|quantity)/i.test(l);
+  let started=lines.some(isHeader)?false:true;
+  lines.forEach(l=>{
+    if(!started){ if(isHeader(l)) started=true; return; }
+    if(/^(tổng|total|cộng|người giao|người nhận|đại diện|ký tên|ghi chú)/i.test(l)){ return; }
+    const nums=[...l.matchAll(/(?:^|\s)(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d+)?|\d+(?:[.,]\d+)?)(?=\s|$)/g)].map(x=>({v:x[1],at:x.index}));
+    if(!nums.length) return;
+    let body=l, stt='', qty=null;
+    const first=l.match(/^(\d{1,3})\s+/); if(first){ stt=first[1]; body=l.slice(first[0].length); }
+    const code=(body.match(/\b([A-Z]{2,5}(?:\.[A-Z0-9]{2,6}){1,4})\b/)||[])[1]||'';
+    const um=body.match(/\b(cái|bộ|kg|lít|lit|m|met|roll|pcs|pc|set|box|thùng|can|chai|hộp|cuộn|tấm|kiện|drum|bag|ea)\b/i); const unit=um?um[1]:'';
+    /* SL: các số ĐỨNG LIỀN sau ĐVT (SL giao, SL nhận) — dừng ở chữ đầu tiên (ghi chú 'thiếu 20' không tính); không có ĐVT → dãy số cuối dòng */
+    let after=um?body.slice(um.index+um[0].length):body;
+    const toks=after.trim().split(/\s+/); const qs=[];
+    if(um){ for(const tk of toks){ if(/^\d{1,3}(?:[.,]\d{3})*(?:[.,]\d+)?$|^\d+(?:[.,]\d+)?$/.test(tk)) qs.push(tk); else break; } }
+    else { for(let i=toks.length-1;i>=0;i--){ if(/^\d{1,3}(?:[.,]\d{3})*(?:[.,]\d+)?$|^\d+(?:[.,]\d+)?$/.test(toks[i])) qs.unshift(toks[i]); else break; } }
+    const nq=qs.map(x=>+String(x).replace(/\.(?=\d{3}\b)/g,'').replace(',','.')).filter(x=>!isNaN(x));
+    if(!nq.length) return;
+    qty=nq[nq.length-1]; if(qty<0||qty>1e7) return;
+    let name=(um?body.slice(0,um.index):body.replace(/\s+\d[\d.,\s]*$/,'')).replace(code,'').replace(/\s+/g,' ').trim();
+    if(!code && name.length<3) return;
+    out.rows.push({stt, code, name, unit, qty});
+  });
+  const sg=T.match(/(?:Người nhận|Receiver|Bên nhận)[^\n]{0,60}?([A-ZÀ-Ỹ][a-zà-ỹ]+(?:\s[A-ZÀ-Ỹ][a-zà-ỹ]+){1,3})/); if(sg) out.signers.push(sg[1]);
+  return out;
+}
+/* khớp dòng BBGN với dòng phiếu — THUẦN: {matches:[{idx,qty,src}], unmatched:[row]} */
+function whMatchBbgn(docLines, rows){
+  const key=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[đĐ]/g,'d').toLowerCase().replace(/[^a-z0-9]/g,'');
+  const used=new Set(); const matches=[]; const unmatched=[];
+  (rows||[]).forEach(r=>{
+    let idx=-1;
+    if(r.code) idx=(docLines||[]).findIndex((l,i)=>!used.has(i)&&key(l.code)===key(r.code));
+    if(idx<0&&r.name){ const rk=key(r.name); idx=(docLines||[]).findIndex((l,i)=>!used.has(i)&&(key(l.name)===rk||(rk.length>=8&&(key(l.name).indexOf(rk)>=0||rk.indexOf(key(l.name))>=0)))); }
+    if(idx>=0){ used.add(idx); matches.push({idx, qty:r.qty, src:r}); } else unmatched.push(r);
+  });
+  return {matches, unmatched};
+}
+async function whBbgnPick(docId, inputEl){
+  const file=inputEl&&inputEl.files&&inputEl.files[0]; if(!file) return; try{ inputEl.value=''; }catch(e){}
+  const d=stockDocById(docId); if(!d){ toast('Không tìm thấy phiếu','bad'); return; }
+  if(!whCanConfirmByBbgn(d)){ toast('Không có quyền','bad'); return; }
+  toast('⏳ Đang đọc biên bản…','warn');
+  let text='';
+  try{ if(/pdf$/i.test(file.name)||file.type==='application/pdf'){
+      if(!window.pdfjsLib){ await _loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js','pdfjsLib'); if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; }
+      const pdf=await pdfjsLib.getDocument({data:new Uint8Array(await file.arrayBuffer())}).promise;
+      for(let p=1;p<=Math.min(pdf.numPages,4);p++){ const pg=await pdf.getPage(p); const tc=await pg.getTextContent(); let last=null, line=''; tc.items.forEach(it=>{ const y=Math.round(it.transform[5]); if(last!==null && Math.abs(y-last)>3){ text+=line+'\n'; line=''; } line+=(line?' ':'')+it.str; last=y; }); text+=line+'\n'; } } }catch(e){ text=''; }
+  let parsed=whParseBbgn(text);
+  if(!parsed.rows.length){ try{ const o=await ctlOcrFile(file); parsed=whParseBbgn(o); text=o; }catch(e){} }
+  const mt=whMatchBbgn(d.lines||[], parsed.rows);
+  /* đính file lên Drive (tùy cấu hình) */
+  let link=null; const cfg=getAuthConfig();
+  if(cfg&&cfg.scriptUrl){ try{ const b64=await new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>{ const x=String(r.result||''); res(x.includes(',')?x.split(',')[1]:x); }; r.onerror=()=>rej(new Error('đọc file')); r.readAsDataURL(file); });
+      const resp=await fetch(cfg.scriptUrl,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'upload_attachment', fileBase64:b64, mimeType:file.type||'application/pdf', fileName:(d.docNo?d.docNo+' - ':'')+file.name, sub:'BBGN_'+String(d.date||todayISO()).slice(0,4), viewers:[]})});
+      const data=await resp.json(); if(data&&data.ok&&data.file) link={name:file.name, url:data.file.url||'', driveId:data.file.id||''}; }catch(e){ console.warn('[bbgn upload]',e); } }
+  const who=(typeof actorName==='function'?actorName():''), now=new Date().toISOString();
+  const bb={no:parsed.no||'', date:parsed.date||'', signers:parsed.signers||[], name:file.name, url:link?link.url:'', driveId:link?link.driveId:'', readBy:who, readAt:now, rows:parsed.rows.length, matched:mt.matches.length};
+  await commitMutation(()=>{ const real=stockDocById(docId); if(real){ real.bbgn=bb; try{touchRecord(real);}catch(e){} } },{action:'stock_bbgn_attach', fields:['stockDocs']});
+  const fm=v=>(+v||0).toLocaleString('vi-VN');
+  const rowsHtml=(d.lines||[]).map((l,i)=>{ const m=mt.matches.find(x=>x.idx===i); const diff=m&&Math.abs((+m.qty||0)-(+(l.reqQty||l.qty)||0))>1e-9; return `<tr style="${m?(diff?'background:#fff3c4':''):'opacity:.6'}"><td style="padding:3px 6px;font-family:monospace;font-size:11px">${esc(l.code||'')}</td><td style="padding:3px 6px;font-size:11px">${esc(l.name||'')}</td><td style="padding:3px 6px;text-align:right">${fm(l.reqQty||l.qty)}</td><td style="padding:3px 6px;text-align:right;font-weight:600">${m?fm(m.qty):'<span style="color:var(--muted)">— không thấy trên BBGN</span>'}</td></tr>`; }).join('');
+  const unm=mt.unmatched.map(r=>`<li>${esc(r.code||'')} ${esc(r.name||'')} · SL ${fm(r.qty)}${r.unit?' '+esc(r.unit):''}</li>`).join('');
+  window._whBbgnCtx={docId, matches:mt.matches, bb};
+  openModal('📎 Biên bản giao nhận — '+esc(file.name), `<div style="font-size:12px;color:var(--muted);margin-bottom:6px">${parsed.no?'Số BB <b>'+esc(parsed.no)+'</b> · ':''}${parsed.date?'ngày '+esc(parsed.date)+' · ':''}đọc được <b>${parsed.rows.length}</b> dòng, khớp <b>${mt.matches.length}</b>/${(d.lines||[]).length} dòng phiếu${link?' · file đã lưu Drive':' · <span style="color:#b8730a">chưa lưu Drive (thiếu cấu hình)</span>'}. Dòng vàng = SL nhận khác SL đặt.</div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:var(--rule);text-align:left"><th style="padding:3px 6px">Mã</th><th style="padding:3px 6px">Tên</th><th style="padding:3px 6px;text-align:right">SL đặt</th><th style="padding:3px 6px;text-align:right">SL theo BBGN</th></tr></thead><tbody>${rowsHtml}</tbody></table>
+    ${unm?`<div style="margin-top:6px;font-size:11.5px;color:#b8730a">Trên BBGN có nhưng phiếu không có (kiểm lại trước khi xác nhận):<ul style="margin:2px 0 0 18px">${unm}</ul></div>`:''}
+    <details style="margin-top:6px"><summary style="font-size:11px;color:var(--muted);cursor:pointer">Xem chữ đọc được</summary><div style="font-size:11px;max-height:20vh;overflow:auto;white-space:pre-wrap;background:var(--paper-3);padding:6px;border-radius:6px">${esc(String(text||'').slice(0,4000))}</div></details>`,
+    `<button class="btn-ghost" onclick="closeModal()">Đóng</button><button class="btn-primary" onclick="whBbgnApply()">→ Điền SL vào màn xác nhận</button>`);
+}
+function whBbgnApply(){
+  const ctx=window._whBbgnCtx; if(!ctx) return; const d=stockDocById(ctx.docId); if(!d) return;
+  closeModal();
+  if(whIsVesselSideUser()){ openVesselReceive(ctx.docId); setTimeout(()=>{ ctx.matches.forEach(m=>{ const el=document.getElementById('vr-q-'+m.idx); if(el){ el.value=m.qty; el.style.borderColor='#1e7d44'; } }); toast('✓ Đã điền SL theo BBGN — kiểm rồi bấm Nhận hàng','good'); },80); return; }
+  openConfirmInbound(ctx.docId);
+  if(window._confDraft){ ctx.matches.forEach(m=>{ if(_confDraft.lines[m.idx]) _confDraft.lines[m.idx].qty=+m.qty||0; }); _confDraft.bbgn=ctx.bb; _confDraft._bbgnBy=(typeof actorName==='function'?actorName():''); try{ _confRender(); }catch(e){} toast('✓ Đã điền SL theo BBGN '+(ctx.bb.no||'')+' — kiểm rồi bấm Xác nhận','good'); }
+}
 function openConfirmInbound(id){
   const d=stockDocById(id); if(!d){ toast('Không tìm thấy','bad'); return; }
-  if(!stockCanAccessWarehouse(d.warehouseId)){ toast('Không có quyền với kho này','bad'); return; }
+  if(!stockCanAccessWarehouse(d.warehouseId) && !(window._whBbgnCtx&&window._whBbgnCtx.docId===id&&whCanConfirmByBbgn(d))){ toast('Không có quyền với kho này','bad'); return; }   /* v3.19.18: NV nhập liệu vào qua BBGN */
   _confDraft=JSON.parse(JSON.stringify(d));
   if(!_confDraft.landedCosts) _confDraft.landedCosts=[];
   _confRender();
@@ -73155,6 +73318,7 @@ function openConfirmInbound(id){
 function _confRender(){
   const d=_confDraft; if(!d) return;
   const showVal=(typeof canViewStockValue==='function'&&canViewStockValue());
+  const _bbgnBanner=d.bbgn?`<div style="font-size:11.5px;padding:6px 10px;border:1px solid #1e7d44;border-radius:8px;background:#eafaf0;margin-bottom:6px">📎 Xác nhận theo <b>biên bản giao nhận${d.bbgn.no?' '+esc(d.bbgn.no):''}</b>${d.bbgn.date?' · '+esc(d.bbgn.date):''}${d.bbgn.url?` · <a href="${esc(d.bbgn.url)}" target="_blank" rel="noopener">mở file</a>`:''} · khớp ${d.bbgn.matched||0}/${d.bbgn.rows||0} dòng · nhập bởi ${esc(d.bbgn.readBy||'')}</div>`:'';
   const lineRows=(d.lines||[]).map((l,i)=>`<tr>
     <td style="padding:3px"><input value="${esc(l.code||'')}" list="conf-codes" placeholder="Mã FAST" style="width:100px;padding:4px;font-family:monospace;font-size:11px" onchange="_confLineCode(${i},this.value)">${l.srcDesc?`<div style="font-size:10px;color:var(--muted);max-width:120px" title="${esc(l.srcDesc)}">↳ ${esc((l.srcDesc||'').slice(0,28))}</div>`:''}</td>
     <td style="padding:3px 6px;font-size:11px">${esc(l.name||'')}</td>
@@ -73202,7 +73366,7 @@ function _confRender(){
       <tbody>${lineRows}</tbody></table>
     ${landedBlock}
     ${!showVal?'<div style="font-size:11px;color:var(--muted);margin-top:8px">Chi phí phát sinh (thuế/phí) do kế toán/thủ kho tổng ghi nhận.</div>':''}`;
-  openModal('✓ Nhận hàng & xác nhận — '+esc(d.docNo), body,
+  openModal('✓ Nhận hàng & xác nhận — '+esc(d.docNo), _bbgnBanner+body,
     `<button class="btn-ghost" onclick="openPendingInbound()">← Chờ nhập</button>
      <button class="btn-sec" onclick="_confSave(false)">💾 Lưu nháp</button>
      <button class="btn-primary" onclick="_confSave(true)">✓ Xác nhận nhập kho</button>`);
