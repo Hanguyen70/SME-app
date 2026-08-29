@@ -3831,7 +3831,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.19.66';
+const APP_VERSION='3.19.68';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -45201,9 +45201,9 @@ function renderApprovalList(){
           const lk=t._locked?' <span title="Kỳ chủ tàu đã khóa — CHI PHÍ khóa, CÔNG NỢ vẫn duyệt/thanh toán (v3.17.62)" style="font-size:10px">🔒</span>':'';
           const rem=(typeof opNccRemaining==='function'&&typeof opIsNccPayable==='function'&&opIsNccPayable(t))?opNccRemaining(t):(+t.amount||0);
           return `<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;padding:5px 4px;border-bottom:1px dotted var(--rule);font-size:12px">
-            <span><input type="checkbox" data-opb="${esc(t.id)}" ${OP_SELECTED.has(t.id)?'checked':''} onchange="this.checked?OP_SELECTED.add(this.dataset.opb):OP_SELECTED.delete(this.dataset.opb); updateApprovalSummary()"> 🚢 <b>${esc(opVesselName_(t.vesselId)||'')}</b> · ${esc((t.vendor||t.desc||'').slice(0,42))} <span class="ds-need">${esc(meta.short||st)}</span>${lk}${!t.payApproved?'<span class="ds-need" style="color:var(--warn)">chờ lệnh chi</span>':''}</span>
+            <span><input type="checkbox" data-opb="${esc(t.id)}" ${OP_SELECTED.has(t.id)?'checked':''} onchange="this.checked?OP_SELECTED.add(this.dataset.opb):OP_SELECTED.delete(this.dataset.opb); updateApprovalSummary()"> 🚢 <b>${esc(opVesselName_(t.vesselId)||'')}</b> · ${esc((t.vendor||t.desc||'').slice(0,42))} <span class="ds-need">${esc(meta.short||st)}</span>${lk}${(!t.payApproved && !((typeof opIsNccPayable==='function')&&opIsNccPayable(t)))?'<span class="ds-need" style="color:var(--warn)">chờ lệnh chi</span>':''}</span>
             <span style="white-space:nowrap;display:flex;gap:6px;align-items:center"><b style="font-family:var(--font-mono)">${(+rem).toLocaleString('vi-VN')} ${esc(t.ccy||'VND')}</b>
-              ${!t.payApproved?`<button class="btn-ghost" style="font-size:10px;padding:1px 8px" onclick="approveOpPayment('${esc(t.id)}')">✓ Lệnh chi</button>`:''}
+              ${(!t.payApproved && !((typeof opIsNccPayable==='function')&&opIsNccPayable(t)))?`<button class="btn-ghost" style="font-size:10px;padding:1px 8px" onclick="approveOpPayment('${esc(t.id)}')">✓ Lệnh chi</button>`:''}
               <button class="btn-ghost" style="font-size:10px;padding:1px 6px" onclick="showOpTxDetail('${esc(t.id)}')">👁</button></span></div>`; }).join('')}
       </div>`;
       /* v3.17.56: nói rõ vì sao "không thấy" — đếm phiếu ở bước KT kiểm (xử tại Thu-Chi hộ) + phiếu kỳ khóa */
@@ -64885,6 +64885,17 @@ function confirmOpPayment(id){
     return;
   }
   const t=VesselService.opTransactions().find(x=>x.id===id);if(!t)return;
+  /* v3.19.67 (báo lỗi: chi hộ chủ tàu duyệt xong bị coi là đã TT luôn, bỏ qua Bảng kê) — Sếp chốt
+     26/8 (v3.19.03): khoản nợ NCC thật (opIsNccPayable) sau L2 PHẢI qua 💸 Bảng kê để chọn nguồn tiền,
+     không được đánh dấu "đã TT" trực tiếp tại đây nữa — màn chi tiết phiếu đã chặn (v3.19.03) nhưng
+     nút tắt "✓ Xác nhận TT" ở Sổ Thu/Chi hộ (Tab 06) vẫn mở đường tắt cũ, khiến admin bấm liền
+     "Duyệt TT" rồi "Xác nhận TT" là phiếu lên "Đã TT" dù chưa hề chuyển tiền thật. Chỉ chặn khi
+     ĐANG đánh dấu TT (không chặn thao tác BỎ xác nhận — isUnconfirm) và phiếu chưa paid. */
+  if(!t.paid && (typeof opIsNccPayable==='function') && opIsNccPayable(t)){
+    toast('Khoản nợ NCC (chi hộ chủ tàu) phải xác nhận TT qua 💸 Bảng kê (chọn nguồn tiền) — không xác nhận trực tiếp tại đây.','warn');
+    closeModal(); navTo('approval'); setTimeout(()=>{ try{ _apprSetLevel('bk_pay'); }catch(e){} },150);
+    return;
+  }
   // v3.02.29: phải DUYỆT lệnh trước khi xác nhận đã TT (trừ khi đang bỏ xác nhận)
   if(!t.paid && !t.payApproved){
     toast('Lệnh chưa được KTT/Admin duyệt — chưa thể xác nhận thanh toán','bad');
@@ -65414,7 +65425,7 @@ function renderOpInputRecent(){
           ? `<button class="icon-btn" title="Đã thực hiện → chi thực" onclick="opMarkActual('${t.id}')" style="color:var(--good)">✓</button><button class="icon-btn" title="Xem chi tiết phiếu" onclick="showOpTxDetail('${t.id}')">👁</button><button class="icon-btn" title="Sửa" onclick="editOpTx('${t.id}')">✎</button>${docBtn}<button class="icon-btn danger" title="Hủy dự kiến" onclick="opDeleteBudget('${t.id}')">✕</button>`
           : (t.paid
             ? `${_canConfirmOpTT()?`<button class="icon-btn" title="Sửa (đã TT)" onclick="editOpFees('${t.id}')">✎</button>`:`<span class="ds-t-sub" style="font-family:var(--font-mono)" style="font-size:10px;color:var(--muted)" title="Đã TT">🔒</span>`}${docBtn}${(isAdmin() && !t._fromAp && t.khoanRole!=='chi' && !t._isBudget && !t._mgmtFeeId && t.type==='OUT' && !(t._locked && !t._isBudget))?`<button class="icon-btn" title="${t.seahorseOwn?'Chuyển LẠI thành chi hộ chủ tàu':'Chủ tàu KHÔNG đồng ý trả → chuyển CHI PHÍ SEAHORSE (Hải Mã) TỰ CHỊU'}" onclick="toggleOpTxSeahorseOwn('${t.id}')" style="color:var(--warn)">${t.seahorseOwn?'⇄':'⇄🏢'}</button>`:''}`
-            : `${(t.payApproved && _canConfirmOpTT())?`<button class="icon-btn" title="Lệnh đã duyệt${t.payApprovedBy?' bởi '+esc(t.payApprovedBy):''} — KT xác nhận đã chi tiền + nhập phí NH → chuyển Đã TT" onclick="confirmOpPayment('${t.id}')" style="color:var(--good);font-weight:700">💳</button>`:''}<button class="icon-btn" title="Sửa" onclick="editOpTx('${t.id}')">✎</button>${docBtn}<button class="icon-btn danger" title="Xóa" onclick="delOpTx('${t.id}')">✕</button>${(isAdmin() && !t._fromAp && t.khoanRole!=='chi' && !t._isBudget && !t._mgmtFeeId && t.type==='OUT' && !(t._locked && !t._isBudget))?`<button class="icon-btn" title="${t.seahorseOwn?'Chuyển LẠI thành chi hộ chủ tàu':'Chủ tàu KHÔNG đồng ý trả → chuyển CHI PHÍ SEAHORSE (Hải Mã) TỰ CHỊU'}" onclick="toggleOpTxSeahorseOwn('${t.id}')" style="color:var(--warn)">${t.seahorseOwn?'⇄':'⇄🏢'}</button>`:''}`)));
+            : `${(t.payApproved && _canConfirmOpTT() && !((typeof opIsNccPayable==='function')&&opIsNccPayable(t)))?`<button class="icon-btn" title="Lệnh đã duyệt${t.payApprovedBy?' bởi '+esc(t.payApprovedBy):''} — KT xác nhận đã chi tiền + nhập phí NH → chuyển Đã TT" onclick="confirmOpPayment('${t.id}')" style="color:var(--good);font-weight:700">💳</button>`:''}${((typeof opIsNccPayable==='function')&&opIsNccPayable(t)&&opWfStatus(t)==='approved')?`<button class="icon-btn" title="Nợ NCC đã duyệt L2 — chi qua Bảng kê" onclick="closeModal();navTo('approval');setTimeout(()=>{ try{ _apprSetLevel('bk_pay'); }catch(e){} },150)" style="color:#1c3a5c;font-weight:700">💸</button>`:''}<button class="icon-btn" title="Sửa" onclick="editOpTx('${t.id}')">✎</button>${docBtn}<button class="icon-btn danger" title="Xóa" onclick="delOpTx('${t.id}')">✕</button>${(isAdmin() && !t._fromAp && t.khoanRole!=='chi' && !t._isBudget && !t._mgmtFeeId && t.type==='OUT' && !(t._locked && !t._isBudget))?`<button class="icon-btn" title="${t.seahorseOwn?'Chuyển LẠI thành chi hộ chủ tàu':'Chủ tàu KHÔNG đồng ý trả → chuyển CHI PHÍ SEAHORSE (Hải Mã) TỰ CHỊU'}" onclick="toggleOpTxSeahorseOwn('${t.id}')" style="color:var(--warn)">${t.seahorseOwn?'⇄':'⇄🏢'}</button>`:''}`)));
       const _rowStyle = _locked
         ? ' style="background:var(--paper-3);border-left:3px solid var(--bad)"'
         : (isBudget ? ' style="background:var(--paper-3);border-left:3px solid var(--warn)"' : '');
@@ -66686,6 +66697,14 @@ function renderOpTxList(){
           ? `<td class="r num" style="color:${feesUsd>0?'var(--warn)':'var(--muted)'}" title="${feeTip}">${feesUsd>0?`<b>${fmtCcy(feesUsd,'USD')}</b>${feeCcyT!=='USD'?`<div style="font-size:10px;color:var(--muted);font-weight:400">${fmtCcy((+t.bankFee||0)+(+t.otherFee||0),feeCcyT)}</div>`:''}`:'—'}</td>`
           : '';
         // Cột 6: trạng thái TT — v3.02.45: phiếu _fromAp xử lý qua AP GỐC (không phải op tx thật).
+        /* v3.19.68 (Sếp: "Cần đưa tất cả lên bảng kê, đúng theo luồng AP thông thường") — nợ NCC thật
+           (opIsNccPayable) đi ĐÚNG luồng AP: duyệt L1/L2 tại tab Phê duyệt (đã hợp nhất từ v3.17.51),
+           chi qua Bảng kê. Cột này ở Tab 06 chỉ còn HIỂN THỊ trạng thái (đọc opWfStatus/ncStatus) +
+           lối tắt sang Bảng kê khi đã sẵn sàng chi — bỏ hẳn nút "⊳ Duyệt TT"/"✓ Xác nhận TT" riêng
+           (payApproved/confirmOpPayment) cho loại này, vì đó là đường tắt song song gây ra v3.19.67
+           (duyệt xong bị coi là đã TT, bỏ qua Bảng kê). Thu hộ/khoán-đòi/phí QL/Seahorse tự chịu —
+           KHÔNG thuộc luồng AP/Bảng kê, giữ nguyên cơ chế payApproved/paid cũ như trước giờ. */
+        const _isNccPay = (typeof opIsNccPayable==='function') && opIsNccPayable(t);
         const ttCell = t._fromAp
           ? (()=>{
               const ap=AccountingService.payableById(t._apId);
@@ -66704,19 +66723,33 @@ function renderOpTxList(){
                 ? `<button class="btn-sec" style="padding:3px 8px;font-size:11px;border-color:var(--good);color:var(--good)" title="KT ghi nhận thanh toán đợt + phí (trả nhiều lần)" onclick="opConfirmApPay('${t._apId}')">✓ Xác nhận TT</button>`
                 : `<span class="ds-need" data-dot="warn" style="font-size:10px" title="Đã duyệt — chờ KT xác nhận TT">✓ Đã duyệt · chờ KT</span>`;
             })()
-          : (t.paid
-            ?(_canConfirmOpTT()
-              ?`<span class="ds-need" data-dot="good" title="TT ngày ${t.paidDate||'?'}${t.payApprovedBy?' · Duyệt bởi '+esc(t.payApprovedBy):''}" style="cursor:pointer" onclick="confirmOpPayment('${t.id}')">✓ ${t.paidDate?t.paidDate.slice(5):'TT'}</span>`
-              :`<span class="ds-need" data-dot="good" title="TT ngày ${t.paidDate||'?'}">✓ ${t.paidDate?t.paidDate.slice(5):'TT'}</span>`)
-            : (t.payApproved
-                // ĐÃ DUYỆT lệnh → chờ KT xác nhận đã TT (+ phí)
-                ? (_canConfirmOpTT()
-                    ? `<button class="btn-sec" style="padding:3px 8px;font-size:11px;border-color:var(--good);color:var(--good)" title="Lệnh đã duyệt${t.payApprovedBy?' bởi '+esc(t.payApprovedBy):''} — KT xác nhận đã chi tiền + nhập phí NH" onclick="confirmOpPayment('${t.id}')">✓ Xác nhận TT</button>${_canApproveOpPay()?` <button class="icon-btn" title="Bỏ duyệt lệnh" onclick="unapproveOpPayment('${t.id}')" style="font-size:10px">↶</button>`:''}`
-                    : `<span class="ds-need" data-dot="warn" style="font-size:10px" title="Lệnh đã duyệt${t.payApprovedBy?' bởi '+esc(t.payApprovedBy):''} — chờ KT xác nhận đã TT">✓ Đã duyệt · chờ KT</span>`)
-                // CHƯA duyệt lệnh → KTT/Ad duyệt
-                : (_canApproveOpPay()
-                    ? `<button class="btn-sec" style="padding:3px 8px;font-size:11px;border-color:var(--accent);color:var(--accent)" title="KTT/Admin duyệt lệnh thanh toán" onclick="approveOpPayment('${t.id}')">⊳ Duyệt TT</button>`
-                    : `<span class="ds-need" title="Chờ KTT/Admin duyệt lệnh thanh toán" style="background:var(--paper-3);color:var(--muted);font-size:10px">Chờ duyệt</span>`)));
+          : (_isNccPay
+            ? (()=>{
+                const rem=(typeof opNccRemaining==='function')?opNccRemaining(t):(+t.amount||0);
+                const st=(typeof opWfStatus==='function')?opWfStatus(t):(t.ncStatus||'draft');
+                if(st==='approved'){
+                  if(rem<=0.001){
+                    const d=(t.payments&&t.payments.length)?(t.payments[t.payments.length-1].date||''):(t.paidDate||'');
+                    return `<span class="ds-need" data-dot="good" style="font-size:10px" title="Đã trả đủ${d?(' · '+esc(d)):''}">✓ Đã TT</span>`;
+                  }
+                  return `<button class="btn-sec" style="padding:3px 8px;font-size:11px;border-color:#1c3a5c;color:#1c3a5c" title="Đã duyệt L2 — chi qua Bảng kê (chọn nguồn tiền)" onclick="closeModal();navTo('approval');setTimeout(()=>{ try{ _apprSetLevel('bk_pay'); }catch(e){} },150)">💸 Chờ TT (Bảng kê)</button>`;
+                }
+                if(st==='rejected') return `<span class="ds-need" data-dot="bad" style="font-size:10px">Từ chối</span>`;
+                const lbl=(OP_WF_STATES[st]||{}).short||(OP_WF_STATES[st]||{}).label||st;
+                return `<span class="ds-need" style="font-size:10px;color:var(--muted)" title="Duyệt tại tab Phê duyệt">${esc(lbl)}</span>`;
+              })()
+            : (t.paid
+              ?(_canConfirmOpTT()
+                ?`<span class="ds-need" data-dot="good" title="TT ngày ${t.paidDate||'?'}${t.payApprovedBy?' · Duyệt bởi '+esc(t.payApprovedBy):''}" style="cursor:pointer" onclick="confirmOpPayment('${t.id}')">✓ ${t.paidDate?t.paidDate.slice(5):'TT'}</span>`
+                :`<span class="ds-need" data-dot="good" title="TT ngày ${t.paidDate||'?'}">✓ ${t.paidDate?t.paidDate.slice(5):'TT'}</span>`)
+              : (t.payApproved
+                  ? (_canConfirmOpTT()
+                      ? `<button class="btn-sec" style="padding:3px 8px;font-size:11px;border-color:var(--good);color:var(--good)" title="Lệnh đã duyệt${t.payApprovedBy?' bởi '+esc(t.payApprovedBy):''} — KT xác nhận đã chi tiền + nhập phí NH" onclick="confirmOpPayment('${t.id}')">✓ Xác nhận TT</button>${_canApproveOpPay()?` <button class="icon-btn" title="Bỏ duyệt lệnh" onclick="unapproveOpPayment('${t.id}')" style="font-size:10px">↶</button>`:''}`
+                      : `<span class="ds-need" data-dot="warn" style="font-size:10px" title="Lệnh đã duyệt${t.payApprovedBy?' bởi '+esc(t.payApprovedBy):''} — chờ KT xác nhận đã TT">✓ Đã duyệt · chờ KT</span>`)
+                  // CHƯA duyệt lệnh → KTT/Ad duyệt
+                  : (_canApproveOpPay()
+                      ? `<button class="btn-sec" style="padding:3px 8px;font-size:11px;border-color:var(--accent);color:var(--accent)" title="KTT/Admin duyệt lệnh thanh toán" onclick="approveOpPayment('${t.id}')">⊳ Duyệt TT</button>`
+                      : `<span class="ds-need" title="Chờ KTT/Admin duyệt lệnh thanh toán" style="background:var(--paper-3);color:var(--muted);font-size:10px">Chờ duyệt</span>`))));
         // Cột 7: thao tác — v3.01.73: TAB 06 CHỈ XEM. Sửa/xóa làm ở nơi nhập gốc.
         const actCell = t._fromAp
           ? `<button class="icon-btn" title="Mở khoản Phải trả gốc (sửa ở giao diện Phải trả)" onclick="openPayableModal('${t._apId}')">👁</button>`
@@ -95688,7 +95721,7 @@ function renderMobileApproval(){
         <div style="font-family:var(--font-mono);font-weight:700">${(+rem).toLocaleString('vi-VN')} ${esc(t.ccy||'VND')}</div>
         <div style="display:flex;gap:6px;margin-top:6px">
           ${meta.next?`<button class="btn-primary" style="font-size:12px;padding:4px 12px" onclick="opWfAdvance('${esc(t.id)}','${esc(meta.next)}')">${esc(meta.nextLabel||'Duyệt')}</button>`:''}
-          ${!t.payApproved?`<button class="btn-sec" style="font-size:12px;padding:4px 10px" onclick="approveOpPayment('${esc(t.id)}')">✓ Lệnh chi</button>`:''}
+          ${(!t.payApproved && !((typeof opIsNccPayable==='function')&&opIsNccPayable(t)))?`<button class="btn-sec" style="font-size:12px;padding:4px 10px" onclick="approveOpPayment('${esc(t.id)}')">✓ Lệnh chi</button>`:''}
         </div></div>`; }).join('');
     const _lvlLabel={pending_acc:'Chờ KT kiểm', pending_l1:'Chờ L1 duyệt', pending_l2:'Chờ L2 duyệt'};
     if(!rows.length && !opRows.length){
