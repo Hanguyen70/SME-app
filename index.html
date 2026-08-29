@@ -3831,7 +3831,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.19.68';
+const APP_VERSION='3.19.71';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -21825,7 +21825,7 @@ function openPayPeriodDetail(id){
   /* v3.14.20 (Sếp 05/8): bảng kỳ hiển thị đủ cột — thành phần lương theo nhóm + BHXH + thuế TNCN + thực lĩnh.
      CHỈ HIỂN THỊ từ inputs/result sẵn có, không tính gì mới. Cột thành phần theo nhóm kỳ: */
   const _PC_COLS={
-    office:[['Lương NET',i=>+i.G||0],['KPI',i=>+i.K||0],['PC trách nhiệm',i=>+i.H||0],['PC khác',i=>(+i.V||0)+(p.projAllow===true?((+i.W||0)+(+i.WD||0)*(+i.WN||0)):0)+(+i.I||0)*(+i.T||0)+(+i.J||0)*(+i.U||0)]  /* v3.14.34: cột PC khác NHÂN BẢN GATE của engine (19510) — kỳ TẮT: không cộng W dù Kéo thẻ đã đổ mức; kỳ BẬT: W + WD×WN (trước đây hiện W cả khi tắt & thiếu phần /ngày khi bật) */],
+    office:[['Lương NET',i=>+i.G||0],['KPI',i=>+i.K||0],['PC trách nhiệm',i=>+i.H||0],['PC khác',i=>(+i.V||0)+(p.projAllow===true?((+i.W||0)+(+i.WD||0)*((+i.WD||0)>0?(i.MW!=null?(+i.MW||0):(+i.WN||0)):(+i.WN||0))):0)+(+i.I||0)*(+i.T||0)+(+i.J||0)*(+i.U||0)]  /* v3.19.69 (báo lỗi: bảng kỳ không thấy PCDA của Trọng) — cột này tính PC khác RIÊNG, độc lập với engine thật (payComputeRow) và chưa theo kịp v3.19.64: vẫn nhân WD với WN nhập tay (nay bỏ, luôn =0 cho ai dùng PCDA/ngày) thay vì MW tự động — khớp lại đúng công thức engine */],
     office_gross:[['LCB GROSS',i=>+i.G||0],['Thưởng',i=>+i.K||0],['Tiền nhà',i=>+i.H||0],['Khác',i=>+i.V||0]],
     tech:[['Mức biển/ngày',i=>+i.H||0],['Mức VP/ngày',i=>+i.I||0],['PC công tác',i=>(+i.M||0)*(+i.Y||0)+(+i.N||0)*(+i.Z||0)],['Bổ sung + PC dự án',i=>(+i.O||0)+(p.projAllow===true?(+i.P||0):0)]],   /* v3.14.35: cột nhân bản gate công tắc như VP */
     crew:[['Ngày công',i=>['G','H','I','J','K','L','M'].reduce((t,k)=>t+(+i[k]||0),0),'days'],['Lương CB',i=>+i.N||0],['Mức biển/ngày',i=>+i.O||0],['Mức DP/ngày',i=>+i.T||0],['Điều chỉnh',i=>+i.AA||0]],   /* v3.19.29: cột Ngày công (biển+dock+bờ+DP) */
@@ -95615,6 +95615,26 @@ function hrmAttDelete(id){
 }
 /* v3.13.24: KHÓA/MỞ kỳ công — trạng thái locked có sẵn nhưng thiếu UI chuyển. Khóa = công đã ký/chốt,
    là điều kiện Payroll 📥 Lấy công từ HRM. Quyền: HR (canSignHr/isNVNS) hoặc Admin. */
+/* v3.19.71 (Sếp 29/8: "nhiều pháp nhân — app tự nhận qua mã NV được?" — KHÔNG, mã NV luôn SME#### bất
+   kể pháp nhân; nhưng cột "Đơn vị" trong chính BCC đã mang đúng tín hiệu STER/PON/SME — dùng lại đúng
+   cách payPeriodCreateCommit đang lọc roster (_coTagC), không suy diễn thêm nguồn mới). */
+function _coTagOf(u){ u=String(u||'').trim().toUpperCase(); return u==='STER'?'STER':(u==='PON'?'PON':'SME'); }
+function _companyTagOf(companyId){
+  try{ const nm=String(companyName(companyId)||'').toUpperCase();
+    if(nm.indexOf('STER')>=0) return 'STER'; if(nm.indexOf('PON')>=0) return 'PON'; }catch(e){}
+  return 'SME';
+}
+/* Trả về mảng companyId khác nhau xuất hiện trong BCC vừa khóa (theo cột Đơn vị từng dòng).
+   BCC chỉ 1 pháp nhân → mảng 1 phần tử — tự chọn được, không cần hỏi. BCC trộn nhiều pháp nhân
+   (vd VP gồm cả SME lẫn STER trong 1 file) → mảng nhiều phần tử — tạo/mở LẦN LƯỢT từng kỳ. */
+function _bccDetectCompanyIds(a){
+  const companies=S.companies||[];
+  if(companies.length<=1) return [((companies[0]||{}).id)||''];
+  const tagMap={}; companies.forEach(c=>{ const t=_companyTagOf(c.id); if(!(t in tagMap)) tagMap[t]=c.id; });
+  const found=new Set();
+  (a.rows||[]).forEach(r=>{ const t=_coTagOf(r.unit); if(tagMap[t]) found.add(tagMap[t]); });
+  return found.size ? Array.from(found) : [((companies[0]||{}).id)||''];
+}
 function hrmAttLock(id){
   if(!(isAdmin()||(CURRENT_USER&&(CURRENT_USER.canSignHr||CURRENT_USER.isNVNS||CURRENT_USER.isHrStaff)))){ toast('Chỉ HR/Admin được khóa kỳ công','bad'); return; }   /* v3.14.84: vai Hồ sơ & Chấm công được khóa BCC */
   const a=HRService.attendance().find(x=>x.id===id); if(!a) return;
@@ -95623,6 +95643,44 @@ function hrmAttLock(id){
   try{touchRecord(a);}catch(e){}
   try{ logAuditEvent('hrm_att_lock',{period:a.period,profile:a.profile}); }catch(e){}
   saveState(); toast('🔒 Đã khóa kỳ công '+a.period,'good'); hrmAttRender();
+  /* v3.19.70 (Sếp 29/8: "Khóa BCC - App tự mở kỳ lương tương ứng?" — BCC chỉ có 1 kỳ = 1 tháng, kỳ
+     lương chưa có thì tự tạo luôn rồi mở): bớt thao tác chuyển tay giữa 2 màn Chấm công → Kỳ lương. */
+  try{ _hrmAttOpenPayPeriod(a); }catch(e){ console.warn('[hrmAttLock→pay]', e); }
+}
+/* v3.19.70: BCC (HRM_BCC_PROFILES) → nhóm lương (PayrollService profile) — cùng chiều với wantP đã
+   dùng ở payPullAttendance (v3.14.35/24335). crew_khoan cũng nguồn BCC_DOITAU nên tìm cả hai khi mở. */
+const BCC_TO_PAY_PROFILE={ BCC_VP:'office', BCC_VP_BP:'office', BCC_DOITAU:'crew', BCC_KYTHUAT:'tech', BCC_EXPAT:'expat', BCC_CHUYENGIA:'project', BCC_CG_PDF:'project' };
+function _hrmAttOpenPayPeriod(a){
+  const payProf=BCC_TO_PAY_PROFILE[a.profile]; if(!payProf) return;
+  const candProfiles=payProf==='crew' ? ['crew','crew_khoan'] : [payProf];
+  const coIds=_bccDetectCompanyIds(a);   /* v3.19.71: 1 hoặc nhiều pháp nhân, nhận từ cột Đơn vị trong BCC */
+  let openedFirst=null, createdNames=[];
+  coIds.forEach((coId, idx)=>{
+    let found=(PayrollService.periods()||[]).find(p=>p && candProfiles.includes(p.profile) && p.period===a.period && (p.companyId||'')===(coId||''));
+    if(!found){
+      let cfg=null; try{ cfg=PayrollService.profileByKey(payProf); }catch(e){}
+      const stdDays=(cfg&&cfg.standardDays)||22;
+      const ccy=(typeof _payIsUsd==='function'&&_payIsUsd(payProf))?'USD':'VND';
+      try{
+        payPeriodCreate();
+        const ps=document.getElementById('pp-period'); if(ps) ps.value=a.period;
+        const prs=document.getElementById('pp-profile'); if(prs) prs.value=payProf;
+        const cs=document.getElementById('pp-ccy'); if(cs) cs.value=ccy;
+        const cos=document.getElementById('pp-company'); if(cos && coId) cos.value=coId;
+        const sd=document.getElementById('pp-stddays'); if(sd) sd.value=stdDays;
+        payPeriodCreateCommit();
+        found=(PayrollService.periods()||[]).find(p=>p && candProfiles.includes(p.profile) && p.period===a.period && (p.companyId||'')===(coId||''));
+        if(found) createdNames.push(companyName(coId)||'?');
+      }catch(e){ console.warn('[hrmAttLock auto-create]', e, coId); }
+    }
+    if(found && !openedFirst) openedFirst=found;
+  });
+  if(openedFirst){
+    setTimeout(()=>{
+      try{ closeModal(); openPayPeriodDetail(openedFirst.id); }catch(e){}
+      if(coIds.length>1) toast('BCC gồm '+coIds.length+' pháp nhân — đã mở kỳ đầu tiên'+(createdNames.length?(', tự tạo mới: '+createdNames.join(', ')):'')+'. Các kỳ pháp nhân khác vào tab Kỳ lương xem tiếp.','good');
+    },200);
+  }
 }
 function hrmAttUnlock(id){
   if(!(isAdmin()||(CURRENT_USER&&(CURRENT_USER.canSignHr||CURRENT_USER.isNVNS||CURRENT_USER.isHrStaff)))){ toast('Chỉ HR/Admin','bad'); return; }   /* v3.14.84 */
