@@ -3831,7 +3831,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.19.64';
+const APP_VERSION='3.19.65';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -91938,7 +91938,7 @@ function salaryProfileNewVersionForm(empId){
       <div class="field"><label>Lương cơ bản NET</label><input type="number" id="sp-net" value="${val('netBase')}" step="any"></div>
       <div class="field"><label>PC trách nhiệm</label><input type="number" id="sp-a1" value="${val('allow_trachNhiem')}" step="any"></div>
       <div class="field"><label>PC dự án /tháng</label><input type="number" id="sp-a2" value="${val('allow_duAn')}" step="any" title="Mức cố định theo tháng — trả khi kỳ BẬT công tắc PC dự án"></div>
-      <div class="field"><label>PC dự án /NGÀY</label><input type="number" id="sp-a2d" value="${val('allow_duAnPerDay')}" step="any" title="Đơn giá/ngày × SỐ CÔNG DỰ ÁN nhập trong kỳ (ô 'Công dự án' khi Nhập dòng — nhập tay từng tháng, KHÔNG tự theo lịch). VD SDPO 2.000.000/ngày × 31 công = 62tr; tháng không có công = 0. Cộng dồn với mức /tháng nếu có cả hai."></div>
+      <div class="field"><label>PC dự án /NGÀY</label><input type="number" id="sp-a2d" value="${val('allow_duAnPerDay')}" step="any" title="Đơn giá/ngày × ngày công làm việc thực tế trong kỳ (app tự lấy từ chấm công, không nhập tay — không tính phép/nghỉ lễ). VD SDPO 2.000.000/ngày × 22 công thật = 44tr; tháng không đi làm = 0. Cộng dồn với mức /tháng nếu có cả hai."></div>
       <div class="field"><label>Thưởng KPI (100%)</label><input type="number" id="sp-a3" value="${val('allow_kpi')}" step="any"></div>
       <div class="field"><label>PC thâm niên</label><input type="number" id="sp-a4" value="${val('allow_thamNien')}" step="any"></div>
       <div class="field"><label>PC khác</label><input type="number" id="sp-a5" value="${val('allow_khac')}" step="any"></div>
