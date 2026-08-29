@@ -3831,7 +3831,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.19.65';
+const APP_VERSION='3.19.66';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -91545,6 +91545,16 @@ function openSalaryProfileCard(empId, _ret, viewVerId){
             h+='<div class="ds-t-label" style="margin:4px 0 2px" title="PC dự án CHỈ phát sinh khi công ty có dự án và được KTT/Admin xác nhận — KHÔNG nằm trong lương NET cố định">Khoản KHÔNG thường xuyên</div>';
             h+=money(_SP_ALLOW_LABEL.allow_duAn, d.allow_duAn);
             h+='<div class="ds-t-sub" style="margin-top:2px">Không tự vào lương — nhập qua ➕ Khoản PS (loại "PC dự án", KTT duyệt theo tháng) · v3.13.52</div>';
+            /* v3.19.66 (báo lỗi: thẻ Đinh Văn Trọng không thấy PCDA/ngày dù đã điền) — trước đây màn
+               xem thẻ CHỈ hiện allow_duAn (mức/tháng), thiếu hẳn dòng allow_duAnPerDay (mức/ngày) dù ô
+               nhập ở form Tạo/Sửa thẻ đã có sẵn từ v3.14.29 và đã có đường đổ thẳng vào kỳ lương qua
+               Kéo thẻ lương (W:R('allow_duAn')) + Kéo chấm công (MW) từ v3.19.64 — dữ liệu vẫn lưu
+               đúng, chỉ MÀN XEM không vẽ ra nên tưởng mất/chưa nhập được. Chỉ hiện dòng này khi có
+               giá trị, tránh rối cho đa số NV không dùng cơ chế PCDA/ngày. */
+            if(+d.allow_duAnPerDay){
+              h+=money(_SP_ALLOW_LABEL.allow_duAnPerDay, d.allow_duAnPerDay);
+              h+='<div class="ds-t-sub" style="margin-top:2px">Mức /ngày — nhân với ngày công làm việc thực tế app tự lấy từ chấm công mỗi kỳ (không tính phép/nghỉ lễ), kỳ vẫn cần BẬT 💼 · v3.19.64</div>';
+            }
             return h;
           })()}
           <div style="border-top:1px dashed var(--rule);margin:6px 0"></div>
@@ -92717,7 +92727,7 @@ function _spVarTotal(v){
 }
 /* Nhãn tiếng Việt cho từng khoản phụ cấp. */
 const _SP_ALLOW_LABEL = {
-  allow_trachNhiem:'PC trách nhiệm', allow_duAn:'PC dự án', allow_kpi:'PC KPI',
+  allow_trachNhiem:'PC trách nhiệm', allow_duAn:'PC dự án /tháng', allow_duAnPerDay:'PC dự án /ngày', allow_kpi:'PC KPI',
   allow_thamNien:'PC thâm niên', allow_khac:'PC khác'
 };
 /* Build inp mức cho engine từ thẻ (R1: prefill kỳ lương khi flag bật) */
