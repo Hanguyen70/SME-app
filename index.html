@@ -3831,7 +3831,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.19.61';
+const APP_VERSION='3.19.64';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -19424,8 +19424,14 @@ function payComputeOffice(inp, prof){
   /* v3.13.59 (Sếp 28/7): thẻ KHÔNG có nền BHXH → BỎ TRỐNG (BH=0), app không được tự suy diễn (bỏ fallback G+H của 3.13.55) */
   const AA=n(inp._bhxhBase);
   const base=(G+H+Y)/SD;
-  const AB=M*base + N*cf.sea*base + O*cf.dock*base + P*cf.dockOt*base + cf.ot15*Q*base + R*cf.ot20*base + Sx*cf.holiday*base + T*I + U*J + W + V;
-  const AC=cf.ot15*Q*Z + cf.ot20*R*Z + cf.holiday*Sx*Z + T*I + U*J;
+  /* v3.19.63 (Sếp 29/8 xác nhận): Q/R/S (OT×1.5 · OT×2 · Công lễ×3) trong BCC Văn phòng ghi theo
+     SỐ GIỜ làm thêm, không phải số ngày quy đổi như M/N/O/P. Đơn giá GIỜ = đơn giá NGÀY / 8.
+     Trước đây nhân thẳng Q/R/S với "base" (đơn giá/ngày) — sai đơn vị (thổi phồng gấp ~8 lần với
+     công OT thật là số giờ). AC (phần miễn thuế OT) dùng Z (bản làm tròn của base) — vá cùng lúc,
+     không thì lệch giữa AB (thực trả) và AC (miễn thuế) ngay bên dưới. */
+  const hourly=base/8, hourlyZ=Z/8;
+  const AB=M*base + N*cf.sea*base + O*cf.dock*base + P*cf.dockOt*base + cf.ot15*Q*hourly + R*cf.ot20*hourly + Sx*cf.holiday*hourly + T*I + U*J + W + V;
+  const AC=cf.ot15*Q*hourlyZ + cf.ot20*R*hourlyZ + cf.holiday*Sx*hourlyZ + T*I + U*J;
   const AI=(prof.gtgcSelf||0) + (prof.gtgcDependent||0)*F;
   const AD=(AB===0)?0:(AB-AC-AI);
   const AG=_payNet2Gross(AD, prof.grossBrackets);
@@ -20134,6 +20140,20 @@ function _payRowEngineCheck(p, empId){
   if(!v) return {ok:false, cardEngine:null};
   return {ok:allowed.indexOf(v.engine)>=0, cardEngine:v.engine};
 }
+/* v3.19.63 (Sếp 29/8): NGÀY CÔNG CHUẨN THÁNG mặc định cho NV văn phòng (tuần làm 5 ngày) —
+   số ngày trong tháng − số Thứ 7 − số Chủ nhật. Dùng làm mẫu số đơn giá/ngày (base) thay hằng số
+   21 cố định trước đây; KHÔNG áp cho nhóm có cờ _sdAuto (làm cả T7 — giữ công thức riêng dim−sun)
+   hay nhóm có ngày chuẩn riêng tay (_sd). THUẦN — không đọc/ghi state. */
+function _officeStandardDaysOf(periodStr){
+  try{
+    const [_y,_m]=String(periodStr||'').split('-').map(Number);
+    if(!_y || !_m) return null;
+    const _dim=new Date(_y,_m,0).getDate();
+    let _weekday=0;
+    for(let _d=1; _d<=_dim; _d++){ const dow=new Date(_y,_m-1,_d).getDay(); if(dow!==0 && dow!==6) _weekday++; }
+    return _weekday;
+  }catch(e){ return null; }
+}
 function payDispatchCompute(profile, inputs, period){
   let prof = _payProfForPeriod(profile, period);
   /* v3.13.99 (Sếp kiểm từng ca T01 30/7): bảng Excel dùng 2 NGÀY CHUẨN SONG SONG trong 1 kỳ —
@@ -20149,6 +20169,12 @@ function payDispatchCompute(profile, inputs, period){
       let _sun=0; for(let _d=1;_d<=_dim;_d++){ if(new Date(_y,_m-1,_d).getDay()===0) _sun++; }
       prof=Object.assign({}, prof, {standardDays:_dim-_sun});
     }catch(e){}
+  } else if(profile==='office' && period && period.period && !(inputs && +inputs._sd>0)){
+    /* v3.19.63 (Sếp 29/8 chốt): mặc định NV văn phòng (không cờ làm T7, không ngày chuẩn riêng tay)
+       — ngày công chuẩn KHÔNG còn là hằng số 21 cố định quanh năm, mà tính theo LỊCH THẬT của
+       từng tháng, tuần làm 5 ngày (nghỉ cả Thứ 7 lẫn Chủ nhật). */
+    const _sdCalc=_officeStandardDaysOf(period.period);
+    if(_sdCalc>0) prof=Object.assign({}, prof, {standardDays:_sdCalc});
   }
   if(inputs && +inputs._sd>0){ prof=Object.assign({}, prof, {standardDays:+inputs._sd}); }
   switch(profile){
@@ -22444,7 +22470,8 @@ function _payBankBatchRender(bid){
     ${exH?`<div style="margin-bottom:8px"><b style="font-size:11px">Loại khỏi batch (${b.excluded.length}):</b>${exH}</div>`:''}
     ${b.warnings.length?`<div style="margin-bottom:8px;font-size:11px;color:#9a5b12"><b>⚠ Cảnh báo (${b.warnings.length}):</b> ${esc(b.warnings.join(' · '))}</div>`:''}
     <div style="max-height:44vh;overflow:auto"><table style="width:100%;border-collapse:collapse"><thead><tr style="font-size:10px;color:var(--muted);text-align:left"><th style="padding:3px 6px">Nhân viên</th><th style="padding:3px 6px">Tài khoản</th><th style="padding:3px 6px;text-align:right">Số tiền (${b.ccy||'VND'})</th><th style="padding:3px 6px">⚠</th></tr></thead><tbody>${rowsH}</tbody></table></div>`,
-    `<button class="btn-sec" onclick="closeModal()">Đóng</button>
+    `<button class="btn-ghost" onclick="openPayPeriodDetail('${esc(b.periodId)}')">← Quay lại kỳ lương</button>
+     <button class="btn-sec" onclick="closeModal()">Đóng</button>
      ${b.status!=='transferred'?`<select onchange="payBankBatchSetTpl('${b.id}',this.value)" title="v3.15.32 Ω3: chọn ngân hàng/mẫu — app tự áp bộ cột khi xuất Excel/PDF" style="font-size:11px;padding:5px 7px;border:1px solid var(--rule);border-radius:6px;max-width:220px">${bankTemplates().map(t=>`<option value="${t.key}"${(_bankTplOf(b).key===t.key)?' selected':''}>${esc(t.name)}</option>`).join('')}</select>`:''}
      ${canCheck?`<button class="btn-primary" onclick="payBankBatchSetStatus('${b.id}','checked')">✔ Xác nhận đã kiểm</button>`:''}
      ${canExport?`<button class="btn-primary" onclick="payBankBatchExport('${b.id}')">📤 Xuất Excel NH</button>`:''}
@@ -23265,7 +23292,14 @@ function payComputeRow(p, row){
      (WN, Ô NHẬP trong kỳ — mặc định 0). Bản 3.14.29 nhân số ngày dương lịch là SAI, đã bỏ. */
   if(p && p.profile==='office'){
     if(p.projAllow!==true){ inp.W=0; }
-    else{ inp.W=(+inp.W||0)+((+inp.WD||0)*(+inp.WN||0)); }
+    else{
+      /* v3.19.64 (Sếp 29/8): PCDA/ngày (WD trên thẻ >0) → nhân với "ngày công làm việc thực tế" (MW,
+         tự kéo từ BCC — KHÔNG gồm phép/nghỉ lễ), không còn dựa vào WN nhập tay. Ai không dùng cơ chế
+         PCDA/ngày (WD=0, chỉ có mức tháng) thì WD×… = 0, không ảnh hưởng — W vẫn = mức tháng như cũ.
+         Kỳ cũ/dòng chưa từng Kéo chấm công sau bản này (chưa có MW) → fallback WN cũ để không mất dữ liệu. */
+      const _pcdaDays = (+inp.WD||0)>0 ? (inp.MW!=null ? (+inp.MW||0) : (+inp.WN||0)) : (+inp.WN||0);
+      inp.W=(+inp.W||0)+((+inp.WD||0)*_pcdaDays);
+    }
   }
   /* v3.14.35 (Sếp 06/8 — công tắc DÙNG CHUNG VP/KT/lab): kỳ KỸ THUẬT cùng công tắc — không bật →
      P (Trợ cấp dự án, đổ từ thẻ allow_duAn) = 0; bật → trả nguyên mức tháng theo thẻ.
@@ -23910,7 +23944,11 @@ function payAdjustLocked(periodId){
   const p=payPeriodById(periodId); if(!p) return;
   const [y,m]=p.period.split('-').map(Number);
   const next=(m===12? (y+1)+'-01' : y+'-'+String(m+1).padStart(2,'0'));
-  payExtraForm({period:next, desc:'Điều chỉnh kỳ '+p.period+': ', sourceType:'adjustment', sourceId:p.id});
+  /* v3.19.62: mở TỪ kỳ lương (đã duyệt/khóa) → nút Back phải quay lại ĐÚNG kỳ lương này,
+     không phải màn Khoản PS chung (payExtrasOpen) — trước đây payExtraForm() luôn hardcode
+     về payExtrasOpen(), khiến bấm Back/Đóng từ đây lạc khỏi kỳ lương đang xem. */
+  payExtraForm({period:next, desc:'Điều chỉnh kỳ '+p.period+': ', sourceType:'adjustment', sourceId:p.id},
+    `openPayPeriodDetail('${esc(periodId)}')`);
   _payAudit(p,'open_adjust_slip','Mở phiếu điều chỉnh (ghi vào kỳ '+next+')');
 }
 /* v3.14.05 (Sếp 03/8): Khoản PS — chọn NV bằng Ô GÕ TÌM (tên hoặc mã) thay dropdown cuộn.
@@ -23931,7 +23969,11 @@ function _pexResolveEmp(txt){
   const sub=emps.filter(e=>norm(e.fullName).indexOf(q)>=0 || (e.smartId&&norm(e.smartId).indexOf(q)>=0));
   return sub.length===1 ? sub[0].id : '';
 }
-function payExtraForm(pref){
+function payExtraForm(pref, backCall){
+  /* v3.19.62: backCall = chuỗi onclick TÙY CHỌN để nút Back quay đúng nơi đã mở màn này
+     (vd payAdjustLocked mở từ kỳ lương → quay lại kỳ lương). Mặc định giữ hành vi cũ:
+     quay về màn Khoản PS chung (payExtrasOpen). */
+  const backOn = backCall || 'payExtrasOpen()';
   const emps=(HRService.employees()||[]).filter(e=>e.status!=='inactive')
     .slice().sort((a,b)=>String(a.smartId||'').localeCompare(String(b.smartId||'')));   /* v3.14.05: mã SME trước, dễ dò */
   const opts=emps.map(e=>`<option value="${esc(e.fullName)} (${esc(e.smartId||'')})"></option>`).join('');   /* v3.14.05: datalist gõ-tìm */
@@ -23943,12 +23985,13 @@ function payExtraForm(pref){
       <label>Số tiền (VND)<input id="pex-amt" type="number" style="width:100%;padding:6px;border:1px solid var(--rule);border-radius:5px"></label>
       <label style="grid-column:1/3">Diễn giải<input id="pex-desc" value="${esc((pref&&pref.desc)||'')}" style="width:100%;padding:6px;border:1px solid var(--rule);border-radius:5px"></label>
       <input type="hidden" id="pex-srctype" value="${esc((pref&&pref.sourceType)||'manual')}"><input type="hidden" id="pex-srcid" value="${esc((pref&&pref.sourceId)||'')}">
+      <input type="hidden" id="pex-back" value="${esc(backOn)}">
       <label style="grid-column:1/3">Chứng từ<input id="pex-doc" style="width:100%;padding:6px;border:1px solid var(--rule);border-radius:5px"></label>
       <label><input type="checkbox" id="pex-tax"> Chịu thuế TNCN</label>
       <label><input type="checkbox" id="pex-ins"> Tính BHXH (⚠ cần chỉnh thẻ lương)</label>
       <label><input type="checkbox" id="pex-show" checked> Hiện trên payslip</label>
     </div><div id="pex-err" style="color:#b3261e;font-size:11px;margin-top:6px"></div>`,
-    `<button class="btn-sec" onclick="payExtrasOpen()">← Quay lại</button><button class="btn-primary" onclick="payExtraSave()">Lưu (nháp)</button>`);
+    `<button class="btn-sec" onclick="${backOn}">← Quay lại</button><button class="btn-primary" onclick="payExtraSave()">Lưu (nháp)</button>`);
   try{ var _sel=document.getElementById('pex-srctype'); if(_sel){ _sel.innerHTML=Object.keys(PEX_PRESETS).map(function(k){return '<option value="'+k+'">'+PEX_PRESETS[k].label+'</option>';}).join(''); _sel.onchange=window.pexPresetPick; } }catch(e){}
 }
 function payExtraSave(){
@@ -23970,7 +24013,12 @@ function payExtraSave(){
     status:'draft', createdBy:(CURRENT_USER&&CURRENT_USER.name)||'', createdAt:new Date().toISOString(),
     approvedBy:'', approvedAt:'', auditTrail:[{at:new Date().toISOString(),by:(CURRENT_USER&&CURRENT_USER.name)||'',act:'create'}]
   });
-  saveState(); toast('Đã lưu khoản (nháp) — chờ duyệt','good'); payExtrasOpen();
+  saveState(); toast('Đã lưu khoản (nháp) — chờ duyệt','good');
+  /* v3.19.62: Lưu xong quay về ĐÚNG nơi đã mở form (vd kỳ lương, nếu mở từ payAdjustLocked)
+     thay vì luôn nhảy về màn Khoản PS chung — đọc từ ô ẩn pex-back đã ghi lúc mở form. */
+  const _back=((document.getElementById('pex-back')||{}).value||'').trim();
+  if(_back){ try{ (new Function(_back))(); return; }catch(e){ console.warn('[payExtraSave back]',e); } }
+  payExtrasOpen();
 }
 function payExtraSetStatus(id, st, silent){
   if(!isAdmin() && !canApproveL1()){ if(!silent) toast('Không có quyền duyệt (KTT)','bad'); return 'perm'; }
@@ -24190,7 +24238,13 @@ const PAY_ATT_MAP={
   /* v3.14.47 (đối chiếu 2 BCC 06/8): VP trả dock-OT (D1) theo hệ số ×2 — bảng lương thật Tuấn NM
      107.727.273 = base×(7 + 15×1.5 + 5×2), KHÔNG phải ×1.8 (×1.8 là quy chế TECH, Koóng đã nghiệm).
      → D1 chuyển sang R (OT×2); ô P (dockOt 1.8) của VP không nhận từ BCC nữa. */
-  office:{ M:['N','P','NL','N1'], N:['N3'], O:['D'], Q:['OT15'], R:['OT2','N4','D1'], S:['OT3'], T:['N1'], U:['N2'] },
+  office:{ M:['N','P','NL','N1'], N:['N3'], O:['D'], Q:['OT15'], R:['OT2','N4','D1'], S:['OT3'], T:['N1'], U:['N2'],
+    /* v3.19.64 (Sếp 29/8 chốt): PCDA/ngày (WD trên thẻ) — "Ngày" nhân với đơn giá KHÔNG còn nhập tay
+       riêng (WN cũ), mà TỰ ĐỘNG = ngày công làm việc THỰC TẾ trong kỳ, KHÔNG gồm phép/nghỉ lễ hưởng
+       lương (khác M — M vẫn gồm cả phép/nghỉ lễ để tính lương chính). Áp cho MỌI NV văn phòng đang
+       dùng cơ chế PCDA/ngày (bất kỳ ai có WD>0 trên thẻ), không riêng một người. N1 (công tác trong
+       nước) tính là đi làm thực tế nên vẫn gộp; P (phép) và NL (nghỉ lễ) không gộp. */
+    MW:['N','N1'] },
   /* v3.14.54 (Sếp 07/8 — kỳ theo pháp nhân Sterling không nhận BCC): nhóm GROSS nay có người chấm
      công thật (Kim Chi/Cần/Cường/Việt Anh/Phong) → mở kéo từ BCC VP. Engine gross tính lương theo
      G (công thực) / E (ngày chuẩn): G = N+P+NL+N1 — cùng luật "công hưởng lương" với office NET.
@@ -24293,7 +24347,8 @@ function payPullAttendance(periodId){
     <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Chỉ bảng chấm công <b>ĐÃ KHÓA</b> mới kéo được. Giá trị đổ theo mapping đã duyệt; ô đã nhập tay sẽ KHÔNG bị đè trừ khi Sếp tick từng dòng.</div>
     <select id="papull-src" style="width:100%;padding:7px;border:1px solid var(--rule);border-radius:6px">${opts}</select>
     <div id="papull-prev" style="margin-top:10px;max-height:52vh;overflow:auto"></div>`,
-    `<button class="btn-sec" onclick="closeModal()">Đóng</button>
+    `<button class="btn-ghost" onclick="openPayPeriodDetail('${esc(periodId)}')">← Quay lại kỳ lương</button>
+     <button class="btn-sec" onclick="closeModal()">Đóng</button>
      <button class="btn-sec" onclick="_payPullPreview('${esc(periodId)}')">👁 Xem trước</button>
      <button class="btn-primary" id="papull-apply" style="display:none" onclick="_payPullApply('${esc(periodId)}')">✔ Áp dụng</button>`);
 }
@@ -28213,7 +28268,8 @@ function payPullSalaryProfiles(periodId){
     <div style="font-size:12px;color:var(--muted);margin-bottom:6px">Mức lấy từ thẻ lương HIỆU LỰC tại kỳ ${esc(p.period)} (phiên bản ghi từng dòng). Ô đã nhập tay KHÔNG bị đè trừ khi tick.</div>
     ${SP_NOTES[p.profile]?`<div style="font-size:11px;background:#fdf6e3;border:1px solid #e8d9a0;border-radius:6px;padding:6px 10px;margin-bottom:8px">📖 <b>Ghi chú ký hiệu:</b> ${SP_NOTES[p.profile]}</div>`:''}
     <div style="max-height:52vh;overflow:auto"><table style="width:100%;border-collapse:collapse"><thead><tr style="text-align:left;font-size:10px;color:var(--muted)"><th style="padding:4px 6px">Nhân viên · thẻ</th><th style="padding:4px 6px">Trạng thái</th><th style="padding:4px 6px">Thay đổi (mới / <s>cũ</s>)</th></tr></thead><tbody>${rowsH}</tbody></table></div>`,
-    `<button class="btn-sec" onclick="closeModal()">Đóng</button>
+    `<button class="btn-ghost" onclick="openPayPeriodDetail('${esc(periodId)}')">← Quay lại kỳ lương</button>
+     <button class="btn-sec" onclick="closeModal()">Đóng</button>
      <button class="btn-primary" onclick="_payPullSpApply()">✔ Áp dụng</button>`);
 }
 function _payPullSpApply(){
@@ -28245,7 +28301,7 @@ function _payPullSpApply(){
    mỗi hàm một bảng RIÊNG lệch nhau → WN/_sd có ô mà không được lưu; office thiếu O/P/R/T/U/V;
    office_gross/crew_khoan không có trong bảng save → keys=[] → payRowSave reset inputs={} XÓA TRẮNG. */
 const PAY_ROW_FORM_FIELDS={
-  office:[['G','Lương CB'],['H','PC trách nhiệm'],['K','KPI 100%'],['F','Người phụ thuộc'],['X','Hiệu quả (1=100%)'],['M','Công thường'],['N','Công biển'],['O','Công dock (×1.5)'],['P','Dock OT (×1.8)'],['Q','OT×1.5'],['R','OT×2'],['S','Công lễ (×3)'],['T','Ctác TN (ngày)'],['U','Ctác NN (ngày)'],['V','Bổ sung khác'],['WN','Công dự án (ngày) — × đơn giá PC dự án/NGÀY trên thẻ, chỉ tính khi kỳ BẬT 💼'],['_sd','Ngày chuẩn RIÊNG (bỏ trống = theo kỳ; bảo vệ/tạp vụ cả T7 = 27/26)']],
+  office:[['G','Lương CB'],['H','PC trách nhiệm'],['K','KPI 100%'],['F','Người phụ thuộc'],['X','Hiệu quả (1=100%)'],['M','Công thường'],['N','Công biển'],['O','Công dock (×1.5)'],['P','Dock OT (×1.8)'],['Q','OT×1.5'],['R','OT×2'],['S','Công lễ (×3)'],['T','Ctác TN (ngày)'],['U','Ctác NN (ngày)'],['V','Bổ sung khác'],['WN','Công dự án (ngày) — CHỈ dùng khi thẻ CHƯA có PCDA/ngày (WD=0); có WD thì app tự lấy ngày công thực tế, ô này bị bỏ qua'],['_sd','Ngày chuẩn RIÊNG (bỏ trống = theo kỳ; bảo vệ/tạp vụ cả T7 = 27/26)']],
   office_gross:[['F','Lương CB (GROSS)'],['E','Ngày chuẩn tháng'],['G','Công thực'],['I','Thưởng NS (chịu thuế)'],['K','Thưởng dịp 1'],['L','Thưởng dịp 2'],['M','Thưởng dịp 3'],['EX','Khoản miễn thuế (tổng)'],['W','Người phụ thuộc']],
   crew:[['N','Lương cơ bản HĐLĐ'],['O','Mức lương biển'],['T','Mức lương DP'],['F','Người phụ thuộc'],['G','Công biển VN'],['H','Công biển NN'],['I','Công dock'],['J','Nằm bờ VN'],['L','Nằm bờ NN'],['M','Công DP'],['AR','Khoản thu khác']],
   project:[['G','Rate/ngày USD'],['J','Giờ thường'],['K','OT×1.2 giờ'],['L','OT×1.5 giờ'],['Q','Ngày trợ cấp'],['R','Mức trợ cấp/ngày'],['T','Mob/Demob'],['U','Hoàn phí'],['V','Khoản khác±']],
@@ -28713,7 +28769,7 @@ function _payslipDetail(p, row){
     const Z=n(res.Z);
     AT('Công hưởng lương',inp.M); AT('Đi biển',inp.N); AT('Dock',inp.O); AT('Dock-OT',inp.P);
     AT('OT×1.5',inp.Q); AT('OT×2',inp.R); AT('Lễ×3',inp.S); AT('Ctác TN',inp.T); AT('Ctác NN',inp.U);
-    if(p.projAllow===true) AT('Công dự án',inp.WN);
+    if(p.projAllow===true) AT('Công dự án', n(inp.WD)>0 ? (inp.MW!=null?n(inp.MW):n(inp.WN)) : n(inp.WN));
     AD('Lương theo công', n(inp.M)+' công × '+Z.toLocaleString('vi-VN'), n(inp.M)*Z);
     AD('Đi biển', n(inp.N)+' ngày × '+Z.toLocaleString('vi-VN')+' × '+cf.sea, n(inp.N)*cf.sea*Z);
     AD('Dock', n(inp.O)+' ngày × '+Z.toLocaleString('vi-VN')+' × '+cf.dock, n(inp.O)*cf.dock*Z);
@@ -28724,8 +28780,10 @@ function _payslipDetail(p, row){
     AD('Công tác trong nước', n(inp.T)+' ngày × '+n(inp.I).toLocaleString('vi-VN'), n(inp.T)*n(inp.I));
     AD('Công tác nước ngoài', n(inp.U)+' ngày × '+n(inp.J).toLocaleString('vi-VN'), n(inp.U)*n(inp.J));
     if(p.projAllow===true){
+      /* v3.19.64: hiện đúng số ngày THẬT đã dùng để tính (MW tự động khi có WD, không phải WN nhập tay) */
+      const _pcdaN = n(inp.WD)>0 ? (inp.MW!=null?n(inp.MW):n(inp.WN)) : n(inp.WN);
       AD('PC dự án (tháng)','mức thẻ', n(inp.W));
-      AD('PC dự án (ngày)', n(inp.WN)+' ngày × '+n(inp.WD).toLocaleString('vi-VN'), n(inp.WN)*n(inp.WD));
+      AD('PC dự án (ngày)', _pcdaN+' ngày × '+n(inp.WD).toLocaleString('vi-VN'), _pcdaN*n(inp.WD));
     }
     AD('Bổ sung khác','', n(inp.V));
     target=n(res.AB);
@@ -36821,10 +36879,15 @@ function navBackBtn(){
   return `<button class="btn-sec" onclick="navBack()">${esc(top.label||'← Quay lại')}</button>`;
 }
 /* Thực hiện quay lại: pop frame trên cùng + gọi lại hàm mở màn cha.
-   Đóng modal hiện tại trước (giữ nguyên hành vi closeModal), rồi mở lại cha. */
+   Đóng modal hiện tại trước (giữ nguyên hành vi closeModal), rồi mở lại cha.
+   v3.19.62: đặt cờ _navBackInProgress trước khi gọi closeModal() để closeModal
+   KHÔNG xóa navStack giữa chừng — xem chú thích tại closeModal(). */
+var _navBackInProgress=false;
 function navBack(){
   const frame=navStack.pop();
+  _navBackInProgress=true;
   try{ closeModal(); }catch(e){}
+  _navBackInProgress=false;
   if(frame && typeof frame.fn==='function'){
     try{ frame.fn(); }catch(e){ console.warn('[navBack] mở lại màn cha lỗi:',e); }
   }
@@ -36874,6 +36937,10 @@ function closeModal(){
   _modalDirty=false;   // v3.11.09: đóng (chủ ý từ code/nút Hủy/sau Lưu) — xả cờ bẩn
   _modalSaveHook=null; // v3.11.14
   try{ _vohVid=null; }catch(e){}  // v3.10.30: clear cờ modal khai thác tàu (tránh bung lại nhầm)
+  /* v3.19.62: ĐÓNG THẬT (X / backdrop / Escape / sau khi Lưu-rồi-thoát) khác với ĐÓNG-ĐỂ-QUAY-LẠI
+     (navBack — cờ _navBackInProgress bật trong lúc đó). Đóng thật phải xóa sạch navStack, nếu không
+     lần mở modal kế tiếp (không liên quan) sẽ thừa hưởng nhầm nút "← Quay lại" trỏ về màn đã đóng. */
+  if(typeof _navBackInProgress==='undefined' || !_navBackInProgress){ try{ navStack.length=0; }catch(e){} }
   const _m=document.getElementById('modal');
   if(_m) _m.classList.remove('show');
   // v3.09.49 RUNTIME AUDIT: XÓA nội dung modal khi đóng → không để id "ma" của form cũ
