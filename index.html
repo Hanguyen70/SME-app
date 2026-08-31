@@ -3831,7 +3831,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.19.71';
+const APP_VERSION='3.19.78';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -11479,8 +11479,16 @@ function bkVoid(id){
       const before=t.payments.length;
       t.payments=t.payments.filter(pp=>!(pp&&pp._bkId===id));
       if(t.payments.length!==before){ nOp++;
-        if(t.ncStatus==='paid') t.ncStatus='approved';
-        delete t.paidAt; try{ touchRecord(t); }catch(e){} }
+        /* v3.19.77 (báo lỗi: chi hộ hủy bảng kê không quay lại đúng Chờ TT/bảng kê):
+           GỐC — chỉ check "t.ncStatus==='paid'" (giá trị KHÔNG BAO GIỜ tồn tại trong OP_WF_STATES,
+           chi hộ dùng CỜ RIÊNG t.paid, không phải ncStatus) nên nhánh này chết, và QUAN TRỌNG HƠN:
+           t.paid không hề được đưa về false. Hậu quả: opPaidTotal() có nhánh "tự lành" cho dữ liệu cũ
+           (payments rỗng + t.paid===true → coi như đã trả đủ) khiến opNccRemaining()=0, phiếu bị loại
+           khỏi bkPendingRows() (chỉ nhận phiếu còn nợ > 0) — phiếu "biến mất" khỏi Bảng kê dù nợ vẫn
+           còn nguyên. VÁ: đưa t.paid=false thẳng (không cần check ncStatus nào), xóa luôn t.paidDate
+           (paidAt là tên field cũ/nhầm — trường thật trên opTransaction là paidDate, xem opPaidTotal). */
+        t.paid=false;
+        delete t.paidDate; delete t.paidAt; try{ touchRecord(t); }catch(e){} }
     });
     S.bkBatchFees=(S.bkBatchFees||[]).filter(f=>{ const del=f&&f._bkId===id; if(del) nFee++; return !del; });
     bk._voided=true; bk.voidedBy=actorName(); bk.voidedAt=new Date().toISOString();
@@ -11619,7 +11627,54 @@ function bkLibraryOpen(){
     list.length?('<div style="overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:12px"><tr style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em"><td style="padding:6px 10px">Số hiệu</td><td style="padding:6px 10px">Ngày</td><td style="text-align:right;padding:6px 10px">Khoản</td><td style="text-align:right;padding:6px 10px">🏦 NH</td><td style="text-align:right;padding:6px 10px">💵 TM</td><td style="text-align:right;padding:6px 10px">🏛 GN</td>'+(hasOff?'<td style="text-align:right;padding:6px 10px">⚖ Cấn trừ</td>':'')+'<td style="padding:6px 10px">Người lập</td><td></td></tr>'+rows+'</table></div>')
       :'<div class="empty" style="padding:16px;text-align:center;color:var(--muted)">Chưa có bảng kê nào</div>',
     '<button class="btn-ghost" onclick="closeModal()">Đóng</button>'
-    +(isAdmin()?'<button class="btn-sec" style="font-size:11px" onclick="bkRebuildOrphans()" title="Quét đợt chi mang số bảng kê nhưng thiếu bản ghi Thư viện (bảng kê lập trước vá 3.18.12 bị mất) và dựng lại">🩹 Phục hồi bảng kê mồ côi</button>':''));
+    +(isAdmin()?'<button class="btn-sec" style="font-size:11px" onclick="bkRebuildOrphans()" title="Quét đợt chi mang số bảng kê nhưng thiếu bản ghi Thư viện (bảng kê lập trước vá 3.18.12 bị mất) và dựng lại">🩹 Phục hồi bảng kê mồ côi</button>':'')
+    +(isAdmin()?'<button class="btn-sec" style="font-size:11px" onclick="bkFixVoidedStuckPaid()" title="Quét chi hộ bị hủy bảng kê (trước bản 3.19.77) nhưng cờ Đã TT chưa được đưa về — sửa lại đúng">🩹 Sửa chi hộ kẹt &quot;Đã TT&quot; sau khi hủy bảng kê</button>':''));
+}
+/* v3.19.78 (Sếp: "các phiếu bị hủy nhưng đang ở trạng thái đã thanh toán: cách xử lý?" — hậu quả của
+   lỗi bkVoid vá ở v3.19.77, ảnh hưởng NHỮNG PHIẾU ĐÃ BỊ HỦY TRƯỚC bản vá). Xác định CHÍNH XÁC (không
+   đoán mò): quét mọi bảng kê ĐÃ HỦY (_voided), lấy refId các dòng refType='op' — nếu phiếu đó hiện
+   t.paid===true nhưng payments[] RỖNG (không có đợt chi thật nào đứng sau — đúng dấu hiệu bị kẹt do
+   lỗi cũ, KHÔNG đụng phiếu trả kiểu cũ trước payments[] tồn tại vì những phiếu đó chưa từng nằm trong
+   bảng kê nào) → liệt kê cho xem trước, chỉ sửa khi bấm xác nhận. */
+function _bkFindVoidedStuckPaid(){
+  const out=[];
+  (S.paymentSheets||[]).forEach(bk=>{
+    if(!bk||!bk._voided) return;
+    (bk.rows||[]).forEach(row=>{
+      if(!row||row.refType!=='op'||!row.refId) return;
+      const t=VesselService.opTransactions().find(x=>x&&x.id===row.refId);
+      if(!t) return;
+      if(t.paid===true && (!Array.isArray(t.payments)||t.payments.length===0)){
+        out.push({t, bkId:bk.id, bkDate:bk.date||''});
+      }
+    });
+  });
+  // khử trùng (1 phiếu có thể nằm trong nhiều bảng kê đã hủy)
+  const seen=new Set(); return out.filter(x=>{ if(seen.has(x.t.id)) return false; seen.add(x.t.id); return true; });
+}
+function bkFixVoidedStuckPaid(){
+  if(!isAdmin()){ toast('Chỉ admin','bad'); return; }
+  const found=_bkFindVoidedStuckPaid();
+  if(!found.length){ toast('✓ Không tìm thấy phiếu nào bị kẹt — dữ liệu sạch','good'); return; }
+  const rows=found.map(x=>{
+    const vessel=(typeof opVesselName_==='function'&&opVesselName_(x.t.vesselId))||'?';
+    return `<tr style="border-bottom:1px solid var(--rule)"><td style="padding:5px 8px">${esc(x.t.vendor||x.t.desc||'?')}</td><td style="padding:5px 8px;color:var(--muted)">${esc(vessel)}</td><td style="padding:5px 8px;text-align:right;font-family:monospace">${(+x.t.amount||0).toLocaleString('vi-VN')} ${esc(x.t.ccy||'VND')}</td><td style="padding:5px 8px;font-size:11px;color:var(--muted)">${esc(x.bkId)} (${esc(x.bkDate)})</td></tr>`;
+  }).join('');
+  openModal('🩹 Chi hộ kẹt "Đã TT" sau khi hủy bảng kê — '+found.length+' phiếu',
+    `<div style="font-size:12px;color:var(--muted);margin-bottom:8px">Các phiếu này từng nằm trong 1 bảng kê ĐÃ HỦY — cờ "Đã thanh toán" chưa được đưa về đúng (lỗi đã vá ở v3.19.77, đây là hậu quả còn sót từ TRƯỚC bản vá). Xác nhận sửa: đưa các phiếu này về đúng "Chưa thanh toán", nợ NCC quay lại — sẽ tự lên Bảng kê nếu còn nợ.</div>
+    <div style="max-height:40vh;overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:var(--rule);text-align:left"><th style="padding:5px 8px">NCC/Diễn giải</th><th style="padding:5px 8px">Tàu</th><th style="padding:5px 8px;text-align:right">Số tiền</th><th style="padding:5px 8px">Bảng kê đã hủy</th></tr></thead><tbody>${rows}</tbody></table></div>`,
+    `<button class="btn-ghost" onclick="closeModal()">Đóng, chưa sửa</button><button class="btn-primary" onclick="_bkFixVoidedStuckPaidCommit()">✓ Sửa ${found.length} phiếu</button>`);
+}
+function _bkFixVoidedStuckPaidCommit(){
+  const found=_bkFindVoidedStuckPaid();
+  let n=0;
+  commitMutation(()=>{
+    found.forEach(x=>{ x.t.paid=false; delete x.t.paidDate; delete x.t.paidAt; try{ touchRecord(x.t); }catch(e){} n++; });
+  },{action:'bk_fix_voided_stuck_paid', fields:['opTransactions'], onOk:()=>{
+    try{ logAuditEvent('bk_fix_voided_stuck_paid',{n, actor:actorName()}); }catch(e){}
+    toast('✓ Đã sửa '+n+' phiếu — về đúng Chưa thanh toán','good');
+    closeModal(); renderAll();
+  }});
 }
 /* v3.17.51: duyệt LÔ chi hộ — từng phiếu tick tiến ĐÚNG 1 bước theo máy trạng thái sẵn có. */
 function opBatchAdvance(){
@@ -20321,6 +20376,91 @@ function _payAudit(period, action, detail){
      merge giữ đúng bản có công sức. */
   try{ if(typeof touchRecord==='function') touchRecord(period); else period.updatedAt=new Date().toISOString(); }catch(e){}
 }
+/* v3.19.74 (Sếp 29/8: "quản trị lương — mức lương theo vị trí... khoảng min-max cho cùng 1 chức
+   danh" + "chi phí lương tháng/bộ phận"): 2 báo cáo THUẦN, chỉ đọc dữ liệu payroll đã có sẵn
+   (row.result.takeHome — field chung mọi engine), KHÔNG thêm bảng/cấu trúc dữ liệu mới, không đụng
+   Salary Grade hiện có. */
+function payReportPositionBands(){
+  /* v3.19.76 (Sếp: "2 số — lương net theo thẻ lương và bình quân tổng thu nhập thực lĩnh/tháng"):
+     đổi hẳn cách tính — trước lấy 1 kỳ gần nhất/nhóm lương rồi suy min-max; nay tính THEO TỪNG NGƯỜI
+     trước (NET theo thẻ hiện hành _spFixedTotal + bình quân thực lĩnh across MỌI kỳ người đó có),
+     rồi mới gộp trung bình theo chức danh × phòng ban. */
+  const periods=PayrollService.periods()||[];
+  const byEmp={};
+  periods.forEach(p=>{
+    if(!p||!p.period) return;
+    (p.rows||[]).forEach(r=>{
+      if(!r||!r.result) return;
+      const th=+r.result.takeHome||0; if(th<=0) return;
+      if(!byEmp[r.empId]) byEmp[r.empId]={sum:0,count:0,lastPeriod:p.period};
+      const be=byEmp[r.empId];
+      be.sum+=th; be.count++;
+      if(p.period>be.lastPeriod) be.lastPeriod=p.period;
+    });
+  });
+  const bands={};
+  Object.keys(byEmp).forEach(empId=>{
+    let e=null; try{ e=(typeof hrmEmpById==='function')?hrmEmpById(empId):null; }catch(x){}
+    const title=String((e&&(e.title||e.position))||'').trim()||'(Chưa rõ chức danh)';
+    const dept=String((e&&(e.department||e.dept||e.unit))||'').trim()||'(Chưa rõ phòng ban)';
+    const avgTH=byEmp[empId].sum/byEmp[empId].count;
+    let netCard=0;
+    try{
+      const inp=(typeof salaryProfileBuildInp==='function')?salaryProfileBuildInp(empId, byEmp[empId].lastPeriod):null;
+      if(inp && inp._v) netCard=(typeof _spFixedTotal==='function')?(+_spFixedTotal(inp._v)||0):0;
+    }catch(x){}
+    const key=title+'␟'+dept;
+    if(!bands[key]) bands[key]={title,dept,count:0,sumNetCard:0,sumAvgTH:0};
+    const b=bands[key];
+    b.count++; b.sumNetCard+=netCard; b.sumAvgTH+=avgTH;
+  });
+  return Object.values(bands).map(b=>({title:b.title,dept:b.dept,count:b.count,
+    avgNetCard:b.sumNetCard/b.count, avgTakeHome:b.sumAvgTH/b.count}))
+    .sort((a,b)=>a.title.localeCompare(b.title)||a.dept.localeCompare(b.dept));
+}
+function payReportDeptMonthlyCost(){
+  const periods=PayrollService.periods()||[];
+  const g={};
+  periods.forEach(p=>{
+    if(!p||!p.period) return;
+    (p.rows||[]).forEach(r=>{
+      if(!r||!r.result) return;
+      const th=+r.result.takeHome||0; if(th<=0) return;
+      let e=null; try{ e=(typeof hrmEmpById==='function')?hrmEmpById(r.empId):null; }catch(x){}
+      const dept=String((e&&(e.department||e.dept||e.unit))||'').trim()||'(Chưa rõ bộ phận)';
+      g[p.period]=g[p.period]||{}; g[p.period][dept]=(g[p.period][dept]||0)+th;
+    });
+  });
+  return g;
+}
+function openPayReports(){
+  if(!(payCanViewPayroll()||isHrRole())){ toast('Chỉ Kế toán/KTT/HR được xem','bad'); return; }
+  const bands=payReportPositionBands();
+  const bandRows=bands.map(b=>`<tr style="border-bottom:1px solid var(--rule)" data-pbrow="${esc((b.title+' '+b.dept).toLowerCase())}">
+    <td style="padding:5px 8px">${esc(b.title)}</td>
+    <td style="padding:5px 8px;color:var(--muted)">${esc(b.dept)}</td>
+    <td style="padding:5px 8px;text-align:center">${b.count}</td>
+    <td style="padding:5px 8px;text-align:right;font-family:monospace">${payMaskAmount(Math.round(b.avgNetCard).toLocaleString('vi-VN'))}</td>
+    <td style="padding:5px 8px;text-align:right;font-family:monospace;font-weight:600">${payMaskAmount(Math.round(b.avgTakeHome).toLocaleString('vi-VN'))}</td>
+  </tr>`).join('')||'<tr><td colspan="5" style="padding:12px;text-align:center;color:var(--muted)">Chưa có kỳ lương nào đã tính</td></tr>';
+  const dc=payReportDeptMonthlyCost();
+  const periodsDesc=Object.keys(dc).sort((a,b)=>b.localeCompare(a)).slice(0,6);
+  const deptsSet=new Set(); periodsDesc.forEach(pd=>Object.keys(dc[pd]).forEach(d=>deptsSet.add(d)));
+  const depts=Array.from(deptsSet).sort();
+  const deptRows=depts.map(d=>`<tr style="border-bottom:1px solid var(--rule)">
+    <td style="padding:5px 8px">${esc(d)}</td>
+    ${periodsDesc.map(pd=>`<td style="padding:5px 8px;text-align:right;font-family:monospace">${payMaskAmount(Math.round(dc[pd][d]||0).toLocaleString('vi-VN'))}</td>`).join('')}
+  </tr>`).join('')||'';
+  const body=`
+    <div style="font-size:13px;font-weight:600;margin-bottom:4px">🏷 Nhóm vị trí lương — theo chức danh × phòng ban (kỳ gần nhất mỗi nhóm)</div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:6px">VD: "Trưởng phòng" tách riêng theo từng phòng ban, không gộp chung. "Lương NET (thẻ)" = mức cố định trên thẻ lương hiện hành; "BQ thực lĩnh/tháng" = trung bình thực lĩnh mỗi người qua các kỳ đã tính, rồi lấy trung bình cả nhóm.</div>
+    <input type="text" placeholder="🔍 Tìm chức danh hoặc phòng ban… (VD: trưởng phòng thương mại)" oninput="document.querySelectorAll('[data-pbrow]').forEach(function(tr){tr.style.display=tr.dataset.pbrow.indexOf(this.value.toLowerCase())>=0?'':'none';}.bind(this))" style="width:100%;padding:6px 8px;margin-bottom:6px;border:1px solid var(--rule);border-radius:6px;font-size:12px">
+    <div style="max-height:32vh;overflow:auto;margin-bottom:14px"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:var(--rule);text-align:left"><th style="padding:5px 8px">Chức danh</th><th style="padding:5px 8px">Phòng ban</th><th style="padding:5px 8px;text-align:center">Số NV</th><th style="padding:5px 8px;text-align:right">Lương NET (thẻ)</th><th style="padding:5px 8px;text-align:right">BQ thực lĩnh/tháng</th></tr></thead><tbody>${bandRows}</tbody></table></div>
+    <div style="font-size:13px;font-weight:600;margin-bottom:4px">🏢 Chi phí lương theo bộ phận (6 kỳ gần nhất)</div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Tổng thực lĩnh mỗi bộ phận, theo tháng — gộp từ hồ sơ NV × kỳ lương đã tính.</div>
+    <div style="max-height:32vh;overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:var(--rule);text-align:left"><th style="padding:5px 8px">Bộ phận</th>${periodsDesc.map(pd=>`<th style="padding:5px 8px;text-align:right">${esc(pd)}</th>`).join('')}</tr></thead><tbody>${deptRows||`<tr><td colspan="${1+periodsDesc.length}" style="padding:12px;text-align:center;color:var(--muted)">Chưa có dữ liệu</td></tr>`}</tbody></table></div>`;
+  openModal('📊 Quản trị lương — vị trí & chi phí bộ phận', body, `<button class="btn-ghost" onclick="closeModal()">Đóng</button>`);
+}
 function openPayrollPeriods(){
   /* v3.12.40: HR (canSignHr/isNVNS) VÀO ĐƯỢC để theo dõi danh sách + trạng thái kỳ lương,
      nhưng MỌI SỐ TIỀN bị ẩn (payMaskAmount). Quyền tính/duyệt kỳ vẫn gate riêng payCanApprovePeriod. */
@@ -20347,7 +20487,7 @@ function openPayrollPeriods(){
   const body=`
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
       <div style="font-size:13px;color:var(--muted)">Mỗi kỳ = 1 tháng × 1 nhóm lương. Tính cả bảng (preview), khóa kỳ sau khi duyệt.</div>
-      <div style="display:flex;gap:6px"><!-- v3.17.35 (Sếp): bỏ nút 📊 Dashboard khỏi Kỳ lương — Sổ lương + Chi phí lương năm đã đứng ngoài, dashboard riêng hết vai trò lối tắt --><button class="btn-sec" style="font-size:13px" onclick="openSalaryLedger()" title="Sổ theo dõi lương nhân sự — thẻ lương từng người (v3.17.34: chuyển ra cạnh Tạo kỳ lương theo lệnh)">💳 Sổ lương</button><button class="btn-sec" style="font-size:13px" onclick="payYearCostReport()" title="Sổ Chi phí Lương Năm — GROSS + 21,5% BHXH cty">📊 Chi phí lương năm</button><!-- v3.14.58 (Sếp 07/8): GỠ nút ⚖ Pháp nhân kỳ — công cụ migration một-lần đã xong vai trò (mọi kỳ có companyId; kỳ mới bắt buộc chọn pháp nhân khi tạo). Hàm meMigrationOpen GIỮ: health check vẫn dẫn vào được nếu phát sinh kỳ thiếu pháp nhân. --><!-- v3.18.75 (Sếp 26/8: "vẫn phải tạo kỳ lương rồi mới import được Khoản PS"): lối vào ĐỘC LẬP — khoản PS/đợt chi riêng nhập trước, kỳ tạo sau vẫn tự bắt --><button class="btn-sec" style="font-size:13px" onclick="payExtrasOpen()" title="Khoản thu/chi phát sinh — nhập/duyệt KHÔNG cần có kỳ; kỳ lương tháng tạo sau sẽ tự bắt khoản đã duyệt khi Áp">➕ Khoản PS</button><button class="btn-sec" style="font-size:13px" onclick="pexbOpen()" title="Thưởng/trợ cấp đột xuất chi RIÊNG (không cùng kỳ lương) — nhập file HR → KTT duyệt → bảng NH → Chuyển kế toán">💸 Đợt chi riêng</button><button class="btn-primary" style="font-size:13px" onclick="payPeriodCreate()">+ Tạo kỳ lương</button></div>
+      <div style="display:flex;gap:6px"><!-- v3.17.35 (Sếp): bỏ nút 📊 Dashboard khỏi Kỳ lương — Sổ lương + Chi phí lương năm đã đứng ngoài, dashboard riêng hết vai trò lối tắt --><button class="btn-sec" style="font-size:13px" onclick="openSalaryLedger()" title="Sổ theo dõi lương nhân sự — thẻ lương từng người (v3.17.34: chuyển ra cạnh Tạo kỳ lương theo lệnh)">💳 Sổ lương</button><button class="btn-sec" style="font-size:13px" onclick="payYearCostReport()" title="Sổ Chi phí Lương Năm — GROSS + 21,5% BHXH cty">📊 Chi phí lương năm</button><button class="btn-sec" style="font-size:13px" onclick="openPayReports()" title="Nhóm vị trí lương (min-max theo chức danh) + chi phí lương theo bộ phận theo tháng">🏷 Vị trí & bộ phận</button><!-- v3.14.58 (Sếp 07/8): GỠ nút ⚖ Pháp nhân kỳ — công cụ migration một-lần đã xong vai trò (mọi kỳ có companyId; kỳ mới bắt buộc chọn pháp nhân khi tạo). Hàm meMigrationOpen GIỮ: health check vẫn dẫn vào được nếu phát sinh kỳ thiếu pháp nhân. --><!-- v3.18.75 (Sếp 26/8: "vẫn phải tạo kỳ lương rồi mới import được Khoản PS"): lối vào ĐỘC LẬP — khoản PS/đợt chi riêng nhập trước, kỳ tạo sau vẫn tự bắt --><button class="btn-sec" style="font-size:13px" onclick="payExtrasOpen()" title="Khoản thu/chi phát sinh — nhập/duyệt KHÔNG cần có kỳ; kỳ lương tháng tạo sau sẽ tự bắt khoản đã duyệt khi Áp">➕ Khoản PS</button><button class="btn-sec" style="font-size:13px" onclick="pexbOpen()" title="Thưởng/trợ cấp đột xuất chi RIÊNG (không cùng kỳ lương) — nhập file HR → KTT duyệt → bảng NH → Chuyển kế toán">💸 Đợt chi riêng</button><button class="btn-primary" style="font-size:13px" onclick="payPeriodCreate()">+ Tạo kỳ lương</button></div>
     </div>
     <table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:var(--rule);text-align:left">
       <th style="padding:6px 8px">Kỳ</th><th style="padding:6px 8px">Nhóm</th><th style="padding:6px 8px">Pháp nhân</th><th style="padding:6px 8px;text-align:center">Số NV</th><th style="padding:6px 8px;text-align:right">Tổng thực lĩnh</th><th style="padding:6px 8px">Trạng thái</th><th style="padding:6px 8px"></th>
@@ -21690,8 +21830,16 @@ function _payFlowWizard(p, id, projBtn){
   ];
   let cur=-1;
   for(let i=0;i<steps.length;i++){ if(!steps[i].done && steps[i].ok){ cur=i; break; } }
+  /* v3.19.73 (Sếp: giữ 3 nút đầu — chỉ thu gọn cho gọn màn hình bình thường, không bỏ hẳn):
+     Bước ①②③ (Kéo chấm công/Kéo thẻ lương/Tính lại) nay CHỈ hiện trong khối "Tùy chọn nâng cao"
+     (mặc định gập — <details>), vì từ v3.19.72 đã có _payAutoFirstRun tự chạy ngầm lần đầu. Hàng
+     nút chính chỉ còn ④⑤⑥ (Kiểm tra/Đối chiếu/Chuyển kế toán). Nếu ①②③ CHƯA xong (auto chưa chạy
+     được — vd chưa có BCC khóa) → hiện ghi chú chỉ thẳng vào khối nâng cao thay vì im lặng. */
+  const mainIdx=[3,4,5];
+  const stuckEarly=(cur>=0 && cur<3);
   /* v3.15.43 W3: mọi bước xong/kẹt quyền mà chưa tới đích → hiện ghi chú thay vì trống */
-  const stuckNote=(cur<0)?`<span style="font-size:11px;color:#9a5b12">⏸ ${!s5&&flagOn&&!canV?'Chờ người có quyền chạy Đối chiếu Excel HR (bước ⑤)':'Chờ điều kiện bước kế tiếp'}</span>`:'';
+  const stuckNote=(cur<0)?`<span style="font-size:11px;color:#9a5b12">⏸ ${!s5&&flagOn&&!canV?'Chờ người có quyền chạy Đối chiếu Excel HR (bước ⑤)':'Chờ điều kiện bước kế tiếp'}</span>`
+    :(stuckEarly?`<span style="font-size:11px;color:#b3402e">⏸ Chưa có công/mức lương — mở "⚙ Tùy chọn nâng cao" bên dưới để ${esc(steps[cur].t)} tay</span>`:'');
   const chip=(st,i)=>{
     const num='<span style="opacity:.75">'+(i+1)+'.</span> ';
     if(st.done && i!==cur) return `<button class="btn-ghost" style="font-size:11px;padding:3px 9px;border:1px solid #bfe3cd;border-radius:14px;background:#eafaf0;color:#1e7d44" ${st.fn?`onclick="${st.fn}"`:''} title="${esc(st.redo||'Đã xong')}">✓ ${num}${st.ic} ${st.t}${st.sub?(' · '+esc(st.sub)):''}</button>`;
@@ -21699,7 +21847,8 @@ function _payFlowWizard(p, id, projBtn){
     return `<span style="font-size:11px;padding:3px 9px;border:1px dashed var(--rule);border-radius:14px;color:var(--muted);opacity:.65" title="${esc(st.need)}">${num}${st.ic} ${st.t}</span>`;
   };
   const arrow='<span style="color:var(--muted);font-size:11px">→</span>';
-  const main=steps.map((st,i)=>chip(st,i)).join(arrow);
+  const main=mainIdx.map(i=>chip(steps[i],i)).join(arrow);
+  const advSteps=[0,1,2].map(i=>chip(steps[i],i)).join(arrow);
   const opt=[];
   if(s3) opt.push(`<button class="btn-ghost" style="font-size:10.5px;padding:2px 8px" onclick="payExtrasOpen('${p.period}','${id}')" title="Tùy chọn — nhập/duyệt khoản phát sinh rồi 🧮 Áp vào kỳ (trong modal); áp xong nên chạy lại bước ⑤">➕ Khoản PS</button>`);
   /* v3.19.32: nền BHXH thuyền viên tự = LCB trong bộ đọc thẻ → không cần nút điền; chỉ hiện ghi chú nhỏ */
@@ -21711,6 +21860,11 @@ function _payFlowWizard(p, id, projBtn){
   return `<div style="border:1px solid var(--rule);border-radius:10px;padding:8px 10px;margin-bottom:10px;background:#fbfcfe">
     <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${main}${stuckNote}</div>
     ${opt.length?`<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px;padding-top:6px;border-top:1px dashed var(--rule)"><span style="font-size:10px;color:var(--muted)">Tùy chọn:</span>${opt.join('')}</div>`:''}
+    <details${stuckEarly?' open':''} style="margin-top:6px;padding-top:6px;border-top:1px dashed var(--rule)">
+      <summary style="font-size:10.5px;color:var(--muted);cursor:pointer">⚙ Tùy chọn nâng cao — Kéo chấm công / Kéo thẻ lương / Tính lại thủ công</summary>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px">${advSteps}</div>
+      <div style="font-size:9.5px;color:var(--muted);margin-top:3px">Bình thường không cần bấm — kỳ mới tạo đã tự chạy 3 bước này. Chỉ dùng khi: BCC khóa lại sau khi sửa, thẻ lương đổi sau khi kỳ đã tính, hoặc có người mới cần nạp lại.</div>
+    </details>
   </div>`;
 }
 /* ═══ v3.18.76 GĐ2 (Sếp 25/8 "trong kỳ lương tháng nên có các dòng: trợ cấp 2/9…, thưởng khác…, lương — dễ đối chiếu"):
@@ -95635,10 +95789,33 @@ function _bccDetectCompanyIds(a){
   (a.rows||[]).forEach(r=>{ const t=_coTagOf(r.unit); if(tagMap[t]) found.add(tagMap[t]); });
   return found.size ? Array.from(found) : [((companies[0]||{}).id)||''];
 }
+/* v3.19.72 (Sếp 29/8: "cần xác định bất thường TRƯỚC khi khóa — đơn giản hơn"): kiểm nhanh
+   wrongEngine/noProfile ngay tại BCC, KHÔNG cần kỳ lương đã tồn tại (dựng p giả chỉ để dùng
+   _payRowEngineCheck sẵn có). Chỉ CẢNH BÁO — Sếp chốt không chặn cứng, HR tự xác nhận biết rồi vẫn khóa. */
+function _bccPreLockCheck(a){
+  const payProf=BCC_TO_PAY_PROFILE[a.profile]; if(!payProf) return {wrongEngine:[],noProfile:[]};
+  const fakeP={profile:payProf, period:a.period};
+  const wrongEngine=[], noProfile=[];
+  (a.rows||[]).forEach(r=>{
+    const eid=(typeof _attEmpIdOf==='function')?_attEmpIdOf(r):(r._empId||'');
+    if(!eid){ noProfile.push((r.msnv?(r.msnv+' · '):'')+(r.name||'?')); return; }
+    const chk=(typeof _payRowEngineCheck==='function')?_payRowEngineCheck(fakeP, eid):{ok:true};
+    if(!chk.ok){ wrongEngine.push((r.name||'?')+(chk.cardEngine?(' — thẻ nhóm '+(PAY_PROFILE_LABEL[chk.cardEngine]||chk.cardEngine)):' — chưa có thẻ lương')); }
+  });
+  return {wrongEngine, noProfile};
+}
 function hrmAttLock(id){
   if(!(isAdmin()||(CURRENT_USER&&(CURRENT_USER.canSignHr||CURRENT_USER.isNVNS||CURRENT_USER.isHrStaff)))){ toast('Chỉ HR/Admin được khóa kỳ công','bad'); return; }   /* v3.14.84: vai Hồ sơ & Chấm công được khóa BCC */
   const a=HRService.attendance().find(x=>x.id===id); if(!a) return;
-  if(!confirm('KHÓA kỳ công '+a.period+' ('+((HRM_BCC_PROFILES[a.profile]||{}).label||a.profile)+') — '+(a.rows||[]).length+' NV?\n\nSau khi khóa: không sửa/xóa/ghi đè; Payroll lấy công được từ bản này.')) return;
+  let _warnMsg='';
+  try{
+    const chk=_bccPreLockCheck(a);
+    const parts=[];
+    if(chk.noProfile.length) parts.push('⚠ '+chk.noProfile.length+' người KHÔNG khớp hồ sơ NS: '+chk.noProfile.slice(0,5).join(', ')+(chk.noProfile.length>5?'…':''));
+    if(chk.wrongEngine.length) parts.push('⚠ '+chk.wrongEngine.length+' người thẻ lương SAI NHÓM/chưa có thẻ: '+chk.wrongEngine.slice(0,5).join(', ')+(chk.wrongEngine.length>5?'…':''));
+    if(parts.length) _warnMsg='\n\n'+parts.join('\n')+'\n\n(Không chặn khóa — nhưng những người này sẽ KHÔNG được thêm vào kỳ lương cho tới khi sửa hồ sơ/thẻ lương rồi Kéo chấm công lại.)';
+  }catch(e){}
+  if(!confirm('KHÓA kỳ công '+a.period+' ('+((HRM_BCC_PROFILES[a.profile]||{}).label||a.profile)+') — '+(a.rows||[]).length+' NV?'+_warnMsg+'\n\nSau khi khóa: không sửa/xóa/ghi đè; Payroll lấy công được từ bản này.')) return;
   a.status='locked'; a.lockedBy=(CURRENT_USER&&CURRENT_USER.name)||''; a.lockedAt=new Date().toISOString();
   try{touchRecord(a);}catch(e){}
   try{ logAuditEvent('hrm_att_lock',{period:a.period,profile:a.profile}); }catch(e){}
@@ -95646,6 +95823,80 @@ function hrmAttLock(id){
   /* v3.19.70 (Sếp 29/8: "Khóa BCC - App tự mở kỳ lương tương ứng?" — BCC chỉ có 1 kỳ = 1 tháng, kỳ
      lương chưa có thì tự tạo luôn rồi mở): bớt thao tác chuyển tay giữa 2 màn Chấm công → Kỳ lương. */
   try{ _hrmAttOpenPayPeriod(a); }catch(e){ console.warn('[hrmAttLock→pay]', e); }
+}
+/* v3.19.72 (Sếp 29/8 chốt: "kéo BCC → tự kéo thẻ lương → tự tạo kỳ → đối chiếu HR" — bỏ hẳn 3 nút
+   Kéo chấm công/Kéo thẻ lương/Tính lại khỏi thao tác thường ngày). Bản THUẦN của _payPullApply/
+   _payPullSpApply — không phụ thuộc DOM (checkbox override/drop-keep) vì chạy ngầm không có UI:
+   mặc định KHÔNG đè ô đã sửa tay (giữ nguyên _manualFields, giống hành vi "không tick override"),
+   toDrop XÓA thẳng (giống hành vi "không tick giữ" mặc định của form). */
+function _payAutoPullAttendance(p){
+  const map=PAY_ATT_MAP[p.profile]; if(!map) return {ok:false, reason:'no_map'};
+  const wantP=(p.profile==='crew'||p.profile==='crew_khoan')?['BCC_DOITAU']
+    : (p.profile==='project')?['BCC_CG_PDF','BCC_CHUYENGIA']
+    : (p.profile==='expat')?['BCC_EXPAT']
+    : (p.profile==='tech')?['BCC_KYTHUAT']
+    : ['BCC_VP','BCC_VP_BP'];
+  const att=(S.hrAttendance||[]).filter(a=>a&&a.period===p.period&&a.status==='locked'&&wantP.indexOf(a.profile)>=0)
+    .sort((a,b)=>String(b.importedAt||'').localeCompare(String(a.importedAt||'')))[0];
+  if(!att) return {ok:false, reason:'no_bcc'};
+  const diff=_payAttBuildDiff(p, att, map);
+  let nAdd=0, nSet=0;
+  (diff.toAdd||[]).forEach(t=>{
+    if((p.rows||[]).some(r=>r.empId===t.empId)) return;
+    const row={empId:t.empId, name:t.name, smartId:t.smartId, inputs:{}, result:{}, _attOrder:t._attIdx};
+    Object.keys(t.changes||{}).forEach(F=>{ row.inputs[F]=t.changes[F].to; });
+    row.attSource={attId:att.id, attPeriod:att.period, profile:att.profile, map, pulledAt:new Date().toISOString(), pulledBy:'auto'};
+    try{ row.result=payComputeRow(p, row); }catch(e){}
+    p.rows.push(row); nAdd++;
+  });
+  (diff.toDrop||[]).forEach(d=>{ const ix=(p.rows||[]).findIndex(r=>r.empId===d.empId); if(ix>=0) p.rows.splice(ix,1); });
+  (diff.items||[]).forEach(it=>{
+    const row=(p.rows||[]).find(r=>r.empId===it.empId); if(!row) return;
+    Object.keys(it.changes).forEach(F=>{
+      const c=it.changes[F]; if(c.manual) return;   /* không đè ô đã sửa tay */
+      row.inputs=row.inputs||{}; row.inputs[F]=c.to; nSet++;
+    });
+    row.attSource={attId:att.id, attPeriod:att.period, profile:att.profile, map, pulledAt:new Date().toISOString(), pulledBy:'auto'};
+    if(it._attIdx!=null) row._attOrder=it._attIdx;
+    try{ row.result=payComputeRow(p, row); }catch(e){}
+  });
+  p.attSource={attId:att.id, attPeriod:att.period, pulledAt:new Date().toISOString(), pulledBy:'auto'};
+  return {ok:true, nAdd, nSet, wrongEngine:diff.wrongEngine||[], noProfile:diff.noProfile||[]};
+}
+function _payAutoPullSalary(p){
+  if(['office','crew','tech','crew_khoan','office_gross','project'].indexOf(p.profile)<0) return {ok:false};
+  const items=_paySpBuildDiff(p);
+  let nSet=0, nNoCard=0;
+  items.forEach(it=>{
+    if(it.status==='CHƯA CÓ THẺ LƯƠNG'){ nNoCard++; return; }
+    const row=(p.rows||[]).find(r=>r.empId===it.empId); if(!row) return;
+    Object.keys(it.changes).forEach(F=>{
+      const c=it.changes[F]; if(c.manual) return;
+      row.inputs=row.inputs||{}; row.inputs[F]=c.to; nSet++;
+    });
+    row.spSource={profileId:it._pid, version:it._pver, pulledAt:new Date().toISOString(), pulledBy:'auto'};
+    try{ row.result=payComputeRow(p, row); }catch(e){}
+  });
+  return {ok:true, nSet, nNoCard};
+}
+/* Chạy đúng 1 LẦN cho mỗi kỳ (đánh dấu p._autoFirstRunDone) — kỳ đã từng kéo (attSource có sẵn,
+   kể cả do thao tác tay từ trước bản này) thì KHÔNG đụng, tránh đè số đã xử lý dở. */
+function _payAutoFirstRun(periodId){
+  const p=payPeriodById(periodId); if(!p) return;
+  if(p._autoFirstRunDone) return;
+  if(p.attSource){ p._autoFirstRunDone=true; return; }
+  try{
+    const rAtt=_payAutoPullAttendance(p);
+    const rSp=_payAutoPullSalary(p);
+    (p.rows||[]).forEach(row=>{ try{ row.result=payComputeRow(p, row); }catch(e){} });
+    p._autoFirstRunDone=true;
+    _payAudit(p,'auto_first_run','Tự động Kéo chấm công + Kéo thẻ lương + Tính lại (lần đầu tạo kỳ)'
+      +(rAtt&&rAtt.ok?(' · BCC +'+rAtt.nAdd+' người, '+rAtt.nSet+' ô'):(rAtt&&rAtt.reason==='no_bcc'?' · chưa có BCC khóa':''))
+      +(rSp&&rSp.ok?(' · Thẻ lương '+rSp.nSet+' ô'):''));
+    saveState();
+    const nExcept=(rAtt&&rAtt.ok)?((rAtt.wrongEngine||[]).length+(rAtt.noProfile||[]).length):0;
+    if(nExcept) toast('⚠ Đã tự tính kỳ '+p.period+' — '+nExcept+' người BỊ BỎ QUA (sai nhóm thẻ/thiếu hồ sơ), xem tại Chấm công NS để sửa rồi kéo lại','warn');
+  }catch(e){ console.warn('[auto first run]', e); }
 }
 /* v3.19.70: BCC (HRM_BCC_PROFILES) → nhóm lương (PayrollService profile) — cùng chiều với wantP đã
    dùng ở payPullAttendance (v3.14.35/24335). crew_khoan cũng nguồn BCC_DOITAU nên tìm cả hai khi mở. */
@@ -95674,6 +95925,7 @@ function _hrmAttOpenPayPeriod(a){
       }catch(e){ console.warn('[hrmAttLock auto-create]', e, coId); }
     }
     if(found && !openedFirst) openedFirst=found;
+    if(found){ try{ _payAutoFirstRun(found.id); }catch(e){ console.warn('[auto first run call]', e); } }   /* v3.19.72 */
   });
   if(openedFirst){
     setTimeout(()=>{
