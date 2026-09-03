@@ -3834,7 +3834,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.20.01';
+const APP_VERSION='3.20.02';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -95857,7 +95857,7 @@ function _attEmpIdOf(r){
 const HRM_BCC_PROFILES={
   BCC_VP:{
     label:'BCC Văn phòng',
-    headerRow:9, dataStart:12, requireStt:true,
+    headerRow:9, dataStart:11, requireStt:true,   /* v3.20.02 (báo lỗi + log Console THẬT: Lê Trí Thành/SME0001 bị lệch mất đúng 1 dòng) — log xác nhận: SheetJS (trình duyệt đọc thật) đặt dòng của anh Thành (Stt=1) ở vị trí khác 1 dòng so với cách đếm bằng công cụ em dùng lúc đặt dataStart=12 ban đầu (có thể do 1 dòng trống/gộp ô phía trên đếm khác nhau giữa 2 công cụ). Đổi dataStart 12→11, khớp đúng số liệu thật đo được từ Console — không đoán. */
     idx:{ msnv:1, name:2, title:3, unit:4, total:5 },  // B,C,D,E,F (0-based: 1,2,3,4,5)
     workCols:[  // [key, colIndex0based, nhãn] — đúng hàng 9 BCC VP
       ['N',6,'Công thường'],['NL',7,'Lễ'],['N1',8,'Công tác'],['N2',9,'Công tác NN'],
@@ -96015,13 +96015,6 @@ function hrmAttParseSheet(aoa, profileKey){
   const numAt=(arr,i)=>{ if(i<0) return 0; const v=arr[i]; if(v==null||v==='') return 0; const n=Number(String(v).replace(/[^\d.\-]/g,'')); return isNaN(n)?0:n; };
   // v3.11.79: autoHeader — tự dò hàng có cột A === 'Stt' (mẫu bộ phận header lệch hàng giữa các sheet)
   let _start=P.dataStart-1;
-  /* v3.20.01 (Sếp: báo lỗi Lê Trí Thành/SME0001 biến mất khỏi BCC VP dù đã kiểm code + giả lập không
-     ra lý do) — LOG TẠM để soi đúng dòng thật app đọc được, xóa sau khi tìm ra nguyên nhân. */
-  try{ console.log('[hrmAttParseSheet DEBUG] profileKey=',profileKey,'dataStart=',P.dataStart,'_start(0-based)=',_start,
-    'aoa.length=',aoa.length,
-    'aoa[_start-1] (dòng NGAY TRƯỚC _start)=',JSON.stringify(aoa[_start-1]),
-    'aoa[_start] (dòng ĐẦU TIÊN sẽ đọc)=',JSON.stringify(aoa[_start]),
-    'aoa[_start+1]=',JSON.stringify(aoa[_start+1])); }catch(e){}
   if(P.autoHeader){
     let hi=-1;
     for(let r=0;r<Math.min(aoa.length,25);r++){ if(norm((aoa[r]||[])[0])==='Stt'){ hi=r; break; } }
@@ -96048,19 +96041,16 @@ function hrmAttParseSheet(aoa, profileKey){
     return ''; };
   for(let r=_start; r<aoa.length; r++){   // -1 vì aoa 0-based, dataStart 1-based
     const row=aoa[r]||[];
-    const _dbg=(r-_start<3);   /* v3.20.01: log tạm 3 dòng đầu để soi lỗi Lê Trí Thành/BCC VP */
-    if(_dbg) try{ console.log('[hrmAttParseSheet DEBUG] xét dòng r=',r,'row=',JSON.stringify(row)); }catch(e){}
     const msnv = (P.idx.msnv>=0) ? norm(row[P.idx.msnv]) : '';   // chuyên gia không có MSNV
     const name=norm(row[P.idx.name]);
-    if(!name && !msnv){ if(_dbg) console.log('  → BỎ: dòng trống (msnv+name đều rỗng)'); continue; }
+    if(!name && !msnv) continue;                         // dòng trống
     /* v3.14.50 (Sếp 07/8 — 3 dòng ghi chú chân trang file cũ bị lưu thành "NV" trong bảng BCC):
        MSNV hợp lệ là mã ngắn liền (SME0001/SMEV032/NTP001…) — ô MSNV chứa KHOẢNG TRẮNG hoặc dài >14
        ký tự chắc chắn là câu ghi chú/chú giải lọt vùng dữ liệu → bỏ, không thành dòng NV. */
-    if(msnv && (msnv.length>14 || /\s/.test(msnv))){ if(_dbg) console.log('  → BỎ: msnv garbage (len='+msnv.length+', hasSpace='+/\s/.test(msnv)+')'); continue; }   /* v3.14.59 (Sếp 07/8: "cảnh báo không có giá trị"): dòng ghi chú lọt cột MSNV bỏ ÊM, không báo — hành vi đúng mặc định, la lên chỉ nhiễu. (Lịch sử: 3.14.50 đếm vào biến 'out' không tồn tại → crash import; 3.14.56 sửa thành warnings; 3.14.59 hạ thành im lặng.) */
+    if(msnv && (msnv.length>14 || /\s/.test(msnv))) continue;   /* v3.14.59 (Sếp 07/8: "cảnh báo không có giá trị"): dòng ghi chú lọt cột MSNV bỏ ÊM, không báo — hành vi đúng mặc định, la lên chỉ nhiễu. (Lịch sử: 3.14.50 đếm vào biến 'out' không tồn tại → crash import; 3.14.56 sửa thành warnings; 3.14.59 hạ thành im lặng.) */
     const upName=(name||msnv).toUpperCase();
-    if(P.skipNames.some(s=>upName.includes(s))){ if(_dbg) console.log('  → BỎ: khớp skipNames'); continue; } // dòng tổng nhóm
-    if(P.requireStt && !/^\d+$/.test(String(row[0]==null?'':row[0]).trim())){ if(_dbg) console.log('  → BỎ: requireStt fail, row[0]=',JSON.stringify(row[0])); continue; }       // v3.19.84 (báo lỗi tháng 7: N1:/N2:/N3:/N4: lọt qua) — numAt() tách số LINH HOẠT (nhặt cả số lẫn trong chữ, vd "N1:"→1) vốn đúng cho đọc số công nhưng SAI khi dùng kiểm STT — đổi sang đòi cột STT phải NGUYÊN VẸN CHỈ TOÀN CHỮ SỐ, "N1:"/"N :" không còn lọt được nữa. v3.11.79: dòng người ký/ghi chú không có Stt số → bỏ
-    if(_dbg) console.log('  → GIỮ: msnv=',msnv,'name=',name);
+    if(P.skipNames.some(s=>upName.includes(s))) continue; // dòng tổng nhóm
+    if(P.requireStt && !/^\d+$/.test(String(row[0]==null?'':row[0]).trim())) continue;       // v3.19.84 (báo lỗi tháng 7: N1:/N2:/N3:/N4: lọt qua) — numAt() tách số LINH HOẠT (nhặt cả số lẫn trong chữ, vd "N1:"→1) vốn đúng cho đọc số công nhưng SAI khi dùng kiểm STT — đổi sang đòi cột STT phải NGUYÊN VẸN CHỈ TOÀN CHỮ SỐ, "N1:"/"N :" không còn lọt được nữa. v3.11.79: dòng người ký/ghi chú không có Stt số → bỏ
     // chuyên gia: bỏ dòng không có giờ công (dòng phụ/HOS dự phòng có tên nhưng total=0 & không lương)
     const cols={};
     P.workCols.forEach(([key,ci])=>{ cols[key]=numAt(row,ci); });
