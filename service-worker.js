@@ -8,7 +8,7 @@ v3.19.93 — GIAI ĐOẠN 1 TÀI KHOẢN KẾ TOÁN: (1) Danh mục chi phí (ed
    để force trình duyệt invalidate cache cũ.
 */
 
-const SW_VERSION = 'v3.20.63';
+const SW_VERSION = 'v3.20.73';
 const CACHE_NAME = `seahorse-${SW_VERSION}`;
 
 // Pre-cache critical files on install

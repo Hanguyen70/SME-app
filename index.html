@@ -1716,7 +1716,7 @@ span.chip.chip-fixed{display:inline-flex;align-items:center;gap:4px}
           <button id="ap-payroll-btn" class="btn-sec" onclick="openPayrollModal()" title="Phiếu lương — 1 dự án/tàu, 1 kỳ; tự gán loại Lương, tổng BHXH/TNCN sinh NSNN" style="font-size:13px">🧾 Phiếu lương</button>
           <span style="width:1px;height:22px;background:var(--rule);margin:0 2px"></span>
           <button id="ap-payorder-btn" class="btn-sec" onclick="openApPaymentOrder()" title="Lệnh trình duyệt — NV KT chọn phiếu + hình thức chi (tiền mặt/CK) + ngân hàng → in PDF trình KTT duyệt" style="font-size:13px">📋 Lệnh trình duyệt</button>
-          <button class="btn-sec" style="font-size:13px;border-color:#1c5a8c;color:#1c5a8c" onclick="openStockInTracking()" title="Theo dõi tiến độ giao hàng - nhập kho các đơn mua của bạn (kể cả đã nhập xong)">📦 Theo dõi nhập kho</button>
+          <button class="btn-sec" style="font-size:13px;border-color:#1c5a8c;color:#1c5a8c" onclick="openStockInTracking()" title="Theo dõi tiến độ giao hàng - nhập kho các đơn mua của bạn (kể cả đã nhập xong)">📦 Theo dõi nhập kho <span id="pnk-unseen-badge"></span></button>
           <button class="btn-sec" onclick="apHandoverPdf()" title="Biên bản bàn giao bộ chứng từ — có ô ký xác nhận đã nhận" style="font-size:13px">🧾 Biên bản bàn giao</button>
           <button class="btn-sec" onclick="arExportExcel('ap')" title="Xuất sổ phải trả ra Excel để đối chiếu" style="font-size:13px">📊 Xuất Excel</button>
         </div>
@@ -3840,7 +3840,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.20.63';
+const APP_VERSION='3.20.73';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -16839,7 +16839,11 @@ function expTreeRemove(code){
 function getExpenseType(code){
   if(!code) return null;
   const list = (S && S.expenseTypes) ? S.expenseTypes : DEFAULT_EXPENSE_TYPES;
-  return list.find(t=>t.code===code) || DEFAULT_EXPENSE_TYPES.find(t=>t.code===code) || null;
+  const hit=list.find(t=>t.code===code) || DEFAULT_EXPENSE_TYPES.find(t=>t.code===code);
+  if(hit) return hit;
+  /* v3.20.66: mã có thể là 1 nhánh lá tự sinh (chưa ai tạo "loại chi phí" thật gắn vào) — tra tiếp
+     trong danh sách đã gộp cả bản ảo, để mọi nơi hiển thị tên/nhóm vẫn ra đúng, không hiện trống. */
+  try{ return activeExpenseTypes().find(t=>t.code===code) || null; }catch(e){ return null; }
 }
 
 /* Get all active (non-archived) expense types, sorted by group then label */
@@ -16847,10 +16851,34 @@ function getExpenseType(code){
    loại BOD-only (isBODOnly hoặc nhóm BOD) CHỈ admin thấy — lọc một chỗ ở activeExpenseTypes → mọi dropdown/chip/danh mục
    (AP đơn, nhiều dòng, bảng kê, sổ quỹ, form loại) đều theo; NV có cờ isBOD vẫn KHÔNG thấy (Sếp: duy nhất admin). */
 function isExpenseTypeBOD(t){ return !!(t && (t.isBODOnly || t.group==='BOD')); }
+/* v3.20.66 (Sếp — "E là 1 nhóm chi phí thông thường như các nhóm khác. Nhóm con cũng chọn được...
+   1 phiếu tạo chọn nhóm E.01.10: vật tư sửa chữa boong là đủ. Chi tiết loại được quy định theo mã
+   vật tư, đây là mã chi phí"): hiểu sai trước đó — tưởng MỖI nhánh (dù tới tận cháu) vẫn cần thêm 1
+   "loại chi phí" con bên trong mới chọn được. ĐÚNG RA: nhánh CUỐI (không có nhánh con nào sâu hơn —
+   "lá") tự nó LÀ 1 loại chi phí chọn được luôn, không cần tạo thêm gì — chi tiết mặt hàng cụ thể đã
+   có mã vật tư (kho) lo, mã chi phí chỉ cần đúng cấp phân loại kế toán. Tự sinh "loại chi phí" ảo cho
+   MỌI nhánh lá (expenseTree) chưa có ai gắn thật vào — không cần Sếp tạo tay từng loại một nữa. */
+function _expTreeSyntheticTypes(){
+  const nodes=expTreeList(); if(!nodes.length) return [];
+  const codes=nodes.map(n=>String(n.code||''));
+  const real=(S && S.expenseTypes && S.expenseTypes.length) ? S.expenseTypes : DEFAULT_EXPENSE_TYPES;
+  const out=[];
+  nodes.forEach(n=>{
+    const code=String(n.code||''); if(!code) return;
+    const isLeaf=!codes.some(c=>c!==code && c.indexOf(code+'.')===0);
+    if(!isLeaf) return;   // còn nhánh con sâu hơn → không tự sinh, chờ chọn đúng nhánh cuối
+    const hasReal=real.some(t=>t && !t.archived && String(t.treeCode||'')===code);
+    if(hasReal) return;   // đã có loại chi phí thật gắn đúng nhánh này rồi → dùng bản thật, không sinh trùng
+    out.push({ code, treeCode:code, label:n.name||code, group:'', icon:'📁', synthetic:true });
+  });
+  return out;
+}
 function activeExpenseTypes(){
   const list = (S && S.expenseTypes && S.expenseTypes.length) ? S.expenseTypes : DEFAULT_EXPENSE_TYPES;
   const adm=(typeof isAdmin==='function')?isAdmin():false;
-  return list.filter(t=>!t.archived && (adm || !isExpenseTypeBOD(t)));
+  const real=list.filter(t=>!t.archived && (adm || !isExpenseTypeBOD(t)));
+  let synth=[]; try{ synth=_expTreeSyntheticTypes(); }catch(e){}
+  return real.concat(synth);
 }
 
 /* Get archived expense types */
@@ -17605,7 +17633,7 @@ function revenueTypeOpts(selectedCode){
     html+=`<optgroup label="${REVENUE_GROUPS[gk].label}">`;
     groups[gk].forEach(t=>{
       const sel=(selectedCode===t.code)?'selected':'';
-      html+=`<option value="${esc(t.code)}" ${sel}>${t.icon} ${esc(t.label)}</option>`;
+      html+=`<option value="${esc(t.code)}" ${sel}>${t.icon||''} ${esc(t.label)}</option>`;
     });
     html+='</optgroup>';
   });
@@ -17632,10 +17660,10 @@ function expenseTypeOptsPref(selectedCode, prefGroups, onlyGroup){
   if(onlyGroup && groups[onlyGroup]) order=[onlyGroup];
   let html='<option value="">— Chọn loại chi phí —</option>';
   /* loại đang chọn không thuộc nhóm lọc → vẫn giữ để không mất giá trị */
-  if(onlyGroup && selectedCode){ const t=types.find(x=>x.code===selectedCode); const dg=t?((typeof etypeDisplayGroup==='function')?(etypeDisplayGroup(t)||t.group):t.group):''; if(t && dg!==onlyGroup) html+=`<optgroup label="Đang chọn"><option value="${esc(t.code)}" selected>${t.icon} ${esc(t.label)}</option></optgroup>`; }
+  if(onlyGroup && selectedCode){ const t=types.find(x=>x.code===selectedCode); const dg=t?((typeof etypeDisplayGroup==='function')?(etypeDisplayGroup(t)||t.group):t.group):''; if(t && dg!==onlyGroup) html+=`<optgroup label="Đang chọn"><option value="${esc(t.code)}" selected>${t.icon||''} ${esc(t.label)}</option></optgroup>`; }
   order.forEach(gk=>{ if(!groups[gk]) return;
     html+=`<optgroup label="${pref.includes(gk)&&!onlyGroup?'★ ':''}${esc(expGroupLabel(gk))}" data-grp="${esc(gk)}">`;
-    groups[gk].forEach(t=>{ html+=`<option value="${esc(t.code)}" ${selectedCode===t.code?'selected':''}>${t.icon} ${esc(t.label)}${t.isPO?' (PO)':''}</option>`; });
+    groups[gk].forEach(t=>{ html+=`<option value="${esc(t.code)}" ${selectedCode===t.code?'selected':''}>${t.icon||''} ${esc(t.label)}${t.isPO?' (PO)':''}</option>`; });
     html+='</optgroup>'; });
   return html;
 }
@@ -17655,7 +17683,7 @@ function expenseTypeOpts(selectedCode){
     html+=`<optgroup label="${esc(expGroupLabel(gk))}">`;
     groups[gk].forEach(t=>{
       const sel=(selectedCode===t.code)?'selected':'';
-      html+=`<option value="${esc(t.code)}" ${sel}>${t.icon} ${esc(t.label)}${t.isPO?' (PO)':''}</option>`;
+      html+=`<option value="${esc(t.code)}" ${sel}>${t.icon||''} ${esc(t.label)}${t.isPO?' (PO)':''}</option>`;
     });
     html+='</optgroup>';
   });
@@ -56693,9 +56721,10 @@ function _arEditorBody(r,isPayable){
 
   const _arBodyHtml = `
     ${lockedNote}
-    ${(!lockedAttr) ? `<div style="display:flex;justify-content:flex-end;margin-bottom:8px">
-      <input type="file" id="ap1-invoice-file" accept=".csv,.pdf,.xml,.xlsx,.xls,image/*" style="display:none" onchange="_mrReadInvoiceFile(this.files[0],'ap1')">
-      <button type="button" class="btn-sec" style="font-size:11px;padding:5px 12px" onclick="document.getElementById('ap1-invoice-file').click()" title="Đọc ${isPayable?'hóa đơn':'hóa đơn đầu ra'} XML/PDF/CSV + ẢNH & PDF scan (AI Gemini) → tự điền phiếu.">📎 Đọc hóa đơn / Tờ khai HQ</button>
+    ${(!lockedAttr) ? `<div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-bottom:8px">
+      <span style="font-size:10px;color:var(--muted)" title="Excel/CSV/XML đọc trực tiếp, không qua AI Gemini — nhanh hơn PDF/ảnh chụp.">Ưu tiên Excel/CSV/XML nếu có — nhanh hơn</span>
+      <input type="file" id="ap1-invoice-file" accept=".csv,.pdf,.xml,.xlsx,.xls,image/*" style="display:none" onchange="window._provLastQuoteFile=this.files[0]||null;_mrReadInvoiceFile(this.files[0],'ap1')">
+      <button type="button" class="btn-sec" style="font-size:11px;padding:5px 12px" onclick="document.getElementById('ap1-invoice-file').click()" title="Đọc ${isPayable?'hóa đơn':'hóa đơn đầu ra'} XML/PDF/CSV + ẢNH & PDF scan (AI Gemini) → tự điền phiếu. Ưu tiên chọn Excel/CSV/XML nếu NCC có gửi — nhanh hơn.">📎 Import file</button>
     </div>` : ''}
     <div class="form-grid">
       <div class="field"><label>${isPayable?'Nhà cung cấp':'Khách hàng'} *</label>
@@ -58074,6 +58103,30 @@ function _resolveVendorFromAI(aiVendor, aiTax){
   }
   return {name:rawName, taxCode:tax, matched:'new', vendorId:null};
 }
+/* v3.20.65 (Sếp — "Khi import file Gemini đọc chậm, app không có biểu hiện gì"): toast "Đang đọc..."
+   tự biến mất sau vài giây trong khi Gemini có thể mất 10-30s (nhất là lúc quá tải, như lỗi 503 từng
+   gặp) — tạo khoảng "im lặng" gây hiểu lầm treo máy. Thêm biểu ngữ CỐ ĐỊNH (đồng hồ cát quay), chỉ
+   mất khi có kết quả thật (thành công hay lỗi), dùng chung cho mọi nơi gọi AI đọc file. */
+function _aiReadingStart(msg){
+  try{
+    let el=document.getElementById('ai-reading-banner');
+    if(!el){
+      el=document.createElement('div'); el.id='ai-reading-banner';
+      el.style.cssText='position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:99999;background:#1c3a5c;color:#fff;padding:8px 16px;border-radius:20px;font-size:13px;box-shadow:0 2px 10px rgba(0,0,0,.25);display:flex;align-items:center;gap:8px';
+      document.body.appendChild(el);
+    }
+    el.innerHTML='<span style="display:inline-block;animation:aiSpin 1.1s linear infinite">⏳</span> '+(msg||'Đang đọc bằng AI — có thể mất 10-30 giây…');
+    el.style.display='flex';
+    if(!document.getElementById('ai-spin-style')){
+      const st=document.createElement('style'); st.id='ai-spin-style';
+      st.textContent='@keyframes aiSpin{0%{transform:rotate(0)}50%{transform:rotate(20deg)}100%{transform:rotate(0)}}';
+      document.head.appendChild(st);
+    }
+  }catch(e){}
+}
+function _aiReadingEnd(){
+  try{ const el=document.getElementById('ai-reading-banner'); if(el) el.style.display='none'; }catch(e){}
+}
 async function aiReadQuote(inputEl){
   const file = inputEl && inputEl.files && inputEl.files[0];
   if(!file){ return; }
@@ -58105,6 +58158,7 @@ async function aiReadQuote(inputEl){
 
   const statusEl = document.getElementById('ai-quote-status');
   if(statusEl){ statusEl.style.color='var(--accent)'; statusEl.textContent='⏳ Đang đọc báo giá bằng AI…'; }
+  _aiReadingStart('Đang đọc báo giá bằng AI — có thể mất 10-30 giây…');
   try{
     const b64 = await new Promise((res,rej)=>{
       const r=new FileReader();
@@ -58125,7 +58179,7 @@ async function aiReadQuote(inputEl){
   }catch(e){
     if(statusEl){ statusEl.style.color='var(--bad)'; statusEl.textContent='✗ '+(e&&e.message||'Lỗi đọc báo giá'); }
     toast('Lỗi đọc báo giá: '+(e&&e.message||''),'bad');
-  }
+  }finally{ _aiReadingEnd(); }
 }
 function _fillProvisionalFromAI(d){
   const set=(id,val)=>{ const el=document.getElementById(id); if(el && val!=null && val!=='' ){ el.value=val; } };
@@ -58182,7 +58236,7 @@ function openProvisionalAp(){
           const b=document.createElement('button'); b.type='button'; b.id='prov-stockin-btn'; b.className='btn-sec';
           b.style.cssText='font-size:13px;margin-left:6px'; b.textContent='📦 Lưu & Nhập kho';
           b.title='Lưu phiếu dự kiến này rồi mở màn Chờ giao hàng để kiểm lại trước khi gửi';
-          b.onclick=function(){
+          b.onclick=async function(){
             saveApProvisional();
             const apId=window._LAST_SAVED_AR_ID; if(!apId){
               /* v3.20.53 (Sếp — "Lưu & Nhập kho: không có gì xảy ra"): KHÔNG phải không chạy — lưu
@@ -58197,7 +58251,27 @@ function openProvisionalAp(){
               return;
             }
             closeModal();
-            openStockInUnified(apId);   /* v3.20.58: mở thẳng màn Đối chiếu — chi tiết mã/tên/SL/đơn giá đọc TẠI ĐÓ qua nút Import chi tiết sẵn có, không đọc trước ở đây nữa */
+            /* v3.20.69 (Sếp — "Như vậy NV phải import 2 lần"): dùng lại ĐÚNG file vừa chọn ở nút "Đọc
+               hóa đơn/báo giá" đầu form (window._provLastQuoteFile) — tự đọc luôn chi tiết từng dòng
+               (mã/tên/SL/đơn giá), không hỏi lại file lần 2. NV chỉ chọn file 1 lần duy nhất; nếu file
+               không đọc được chi tiết gì (hoặc không phải PDF/Excel) thì rơi về màn trống như cũ, tự
+               tay Import chi tiết vẫn dùng được bình thường. */
+            const f=window._provLastQuoteFile;
+            let items=[];
+            if(f){
+              try{
+                if(/pdf$/i.test(f.name)||f.type==='application/pdf'){
+                  items=await _provQuoteReadPdfLines(f);
+                } else if(/\.(xlsx|xls|csv)$/i.test(f.name||'')){
+                  const buf=await f.arrayBuffer();
+                  const wb=XLSX.read(new Uint8Array(buf),{type:'array'});
+                  const aoa=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:''});
+                  items=whParseQuoteRows(aoa).items||[];
+                }
+              }catch(e){ items=[]; }
+            }
+            if(items.length) openStockInUnifiedFromQuote(apId, items, '');
+            else openStockInUnified(apId);
           };
           saveBtn.parentNode.insertBefore(b, saveBtn.nextSibling);
         }
@@ -58308,7 +58382,7 @@ function openPayableModal(id){
          nhận xét trước đó. */
       const _readyDocs=(g.confirmed||[]).filter(d=>d && !d.apInvoiceSent);
       const _readyBlock=_readyDocs.length?_readyDocs.map(d=>`<div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(0,0,0,.08);display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <a href="#" onclick="event.preventDefault();try{DocEngine.preview(_stockSpec(stockDocById('${esc(d.id)}'),{showValue:true}))}catch(e){stockDocPreview('${esc(d.id)}')}" style="font-weight:600">✅ Đã có PNK ${esc(d.docNo)} — Xem/In</a>
+        <a href="#" onclick="event.preventDefault();markPnkSeen('${esc(d.id)}');try{DocEngine.preview(_stockSpec(stockDocById('${esc(d.id)}'),{showValue:true}))}catch(e){stockDocPreview('${esc(d.id)}')}" style="font-weight:600">${d.pnkSeen===false?'<span style="background:#c0392b;color:#fff;border-radius:8px;padding:0 5px;font-size:9px;margin-right:3px">MỚI</span>':''}✅ Đã có PNK ${esc(d.docNo)} — Xem/In</a>
         <button class="btn-primary" style="font-size:11px" onclick="whSendToAccounting('${esc(d.id)}')" title="Ghi nhận hóa đơn đúng đợt này và đánh dấu đã chuyển kế toán">📤 Chuyển kế toán</button>
       </div>`).join(''):'';
       return `<div style="margin-bottom:8px;padding:6px 10px;border-radius:6px;font-size:12px;background:${danger?'rgba(192,57,43,.08)':'rgba(184,115,10,.10)'};color:${danger?'var(--bad)':'#b8730a'}">
@@ -59028,17 +59102,18 @@ function _renderMultiRowModal(){
       .mr-del-btn:hover { background:rgba(var(--accent-rgb,65,65,65),.1); }
     </style>
 
-    ${isPayable?`<label style="display:flex;align-items:center;gap:8px;background:${s.budgetMode?'#fdf3e3':'var(--paper-2)'};border:1px solid ${s.budgetMode?'#e8c88a':'var(--rule)'};border-radius:6px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:#8a5a1e;cursor:pointer" title="Bật khi mới có báo giá/đơn mua, CHƯA có hóa đơn thật — vẫn đi đủ 4 cấp duyệt như phiếu thường; khi có hóa đơn/hoàn tất, dùng nút ✓ Quyết toán ở mục Chi dự kiến cần cập nhật để chuyển thành chi thật.">
-      <input type="checkbox" id="mr-budget-toggle" ${s.budgetMode?'checked':''} onchange="_multiRowState.budgetMode=this.checked;_renderMultiRowModal()">
-      <span><b>📋 Chi dự kiến</b> — chưa có hóa đơn thật (tick nếu chỉ mới có báo giá/đơn mua)</span>
-    </label>`:''}
+    <!-- v3.20.70 (Sếp — "bỏ ô chọn: chi dự kiến ở form AP này"): bỏ hẳn checkbox "Chi dự kiến" khỏi
+         Phiếu chi phí nhiều dòng — dồn về đúng 1 đường tạo Chi dự kiến duy nhất (Phải trả dự kiến,
+         openProvisionalAp), tránh 2 cách tạo cùng 1 loại phiếu gây rối. Dữ liệu cũ đã tạo budgetMode
+         từ trước (nếu có) không bị đụng tới, chỉ không tạo MỚI được từ form này nữa. -->
     <!-- HEADER -->
     <div style="background:var(--paper-2);padding:12px 14px;border:1px solid var(--rule);margin-bottom:12px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:600">Header phiếu</div>
-        ${isPayable?`<div>
+        ${isPayable?`<div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:10px;color:var(--muted)" title="Excel/CSV/XML đọc trực tiếp, không qua AI Gemini — nhanh hơn PDF/ảnh chụp.">Ưu tiên Excel/CSV/XML nếu có — nhanh hơn</span>
           <input type="file" id="mr-invoice-file" accept=".csv,.pdf,.xml,.xlsx,.xls,image/*" style="display:none" onchange="_mrReadInvoiceFile(this.files[0])">
-          <button type="button" class="btn-sec" style="font-size:11px;padding:5px 12px" onclick="document.getElementById('mr-invoice-file').click()" title="Đọc hóa đơn XML / PDF / CSV + ẢNH & PDF scan (AI Gemini) → app tự điền.">📎 Đọc hóa đơn / Tờ khai HQ</button>
+          <button type="button" class="btn-sec" style="font-size:11px;padding:5px 12px" onclick="document.getElementById('mr-invoice-file').click()" title="Đọc hóa đơn XML / PDF / CSV + ẢNH & PDF scan (AI Gemini) → app tự điền. Ưu tiên chọn Excel/CSV/XML nếu NCC có gửi — nhanh hơn.">📎 Import file</button>
         </div>`:''}
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px">
@@ -59788,6 +59863,7 @@ async function _invoiceViaAI(file){
   const cfg=getAuthConfig();
   if(!cfg || !cfg.scriptUrl){ toast('Chưa cấu hình Apps Script URL','bad'); return false; }
   if(file.size > 15*1024*1024){ toast('File quá lớn (>15MB)','bad'); return false; }
+  _aiReadingStart('Đang đọc hóa đơn bằng AI — có thể mất 10-30 giây…');
   try{
     const b64=await new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>{const x=String(r.result||'');res(x.includes(',')?x.split(',')[1]:x);}; r.onerror=()=>rej(new Error('Đọc file lỗi')); r.readAsDataURL(file); });
     const mime=file.type || (/\.pdf$/i.test(file.name)?'application/pdf':'image/jpeg');
@@ -59815,6 +59891,7 @@ async function _invoiceViaAI(file){
     _showInvoicePreview();
     return true;
   }catch(e){ console.warn('[invoice-ai]',e); toast('Lỗi đọc AI: '+(e&&e.message||e),'bad'); return false; }
+  finally{ _aiReadingEnd(); }
 }
 async function _mrReadInvoiceFile(file, target){
   if(!file) return;
@@ -74588,7 +74665,8 @@ function _usiRender(){
      <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center">
        <label style="font-size:11px;color:var(--muted)">Kho nhận </label><select style="font-size:13px;padding:5px" onchange="_usiState.warehouseId=this.value">${whOpts}</select>
        <label style="font-size:11px;color:var(--muted)">Ngày </label><input type="date" value="${esc(s.date)}" style="font-size:13px;padding:5px" onchange="_usiState.date=this.value">
-       <button class="btn-sec" style="font-size:12px;margin-left:auto" onclick="document.getElementById('usi-quote-file').click()" title="AP chỉ có dòng gộp? Import báo giá/hợp đồng Excel hoặc PDF (Tên · Mã · ĐVT · SL · Đơn giá) để nhập chi tiết từng vật tư — dòng chi tiết vẫn neo về hóa đơn này">📄 Import chi tiết (Báo giá/HĐ)</button>
+       <button class="btn-sec" style="font-size:12px;margin-left:auto" onclick="document.getElementById('usi-quote-file').click()" title="AP chỉ có dòng gộp? Import báo giá/hợp đồng Excel hoặc PDF (Tên · Mã · ĐVT · SL · Đơn giá) để nhập chi tiết từng vật tư — dòng chi tiết vẫn neo về hóa đơn này. Ưu tiên chọn Excel/CSV nếu NCC có gửi — nhanh hơn.">📄 Import chi tiết (Báo giá/HĐ)</button>
+       <span style="font-size:10px;color:var(--muted)" title="Excel/CSV đọc trực tiếp, không qua AI — nhanh hơn PDF.">Ưu tiên Excel/CSV — nhanh hơn</span>
        <input type="file" id="usi-quote-file" accept=".xlsx,.xls,.csv,.pdf" style="display:none" onchange="_usiQuoteFile(this.files[0]);this.value=''">
        ${s.quoteFile&&s.quoteFile.url?`<a href="${esc(s.quoteFile.url)}" target="_blank" rel="noopener" style="font-size:10.5px" title="File gốc đã lưu trên Drive">📎 ${esc(s.quoteFile.name||'File đã lưu')}</a>`:''}
      </div>
@@ -74847,7 +74925,7 @@ function openStockInTracking(){
          ngay là có thể xem/in, không phải đoán bấm nút nào. */
       /* v3.20.48: thêm nhánh 'received' (đã Nhận hàng, mã tạm, chờ Thủ kho áp mã) — khác với 'pending'
          (chưa ai nhận gì) và 'confirmed' (PNK thật) — NV cũng cần thấy rõ 3 trạng thái này. */
-      const st=d.status==='confirmed'?`<a href="#" onclick="event.preventDefault();event.stopPropagation();try{DocEngine.preview(_stockSpec(stockDocById('${esc(d.id)}'),{showValue:true}))}catch(e){stockDocPreview('${esc(d.id)}')}" style="color:#1e7d44;font-weight:600" title="Xem/in PNK — bản đầy đủ giá">✅ Đã có PNK — Xem/In</a>`
+      const st=d.status==='confirmed'?`<a href="#" onclick="event.preventDefault();event.stopPropagation();markPnkSeen('${esc(d.id)}');try{DocEngine.preview(_stockSpec(stockDocById('${esc(d.id)}'),{showValue:true}))}catch(e){stockDocPreview('${esc(d.id)}')}" style="color:#1e7d44;font-weight:600" title="Xem/in PNK — bản đầy đủ giá">${d.pnkSeen===false?'<span style="background:#c0392b;color:#fff;border-radius:8px;padding:0 5px;font-size:9px;margin-right:3px">MỚI</span>':''}✅ Đã có PNK — Xem/In</a>`
         :(d.status==='received'?`<span style="color:#b8730a" title="Tồn kho đã tăng bằng mã tạm — đang chờ Thủ kho áp mã FAST chuẩn để chốt PNK">🏷 Đã nhận (mã tạm) — chờ áp mã</span>`
         :`<span style="color:var(--warn)">⏳ Chờ thủ kho/tàu</span>`);
       const totQ=(d.lines||[]).reduce((x,l)=>x+(+l.qty||0),0);
@@ -74885,10 +74963,11 @@ function openStockInTracking(){
         ${g.receivedConfirmed>0?`<button class="btn-ghost" style="font-size:11px" onclick="stockPrintApBundle('${esc(g.key)}')" title="In bộ: trang tổng hợp lũy kế + các phiếu đã xác nhận — đính hồ sơ thanh toán">🖨 In bộ</button>`:''}
       </div>${prog}${rows}</div>`;
   }).join('') : '<div style="padding:14px;text-align:center;color:var(--muted);font-size:12px">'+(q||_sitFilter.state?'Không có cụm nào khớp bộ lọc.':'Bạn chưa tạo phiếu nhập nào — bấm 📦 tại phiếu AP để bắt đầu.')+'</div>';
-  const oH=orphans.length?`<div style="margin-top:6px"><div style="font-size:10px;color:var(--muted);font-weight:600;margin-bottom:4px">CHƯA GẮN HÓA ĐƠN (phiếu cũ)</div>
-    ${orphans[0].docs.map(d=>`<div style="display:flex;gap:8px;align-items:center;border:1px dashed var(--rule);border-radius:6px;padding:5px 10px;margin-bottom:4px;font-size:11px">
-      <span style="font-family:monospace">${esc(d.docNo)}</span><span style="color:var(--muted)">${esc(d.date||'')} · ${(d.lines||[]).length} VT</span>
-      <button class="btn-sec" style="font-size:10px;margin-left:auto" onclick="_sitAttachOpen('${d.id}')">🔗 Gắn AP</button></div>`).join('')}</div>`:'';
+  /* v3.20.67 (Sếp — "Ẩn nút gắn AP trong phần kho: không có giá trị sử dụng"): bỏ hẳn khối "CHƯA GẮN
+     HÓA ĐƠN (phiếu cũ)" + nút "🔗 Gắn AP" — theo Sếp đánh giá không còn giá trị dùng thực tế (dữ liệu
+     "Đường B" cũ, hầu như không còn phát sinh). Giữ nguyên _whOrphanBanner (cảnh báo phiếu trỏ về hóa
+     đơn ĐÃ BỊ XÓA — khác hẳn trường hợp này, vẫn cần thiết). */
+  const oH='';
   openModal('📦 Theo dõi nhập kho',
     _whOrphanBanner+
     `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:8px">
@@ -75133,8 +75212,16 @@ async function _provQuoteReadPdfLines(file){
     const pdf=await pdfjsLib.getDocument({data:new Uint8Array(await file.arrayBuffer())}).promise;
     let text='';
     for(let p=1;p<=Math.min(pdf.numPages,6);p++){ const pg=await pdf.getPage(p); const tc=await pg.getTextContent(); let last=null, line=''; tc.items.forEach(it=>{ const y=Math.round(it.transform[5]); if(last!==null && Math.abs(y-last)>3){ text+=line+'\n'; line=''; } line+=(line?' ':'')+it.str; last=y; }); text+=line+'\n'; }
-    return whParseQuotePdfLines(text);
-  }catch(e){ return []; }
+    const result=whParseQuotePdfLines(text);
+    /* v3.20.68 (Sếp — "chưa đọc được SL/đơn giá" — test độc lập với văn bản mô phỏng ra đúng, không
+       tái hiện được lỗi; nghi ngờ pdf.js tách dòng khác đi với file PDF thật): log văn bản thô ra
+       Console để lần sau gặp lại có thể xem đúng pdf.js thực tế trả về gì, so với kỳ vọng của
+       whParseQuotePdfLines (yêu cầu mỗi dòng: số bắt đầu · ĐVT xuất hiện đâu đó · có số sau ĐVT). */
+    console.log('[whParseQuotePdfLines] văn bản thô pdf.js đọc được:\n'+text);
+    console.log('[whParseQuotePdfLines] kết quả bóc được:', result);
+    if(!result.length){ console.warn('[whParseQuotePdfLines] KHÔNG bóc được dòng nào — kiểm văn bản thô ở trên: có đúng mỗi dòng bắt đầu bằng số + có ĐVT (cái/bộ/kg...) + có số sau ĐVT không? Nếu pdf.js tách 1 dòng hóa đơn thành nhiều dòng nhỏ (do PDF gốc căn cột lệch), đây là nguyên nhân.'); }
+    return result;
+  }catch(e){ console.warn('[whParseQuotePdfLines] lỗi đọc PDF:', e); return []; }
 }
 /* Mở màn Nhập kho như cũ (openStockInUnified) nhưng ĐÃ ĐỔ SẴN từng dòng chi tiết từ báo giá (tái
    dùng đúng whMergeQuoteRows — cùng cơ chế nút "📄 Import chi tiết" trong màn đó) — NV chỉ còn xác
@@ -75407,6 +75494,14 @@ function _lcAddAp(apId){
   toast('Đã gắn AP: '+(a.partner||'')+' — '+Math.round(net).toLocaleString('vi-VN'),'good');
   _confRender();
 }
+/* v3.20.64: bấm "Xem/In" PNK → tắt cờ "chưa xem", cập nhật lại huy hiệu ngay */
+function markPnkSeen(id){
+  try{
+    const d=stockDocById(id); if(!d||d.pnkSeen) return;
+    d.pnkSeen=true; try{ touchRecord(d); }catch(e){} saveState();
+    if(typeof renderInventory==='function') renderInventory();
+  }catch(e){}
+}
 function _confSave(confirmNow){
   const d=_confDraft; if(!d) return;
   const lines=(d.lines||[]).filter(l=>(+l.qty||0)>0);
@@ -75432,6 +75527,12 @@ function _confSave(confirmNow){
     // phân bổ Landed Cost vào giá vốn từng dòng (lưu landedAlloc để báo cáo Kế toán)
     real.landedAlloc=_allocLanded(real.lines, real.landedCosts);
     real.status='confirmed'; real.confirmedBy=actorName(); real.confirmedAt=new Date().toISOString();
+    /* v3.20.64 (Sếp — "Tại Theo dõi nhập kho: khi có thay đổi trạng thái phiếu (có PNK) hiện thông
+       báo để NV tạo phiếu biết. NV mở xem/tải = tắt thông báo"): app chưa có hệ thống thông báo theo
+       từng NV (chỉ có theo tàu) — đánh dấu "chưa xem" ngay tại chính phiếu thay vì xây cả hệ thống
+       mới. Chỉ đánh dấu khi người XÁC NHẬN khác người TẠO (đúng ý "báo cho người khác biết"; tự mình
+       tạo rồi tự xác nhận thì không cần báo lại chính mình). */
+    real.pnkSeen = (real.createdBy===real.confirmedBy);
   }
   else { real.status='draft'; }
   try{ logAuditEvent(confirmNow?'stock_confirm':'stock_in',{docNo:real.docNo, fromPending:true, landed:(real.landedCosts||[]).length}); if((real.landedCosts||[]).length) logAuditEvent('landed_cost',{docNo:real.docNo, count:real.landedCosts.length, total:(real.landedCosts||[]).reduce((s,c)=>s+(+c.amount||0),0)}); }catch(e){}
@@ -79238,6 +79339,14 @@ function renderInventory(){
     const rb=document.getElementById('qa-received-badge');
     if(rb){ const nRecv=InventoryService.stockDocs().filter(d=>d.type==='IN'&&d.status==='received'&&(typeof stockCanAccessWarehouse!=='function'||stockCanAccessWarehouse(d.warehouseId))).length;
       rb.innerHTML = nRecv? `<span style="background:#b8730a;color:var(--paper-2);border-radius:9px;padding:1px 6px;font-size:10px;margin-left:2px">${nRecv}</span>` : ''; }
+  }catch(e){}
+  /* v3.20.64 (Sếp — "Có PNK: hiện thông báo để NV tạo phiếu biết, xem = tắt"): badge tổng số phiếu
+     do CHÍNH mình tạo vừa có PNK mà mình CHƯA XEM — hiện ở nút "📦 Theo dõi nhập kho". */
+  try{
+    const nb=document.getElementById('pnk-unseen-badge');
+    if(nb){ const me=(typeof actorName==='function')?actorName():'';
+      const nNew=InventoryService.stockDocs().filter(d=>d.type==='IN'&&d.status==='confirmed'&&d.pnkSeen===false&&d.createdBy===me).length;   /* v3.20.67: chỉ tính pnkSeen===false thật (đã set), không tính undefined của phiếu cũ từ trước khi có tính năng này */
+      nb.innerHTML = nNew? `<span style="background:#c0392b;color:#fff;border-radius:9px;padding:1px 6px;font-size:10px;margin-left:2px">${nNew}</span>` : ''; }
   }catch(e){}
 
   // KPI
