@@ -9467,6 +9467,7 @@ async function saveUser(idx){
       u.isHrStaff=_itBasic?(u.isHrStaff||false):(isViewer?false:isHrStaff);  // v3.14.84: hồ sơ+chấm công, không lương
       u.isWarehouse=_itBasic?(u.isWarehouse||false):(isViewer?false:isWarehouse);  // v3.16.72 FIX: thủ kho — nhánh cập nhật user cũ trước đây KHÔNG set → mất quyền sau khi lưu/đẩy cloud
       u.isCentralWarehouse=_itBasic?(u.isCentralWarehouse||false):(isViewer?false:isCentralWarehouse);  // v3.16.72 FIX: thủ kho tổng — cùng lỗi, không set khi update
+      u.isCaptain=_itBasic?(u.isCaptain||false):(isViewer?false:isCaptain);  // v3.20.74 FIX: Thuyền trưởng — CÙNG LỖI v3.16.72 nhưng sót cờ này: nhánh cập nhật user cũ chưa từng gán u.isCaptain (chỉ có ở nhánh tạo mới) → tick "⚓ Là Thuyền trưởng" cho NV đã tồn tại (vd Koong) không bao giờ lưu được
       u.isIT=(isViewer?false:isIT);  // v3.07.97: cờ IT — che dữ liệu nhạy cảm
       u.itBusiness=(u.isIT && itBusiness)||false;  // v3.08.40: IT kiêm nghiệp vụ — vào tab tài chính như NV (lương vẫn che)
       u.assignedVesselIds=isViewer?[]:assignedVesselIds;
@@ -58374,16 +58375,17 @@ function openPayableModal(id){
       if(g.pending.length) bits.push(g.pending.length+' chờ nhập');
       if(g.confirmed.length) bits.push(g.confirmed.length+' đã nhập kho');
       const danger=g.confirmed.length>0;
-      /* v3.20.30 (Sếp 03/9 — "Tại phiếu AP/Phải trả dự kiến: nút chuyển kế toán sẽ bật"): hiện NGAY
-         TẠI ĐÂY khi có phiếu kho đã xác nhận (PNK sẵn sàng) mà CHƯA chuyển kế toán — kèm link xem/in
-         PNK. v3.20.52 (Sếp — "App đọc sai báo giá, bỏ hướng mở AP đơn giản, giữ cách cũ: tạo đợt hóa
-         đơn"): giữ nguyên cơ chế này (whSendToAccounting → openAddContractInvoice), không đổi hướng
-         như đã bàn — nút "Xem phiếu kho" (trùng với khối Lịch sử nhập kho bên dưới) vẫn bỏ theo đúng
-         nhận xét trước đó. */
+      /* v3.20.77 (Sếp sửa lại ý v3.20.76 — "vẫn gắn tình trạng PNK với nút Chuyển KT: chưa có PNK
+         nút tắt, có PNK thì mở; chỉ bỏ nút Chuyển KT Ở MÀN Theo dõi nhập kho"): PHỤC HỒI nút
+         "📤 Chuyển kế toán" tại đây (đúng vị trí Sếp muốn giữ — ngay trong phiếu AP gốc), vẫn gate
+         theo g.confirmed (có PNK mới hiện) + !d.apInvoiceSent (đã gửi rồi thì ẩn) như thiết kế gốc
+         v3.20.30. v3.20.76 đã lỡ bỏ luôn cái này — chỉ ĐÚNG phần cần bỏ là nút trùng ở Theo dõi nhập
+         kho (đã bỏ, giữ nguyên). Hàm gọi (whSendToAccounting→whMarkSentToAccounting) vẫn dùng bản đã
+         vá ở v3.20.75 — gửi duyệt thật (wfSubmit), không còn là "DEPRECATED" như ghi nhầm ở v3.20.76. */
       const _readyDocs=(g.confirmed||[]).filter(d=>d && !d.apInvoiceSent);
       const _readyBlock=_readyDocs.length?_readyDocs.map(d=>`<div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(0,0,0,.08);display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <a href="#" onclick="event.preventDefault();markPnkSeen('${esc(d.id)}');try{DocEngine.preview(_stockSpec(stockDocById('${esc(d.id)}'),{showValue:true}))}catch(e){stockDocPreview('${esc(d.id)}')}" style="font-weight:600">${d.pnkSeen===false?'<span style="background:#c0392b;color:#fff;border-radius:8px;padding:0 5px;font-size:9px;margin-right:3px">MỚI</span>':''}✅ Đã có PNK ${esc(d.docNo)} — Xem/In</a>
-        <button class="btn-primary" style="font-size:11px" onclick="whSendToAccounting('${esc(d.id)}')" title="Ghi nhận hóa đơn đúng đợt này và đánh dấu đã chuyển kế toán">📤 Chuyển kế toán</button>
+        <button class="btn-primary" style="font-size:11px" onclick="whSendToAccounting('${esc(d.id)}')" title="Ghi nhận hóa đơn đúng đợt này và gửi vào hàng Chờ KT kiểm (draft → pending_acc)">📤 Chuyển kế toán</button>
       </div>`).join(''):'';
       return `<div style="margin-bottom:8px;padding:6px 10px;border-radius:6px;font-size:12px;background:${danger?'rgba(192,57,43,.08)':'rgba(184,115,10,.10)'};color:${danger?'var(--bad)':'#b8730a'}">
         🔗 Hóa đơn này đang gắn <b>${g.all.length} phiếu kho</b> (${esc(bits.join(' · '))}).
@@ -58491,6 +58493,7 @@ let _multiRowState = {
 
 function openMultiRowModal(kind, opts){
   opts=opts||{};
+  window._mrQuoteDetailLines=null;   /* v3.20.78: tránh rò dữ liệu SL/Đơn giá từ lần Import file trước sang phiếu mới */
   _multiRowState = {
     mode: kind,
     ccy: 'VND',  // v3.04.60: mặc định VNĐ giảm thao tác
@@ -59893,9 +59896,44 @@ async function _invoiceViaAI(file){
   }catch(e){ console.warn('[invoice-ai]',e); toast('Lỗi đọc AI: '+(e&&e.message||e),'bad'); return false; }
   finally{ _aiReadingEnd(); }
 }
+/* v3.20.79: đọc SL/Đơn giá/ĐVT/mã từng dòng hàng TRỰC TIẾP từ thẻ <HDLe> của hóa đơn điện tử chuẩn
+   TT78/NĐ123 — hoàn toàn cục bộ (DOMParser), không gọi mạng/AI. THUẦN, không đụng _invoiceFromXml
+   (giữ nguyên hành vi gộp 1 dòng cho kế toán như trước). */
+function _xmlHdleQuoteLines(xmlText){
+  let doc; try{ doc=new DOMParser().parseFromString(xmlText,'text/xml'); }catch(e){ return []; }
+  if(!doc || doc.getElementsByTagName('parsererror').length) return [];
+  const T=(name, root)=>{ const els=(root||doc).getElementsByTagName(name); return els.length?(els[0].textContent||'').trim():''; };
+  const hdLines=doc.getElementsByTagName('HDLe');
+  const out=[];
+  for(let i=0;i<hdLines.length;i++){
+    const el=hdLines[i];
+    const name=T('THHDVu',el); if(!name) continue;
+    const qty=_unformatNumber(T('SLuong',el))||0; if(!(qty>0)) continue;   // không có SL hợp lệ → bỏ, không đoán mò
+    const price=_unformatNumber(T('DGia',el))||0;
+    const unit=T('DVTinh',el)||'';
+    const code=T('MHHDVu',el)||T('MaHHDVu',el)||'';
+    out.push({ code, name, unit, qty, price });
+  }
+  return out;
+}
 async function _mrReadInvoiceFile(file, target){
   if(!file) return;
   _invoiceTarget = target || 'multirow';  // 'multirow' | 'op' | 'ap1'
+  /* v3.20.78/79 (Sếp — "phần import báo giá: thiếu số lượng/đơn giá, phải import 2 lần" → "tìm hướng
+     đơn giản, chỉ cần import 1 lần: không tốn thao tác, không tốn tiền"): RÀ RA GỐC — "📎 Import file"
+     ở form tạo phiếu (đây) chỉ trích NCC/số HĐ/ngày/tiền net-VAT-gross để ghi sổ, KHÔNG hề đọc số
+     lượng/đơn giá/ĐVT dù nguồn hoàn toàn có đủ (khác mục đích: đây phục vụ hạch toán, còn màn Nhập
+     kho cần SL/Đơn giá để lên kho) — nên đến lúc Nhập kho, app trống trơn, bắt NV import LẠI đúng
+     file đó bằng bộ đọc riêng của kho chỉ để lấy 2 cột này. VÁ (v3.20.78 làm PDF+Excel, v3.20.79 làm
+     nốt CSV+XML — cả 4 định dạng phổ biến): đọc CÙNG LÚC bằng bộ đọc kho sẵn có/đọc thẳng thẻ XML
+     chuẩn — HOÀN TOÀN CỤC BỘ (pdf.js/XLSX/DOMParser, không gọi AI thêm lần nào) nên KHÔNG tốn thêm
+     chi phí Gemini so với trước, chỉ tốn thêm vài chục ms xử lý ngầm — NV vẫn CHỈ 1 THAO TÁC (chọn
+     file 1 lần). CHỈ CÒN ảnh chụp/PDF scan không lớp chữ là chưa làm được theo hướng miễn phí này
+     (cần OCR dò cột — rủi ro/công sức cao hơn hẳn, để riêng nếu Sếp cần sau). Kết quả gộp ở
+     window._mrQuoteDetailLines → _applyInvoiceToForm gắn vào _multiRowState._quoteLines → _mrSave
+     lưu vào TỪNG dòng AP → stockInFromAp/_quoteLines (cơ chế ĐÃ CÓ sẵn cho Chi dự kiến, v3.20.56) tự
+     nhận và điền sẵn SL/Đơn giá ở màn Nhập kho — không cần sửa gì thêm ở đó. */
+  window._mrQuoteDetailLines=null;
   const ext=(file.name.split('.').pop()||'').toLowerCase();
   try{
     if(ext==='csv'){
@@ -59905,25 +59943,45 @@ async function _mrReadInvoiceFile(file, target){
       // v3.06.18: tự dò dấu phân tách (, ; tab) + tự tìm dòng tiêu đề (bỏ qua header công ty/tiêu đề bảng kê).
       const rowsObj=_csvAutoParse(text);
       _invoiceParsed=_invoiceFromCsv(rowsObj);
+      try{
+        // v3.20.79: cùng file, đọc thêm dạng bảng thô (aoa) để lấy SL/Đơn giá qua bộ đọc kho —
+        //   thuần cục bộ (Papa đã tải sẵn ở trên), không gọi AI, không tốn gì thêm.
+        const aoa=Papa.parse(text,{skipEmptyLines:true}).data;
+        const {items}=whParseQuoteRows(aoa);
+        if(items&&items.length) window._mrQuoteDetailLines=items;
+      }catch(e){ console.warn('[mr-quote-detail-csv]',e); }
     } else if(ext==='pdf'){
       // v3.04.70: PDF LUÔN đọc bằng AI Gemini (chính xác hơn parse text local:
       //   đúng người bán/mua theo AP/AR, tách dòng theo thuế suất, bỏ qua MST nhà cung cấp HĐĐT).
       toast('Đang đọc PDF bằng AI…');
       const okAI = await _invoiceViaAI(file);
       if(!okAI) return;  // _invoiceViaAI tự toast lỗi
+      try{ const dl=await _provQuoteReadPdfLines(file); if(dl&&dl.length) window._mrQuoteDetailLines=dl; }catch(e){ console.warn('[mr-quote-detail-pdf]',e); }
     } else if(ext==='xml'){
       toast('Đang đọc XML hóa đơn...');
       const text=await file.text();
       _invoiceParsed=_invoiceFromXml(text);
       if(!_invoiceParsed){ toast('XML không đúng chuẩn hóa đơn điện tử VN — nhập tay','bad'); return; }
+      try{
+        // v3.20.79: HĐĐT chuẩn TT78 vốn CÓ SẴN SLuong/DGia/DVTinh trên từng <HDLe> — trước đây
+        //   _invoiceFromXml chỉ gộp tên hàng thành 1 dòng cho kế toán, bỏ phí 3 trường này. Đọc thêm
+        //   ngay trên cùng bản XML đã có sẵn trong tay (text), không tải/gọi gì thêm.
+        const dl=_xmlHdleQuoteLines(text);
+        if(dl&&dl.length) window._mrQuoteDetailLines=dl;
+      }catch(e){ console.warn('[mr-quote-detail-xml]',e); }
     } else if(ext==='xlsx'||ext==='xls'){
       // v3.07.90: Excel — thử nhận diện TỜ KHAI HẢI QUAN; nếu không phải thì báo nhập tay.
       toast('Đang đọc tờ khai hải quan…');
       await _loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js','XLSX');
       const buf=await file.arrayBuffer();
       const wb=XLSX.read(new Uint8Array(buf),{type:'array'});
+      try{
+        const aoa=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:''});
+        const {items}=whParseQuoteRows(aoa);
+        if(items&&items.length) window._mrQuoteDetailLines=items;
+      }catch(e){ console.warn('[mr-quote-detail-xlsx]',e); }
       _invoiceParsed=_invoiceFromTkhq(wb);
-      if(!_invoiceParsed){ toast('Excel không nhận diện được là tờ khai hải quan — nhập tay','bad'); return; }
+      if(!_invoiceParsed){ toast('Excel không nhận diện được là tờ khai hải quan — nhập tay'+(window._mrQuoteDetailLines?' (đã đọc được '+window._mrQuoteDetailLines.length+' dòng SL/Đơn giá — vẫn giữ lại, dùng khi Nhập kho)':''),'bad'); return; }
       toast('✓ Đã đọc tờ khai HQ '+(_invoiceParsed._declNo||''),'good');
     } else if(/^(png|jpe?g|webp|gif|bmp|tif?f|heic)$/i.test(ext) || /^image\//i.test(file.type||'')){
       // v3.04.49: ẢNH hóa đơn → đọc bằng AI Gemini.
@@ -60183,18 +60241,60 @@ function _showInvoicePreview(){
 }
 
 /* Áp dữ liệu đọc được vào _multiRowState rồi render lại phiếu. */
+/* v3.20.80 (Sếp — "Khi NV import file: vẫn phải dùng cách cũ: chỉ ghi 1 dòng trong phiếu AP/chi dự
+   kiến, chỉ hiện chi tiết khi NV chọn nhập kho"): trước v3.20.78/79 việc đọc kèm SL/Đơn giá (để dùng
+   ở Nhập kho) không đụng gì tới việc phiếu AP có mấy dòng — nhưng vài nguồn (CSV theo dòng, AI tách
+   theo thuế suất) vốn đã tạo NHIỀU dòng AP cho 1 hóa đơn nhiều mặt hàng — đúng như ảnh Sếp gửi (8
+   dòng cùng 1 số HĐ 04Q030926/1). Sếp chốt: khi ĐÃ đọc được chi tiết từng mặt hàng (dùng cho Nhập
+   kho) thì phiếu AP/Chi dự kiến GỘP LẠI ĐÚNG 1 DÒNG (tổng net/VAT/gross) — y hệt cách "Phải trả dự
+   kiến" (PDF, v3.20.56) đã làm từ trước; chi tiết từng mặt hàng CHỈ hiện khi NV bấm Nhập kho (qua
+   _quoteLines). Không có chi tiết mặt hàng (CSV kiểu bảng kê nhiều hóa đơn khác nhau, không có cột
+   SL/Đơn giá) → GIỮ NGUYÊN hành vi cũ (mỗi dòng file vẫn là 1 dòng AP riêng, không đụng use-case đó).
+   THUẦN — không tự lưu, không gọi gì khác. */
+function _mrCollapseIfQuoteDetail(pLines){
+  if(!(window._mrQuoteDetailLines && window._mrQuoteDetailLines.length)) return pLines;
+  if(!pLines || pLines.length<=1) return pLines;
+  /* v3.20.81 (Sếp hỏi: "Trường hợp import nhiều hơn 2 hóa đơn/2 báo giá?"): CHỈ được gộp khi TOÀN
+     BỘ pLines cùng 1 số HĐ và 1 NCC — tức chắc chắn là "1 hóa đơn nhiều mặt hàng". Nếu file thật ra
+     là bảng kê NHIỀU hóa đơn/NCC khác nhau đi chung 1 lần import (chỉ CSV mới có nguy cơ này — CSV
+     đọc invoiceNo/partner theo TỪNG DÒNG; PDF/XML/TKHQ luôn 1 số HĐ/1 NCC cho cả file) → gộp bừa sẽ
+     LẪN TIỀN của các hóa đơn khác nhau vào 1 dòng sổ SAI HOÀN TOÀN. VÁ: phát hiện thấy >1 số HĐ khác
+     nhau HOẶC >1 NCC khác nhau trong pLines → KHÔNG gộp (giữ nguyên nhiều dòng như cũ, mỗi dòng đúng
+     hóa đơn/NCC của nó) VÀ xóa luôn window._mrQuoteDetailLines (chi tiết mặt hàng lúc này là danh
+     sách LẪN LỘN của nhiều hóa đơn khác nhau, không biết mặt hàng nào thuộc hóa đơn nào — gắn bừa
+     vào bất kỳ dòng nào cũng sai, thà không có còn hơn). NV nhiều hóa đơn/báo giá khác nhau → tách
+     import riêng từng file, hoặc vẫn Nhập kho như trước — mỗi phiếu tự import chi tiết riêng ở đó. */
+  const invNos=[...new Set(pLines.map(l=>String(l.invoiceNo||'').trim()).filter(Boolean))];
+  const partners=[...new Set(pLines.map(l=>String(l.partner||'').trim().toLowerCase()).filter(Boolean))];
+  if(invNos.length>1 || partners.length>1){ window._mrQuoteDetailLines=null; return pLines; }
+  const net=pLines.reduce((t,l)=>t+(+l.amountNet||0),0);
+  const vat=pLines.reduce((t,l)=>t+(+(l.vatAmount!=null?l.vatAmount:Math.round((+l.amountNet||0)*(+l.vatPercent||0)/100))),0);
+  const vatPercent = net>0.001 ? Math.round(vat/net*100) : (+(pLines[0]&&pLines[0].vatPercent)||0);
+  const first=pLines[0]||{};
+  const descs=[...new Set(pLines.map(l=>(l.desc||'').trim()).filter(Boolean))];
+  const desc = descs.length<=1 ? (descs[0]||'') : (descs[0]+' … (+'+(descs.length-1)+' mục — xem chi tiết khi Nhập kho)');
+  return [{ partner:first.partner||'', mst:first.mst||'', vendorTaxCode:first.vendorTaxCode||'',
+    invoiceNo:first.invoiceNo||'', issueDate:first.issueDate||'', ccy:first.ccy||'VND',
+    desc, amountNet:net, vatPercent, vatAmount:Math.round(vat*100)/100, expenseType:first.expenseType||'' }];
+}
 function _applyInvoiceToForm(){
   const p=_invoiceParsed; if(!p||!_multiRowState) return;
   const s=_multiRowState;
-  // Header: lấy NCC + ngày + ccy từ dòng đầu (nếu trống)
-  const first=p.lines[0]||{};
-  if(first.partner) s.partner=first.partner;
-  if(first.issueDate) s.issueDate=first.issueDate;
-  if(first.ccy) s.ccy=first.ccy;
-  // Thay các dòng bằng dòng đọc được (giữ segment mặc định hiện tại)
-  s.lines = p.lines.map(l=>{
+  const srcLines=_mrCollapseIfQuoteDetail(p.lines);
+  /* v3.20.82 (Sếp hỏi: "import nhiều hóa đơn/báo giá có bị lần sau đè lần trước?"): ĐÚNG LÀ CÓ LỖI —
+     trước đây "s.lines = srcLines.map(...)" GHI ĐÈ toàn bộ dòng cũ mỗi lần import, khác hẳn "✈ Import
+     vé" (đã nối thêm đúng từ trước). VÁ: theo ĐÚNG khuôn "✈ Import vé" — phiếu đang chỉ có 1 dòng
+     trống mặc định (chưa nhập gì) thì THAY, còn lại NỐI THÊM, không xóa dòng đã có. Chi tiết mặt hàng
+     (_quoteLines) gắn vào ĐÚNG DÒNG vừa gộp (l._quoteLines), KHÔNG gắn vào cả phiếu (s._quoteLines)
+     như trước — nếu không, import hóa đơn A rồi B vào cùng 1 phiếu sẽ khiến cả 2 dòng cùng thấy
+     chung 1 danh sách mặt hàng gộp, lẫn hàng của B vào lúc Nhập kho hóa đơn A. _mrSave đọc
+     l._quoteLines (xem đoạn tạo record). */
+  const qLines=(window._mrQuoteDetailLines&&window._mrQuoteDetailLines.length&&srcLines.length===1)?window._mrQuoteDetailLines:null;
+  window._mrQuoteDetailLines=null;
+  const first=srcLines[0]||{};
+  const newLines=srcLines.map((l,idx)=>{
     const vat=l.vatAmount||Math.round((l.amountNet||0)*(l.vatPercent||0)/100);
-    return {
+    const nl={
       tmpId:'L'+Math.random().toString(36).slice(2,8),
       invoiceNo:l.invoiceNo||'', desc:l.desc||'',
       amountNet:l.amountNet||0, vatPercent:l.vatPercent||0,
@@ -60202,11 +60302,22 @@ function _applyInvoiceToForm(){
       costCategory:l.expenseType||'', expenseType:l.expenseType||'', segment:s.segment||'OTHER', ccy:l.ccy||s.ccy||'VND',
       dueDate:'', vesselId:'', projectId:''
     };
+    if(idx===0 && qLines) nl._quoteLines=qLines;
+    return nl;
   });
+  const onlyEmpty = s.lines.length===1 && !(s.lines[0].amountNet>0) && !s.lines[0].desc;
+  if(onlyEmpty){
+    s.lines=newLines;
+    if(first.partner) s.partner=first.partner;
+    if(first.issueDate) s.issueDate=first.issueDate;
+    if(first.ccy) s.ccy=first.ccy;
+  } else {
+    s.lines=s.lines.concat(newLines);
+  }
   _invoiceParsed=null;
   closeModal();
   _renderMultiRowModal();
-  toast('✓ Đã điền '+s.lines.length+' dòng — kiểm tra loại CP/mảng rồi Lưu');
+  toast('✓ Đã '+(onlyEmpty?'điền':'nối thêm')+' '+newLines.length+' dòng'+(qLines?(' · '+qLines.length+' mặt hàng sẽ hiện khi Nhập kho'):'')+' — kiểm tra loại CP/mảng rồi Lưu');
 }
 
 /* v3.04.11: route "Điền vào phiếu" theo form đích */
@@ -60240,11 +60351,17 @@ function _applyInvoiceToOpForm(){
 /* Điền vào phiếu PHẢI TRẢ 1 DÒNG (AP đơn) */
 function _applyInvoiceToApSingle(){
   const p=_invoiceParsed; if(!p||!p.lines.length) return;
-  // v3.04.71: hóa đơn NHIỀU DÒNG → TỰ MỞ RỘNG sang form nhiều dòng (đổ sẵn tất cả dòng).
-  if(p.lines.length>1){
+  /* v3.20.80: openMultiRowModal() (gọi bên dưới khi mở rộng nhiều dòng) tự reset
+     window._mrQuoteDetailLines về null — lưu riêng ra biến cục bộ TRƯỚC khi gọi, không thì mất. */
+  const _savedQuoteDetail=(window._mrQuoteDetailLines&&window._mrQuoteDetailLines.length)?window._mrQuoteDetailLines:null;
+  const srcLines=_mrCollapseIfQuoteDetail(p.lines);
+  // v3.04.71: hóa đơn NHIỀU DÒNG (sau khi đã gộp theo chi tiết mặt hàng, nếu có — v3.20.80) → TỰ MỞ
+  //   RỘNG sang form nhiều dòng (đổ sẵn tất cả dòng). Có chi tiết mặt hàng thì srcLines đã gộp còn
+  //   ĐÚNG 1 dòng — rơi thẳng xuống nhánh điền form 1 dòng bên dưới, không mở form nhiều dòng nữa.
+  if(srcLines.length>1){
     const mode=(window._arCurrentKind==='ap')?'ap':'ar';
-    const vatSet=Array.from(new Set(p.lines.map(x=>x.vatPercent)));
-    const head=p.lines[0]||{};
+    const vatSet=Array.from(new Set(srcLines.map(x=>x.vatPercent)));
+    const head=srcLines[0]||{};
     _invoiceParsed=null;
     closeModal();
     // mở form nhiều dòng + đổ dữ liệu
@@ -60256,7 +60373,7 @@ function _applyInvoiceToApSingle(){
         s.ccy=head.ccy||'VND';
         if(head.issueDate) s.issueDate=head.issueDate;
         // tạo đúng số dòng
-        s.lines=p.lines.map(L=>{
+        s.lines=srcLines.map(L=>{
           const nl=_newLine();
           nl.invoiceNo=head.invoiceNo||'';
           nl.desc=L.desc||'';
@@ -60268,12 +60385,12 @@ function _applyInvoiceToApSingle(){
         });
         _renderMultiRowModal();
         const tip=vatSet.length>1?(' (⚠ '+vatSet.length+' mức thuế suất — đã tách dòng)'):'';
-        toast('✓ Hóa đơn '+p.lines.length+' dòng — đã mở form nhiều dòng'+tip+'. Kiểm Mảng/Tàu/VAT rồi Lưu.','good');
+        toast('✓ Hóa đơn '+srcLines.length+' dòng — đã mở form nhiều dòng'+tip+'. Kiểm Mảng/Tàu/VAT rồi Lưu.','good');
       }catch(e){ console.warn('[auto-expand]',e&&e.message); toast('Lỗi mở form nhiều dòng — nhập tay','bad'); }
     }, 120);
     return;
   }
-  const l=p.lines[0];
+  const l=srcLines[0];
   /* v3.20.18: phát hiện hóa đơn #2 (Số HĐ khác hóa đơn đang có trên form) — tự lưu #1 rồi tự thêm #2
      làm đợt riêng thay vì ghi đè; chỉ áp cho AP (Phải trả/Phải trả dự kiến) theo đúng yêu cầu. */
   const _existingInv=((document.getElementById('ar-invoice')||{}).value||'').trim();
@@ -60291,8 +60408,14 @@ function _applyInvoiceToApSingle(){
   const vp=document.getElementById('ar-vat-percent'); if(vp && l.vatPercent){ if(Array.from(vp.options||[]).some(o=>o.value==l.vatPercent)) vp.value=l.vatPercent; }
   try{ arRecalcVat(); }catch(e){}
   try{ const pe=document.getElementById('ar-partner'); if(pe) arPartnerCheck(pe); }catch(e){}
+  /* v3.20.80: có chi tiết mặt hàng đi kèm (đã gộp còn 1 dòng ở trên) → gửi qua đúng cửa
+     window._provQuoteLines đã có sẵn (saveApProvisional tự đọc biến này để gắn ap._quoteLines lúc
+     lưu, v3.20.56) — chỉ có tác dụng khi form đang mở là "Phải trả dự kiến"; form Phải trả thường 1
+     dòng vốn không phải chỗ nhập hóa đơn nhiều mặt hàng nên chưa cần xử lý thêm ở đây. */
+  if(_savedQuoteDetail){ window._provQuoteLines=_savedQuoteDetail; }
+  window._mrQuoteDetailLines=null;
   _invoiceParsed=null; closeModal();
-  toast('✓ Đã điền phiếu — kiểm tra Mảng/Tàu/VAT rồi Lưu');
+  toast('✓ Đã điền phiếu'+(_savedQuoteDetail?(' · '+_savedQuoteDetail.length+' mặt hàng sẽ hiện khi Nhập kho'):'')+' — kiểm tra Mảng/Tàu/VAT rồi Lưu');
 }
 
 function _mrFieldChange(field, value){
@@ -60817,7 +60940,11 @@ async function _mrSave(targetStatus){
            (v3.12.47/52) — không tạo mới cơ chế đó). Gắn cờ NGAY LÚC TẠO nếu phiếu mở ở chế độ Chi dự
            kiến (s.budgetMode) — mọi validate/luồng duyệt phía trên KHÔNG đổi gì (mode vẫn 'ap' như cũ). */
         _isBudget: !!s.budgetMode,
-        _isProvisional: !!s.budgetMode
+        _isProvisional: !!s.budgetMode,
+        /* v3.20.82: SL/Đơn giá đọc kèm lúc Import file (nếu có) — gắn ĐÚNG DÒNG (l._quoteLines, do
+           _applyInvoiceToForm gắn khi gộp) chứ không gắn theo cả phiếu (s._quoteLines) nữa — tránh
+           lẫn chi tiết mặt hàng giữa các hóa đơn khác nhau khi NV import nhiều lần vào cùng 1 phiếu. */
+        _quoteLines: (Array.isArray(l._quoteLines)&&l._quoteLines.length)?JSON.parse(JSON.stringify(l._quoteLines)):undefined
       };
       // v3.10.26 — TỰ GÁN theo ĐOẠN KHAI THÁC (chỉ AP + tàu CÔNG TY + chưa gắn dự án tay):
       try{ if(typeof _segAutoAssign==='function') _segAutoAssign(record, list); }catch(_){}
@@ -60885,7 +61012,10 @@ async function _mrStockIn(){
   if(!window._mrLastBatch){ return; }
   const firstId=(AccountingService.payables().filter(r=>r.batchId===window._mrLastBatch)[0]||{}).id;
   if(!firstId){ toast('Lưu nháp xong nhưng không tìm thấy phiếu — thử lại từ danh sách','bad'); return; }
-  openStockInUnified(firstId);
+  /* v3.20.78: đi qua stockInFromAp (không gọi thẳng openStockInUnified) để dòng SL/Đơn giá vừa đọc
+     kèm lúc Import file (_quoteLines, nếu có) được nhận ngay — không phải đóng phiếu rồi mở lại
+     mới thấy. */
+  stockInFromAp(firstId);
   return;
 }
 /* DEPRECATED v3.15.58 — luồng Đường B cũ (_mrStockRender/_mrStockSend + _pendRender/_pendSave
@@ -74929,9 +75059,14 @@ function openStockInTracking(){
         :(d.status==='received'?`<span style="color:#b8730a" title="Tồn kho đã tăng bằng mã tạm — đang chờ Thủ kho áp mã FAST chuẩn để chốt PNK">🏷 Đã nhận (mã tạm) — chờ áp mã</span>`
         :`<span style="color:var(--warn)">⏳ Chờ thủ kho/tàu</span>`);
       const totQ=(d.lines||[]).reduce((x,l)=>x+(+l.qty||0),0);
-      /* v3.20.14 (Sếp 03/9): phiếu đã Thủ kho xác nhận nhập kho + có AP gốc + CHƯA chuyển kế toán → hiện nút cho NV tự bấm */
-      const _apOfDoc=d.apId?AccountingService.payableById(d.apId):null;
-      const _showSendBtn=d.status==='confirmed' && !d.apInvoiceSent && d.apId;
+      /* v3.20.76 (Sếp — "Chỉ để 1 đường chuyển KT tại phiếu tạo ban đầu, không cần để chuyển tại
+         trạng thái đã NK"): BỎ nút "📤 Chuyển KT" gắn theo trạng thái phiếu kho đã xác nhận — nút này
+         (từ v3.20.14, cùng whSendToAccounting/whMarkSentToAccounting) tạo ra 2 đường chuyển kế toán
+         song song, dễ nhầm và (vá ở v3.20.75) suýt phải sửa lại cho đúng workflow. Theo chốt mới:
+         hóa đơn AP đi đúng 1 đường — gửi duyệt tại chính phiếu lúc tạo/khi sẵn sàng (Sổ phải trả,
+         nút "Gửi duyệt" sẵn có), độc lập hoàn toàn với việc kho đã xác nhận nhập hay chưa. Giữ NGUYÊN
+         khối "✅ Đã có PNK — Xem/In" (vẫn hữu ích để NV mở/in phiếu) — chỉ bỏ nút chuyển. Hàm
+         whSendToAccounting/whMarkSentToAccounting hết đường gọi từ đây — DEPRECATED, dọn sau. */
       /* v3.20.23 (Sếp 03/9 — "click vào dòng để xem chi tiết. Thêm nút Import Biên bản bàn giao
          (PDF/ảnh/Word/Excel). Nên để 2 loại mã — mã bên bán giúp khớp chuẩn hơn, mã FAST để thống
          nhất hệ thống"): dòng bấm được để bung/thu chi tiết từng vật tư tại chỗ (mã FAST · mã NCC ·
@@ -74950,7 +75085,6 @@ function openStockInTracking(){
         ${d.apInvoiceSent?'<span class="ds-need" style="color:#1e7d44;font-size:10px" title="'+esc(d.apInvoiceSentBy||'')+' · '+esc((d.apInvoiceSentAt||'').slice(0,10))+'">✓ Đã chuyển KT</span>':''}
         ${d.bbgn?`<span class="ds-need" style="color:#1e7d44;font-size:10px" title="Đã đính biên bản bàn giao">📎 BBGN</span>`:''}
         <span>${st}</span>
-        ${_showSendBtn?`<button class="btn-sec" style="font-size:11px;color:#1c5a8c;border-color:#1c5a8c" onclick="event.stopPropagation();whSendToAccounting('${d.id}')" title="Tạo/gắn hóa đơn thanh toán đúng đợt này (${_apOfDoc&&_apOfDoc._isProvisional?'thêm đợt hóa đơn vào Chi dự kiến':'AP gốc đã có hóa đơn thật'}) và in PNK">📤 Chuyển KT</button>`:''}
         <button class="btn-ghost" style="font-size:11px;margin-left:auto" onclick="event.stopPropagation();stockDocPreview('${d.id}')" title="In phiếu (đính hồ sơ thanh toán)">🖨</button></div>
         <div class="wh-track-detail" data-detail-for="${esc(d.id)}" style="display:none;padding:4px 10px 8px 10px;background:var(--paper-2);border-top:1px dashed var(--rule)"></div>`;
     }).join('');
@@ -75038,6 +75172,8 @@ function _sitAttachPick(apId){
    dùng ĐÚNG cơ chế "Thêm đợt hóa đơn" đã có sẵn cho Chi dự kiến (openAddContractInvoice/
    confirmAddContractInvoice) khi AP gốc là _isProvisional; số tiền đợt = giá trị đúng phiếu kho này
    (whComputeStockPrintPrices — đã gồm landed cost). Xong thì in kèm PNK PDF (DocEngine.preview). */
+/* v3.20.77 (đính chính v3.20.76): KHÔNG deprecated — vẫn được gọi từ nút "📤 Chuyển kế toán" trong
+   khối chi tiết phiếu AP (Sổ phải trả). Chỉ nút TRÙNG ở màn Theo dõi nhập kho là bị bỏ (v3.20.76). */
 function whSendToAccounting(docId){
   const d=stockDocById(docId); if(!d){ toast('Không tìm thấy phiếu','bad'); return; }
   if(d.status!=='confirmed'){ toast('Chỉ chuyển kế toán khi Thủ kho đã xác nhận nhập kho','warn'); return; }
@@ -75049,7 +75185,7 @@ function whSendToAccounting(docId){
     amt=(pr.lines||[]).reduce((s,l)=>s+(+l.qty||0)*(+l.price||0),0)+Object.values(pr.landedByKind||{}).reduce((s,v)=>s+(+v||0),0); }catch(e){}
   if(!ap._isProvisional){
     /* TH2: hóa đơn thật đã có ngay từ đầu (Phiếu chi nhiều dòng) — không cần tạo thêm đợt, chỉ đánh dấu đã chuyển + in PNK */
-    if(!confirm('Hóa đơn gốc không phải Chi dự kiến (đã có hóa đơn thật từ đầu) — chỉ đánh dấu phiếu này đã chuyển kế toán và in PNK, không tạo thêm hóa đơn?')) return;
+    if(!confirm('Hóa đơn gốc không phải Chi dự kiến (đã có hóa đơn thật từ đầu) — không tạo thêm hóa đơn, chỉ gửi hóa đơn này vào hàng Chờ KT kiểm và in PNK?')) return;
     whMarkSentToAccounting(docId); return;
   }
   openAddContractInvoice(ap.id);
@@ -75061,10 +75197,28 @@ function whSendToAccounting(docId){
   }, 80);
 }
 function whMarkSentToAccounting(docId){
-  commitMutation(()=>{ const real=stockDocById(docId); if(real){ real.apInvoiceSent=true; real.apInvoiceSentBy=(typeof actorName==='function'?actorName():''); real.apInvoiceSentAt=new Date().toISOString(); try{touchRecord(real);}catch(e){} } },
-    {action:'stock_send_ap', fields:['stockDocs'], onOk:()=>{
-      try{ logAuditEvent('stock_send_ap',{docNo:(stockDocById(docId)||{}).docNo}); }catch(e){}
-      toast('✓ Đã chuyển kế toán — mở PNK để in/lưu','good');
+  /* v3.20.75 (Sếp — rà luồng "Nhập kho": phiếu tạo qua 📦 Nhập kho luôn lưu draft (đúng, chờ xác
+     nhận nhập kho); nhưng bấm "📤 Chuyển KT" ở đây trước giờ CHỈ đánh dấu apInvoiceSent=true trên
+     PHIẾU KHO — không hề đổi status của hóa đơn AP gốc, nên hóa đơn nằm mãi ở Nháp, không vào hàng
+     Chờ KT kiểm→L1→L2, không ai duyệt/thanh toán được dù màn hiện "✓ Đã chuyển KT". Áp dụng cho cả
+     2 nhánh gọi hàm này (TH1 Chi dự kiến lẫn TH2 hóa đơn thật — whSendToAccounting). VÁ: gửi duyệt
+     THẬT mọi dòng cùng batch của hóa đơn gốc đang Nháp/Từ chối, dùng ĐÚNG wfSubmit đã có (giống hệt
+     nút "Gửi duyệt cả phiếu" thủ công ở Sổ phải trả) — không viết luồng mới. */
+  let _apBatchSubmitted=0;
+  commitMutation(()=>{
+    const real=stockDocById(docId);
+    if(real){ real.apInvoiceSent=true; real.apInvoiceSentBy=(typeof actorName==='function'?actorName():''); real.apInvoiceSentAt=new Date().toISOString(); try{touchRecord(real);}catch(e){} }
+    try{
+      const ap=real&&real.apId?AccountingService.payableById(real.apId):null;
+      if(ap){
+        const sibs=ap.batchId?(S.payables||[]).filter(x=>x&&x.batchId===ap.batchId):[ap];
+        sibs.forEach(x=>{ if(x.status==='draft'||x.status==='rejected'){ try{ wfSubmit(x,'ap'); _apBatchSubmitted++; }catch(e){} } });
+      }
+    }catch(e){ console.warn('[wh-send-acc submit]',e); }
+  },
+    {action:'stock_send_ap', fields:['stockDocs','payables'], onOk:()=>{
+      try{ logAuditEvent('stock_send_ap',{docNo:(stockDocById(docId)||{}).docNo, apSubmitted:_apBatchSubmitted}); }catch(e){}
+      toast(_apBatchSubmitted?('✓ Đã chuyển kế toán — hóa đơn ('+_apBatchSubmitted+' dòng) đã vào hàng Chờ KT kiểm. Mở PNK để in/lưu'):'✓ Đã chuyển kế toán — mở PNK để in/lưu','good');
       try{ DocEngine.preview(_stockSpec(stockDocById(docId),{showValue:true})); }catch(e){ try{ openStockInTracking(); }catch(_e){} }
     }});
 }
@@ -75241,7 +75395,7 @@ function openStockInUnifiedFromQuote(apId, quoteLines, warehouseId){
 }
 function whParseBbgn(text){
   const T=String(text||'').replace(/\u00a0/g,' ');
-  const out={no:'', date:'', rows:[], signers:[]};
+  const out={no:'', date:'', rows:[], signers:[], deliverer:''};
   const m1=T.match(/(?:Số|No\.?|Ref\.?)\s*[:：]\s*([A-Z0-9][A-Z0-9\/\-\.]{3,30})/i)||T.match(/\b(BBGN[-\/][A-Z0-9\/\-\.]{3,30})\b/i); if(m1) out.no=m1[1];
   const m2=T.match(/(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{4})/); if(m2){ const d=ctlDate(m2[1]); if(d) out.date=ctlIsoLocal(d).slice(0,10); }
   const lines=T.split(/\n+/).map(l=>l.replace(/\s+/g,' ').trim()).filter(Boolean);
@@ -75269,6 +75423,10 @@ function whParseBbgn(text){
     out.rows.push({stt, code, name, unit, qty});
   });
   const sg=T.match(/(?:Người nhận|Receiver|Bên nhận)[^\n]{0,60}?([A-ZÀ-Ỹ][a-zà-ỹ]+(?:\s[A-ZÀ-Ỹ][a-zà-ỹ]+){1,3})/); if(sg) out.signers.push(sg[1]);
+  /* v3.20.83 (Sếp: "Người giao hàng — NCC: app tự lấy trên BBGN hoặc NV nhập tay"): thêm nhận diện
+     TÊN NGƯỜI GIAO cùng khuôn với người nhận ở trên (chưa từng đọc trước đây — BBGN chỉ mới lấy được
+     người nhận). Không thấy → để trống, PNK rơi về d.deliveredBy (NCC nhập tay lúc tạo phiếu) như cũ. */
+  const dg=T.match(/(?:Người giao|Bên giao|Đại diện bên giao|Deliverer)[^\n]{0,60}?([A-ZÀ-Ỹ][a-zà-ỹ]+(?:\s[A-ZÀ-Ỹ][a-zà-ỹ]+){1,3})/); if(dg) out.deliverer=dg[1];
   return out;
 }
 /* khớp dòng BBGN với dòng phiếu — THUẦN: {matches:[{idx,qty,src}], unmatched:[row]} */
@@ -75326,6 +75484,7 @@ async function whBbgnPick(docId, inputEl, forceSimple){
   window._whBbgnCtx={docId, matches:mt.matches, bb, forceSimple:!!forceSimple};
   openModal('📎 Biên bản giao nhận — '+esc(file.name), `<div style="font-size:12px;color:var(--muted);margin-bottom:6px">${parsed.no?'Số BB <b>'+esc(parsed.no)+'</b> · ':''}${parsed.date?'ngày '+esc(parsed.date)+' · ':''}đọc được <b>${parsed.rows.length}</b> dòng, khớp <b>${mt.matches.length}</b>/${(d.lines||[]).length} dòng phiếu${link?' · file đã lưu Drive':' · <span style="color:#b8730a">chưa lưu Drive (thiếu cấu hình)</span>'}. Dòng vàng = SL nhận khác SL đặt.</div>
     <div style="display:flex;gap:10px;margin-bottom:8px;flex-wrap:wrap">
+      <label style="font-size:11px;color:var(--muted)">Người/đơn vị giao hàng (lên PNK)<input id="bbgn-deliverer" value="${esc(parsed.deliverer||'')}" placeholder="Tên NCC/người giao — app gợi ý từ BBGN, sửa lại nếu sai" style="display:block;font-size:12px;padding:5px;margin-top:2px;min-width:200px"></label>
       <label style="font-size:11px;color:var(--muted)">Người nhận hàng (lên PNK)<input id="bbgn-receiver" value="${esc(parsed.signers[0]||'')}" placeholder="Tên người nhận — app gợi ý từ BBGN, sửa lại nếu sai" style="display:block;font-size:12px;padding:5px;margin-top:2px;min-width:200px"></label>
       <label style="font-size:11px;color:var(--muted)">Ngày giao hàng (lên PNK)<input id="bbgn-date" type="date" value="${esc(parsed.date||'')}" style="display:block;font-size:12px;padding:5px;margin-top:2px"></label>
     </div>
@@ -75339,9 +75498,10 @@ function whBbgnApply(){
   /* v3.20.14 (Sếp 03/9 — mẫu PNK cần "người nhận tại tàu"/ngày giao đọc từ BBGN, NV xác nhận qua ô
      gợi ý trước khi lưu, không tự điền âm thầm): đọc 2 ô NV vừa xác nhận/sửa trước khi đóng modal. */
   const receiver=((document.getElementById('bbgn-receiver')||{}).value||'').trim();
+  const deliverer=((document.getElementById('bbgn-deliverer')||{}).value||'').trim();
   const delivDate=((document.getElementById('bbgn-date')||{}).value||'').trim();
-  ctx.bb.receiverConfirmed=receiver; if(delivDate) ctx.bb.date=delivDate;
-  commitMutation(()=>{ const real=stockDocById(ctx.docId); if(real){ real.bbgn=Object.assign({}, real.bbgn||{}, {receiverConfirmed:receiver, date:delivDate||((real.bbgn||{}).date||'')}); try{touchRecord(real);}catch(e){} } },{action:'stock_bbgn_confirm', fields:['stockDocs']});
+  ctx.bb.receiverConfirmed=receiver; ctx.bb.delivererConfirmed=deliverer; if(delivDate) ctx.bb.date=delivDate;
+  commitMutation(()=>{ const real=stockDocById(ctx.docId); if(real){ real.bbgn=Object.assign({}, real.bbgn||{}, {receiverConfirmed:receiver, delivererConfirmed:deliverer, date:delivDate||((real.bbgn||{}).date||'')}); try{touchRecord(real);}catch(e){} } },{action:'stock_bbgn_confirm', fields:['stockDocs']});
   closeModal();
   /* v3.20.37 (Sếp 03/9 — "NV tạo phiếu xác nhận tại Chờ giao hàng: import BBGN hoặc điền SL, hiện
      màn xem trước, đi như luồng xác nhận của TÀU"): mở từ nút "Xác nhận nhận hàng" ở Theo dõi nhập
@@ -78257,11 +78417,24 @@ function _stockSpec(d, opts){
      (ngày giờ tạo/xác nhận phiếu). App lọc tự động, không gõ tay."): mỗi chữ ký giờ có thêm dòng phụ
      (sub) ghi rõ ngày/giờ + phòng/ban — lấy tự động từ dữ liệu đã có sẵn trên phiếu (createdBy/
      createdAt, confirmedBy/confirmedAt, bbgn.receiverConfirmed/bbgn.date), không cần ai gõ tay. */
+  /* v3.20.83 (Sếp — "Sắp xếp phần ký theo thứ tự luồng tạo phiếu"): đổi thứ tự khối ký PNK cho khớp
+     đúng trình tự nghiệp vụ — NV mua hàng tạo phiếu → NCC/Người giao hàng giao → Người nhận hàng tại
+     kho/tàu/VPCT nhận → Thủ kho công ty xác nhận (ra PNK) → Phòng KT vật tư (trước: Thủ kho đứng đầu,
+     không theo luồng). Nội dung từng cột cũng chỉnh theo đúng yêu cầu:
+     - NV mua hàng: Phòng/Họ tên/Ngày TẠO PHIẾU (không đổi, đã đúng từ trước).
+     - Người giao hàng: tên NCC ưu tiên lấy từ BBGN (bbgn.delivererConfirmed, mới thêm — xem
+       whParseBbgn/whBbgnPick) — không có thì rơi về d.deliveredBy (NV nhập tay lúc tạo phiếu); ngày =
+       ngày trên phiếu (d.date), NV sửa được ở đó, không phải gõ tay riêng ở đây.
+     - Người nhận hàng: THÊM Bộ phận = kho nhận đã CHỌN lúc tạo phiếu ở Chờ giao hàng (Tàu/VPCT/kho
+       — trước đây thiếu hẳn thông tin này); người + ngày vẫn ưu tiên BBGN như cũ.
+     - Thủ kho: đổi nhãn "Xác nhận" → "Tạo PNK" cho đúng chữ Sếp dùng (cùng field d.confirmedAt, chỉ
+       đổi chữ hiển thị). Phần Ký/Họ tên phía trên (chỗ trống ký tay) giữ nguyên — các dòng phụ này
+       chỉ là ghi chú tham khảo, không cần chừa thêm chỗ trống. */
   const sigs = isIn
-    ? [{label:'Thủ kho', name:d.confirmedBy||'', sub:d.confirmedAt?('Xác nhận: '+fmtDateTime(d.confirmedAt)):''},
-       {label:'NV mua hàng', name:d.createdBy||'', sub:(d.createdBy?('Phòng: '+lookupUserDeptName(d.createdBy)+' · '):'')+(d.createdAt?('Tạo phiếu: '+fmtDateTime(d.createdAt)):'')},
-       {label:'Người nhận hàng', name:(d.bbgn&&d.bbgn.receiverConfirmed)||d.receivedBy||'', sub:(d.bbgn&&d.bbgn.date)?('Theo BBGN: '+d.bbgn.date):''},
-       {label:'Người giao hàng',name:d.deliveredBy||''},
+    ? [{label:'NV mua hàng', name:d.createdBy||'', sub:(d.createdBy?('Phòng: '+lookupUserDeptName(d.createdBy)+' · '):'')+(d.createdAt?('Tạo phiếu: '+fmtDateTime(d.createdAt)):'')},
+       {label:'Người giao hàng', name:(d.bbgn&&d.bbgn.delivererConfirmed)||d.deliveredBy||'', sub:d.date?('Ngày: '+d.date):''},
+       {label:'Người nhận hàng', name:(d.bbgn&&d.bbgn.receiverConfirmed)||d.receivedBy||'', sub:'Bộ phận: '+esc(_whName(d.warehouseId)||'')+((d.bbgn&&d.bbgn.date)?(' · Theo BBGN: '+d.bbgn.date):'')},
+       {label:'Thủ kho', name:d.confirmedBy||'', sub:d.confirmedAt?('Tạo PNK: '+fmtDateTime(d.confirmedAt)):''},
        {label:'Phòng KT vật tư'}]
     : [{label:'Người nhận',name:d.receivedBy||(d.vesselReceivedBy||''), sub:d.vesselReceivedAt?('Xác nhận: '+fmtDateTime(d.vesselReceivedAt)):''},
        {label:'Thủ kho', name:d.confirmedBy||d.createdBy||'', sub:d.confirmedAt?('Xác nhận: '+fmtDateTime(d.confirmedAt)):(d.createdAt?('Tạo phiếu: '+fmtDateTime(d.createdAt)):'')},
