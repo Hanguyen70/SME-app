@@ -3840,7 +3840,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.20.99';
+const APP_VERSION='3.20.100';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -79735,10 +79735,17 @@ function renderInventory(){
      "Kho vật tư" ở đây CHÍNH LÀ nơi họ đang đứng, không có "nơi khác" nào để chỉ tới. VÁ: mở
      THẲNG màn kho (như openStockDocs() đã làm đúng từ trước — cùng nguồn, khác chỗ gọi bị sót)
      thay vì hiện thông báo tự vòng lại chính trang đang xem. */
+  /* v3.20.100 (Sếp: crash "Aw, Snap! Out of Memory" ngay sau khi deploy — LỖI CỦA EM ở v3.20.88):
+     bản v3.20.88 tự động gọi openVesselStockOverview() (dựng lại toàn bộ modal, danh sách tồn kho)
+     NGAY TRONG renderInventory() — mà hàm này bị GỌI LẠI LIÊN TỤC bởi renderAll({fromSync:true})
+     mỗi lần app tự đồng bộ nền (vài giây/lần) HỄ NV đang đứng ở đúng trang "Kho vật tư". Kết quả:
+     modal bị dựng lại/mở lại không ngừng trong lúc NV chỉ đang đứng yên xem — dồn lại đủ lâu là
+     hết bộ nhớ, crash cả trang. VÁ: bỏ hẳn việc TỰ MỞ modal — thay bằng 1 NÚT BẤM tĩnh, không có
+     tác dụng phụ dù renderInventory() bị gọi lại bao nhiêu lần (chỉ vẽ lại đúng 1 nút, không dựng
+     modal cho tới khi NV chủ động bấm). */
   if(typeof whIsSiteSideUser==='function' && whIsSiteSideUser()){
     const p=document.getElementById('page-inventory');
-    if(p) p.innerHTML='<div style="padding:24px;text-align:center;color:var(--muted);font-size:13px">Đang mở kho của bạn…</div>';
-    if(typeof openVesselStockOverview==='function') openVesselStockOverview();
+    if(p) p.innerHTML='<div style="padding:60px 24px;text-align:center"><div style="font-size:13px;color:var(--muted);margin-bottom:14px">Kho của bạn nằm ở đây.</div><button class="btn-primary" onclick="openVesselStockOverview()">📊 Mở tồn kho của bạn</button></div>';
     return;
   }
   renderWarehousesTable();
