@@ -3840,7 +3840,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.20.87';
+const APP_VERSION='3.20.89';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -58308,19 +58308,31 @@ function saveApProvisional(){
   const err=document.getElementById('ar-err');
   if(err && err.textContent && /[⚠✗]|thiếu|lỗi|phải/i.test(err.textContent) && !window._LAST_SAVED_AR_ID){ return; }
   if(window._LAST_SAVED_AR_ID){
+    const apId=window._LAST_SAVED_AR_ID;
+    /* v3.20.56: dữ liệu chi tiết từng dòng AI vừa đọc (_provQuoteLines) trước chỉ nằm ở BIẾN TẠM
+       trong bộ nhớ — đóng modal/không bấm "Lưu & Nhập kho" ngay là MẤT, phải đọc lại từ đầu khi
+       quay lại bằng icon 📦 ở dòng phiếu sau này. Lưu thẳng vào phiếu AP (trường _quoteLines) để
+       dùng lại được bất cứ lúc nào, không chỉ đúng lúc vừa đọc xong. */
+    const lines=window._provQuoteLines;
+    const hasQuote=Array.isArray(lines)&&lines.length;
+    if(hasQuote){
+      const ap=AccountingService.payableById(apId);
+      if(ap){ ap._quoteLines=lines; try{ touchRecord(ap); }catch(e){} saveState(); }
+    }
+    /* v3.20.89 (Sếp: "Import Báo giá - check - xác nhận: đóng màn hình lưu luôn vào nháp, không
+       quay lại giao diện nhập để chọn nhập kho"): TRƯỚC đây bấm nút Lưu THƯỜNG (khác nút riêng
+       "Lưu & Nhập kho") thì saveAr() đóng modal xong DỪNG HẲN — NV đã import báo giá (rõ ràng có ý
+       định nhập kho) nhưng phải tự tìm lại phiếu trong Sổ phải trả rồi bấm icon 📦 mới tiếp tục
+       được, dễ tưởng app "nuốt" mất phiếu. VÁ: có sẵn chi tiết báo giá (NV đã import) thì TỰ ĐỘNG mở
+       luôn màn "Đối chiếu & gửi vào Chờ giao hàng" ngay sau khi lưu — không cần bấm thêm/tìm lại,
+       đúng tinh thần "1 lần import, không bắt NV thao tác lại" đã có ở các bản trước (v3.20.69).
+       Không có báo giá (nhập tay thuần túy, không định nhập kho ngay) → giữ hành vi cũ, chỉ toast. */
+    if(hasQuote){
+      toast('📋 Đã lưu Phải trả dự kiến — đang mở màn Nhập kho theo báo giá vừa import…','good');
+      openStockInUnifiedFromQuote(apId, lines, '');
+      return;
+    }
     toast('📋 Đã lưu Phải trả dự kiến — đã vào P&L (Chi phí dự kiến). Khi có hóa đơn, mở sửa để cập nhật.','good');
-    /* v3.20.56 (Sếp — "Phải import báo giá lần nữa mới chuyển vào Chờ giao hàng được — AI đã đọc rồi
-       mà"): dữ liệu chi tiết từng dòng AI vừa đọc (_provQuoteLines) trước chỉ nằm ở BIẾN TẠM trong bộ
-       nhớ — đóng modal/không bấm "Lưu & Nhập kho" ngay là MẤT, phải đọc lại từ đầu khi quay lại bằng
-       icon 📦 ở dòng phiếu sau này. Lưu thẳng vào phiếu AP (trường _quoteLines) để dùng lại được bất
-       cứ lúc nào, không chỉ đúng lúc vừa đọc xong. */
-    try{
-      const lines=window._provQuoteLines;
-      if(Array.isArray(lines)&&lines.length){
-        const ap=AccountingService.payableById(window._LAST_SAVED_AR_ID);
-        if(ap){ ap._quoteLines=lines; try{ touchRecord(ap); }catch(e){} saveState(); }
-      }
-    }catch(e){}
   }
 }
 /* v3.04.69: DOANH THU DỰ KIẾN (AR) — tương tự Phải trả dự kiến nhưng cho Phải thu.
@@ -79576,9 +79588,17 @@ function renderInventory(){
      tồn toàn công ty, mọi kho, mọi nút tạo phiếu. Nay xét PHÍA KHO (tàu HOẶC NV được gán kho).
      Không để trang trắng: mở thẳng màn kho của chính họ. */
   /* v3.16.24: quay lại luật một vai — phía tàu (gồm ĐƠN VỊ kho kỹ thuật) không dựng trang bờ */
+  /* v3.20.88 (Sếp: NV có "Kho phụ trách" đứng ngay tại tab Kho vật tư nhưng chỉ thấy dòng
+     "vào tab Kho vật tư" — tự nói vòng, không mở được gì): dòng chữ này viết cho tài khoản
+     TÀU/ĐƠN VỊ kho cũ — nav của họ bị ẩn hoàn toàn nên "tab đầu tiên bên trái" là một chỗ KHÁC
+     hẳn trang này. Nhưng NV có Kho phụ trách (v3.20.86/87) vẫn dùng nav ĐẦY ĐỦ như NV thường —
+     "Kho vật tư" ở đây CHÍNH LÀ nơi họ đang đứng, không có "nơi khác" nào để chỉ tới. VÁ: mở
+     THẲNG màn kho (như openStockDocs() đã làm đúng từ trước — cùng nguồn, khác chỗ gọi bị sót)
+     thay vì hiện thông báo tự vòng lại chính trang đang xem. */
   if(typeof whIsSiteSideUser==='function' && whIsSiteSideUser()){
     const p=document.getElementById('page-inventory');
-    if(p) p.innerHTML='<div style="padding:24px;text-align:center;color:var(--muted);font-size:13px">Kho của bạn nằm ở tab đầu tiên bên trái → thẻ <b>Kho vật tư</b>.</div>';
+    if(p) p.innerHTML='<div style="padding:24px;text-align:center;color:var(--muted);font-size:13px">Đang mở kho của bạn…</div>';
+    if(typeof openVesselStockOverview==='function') openVesselStockOverview();
     return;
   }
   renderWarehousesTable();
