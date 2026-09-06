@@ -3840,7 +3840,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.20.85';
+const APP_VERSION='3.20.86';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -7725,12 +7725,25 @@ function userEditorModal(initial,idx){
       <div>${own||'<span style="color:var(--muted)">Chưa có tàu công ty</span>'}</div>
       <div style="border-top:1px dashed var(--rule);margin-top:4px;padding-top:4px"><span style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Tàu QL hộ</span> <span style="font-size:10px;color:var(--muted);font-style:normal">(để trống = thấy tất cả QL hộ — backward compat; L1/L2 luôn thấy hết)</span><br>${op||'<span style="color:var(--muted)">Chưa có tàu QL hộ</span>'}</div>`;
   })();
+  /* v3.20.86 (Sếp xác nhận đảo lại quyết định v3.16.24 — Kho kỹ thuật không nên = tàu nữa):
+     khôi phục Ô TICK KHO PHỤ TRÁCH — cờ whPicker (TAB_GROUPS, dòng ~7018) vẫn còn từ v3.15.87,
+     chỉ phần dựng HTML bị gỡ. NV được tick kho ở đây chỉ thấy/thao tác đúng kho đó (đã có sẵn ở
+     stockAllowedWarehouses()), và nay ĐƯỢC XEM GIÁ như thủ kho thật (xem canViewStockValue()/
+     canManageStock() bên dưới) — khác thuyền trưởng/tài khoản tàu luôn bị chặn giá. */
+  const _whAssignHtml=(()=>{
+    const whs=InventoryService.warehouses().filter(w=>w && w.isActive!==false);
+    const rows=whs.map(w=>{
+      const c=(initial.assignedWarehouseIds||[]).includes(w.id)?'checked':'';
+      const t=(w.type==='VESSEL')?'⛵':(w.type==='OFFICE')?'🏢':(w.type==='TECH')?'🔧':'📦';
+      return `<label style="display:inline-flex;align-items:center;gap:6px;padding:4px 12px 4px 0;cursor:pointer"><input type="checkbox" data-wh="${w.id}" ${c}> <span>${t} ${esc(w.name)}</span></label>`;
+    }).join('');
+    return `<div style="font-size:11px;color:var(--muted);font-style:normal;margin:6px 0 2px;border-top:1px dashed var(--rule);padding-top:6px">Tick <b>Kho phụ trách</b> — NV chỉ thấy/thao tác đúng kho được tick, được xem giá và thao tác đầy đủ (nhập/xuất/kiểm kê/điều chuyển) như thủ kho, dù không có quyền Thủ kho tổng.</div>
+      <div>${rows||'<span style="color:var(--muted)">Chưa có kho nào trong danh mục</span>'}</div>`;
+  })();
   const checks=TAB_GROUPS.map(g=>{
     let kidHtml=g.tabs.map(tid=>_renderTabCheckbox(tid)).filter(Boolean).join('');
     if(g.vesselPicker) kidHtml+=_vesselAssignHtml;   // v3.10.56: tàu tick trong nhóm QL hoạt động tàu
-    /* v3.16.24 (Sếp: hủy các tính năng tạo riêng cho kho kỹ thuật): gỡ mục "Kho phụ trách".
-       Nay kho kỹ thuật là ĐƠN VỊ trong Quản lý hoạt động tàu — cấp quyền bằng cách gắn tài khoản
-       vào đơn vị đó (như tài khoản tàu), không tick kho ở đây nữa. */
+    if(g.whPicker) kidHtml+=_whAssignHtml;   // v3.20.86: khôi phục kho tick trong nhóm Kho & Tài sản
     if(!kidHtml) return '';
     const single=g.tabs.length===1 && !g.vesselPicker && !g.whPicker;
     const numChip=`<span style="font-family:var(--font-mono);font-size:10px;color:#fff;background:var(--accent);border-radius:4px;padding:1px 6px;font-weight:700;min-width:22px;text-align:center;display:inline-block">${g.num}</span>`;
@@ -9411,7 +9424,11 @@ async function saveUser(idx){
   const funcGroups=Array.from(document.querySelectorAll('.user-funcgroup-chk:checked')).map(c=>c.value);
   const isDeptHead=!!document.getElementById('user-isdepthead')?.checked;
   const companyId=document.getElementById('user-company')?.value||'';
-  const assignedWarehouseIds=[];   // v3.16.24: mục "Kho phụ trách" đã gỡ — giữ biến rỗng cho các nơi còn đọc
+  /* v3.20.86 (Sếp: "Kho kỹ thuật là kho riêng, giống Kho VPCT — app đang xây kho kỹ thuật = tàu,
+     không phù hợp nữa" — xác nhận đảo lại quyết định v3.16.24): khôi phục đọc ô "Kho phụ trách" —
+     UI đã khôi phục lại ở _whAssignHtml bên dưới (nhóm 📦 Kho & Tài sản, cờ whPicker vẫn còn từ
+     v3.15.87, chỉ giao diện bị gỡ). */
+  const assignedWarehouseIds=Array.from(document.querySelectorAll('input[data-wh]:checked')).map(c=>c.dataset.wh);
   const assignedVesselIds=Array.from(document.querySelectorAll('input[data-vessel]:checked')).map(c=>c.dataset.vessel);
   const assignedProjectIds=Array.from(document.querySelectorAll('input[data-project]:checked')).map(c=>c.dataset.project);
   const assignedOpVesselIds=Array.from(document.querySelectorAll('input[data-opvessel]:checked')).map(c=>c.dataset.opvessel);
@@ -71048,6 +71065,48 @@ function whMakeWarehouseUnit(whId, unitName, seePrice){
   try{ renderWarehousesTable(); }catch(e){}
   return unit;
 }
+/* v3.20.86 (Sếp xác nhận: "Kho kỹ thuật là kho riêng, giống Kho VPCT — app đang xây kho kỹ thuật =
+   tàu, không phù hợp nữa"): ĐẢO NGƯỢC whMakeWarehouseUnit() (v3.16.25) — vì lý do gốc: canViewStockValue()
+   chặn CỨNG mọi tài khoản có linkVesselId (kể cả đơn vị bờ dùng cơ chế tàu) khỏi xem giá trên chứng
+   từ kho THẬT — dù có canSeeUnitPrice=true (đó chỉ là quyền xem "Đơn giá tham chiếu + Lịch sử mua"
+   riêng, KHÔNG phải giá trên phiếu Nhập/Xuất/Kiểm kê). Nên "thủ kho riêng 1 kho" kiểu đơn-vị-như-tàu
+   KHÔNG BAO GIỜ thấy giá thật — đúng bế tắc Sếp chỉ ra, không sửa được bằng cách tick thêm cờ nào.
+   Đưa kho về lại kho ĐỘC LẬP (loại TECH — khớp đúng lựa chọn "Kho vật tư kỹ thuật... không gắn tàu"
+   đã có sẵn trong form Sửa kho từ trước, như Kho VPCT loại OFFICE): tự động chuyển mọi tài khoản
+   đang gắn đơn vị đó (linkVesselId) sang assignedWarehouseIds (kho phụ trách) + bỏ isCaptain/
+   isVesselAccount — để họ thành NV bờ có kho phụ trách, được canViewStockValue()/canManageStock()
+   cho phép thao tác + xem giá thật đúng phạm vi kho đó (vá ở 2 hàm trên). Dữ liệu tồn/chứng từ của
+   kho GIỮ NGUYÊN — chỉ đổi thuộc tính của bản ghi kho, không di chuyển gì. */
+function whUnmakeWarehouseUnit(whId){
+  if(!(canEditCatalog&&canEditCatalog())){ toast('Chỉ Admin / Kế toán trưởng','bad'); return; }
+  const wh=InventoryService.warehouses().find(w=>w && w.id===whId);
+  if(!wh || !wh.vesselId){ toast('Kho này không thuộc đơn vị/tàu nào','warn'); return; }
+  const unit=VesselService.vessels().find(v=>v && v.id===wh.vesselId);
+  if(!unit || !unit.isShoreUnit){ toast('Kho này gắn TÀU THẬT — không thể đưa về kho độc lập','bad'); return; }
+  const users=(S.users||[]).filter(u=>u && u.linkVesselId===unit.id);
+  const lines=users.map(u=>'· '+(u.name||u.id)).join('\n')||'(không có tài khoản nào đang gắn đơn vị này)';
+  if(!confirm('Đưa kho "'+wh.name+'" về lại KHO ĐỘC LẬP (như Kho VPCT — không còn là đơn vị/tàu nữa).\n\n'
+    +'Đơn vị "'+unit.name+'" sẽ ngừng hoạt động (ẩn khỏi Quản lý hoạt động tàu). Dữ liệu tồn/chứng từ '
+    +'của kho GIỮ NGUYÊN — không mất gì.\n\nCác tài khoản đang gắn đơn vị này sẽ tự chuyển sang '
+    +'"Kho phụ trách" đúng kho này (bỏ vai Thuyền trưởng/tài khoản đơn vị), được thao tác + XEM GIÁ '
+    +'THẬT như thủ kho:\n'+lines+'\n\nTiếp tục?')) return;
+  wh.vesselId=''; wh.type='TECH';
+  try{ touchRecord(wh); }catch(e){}
+  unit.status='inactive';
+  try{ touchRecord(unit); }catch(e){}
+  users.forEach(u=>{
+    u.linkVesselId=''; u.isCaptain=false; u.isVesselAccount=false;
+    if(Array.isArray(u.assignedVesselIds)) u.assignedVesselIds=u.assignedVesselIds.filter(id=>id!==unit.id);
+    const aw=Array.isArray(u.assignedWarehouseIds)?u.assignedWarehouseIds.slice():[];
+    if(aw.indexOf(wh.id)<0) aw.push(wh.id);
+    u.assignedWarehouseIds=aw;
+    try{ touchRecord(u); }catch(e){}
+  });
+  try{ logAuditEvent('wh_unit_unmake',{warehouse:wh.code, unit:unit.name, usersMigrated:users.map(u=>u.name)}); }catch(e){}
+  saveState();
+  toast('✓ Kho "'+wh.name+'" đã về lại kho độc lập — '+users.length+' tài khoản đã chuyển sang Kho phụ trách','good');
+  try{ renderWarehousesTable(); }catch(e){}
+}
 function whOpenMakeUnit(){
   const list=whUnitCandidates(InventoryService.warehouses(), VesselService.vessels());
   if(!list.length){ toast('Không còn kho nào để chuyển — mọi kho đã thuộc tàu hoặc đơn vị','warn'); return; }
@@ -71583,6 +71642,7 @@ function renderWarehousesTable(){
              đơn vị đó và làm việc y như tàu. Gỡ nút 🛠 và nhãn "n NV" của cơ chế cũ. */''}
         <button class="icon-btn" title="Xem chi tiết: số lượng · đơn giá · thành tiền từng mã" onclick="openWarehouseValueDetail('${w.id}')">👁</button>
         ${isAdmin()?`<button class="icon-btn" title="Mở MÀN KHO của kho này — đúng như thủ kho/tàu nhìn thấy (admin toàn quyền)" onclick="whAdminOpenWarehouse('${w.id}')">🏗</button>`:''}
+        ${(function(){ try{ const _v=VesselService.vessels().find(x=>x&&x.id===w.vesselId); return (_v&&_v.isShoreUnit)?`<button class="icon-btn" title="Đưa kho này về lại KHO ĐỘC LẬP (bỏ mô hình đơn vị/tàu) — dữ liệu tồn giữ nguyên, tài khoản đang gắn tự chuyển sang Kho phụ trách" onclick="whUnmakeWarehouseUnit('${w.id}')">↩</button>`:''; }catch(e){ return ''; } })()}
         <button class="icon-btn" title="Sửa" onclick="openWarehouseModal('${w.id}')">✎</button>
         <button class="icon-btn danger" title="Xóa" onclick="deleteWarehouse('${w.id}')">✕</button>
       </div></td>`:''}
@@ -72438,7 +72498,7 @@ function stockScopedDocs(list){
     return a?(a.createdBy||''):'';
   });
 }
-function canManageStock(){ return isAdmin() || !!(CURRENT_USER && (CURRENT_USER.isWarehouse || CURRENT_USER.isCentralWarehouse || CURRENT_USER.canManageUsers)); }   // v3.16.74: Thủ kho tổng toàn quyền kho
+function canManageStock(){ return isAdmin() || !!(CURRENT_USER && (CURRENT_USER.isWarehouse || CURRENT_USER.isCentralWarehouse || CURRENT_USER.canManageUsers || (Array.isArray(CURRENT_USER.assignedWarehouseIds) && CURRENT_USER.assignedWarehouseIds.length))); }   // v3.20.86: NV có "Kho phụ trách" cũng thao tác được (nhập/xuất/kiểm kê/điều chuyển), phạm vi đã lọc đúng ở stockAllowedWarehouses()
 function isCaptain(){ return !!(CURRENT_USER && CURRENT_USER.isCaptain); }
 /* v3.08.47 (Mảng 1): Vessel Account — loại tài khoản TÀU, tách biệt tài khoản nhân viên.
    isVesselAccountUser(): tài khoản đang đăng nhập là tài khoản của TÀU.
@@ -72454,6 +72514,13 @@ function canViewStockValue(){
   /* v3.17.01 (Sếp: "kho TÀU chặn hoàn toàn phần có giá"): PHÍA TÀU nói chung (thuyền trưởng, tài khoản gắn tàu
      linkVesselId) cũng không thấy giá — đặt trước mọi cờ bờ để cờ lẫn không lách qua. Admin ở trên vẫn toàn quyền. */
   if(typeof whIsVesselSideUser==='function' && whIsVesselSideUser()) return false;
+  /* v3.20.86 (Sếp xác nhận: đưa Kho kỹ thuật về kho độc lập thay vì mô hình "kho = tàu"):
+     NV có "Kho phụ trách" (assignedWarehouseIds) — thủ kho riêng của MỘT kho — được xem giá thật
+     trên phiếu, giống Thủ kho tổng nhưng chỉ đúng phạm vi kho đã gán (phạm vi đã lọc ở
+     stockAllowedWarehouses()/stockScopedDocs(), ở đây chỉ quyết định CÓ được xem giá hay không).
+     Đặt SAU chốt chặn phía tàu ở trên — NV vừa là thuyền trưởng vừa được gán kho (hiếm, không nên
+     có) vẫn bị chặn đúng như tàu, không lách được qua đường này. */
+  if(Array.isArray(u.assignedWarehouseIds) && u.assignedWarehouseIds.length) return true;
   /* v3.16.46 (Sếp): VM kiểm soát và duyệt mua vật tư — không thấy giá trị tồn thì không duyệt
      được. Đặt SAU chốt chặn tài khoản tàu ở trên nên tàu không lách qua. */
   return !!(u.isCentralWarehouse || u.canCheckAcc || u.isBOD || u.isCEO || u.canApproveL1 || u.canApproveL2 || u.isVesselManager);
