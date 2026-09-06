@@ -3840,7 +3840,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.20.101';
+const APP_VERSION='3.20.102';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -55187,12 +55187,17 @@ function renderArAp(kind){
       <td class="r">
         <div class="ds-num">${fmtOrig(tot,r.ccy)}</div>${fmtRefLine(tot,r.ccy)}
         ${pd>0?`<div class="ds-num-sub" style="color:var(--good)">đã trả ${fmtOrig(pd,r.ccy)}</div>`:''}
-        ${(()=>{ /* v3.17.46 (Sếp: "diễn giải chưa rõ — Còn = thanh toán đợt này"): tách 2 khái niệm.
-            TT ĐỢT NÀY = số đề nghị chi (apDueThisAmount); CÒN NỢ = phần còn lại của phiếu.
-            Trùng nhau → 1 dòng "TT đợt này (hết nợ)"; khác nhau → 2 dòng rõ ràng. */
+        ${(()=>{ /* v3.17.46: tách 2 khái niệm — TT ĐỢT NÀY = số đề nghị chi (apDueThisAmount);
+            CÒN NỢ = phần còn lại của phiếu.
+            v3.20.102 (Sếp: "chỉ hiện khi giá trị đề nghị chi đợt này ít hơn tổng giá trị phiếu" —
+            ví dụ HĐ 100đ, đề xuất chi 20đ → hiện rõ số đề nghị (20) và số còn lại (80)): BỎ nhánh
+            "(hết nợ)" — đề nghị chi ĐỦ hết phần còn lại không còn cần dòng đỏ riêng nữa, dù ở trạng
+            thái nào (Nháp/Chờ KT/L1/L2/đã duyệt) — chỉ khi ĐỀ NGHỊ CHI ÍT HƠN CÒN LẠI (thanh toán 1
+            phần/trả trước) mới hiện, để người tạo/đề xuất và các cấp duyệt thấy rõ phiếu vẫn còn nợ
+            sau đợt này bao nhiêu. */
           if(rem<=0.001) return `<div class="ds-num-sub" style="color:var(--muted)">✓ đã trả đủ</div>`;
           const _dueT=(typeof apDueThisAmount==='function')?apDueThisAmount(r):rem;
-          if(Math.abs(_dueT-rem)<=1) return `<div class="ds-num-sub" style="color:var(--bad)" title="Số đề nghị chi đợt này — chi xong phiếu hết nợ">TT đợt này ${fmtOrig(_dueT,r.ccy)} (hết nợ)</div>`;
+          if(_dueT>=rem-1) return '';   // đề nghị chi đủ hết còn lại — không cần dòng phụ nào nữa
           return `<div class="ds-num-sub" style="color:var(--accent)" title="Số đề nghị chi ĐỢT NÀY (KTT đặt)">TT đợt này ${fmtOrig(_dueT,r.ccy)}</div>
                   <div class="ds-num-sub" style="color:var(--bad)" title="Công nợ còn lại của phiếu (sau các đợt đã trả)">còn nợ ${fmtOrig(rem,r.ccy)}</div>`; })()}
         <div class="ds-num-sub" title="Net ${fmtOrig(net,r.ccy)} · VAT ${vat>0?fmtOrig(vat,r.ccy):'—'}">net ${fmtOrig(net,r.ccy)}${vat>0?' · vat '+fmtOrig(vat,r.ccy):''}</div>
@@ -58333,53 +58338,13 @@ function openProvisionalAp(){
       const saveBtn=btns.find(b=>/Lưu phải trả/i.test(b.textContent));
       if(saveBtn){
         saveBtn.textContent='📋 Lưu chi phí dự kiến'; saveBtn.setAttribute('onclick',"saveApProvisional()");
-        /* v3.20.58 (Sếp — hoàn tác v3.20.57): nút này chỉ lưu phiếu rồi mở màn "Đối chiếu & gửi vào
-           Chờ giao hàng" — KHÔNG còn tự điền sẵn chi tiết từ đầu form nữa (đọc đầu phiếu và đọc chi
-           tiết nhập kho tách hẳn 2 nơi theo đúng ý Sếp). NV vào đúng màn đó rồi mới bấm "IMPORT CHI
-           TIẾT (BÁO GIÁ/HĐ)" sẵn có tại đó nếu cần điền theo báo giá. */
-        if(!document.getElementById('prov-stockin-btn')){
-          const b=document.createElement('button'); b.type='button'; b.id='prov-stockin-btn'; b.className='btn-sec';
-          b.style.cssText='font-size:13px;margin-left:6px'; b.textContent='📦 Lưu & Nhập kho';
-          b.title='Lưu phiếu dự kiến này rồi mở màn Chờ giao hàng để kiểm lại trước khi gửi';
-          b.onclick=async function(){
-            saveApProvisional();
-            const apId=window._LAST_SAVED_AR_ID; if(!apId){
-              /* v3.20.53 (Sếp — "Lưu & Nhập kho: không có gì xảy ra"): KHÔNG phải không chạy — lưu
-                 thất bại do thiếu trường bắt buộc (vd Loại chi phí để trống), báo lỗi nằm TRÊN đầu
-                 form dài trong khi 2 nút này ở CUỐI form — cuộn xuống nút thì không thấy được lỗi,
-                 tưởng app im lặng. Cuộn lên + nhấp nháy ngay dòng lỗi để không bỏ lỡ nữa. */
-              const errEl=document.getElementById('ar-err');
-              if(errEl && errEl.textContent){ errEl.scrollIntoView({behavior:'smooth', block:'center'});
-                errEl.style.transition='background-color .15s'; const _bg=errEl.style.backgroundColor;
-                let n=0; const blink=setInterval(()=>{ errEl.style.backgroundColor=(n%2===0)?'#ffe08a':_bg; n++; if(n>5){ clearInterval(blink); errEl.style.backgroundColor=_bg; } },200);
-              } else { toast('Chưa lưu được — kiểm lại các ô bắt buộc phía trên (NCC, Loại chi phí...)','bad'); }
-              return;
-            }
-            closeModal();
-            /* v3.20.69 (Sếp — "Như vậy NV phải import 2 lần"): dùng lại ĐÚNG file vừa chọn ở nút "Đọc
-               hóa đơn/báo giá" đầu form (window._provLastQuoteFile) — tự đọc luôn chi tiết từng dòng
-               (mã/tên/SL/đơn giá), không hỏi lại file lần 2. NV chỉ chọn file 1 lần duy nhất; nếu file
-               không đọc được chi tiết gì (hoặc không phải PDF/Excel) thì rơi về màn trống như cũ, tự
-               tay Import chi tiết vẫn dùng được bình thường. */
-            const f=window._provLastQuoteFile;
-            let items=[];
-            if(f){
-              try{
-                if(/pdf$/i.test(f.name)||f.type==='application/pdf'){
-                  items=await _provQuoteReadPdfLines(f);
-                } else if(/\.(xlsx|xls|csv)$/i.test(f.name||'')){
-                  const buf=await f.arrayBuffer();
-                  const wb=XLSX.read(new Uint8Array(buf),{type:'array'});
-                  const aoa=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:''});
-                  items=whParseQuoteRows(aoa).items||[];
-                }
-              }catch(e){ items=[]; }
-            }
-            if(items.length) openStockInUnifiedFromQuote(apId, items, '');
-            else openStockInUnified(apId);
-          };
-          saveBtn.parentNode.insertBefore(b, saveBtn.nextSibling);
-        }
+        /* v3.20.102 (Sếp: "bỏ Lưu & Nhập kho trên phiếu Phải trả dự kiến — đã yêu cầu bỏ cùng với
+           phiếu AP. Tất cả Nhập kho sẽ tạo từ nút Nhập kho trong sổ Phải trả"): bỏ hẳn nút
+           "📦 Lưu & Nhập kho" riêng của form này (đã bỏ ở phiếu nhiều dòng từ v3.20.92, form đơn dòng
+           này bị sót) — chỉ còn nút Lưu bình thường; Nhập kho làm hoàn toàn qua nút 📦 ngoài Sổ phải
+           trả (stockInFromAp), đúng 1 đường duy nhất cho mọi loại phiếu. saveApProvisional() đã tự
+           mở màn Nhập kho khi phát hiện có báo giá import sẵn (v3.20.89) — không mất chức năng nào. */
+        try{ const oldBtn=document.getElementById('prov-stockin-btn'); if(oldBtn) oldBtn.remove(); }catch(e){}
       }
       // v3.19.89 (Sếp: Hợp đồng trả trước mới xây, chưa deploy, không dữ liệu — bỏ hẳn khái niệm này
       // cho đỡ rối, Chi dự kiến gánh chung nhu cầu theo dõi nhiều hóa đơn, đã có sẵn từ v3.19.88).
