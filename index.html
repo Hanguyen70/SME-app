@@ -3840,7 +3840,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.20.94';
+const APP_VERSION='3.20.95';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -5512,6 +5512,24 @@ async function pushCfgToCloud(adminPassword, extraUserPasswords){
   }
   const masterKey = existingMasterKey || await generateCfgMasterKey();
 
+  /* v3.20.95 (Sếp: "Xóa ID/Xóa nhân viên: không được — xóa xong, đẩy lên cloud xong, vẫn còn"):
+     TÌM RA GỐC — khối merge "giữ NV chỉ-có-trên-cloud" ngay dưới đây (v3.06.20, chống mất NV khi
+     máy đẩy có cfg cũ/thiếu NV) đọc cfg CŨ trên cloud (từ TRƯỚC lần đẩy này) và với BẤT KỲ NV nào
+     có trên cloud nhưng KHÔNG có ở local — tự động thêm LẠI vào localUsers, coi đó là "NV máy khác
+     vừa thêm, máy này chưa kịp biết". Khối này KHÔNG hề kiểm tra danh sách NV vừa bị XÓA CÓ CHỦ Ý
+     (_deletedUserNames) — nên đúng lần đẩy ĐẦU TIÊN sau khi xóa 1 NV (cloud vẫn còn NV đó vì chưa
+     ai đẩy xóa lên), khối merge này tự hồi sinh lại NV vừa xóa NGAY TRONG CHÍNH LẦN ĐẨY ĐÓ — trước
+     khi payload kịp gửi đi. Phần lọc theo _deletedUserNames trước đây CHỈ áp dụng cho "wrap" (khóa
+     giải mã) ở dưới, không áp dụng cho chính cfg.users ở khối merge này. VÁ: tính trước danh sách
+     đã xóa (gộp cfg._deletedUserNames + window._deletedUserNames, giống hệt khối wrap bên dưới),
+     bỏ qua không hồi sinh bất kỳ NV nào có tên nằm trong danh sách đó. */
+  let _delSetForMerge=new Set();
+  try{
+    const _d1=Array.isArray(cfg._deletedUserNames)?cfg._deletedUserNames:[];
+    const _d2=Array.isArray(window._deletedUserNames)?window._deletedUserNames:[];
+    [..._d1,..._d2].forEach(n=>{ if(n) _delSetForMerge.add(String(n).toLowerCase()); });
+  }catch(e){}
+
   // Re-encrypt cfg with master key (cfg may have changed)
   // v3.06.20 — MERGE USERS CLOUD↔LOCAL (chống mất NV/wrap khi máy đẩy có cfg cũ/thiếu NV).
   //   Bản chất lỗi cũ: buildCfgToSync chỉ lấy users LOCAL → nếu máy đẩy thiếu 1 NV
@@ -5525,11 +5543,12 @@ async function pushCfgToCloud(adminPassword, extraUserPasswords){
       const localUsers=Array.isArray(cfg.users)?cfg.users:[];
       const keyOf=(u)=>((u && (u.name||'')).toLowerCase());   /* v3.18.62: khóa = name, đồng bộ mergeCfgUsers */
       const localMap=new Map(localUsers.map(u=>[keyOf(u),u]));
-      let added=0, kept=0;
+      let added=0, kept=0, skippedDeleted=0;
       cloudUsers.forEach(cu=>{
         const k=keyOf(cu);
         const lu=localMap.get(k);
         if(!lu){
+          if(_delSetForMerge.has(k)){ skippedDeleted++; return; }   // v3.20.95: NV vừa xóa có chủ ý — không hồi sinh
           // User chỉ có trên cloud → GIỮ LẠI (không để mất NV/wrap).
           localUsers.push(cu); added++;
         } else {
@@ -5541,7 +5560,7 @@ async function pushCfgToCloud(adminPassword, extraUserPasswords){
       });
       cfg.users=localUsers;
       try{ setAuthConfig(cfg); }catch(e){}
-      if(added>0) dlog('[push merge] giữ '+added+' NV chỉ-có-trên-cloud (chống mất wrap), cập nhật '+kept+' NV theo bản cloud mới hơn.');
+      if(added>0||skippedDeleted>0) dlog('[push merge] giữ '+added+' NV chỉ-có-trên-cloud (chống mất wrap), cập nhật '+kept+' NV theo bản cloud mới hơn, bỏ qua '+skippedDeleted+' NV đã xóa có chủ ý.');
     }catch(mergeErr){
       // Giải mã cloud lỗi → KHÔNG merge, nhưng cũng KHÔNG được xóa wrap bên dưới (lớp 1 lo).
       console.warn('[push merge] bỏ qua merge users (giải mã cloud lỗi):', mergeErr&&mergeErr.message);
