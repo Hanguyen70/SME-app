@@ -3840,7 +3840,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.20.95';
+const APP_VERSION='3.20.99';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -7099,6 +7099,21 @@ const PRESET_ROLES={
           'operations','inventory','fixed_assets','tools','nsnn'],
     flags:{canCheckAcc:true,canApproveL1:true,canManageUsers:true}
   },
+  /* v3.20.99 (Sếp: "Cần tạo luồng cho NV quản lý công ty con... nhiều quyền với công ty con — như KTT
+     nhưng chỉ với công ty được phân quyền"): NHÂN BẢN đúng preset "ktt" ở trên — cùng bộ tab, cùng
+     canCheckAcc + canApproveL1 (2 cờ này KHÔNG phá vỡ giới hạn công ty — xem isCompanyScoped()) —
+     CHỈ BỚT canManageUsers (quản lý NV vốn không phân theo công ty, không nên cấp cho vai trò giới
+     hạn 1 công ty). TUYỆT ĐỐI không thêm canApproveL2/isBOD — 2 cờ này tự động PHÁ VỠ giới hạn công
+     ty, khiến NV thấy hết mọi công ty, mất hẳn mục đích preset này. Bắt buộc phải TỰ TAY chọn đúng ô
+     "Công ty" bên dưới sau khi áp preset — để trống = thấy hết mọi công ty (áp dụng ở applyRolePreset()). */
+  co_manager: {
+    label:'Quản lý công ty con — như KTT, giới hạn đúng 1 công ty',
+    desc:'Đầy đủ quyền như KTT (Phải thu/Phải trả/Ngân hàng/NSNN/Duyệt L1/KT Kiểm...) nhưng KHÔNG quản lý NV toàn hệ thống. ⚠ BẮT BUỘC chọn đúng công ty con ở ô "Công ty" bên dưới sau khi áp preset này — để trống sẽ thấy TẤT CẢ công ty, mất tác dụng giới hạn.',
+    tabs:['projects','vessels','catalog','receivables','payables','op_input',
+          'vessel_expense','hr_expense','qn_expense','cashfund','banking','cashflow',
+          'operations','inventory','fixed_assets','tools','nsnn'],
+    flags:{canCheckAcc:true,canApproveL1:true}
+  },
   gdtc: {
     label:'GĐTC — Giám đốc Tài chính',
     desc:'Duyệt mức 2 (phê duyệt cuối) + xem các tab tài chính & báo cáo',
@@ -8212,6 +8227,18 @@ function applyRolePreset(){
   // GĐTC có canApproveL2 → cờ quyền cao, chỉ admin lưu được
   if(key==='gdtc' && !isAdmin()){
     if(descEl) descEl.innerHTML='ℹ '+preset.desc+'<br><span style="color:var(--accent)">⚠ Cờ "Duyệt L2" chỉ admin mới lưu được.</span>';
+  }
+  /* v3.20.99: "Quản lý công ty con" CHỈ có tác dụng giới hạn nếu ô "Công ty" được chọn — quên bước
+     này thì NV sẽ có quyền như KTT nhưng KHÔNG BỊ GIỚI HẠN gì cả (thấy hết mọi công ty), phản tác
+     dụng ngay chính mục đích preset. Làm nổi bật ô Công ty + cảnh báo rõ ràng, khó bỏ sót. */
+  if(key==='co_manager'){
+    const coSel=document.getElementById('user-company');
+    if(coSel){
+      coSel.style.outline='2px solid var(--bad)'; coSel.style.outlineOffset='2px';
+      try{ coSel.scrollIntoView({behavior:'smooth', block:'center'}); coSel.focus(); }catch(e){}
+      setTimeout(()=>{ if(coSel) coSel.style.outline=''; }, 6000);
+    }
+    if(descEl) descEl.innerHTML='ℹ '+preset.desc+'<br><span style="color:var(--bad);font-weight:600">⚠ CHƯA XONG — bấm chọn đúng công ty con ở ô "Công ty" (đang tô đỏ phía trên) rồi mới Lưu.</span>';
   }
   // CEO (preset BOD cũ) mang cờ isBOD — quyền cao → chỉ admin mới tạo/sửa được
   if(key==='ceo' && !isAdmin()){
@@ -20611,7 +20638,17 @@ function openPayrollPeriods(){
   if(!(payCanViewPayroll() || isHrRole())){ toast('Bảng lương chỉ dành cho Kế toán / Kế toán trưởng / HR','bad'); return; }
   if(!canAccessTab('pay_periods')){ toast('Bạn không có quyền vào Kỳ lương','bad'); return; }
   _paySyncPaidStatus();
-  const periods=PayrollService.periods().slice().sort((a,b)=>(b.period||'').localeCompare(a.period||'')||(b.createdAt||'').localeCompare(a.createdAt||''));
+  let periods=PayrollService.periods().slice().sort((a,b)=>(b.period||'').localeCompare(a.period||'')||(b.createdAt||'').localeCompare(a.createdAt||''));
+  /* v3.20.96 (Sếp: "NV chỉ làm phần HR của STERLING" — kiểm ra module Lương/Nhân sự KHÔNG có lọc
+     theo công ty như Phải thu/Phải trả, dù kỳ lương đã có sẵn field companyId): áp ĐÚNG khuôn lọc
+     công ty đã dùng cho AP/AR (isCompanyScoped()/getActorCompanyId()) — NV bị gán 1 công ty (không
+     phải KTT/Admin/BOD/Duyệt L2) giờ chỉ thấy kỳ lương của ĐÚNG công ty đó, không còn thấy kỳ lương
+     công ty mẹ/công ty con khác. Kỳ lương thiếu companyId (dữ liệu cũ trước khi bắt buộc chọn pháp
+     nhân) quy về công ty mẹ, đúng quy ước (r.companyId||getParentCompanyId()) đã dùng ở AP/AR. */
+  if(typeof isCompanyScoped==='function' && isCompanyScoped()){
+    const _co=getActorCompanyId();
+    periods=periods.filter(p=>(p.companyId||getParentCompanyId())===_co);
+  }
   const rows=periods.map(p=>{
     const total=(p.rows||[]).reduce((s,r)=>s+(+(r.result&&r.result.takeHome)||0),0);
     const ccy=_payCcy(p);   /* v3.15.03 FIX: trước hard-code project/expat=USD → kỳ RUB hiện SAI loại tiền */
@@ -83828,7 +83865,18 @@ function _nsnnRenderRecords(yr){
     (S.companies||[]).forEach(c=>{ const o=document.createElement('option'); o.value=c.id; o.textContent='🏛 '+c.name; coSel.appendChild(o); });
   }
   if(coSel) coSel.style.display=((S.companies||[]).length>1)?'':'none';
-  const coFilter=coSel?.value||'';
+  /* v3.20.98 (Sếp: "Rà lại toàn bộ để xây dựng 1 hệ trục riêng cho công ty con đầy đủ như công ty
+     mẹ"): NSNN có sẵn bộ lọc pháp nhân (v3.13.88) nhưng chỉ là dropdown NV TỰ CHỌN — khác hẳn AP/AR/
+     Kỳ lương/Hồ sơ NS đã khóa CỨNG theo công ty được gán. NV bị gán 1 công ty (không phải KTT/Admin/
+     BOD/Duyệt L2) có thể tự đổi dropdown về "Tất cả pháp nhân" và thấy nghĩa vụ thuế/BHXH của MỌI
+     công ty — lỗ hổng thật dù hiếm khi lộ ra (vì tab nsnn hiện chỉ mở cho canCheckAcc/L1/L2/BOD, cấp
+     cao hơn "quản lý công ty con" thường thấy — nhưng ai đó ở cấp này VẪN có thể bị gán company nếu
+     Sếp cấp thêm canCheckAcc cho 1 công ty con sau này). VÁ: khóa cứng dropdown về đúng công ty được
+     gán, disable không cho đổi — đồng bộ với mọi màn khác. */
+  if(coSel && typeof isCompanyScoped==='function' && isCompanyScoped()){
+    coSel.value=getActorCompanyId(); coSel.disabled=true; coSel.title='Bị giới hạn theo công ty được gán — không đổi được';
+  }
+  const coFilter=coSel?.value||(typeof isCompanyScoped==='function'&&isCompanyScoped()?getActorCompanyId():'');
   const records = S.taxes.records.filter(r=>{
     if(!r.period) return false;
     if(!r.period.startsWith(String(yr))) return false;
@@ -94441,7 +94489,19 @@ function openSalaryLedger(){
   if(_hrStaffNoSalary()){ toast('Vai Hồ sơ & Chấm công không xem Sổ lương','bad'); return; }   /* v3.14.84 */
   if(!(hrmCanSeeAll()||salaryProfileCanEdit())){ toast('Chỉ BGĐ/HCNS/KTT/Admin','bad'); return; }
   const nowPer=new Date().toISOString().slice(0,7), year=nowPer.slice(0,4);
-  const emps=HRService.employees().filter(e=>!e._deleted);
+  let emps=HRService.employees().filter(e=>!e._deleted);
+  /* v3.20.97: lọc theo công ty — cùng khuôn với hrmVisibleEmps() (xem đó để biết chi tiết cơ chế
+     Quan hệ lao động/fallback công ty mẹ) — Sổ lương đọc thẳng employees(), không qua hrmVisibleEmps. */
+  if(typeof isCompanyScoped==='function' && isCompanyScoped()){
+    const myCo=getActorCompanyId();
+    const today=new Date().toISOString().slice(0,10);
+    const parentCo=(typeof getParentCompanyId==='function')?getParentCompanyId():'';
+    emps=emps.filter(e=>{
+      const asg=(typeof empAssignments==='function')?empAssignments(e.id, today):[];
+      if(asg.length) return asg.some(a=>a.companyId===myCo);
+      return myCo===parentCo;
+    });
+  }
   const fDept=(document.getElementById('sl-f-dept')||{}).value||'';
   const fTitle=((document.getElementById('sl-f-title')||{}).value||'').toLowerCase();
   const fQ=((document.getElementById('sl-f-q')||{}).value||'').toLowerCase();
@@ -95925,9 +95985,27 @@ function hrmMyEmpIds(){
 function hrmVisibleEmps(){
   /* GĐ-B §7: hồ sơ PAYROLL_ONLY không hiện mặc định trong HRM chính (vẫn hiện ở màn Phân bổ + Payroll) */
   const all=HRService.employees().filter(e=>e && e.hrVisibility!=='PAYROLL_ONLY');
-  if(hrmCanSeeAll()) return all.slice();
-  const mine=new Set(hrmMyEmpIds());
-  return all.filter(e=>mine.has(e.id));
+  let base;
+  if(hrmCanSeeAll()) base=all.slice();
+  else { const mine=new Set(hrmMyEmpIds()); base=all.filter(e=>mine.has(e.id)); }
+  /* v3.20.97 (Sếp: "Nhân sự đã có mục pháp nhân" — đúng, em kiểm nhầm ở bản trước): lọc theo công ty
+     dùng ĐÚNG cơ chế "Quan hệ lao động" (hrEmploymentAssignments) đã có sẵn cho payroll đa pháp nhân
+     (xem empAssignments(), dùng ở openPayrollPeriods nạp NV vào kỳ) — không cần thêm field mới nào.
+     NV bị gán 1 công ty (không phải KTT/Admin/BOD/Duyệt L2) chỉ thấy hồ sơ nhân sự có Quan hệ lao
+     động HIỆU LỰC HÔM NAY tại đúng công ty đó. Nhân viên CHƯA khai Quan hệ lao động nào (dữ liệu cũ)
+     → quy về công ty mẹ, đúng fallback app đã dùng khi nạp NV vào kỳ lương (không bị rơi khỏi công
+     ty mẹ do chưa khai). */
+  if(typeof isCompanyScoped==='function' && isCompanyScoped()){
+    const myCo=getActorCompanyId();
+    const today=new Date().toISOString().slice(0,10);
+    const parentCo=(typeof getParentCompanyId==='function')?getParentCompanyId():'';
+    base=base.filter(e=>{
+      const asg=(typeof empAssignments==='function')?empAssignments(e.id, today):[];
+      if(asg.length) return asg.some(a=>a.companyId===myCo);
+      return myCo===parentCo;
+    });
+  }
+  return base;
 }
 /* v3.07.97: kiểm quyền truy cập hồ sơ của MỘT nhân viên (chống đổi URL/ID).
    true nếu: có quyền xem tất cả (TPNS/BOD/HR/Admin) HOẶC là hồ sơ của chính mình. */
