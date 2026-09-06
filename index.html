@@ -3840,7 +3840,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.20.86';
+const APP_VERSION='3.20.87';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -76523,7 +76523,15 @@ function whMyVesselId(){
 /* v3.16.24 (Sếp: "hủy các tính năng tạo cho kho vật tư kỹ thuật hiện có"): bỏ nhánh
    assignedWarehouseIds thêm ở v3.16.20 — nay kho kỹ thuật là ĐƠN VỊ trong danh mục tàu,
    NV kho gắn linkVesselId nên đã là phía tàu, không cần cơ chế quyền thứ hai. */
-function whIsStoreAccount(){ return !!(CURRENT_USER && (CURRENT_USER.isStoreAccount || CURRENT_USER.linkWarehouseId)); }
+/* v3.20.87 (Sếp: "Koong đang thấy toàn bộ kho — yêu cầu: chỉ thấy kho được chọn"): KHÔI PHỤC lại
+   đúng mối nối đã có từ v3.16.20 rồi bị gỡ ở v3.16.24 khi chuyển Kho kỹ thuật sang mô hình "đơn vị/
+   tàu" ("giờ NV kho gắn linkVesselId nên đã là phía tàu, không cần cơ chế quyền thứ hai" — nhưng nay
+   đã đảo lại mô hình đó ở v3.20.86, NV có Kho phụ trách không còn linkVesselId nữa, nên lại cần
+   đúng mối nối này như tinh thần gốc v3.16.20: "được gán kho = phía kho, làm việc y như tàu" — nếu
+   không, NV rơi vào TRANG KHO BỜ đầy đủ (KPI toàn công ty, danh sách mọi kho) đúng như Sếp vừa thấy.
+   LOẠI TRỪ central-warehouse (Thủ kho tổng) và admin — họ cần đúng màn quản lý toàn bộ kho, không
+   phải màn đơn giản 1-kho. */
+function whIsStoreAccount(){ return !!(CURRENT_USER && (CURRENT_USER.isStoreAccount || CURRENT_USER.linkWarehouseId || (!isAdmin() && !CURRENT_USER.isCentralWarehouse && Array.isArray(CURRENT_USER.assignedWarehouseIds) && CURRENT_USER.assignedWarehouseIds.length))); }
 function whIsSiteSideUser(){ return !!(whIsVesselSideUser() || whIsStoreAccount()); }
 /* v3.16.42 (Sếp chốt: "phân quyền quy định ngay từ đầu: admin là duy nhất, toàn quyền app,
    không hạn chế"): admin mở được màn kho của BẤT KỲ kho nào, làm được mọi thao tác trong đó.
@@ -76580,6 +76588,13 @@ function whMySiteWarehouse(){
   /* v3.16.24: rút gọn — kho của tài khoản kho dùng chung, hoặc kho của TÀU/ĐƠN VỊ đang gắn. */
   if(CURRENT_USER && CURRENT_USER.linkWarehouseId){
     const w=InventoryService.warehouses().find(x=>x.id===CURRENT_USER.linkWarehouseId && x.isActive!==false);
+    if(w) return w;
+  }
+  /* v3.20.87: NV có "Kho phụ trách" (assignedWarehouseIds) — lấy đúng kho đã gán để đưa vào màn
+     đơn giản 1-kho, y hệt tài khoản tàu. Hiện hỗ trợ đúng 1 kho/người (gán nhiều kho thì lấy kho
+     đầu tiên — muốn xem gộp nhiều kho vẫn dùng "Tồn tổng hợp", đã lọc đúng qua stockAllowedWarehouses()). */
+  if(CURRENT_USER && !isAdmin() && !CURRENT_USER.isCentralWarehouse && Array.isArray(CURRENT_USER.assignedWarehouseIds) && CURRENT_USER.assignedWarehouseIds.length){
+    const w=InventoryService.warehouses().find(x=>x.id===CURRENT_USER.assignedWarehouseIds[0] && x.isActive!==false);
     if(w) return w;
   }
   return whMyVesselWarehouse();
