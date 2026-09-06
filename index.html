@@ -3840,7 +3840,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.20.89';
+const APP_VERSION='3.20.92';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -59276,7 +59276,10 @@ function _renderMultiRowModal(){
 
   const foot = `
     <button class="btn-sec" onclick="closeModal()">Hủy</button>
-    ${s.mode==='ap' ? '<button class="btn-sec" style="border-color:#1c5a8c;color:#1c5a8c" onclick="_mrStockIn()" title="Tạo phiếu chờ nhập kho từ các dòng hàng của phiếu này">📦 Nhập kho</button>' : ''}
+    ${/* v3.20.92 (Sếp xác nhận: tách biệt phần nhập phiếu với giá trị nhập kho — BỎ nút "📦 Nhập
+         kho" gắn trong phiếu: trước tự ép lưu nháp cả phiếu ngay khi bấm rồi chỉ mở Nhập kho cho
+         ĐÚNG DÒNG ĐẦU TIÊN (_mrStockIn, bỏ qua các dòng sau nếu nhiều dòng/nhiều hóa đơn) — không
+         tiện. NV nay lưu nháp bình thường, Nhập kho là thao tác RIÊNG qua nút 📦 ngoài Sổ phải trả). */''}
     ${s.mode==='ap' ? `<label style="font-size:11px;color:#1c5a8c;display:inline-flex;align-items:center;gap:4px;border:1px solid #1c5a8c;border-radius:6px;padding:4px 8px;cursor:pointer" title="AP này là chi phí cho một lô hàng đã/đang nhập kho (vận chuyển, thuế NK, hải quan...) — chọn đúng phiếu NK, lưu xong app tự gắn vào giá vốn lô đó"><input type="checkbox" id="mr-sc-enable" ${_mrStockCostLink?'checked':''} onchange="_mrScToggle(this.checked)">💰 Chi phí nhập kho</label>` : ''}
     ${(s.mode==='ap'&&_mrStockCostLink)?`<div style="width:100%;display:grid;grid-template-columns:150px 1fr 220px;gap:6px;margin-top:6px;padding:6px 8px;border:1px dashed #1c5a8c;border-radius:6px">
       <select id="mr-sc-kind" style="font-size:11px;padding:4px" onchange="_mrScSet('kind',this.value)">${LANDED_KINDS.map(([k,l])=>`<option value="${k}" ${_mrStockCostLink.kind===k?'selected':''}>${l}</option>`).join('')}</select>
@@ -74737,7 +74740,7 @@ function whMatSmartMatch(name){
   hit=mats.find(m=>{ const mk=whNormName(m.name); return mk.length>=4 && (mk.indexOf(nk)>=0||nk.indexOf(mk)>=0); });
   return hit?hit.code:'';
 }
-function whMergeQuoteRows(rows, parsed, anchorApId){
+function whMergeQuoteRows(rows, parsed, anchorApId, label){
   /* v3.20.63 (Sếp — "Import 2 hóa đơn liên tiếp: hóa đơn sau đè hóa đơn trước"): trước XÓA HẾT dòng
      chi tiết đã đọc từ lần import trước rồi mới thêm dòng mới ("import lại → thay bộ chi tiết cũ") —
      đúng khi sửa lại 1 file đọc sai, nhưng SAI khi cần cộng dồn 2 hóa đơn/báo giá khác nhau vào cùng
@@ -74748,12 +74751,22 @@ function whMergeQuoteRows(rows, parsed, anchorApId){
   const willHaveQuoteRows = existingQuote.length>0 || (parsed&&parsed.length>0);
   const out=base.map(r=>Object.assign({}, r, willHaveQuoteRows?{picked:false}:{}));  // có dòng chi tiết (cũ hoặc mới) → tự bỏ tick dòng gộp, tránh nhập đôi tiền hàng
   out.push(...existingQuote);
-  (parsed||[]).forEach(it=>{
-    const price=+it.price||0;
-    const matched=whMatSmartMatch(it.name);   /* v3.20.22: khớp mã FAST thật theo tên — không có thì để trống */
-    out.push({ apId:anchorApId, desc:it.name, invoiceNo:'', price, amount:Math.round(price*(+it.qty||0)), fromQuote:true,
-      picked:true, code:matched, srcCode:it.code||'', unit:it.unit||'', qty:it.qty, orderedQty:it.qty, received:0 });
-  });
+  /* v3.20.92 (Sếp xác nhận: "nếu gồm nhiều hóa đơn/báo giá — dòng hàng sẽ ghi lần lượt có tổng của
+     từng hóa đơn"): TRƯỚC ĐÂY mỗi lần import NỔ RA N dòng (1 dòng/mặt hàng) — import 2-3 hóa đơn
+     liên tiếp là bảng "Dòng hàng" ngập hàng chục dòng lẫn lộn, không biết mặt hàng nào của hóa đơn
+     nào, khó đối chiếu GIÁ TRỊ (đúng mục đích màn này — "chỉ đối chiếu SL/Đơn giá/Giá trị... rồi gửi
+     vào Chờ giao hàng", KHÔNG phải màn nhập chi tiết PNK cuối). NAY: mỗi LẦN IMPORT (= đúng 1 hóa
+     đơn/báo giá) GỘP THÀNH ĐÚNG 1 DÒNG mang tổng giá trị của riêng hóa đơn đó — chi tiết từng mặt
+     hàng giữ nguyên, ẩn vào row._quoteLines (không mất gì, _usiSave() bung lại đúng khi tạo phiếu
+     chờ nhập — xem đó). Nhiều hóa đơn/báo giá import liên tiếp → nhiều dòng riêng, mỗi dòng đúng
+     tổng của hóa đơn đó — không lẫn lộn, không đè nhau (vẫn cộng dồn như v3.20.63). */
+  if(parsed&&parsed.length){
+    const matchedAny=parsed.map(it=>({...it, _matchedCode:whMatSmartMatch(it.name)}));
+    const total=matchedAny.reduce((t,it)=>t+Math.round((+it.price||0)*(+it.qty||0)),0);
+    out.push({ apId:anchorApId, desc:(label?('📄 '+label+' — '):'📄 Báo giá/HĐ — ')+matchedAny.length+' mặt hàng',
+      invoiceNo:'', price:0, amount:total, fromQuote:true, picked:true, code:'', unit:'', qty:'', orderedQty:'', received:0,
+      _quoteLines:matchedAny.map(it=>({ name:it.name, code:it._matchedCode||'', srcCode:it.code||'', unit:it.unit||'', qty:it.qty, price:+it.price||0 })) });
+  }
   return out;
 }
 /* v3.15.58 B1d (Sếp 14/8, thiết kế lại): chi phí nhập kho (vận chuyển/thuế NK/hải quan...)
@@ -74851,8 +74864,8 @@ function _usiRender(){
     <td style="padding:5px 6px;text-align:right;font-size:11px;color:var(--muted)">${r.price?(+r.price).toLocaleString('vi-VN'):'—'}</td>
     <td style="padding:5px 6px;text-align:right;font-size:11px;color:var(--muted)">${(r.amount||0).toLocaleString('vi-VN')}</td>
     <td style="padding:5px 6px;text-align:right;font-size:11px;${r.received?'color:#1e7d44;font-weight:600':'color:var(--muted)'}">${r.received||'—'}</td>
-    <td style="padding:5px 6px"><input type="number" value="${r.orderedQty}" placeholder="SL đơn" title="Số lượng theo đúng đơn hàng / báo giá" style="width:76px;font-size:11px;padding:4px;text-align:right" ${r.picked?'':'disabled'} onchange="_usiSet(${i},'orderedQty',this.value)"></td>
-    <td style="padding:5px 6px">${r.code?'':`<input value="${esc(r.code)}" list="usi-codes" placeholder="Chưa khớp — tự chọn" title="App chưa khớp được mã FAST theo tên — chọn tay, hoặc để trống cho thủ kho chọn khi tạo phiếu NK" style="width:120px;font-size:11px;padding:4px;color:#b8730a" ${r.picked?'':'disabled'} onchange="_usiSet(${i},'code',this.value)">`}${r.code?`<input value="${esc(r.code)}" list="usi-codes" title="Mã FAST — app đã tự khớp theo tên, kiểm lại nếu cần" style="width:120px;font-size:11px;padding:4px;font-family:monospace" ${r.picked?'':'disabled'} onchange="_usiSet(${i},'code',this.value)">`:''}${r.srcCode?`<div style="font-size:9.5px;color:var(--muted)">mã NCC: ${esc(r.srcCode)}</div>`:''}</td>
+    <td style="padding:5px 6px">${(r._quoteLines&&r._quoteLines.length)?`<span style="font-size:10.5px;color:var(--muted)" title="Chi tiết từng mặt hàng (SL/Mã) đã đọc kèm — hiện khi tạo phiếu chờ nhập, không sửa được ở đây">${r._quoteLines.length} mặt hàng</span>`:`<input type="number" value="${r.orderedQty}" placeholder="SL đơn" title="Số lượng theo đúng đơn hàng / báo giá" style="width:76px;font-size:11px;padding:4px;text-align:right" ${r.picked?'':'disabled'} onchange="_usiSet(${i},'orderedQty',this.value)">`}</td>
+    <td style="padding:5px 6px">${(r._quoteLines&&r._quoteLines.length)?'<span style="font-size:10.5px;color:var(--muted)">— (theo từng mặt hàng)</span>':(r.code?'':`<input value="${esc(r.code)}" list="usi-codes" placeholder="Chưa khớp — tự chọn" title="App chưa khớp được mã FAST theo tên — chọn tay, hoặc để trống cho thủ kho chọn khi tạo phiếu NK" style="width:120px;font-size:11px;padding:4px;color:#b8730a" ${r.picked?'':'disabled'} onchange="_usiSet(${i},'code',this.value)">`)}${(!r._quoteLines||!r._quoteLines.length)?(r.code?`<input value="${esc(r.code)}" list="usi-codes" title="Mã FAST — app đã tự khớp theo tên, kiểm lại nếu cần" style="width:120px;font-size:11px;padding:4px;font-family:monospace" ${r.picked?'':'disabled'} onchange="_usiSet(${i},'code',this.value)">`:''):''}${r.srcCode?`<div style="font-size:9.5px;color:var(--muted)">mã NCC: ${esc(r.srcCode)}</div>`:''}</td>
   </tr>`).join('');
   const _sumAmt=s.rows.filter(r=>r.picked).reduce((a,r)=>a+(+r.amount||0),0);
   /* v3.20.22 (Sếp 03/9 — "ẩn thông tin không liên quan: SL đợt này/SL phiếu này; Mã FAST đang lấy mã
@@ -74914,8 +74927,8 @@ async function _usiQuoteFile(file){
       const items=await _provQuoteReadPdfLines(file);
       const uploaded=await _up; if(uploaded){ _usiState.quoteFile=uploaded; }
       if(!items.length){ toast('Không đọc được dòng chi tiết nào từ PDF — kiểm lại định dạng file hoặc dùng Excel'+(uploaded?' (đã lưu file gốc lên Drive)':''),'bad'); return; }
-      _usiState.rows=whMergeQuoteRows(_usiState.rows, items, _usiState.apIds[0]||'');
-      toast('✓ Đã nạp '+items.length+' dòng chi tiết từ PDF'+(uploaded?' — đã lưu file gốc lên Drive':''),'good');
+      _usiState.rows=whMergeQuoteRows(_usiState.rows, items, _usiState.apIds[0]||'', file.name);
+      toast('✓ Đã nạp '+items.length+' dòng chi tiết từ PDF (gộp 1 dòng — chi tiết ẩn tới lúc tạo phiếu)'+(uploaded?' — đã lưu file gốc lên Drive':''),'good');
       _usiRender();
     }catch(e){ toast('Lỗi đọc PDF: '+(e&&e.message||e),'bad'); }
     return;
@@ -74929,9 +74942,9 @@ async function _usiQuoteFile(file){
       const uploaded=await _up; if(uploaded){ _usiState.quoteFile=uploaded; }
       if(!items.length){ toast('Không đọc được dòng chi tiết nào'+(errors.length?(' — '+errors[0].msg):'')+(uploaded?' (đã lưu file gốc lên Drive)':''),'bad'); return; }
       // neo về record gộp: nếu 1 record thì hiển nhiên; nhiều record → neo record đầu (tiền vẫn theo cụm batch)
-      _usiState.rows=whMergeQuoteRows(_usiState.rows, items, _usiState.apIds[0]||'');
+      _usiState.rows=whMergeQuoteRows(_usiState.rows, items, _usiState.apIds[0]||'', file.name);
       // tra mã báo giá với danh mục: mã lạ giữ nguyên nhưng thủ kho sẽ map lại (không chặn)
-      toast('✓ Đã nạp '+items.length+' dòng chi tiết'+(errors.length?(' · '+errors.length+' dòng lỗi bị bỏ'):'')+(uploaded?' — đã lưu file gốc lên Drive':''),'good');
+      toast('✓ Đã nạp '+items.length+' dòng chi tiết (gộp 1 dòng — chi tiết ẩn tới lúc tạo phiếu)'+(errors.length?(' · '+errors.length+' dòng lỗi bị bỏ'):'')+(uploaded?' — đã lưu file gốc lên Drive':''),'good');
       _usiRender();
     }catch(e){ toast('Lỗi đọc file: '+e.message,'bad'); }
   };
@@ -74945,9 +74958,26 @@ function _usiSave(){
   const s=_usiState; if(!s) return;
   const picked=s.rows.filter(r=>r.picked);
   if(!picked.length){ toast('Chưa tích dòng nào','warn'); return; }
+  /* v3.20.92 (Sếp xác nhận: nhiều hóa đơn/báo giá — mỗi hóa đơn giữ đúng 1 "Dòng hàng" + đúng tổng
+     riêng, KHÔNG bung ra từng mặt hàng ngay lúc đối chiếu): dòng đã gộp theo hóa đơn (r._quoteLines,
+     xem whMergeQuoteRows) chỉ bung lại thành từng dòng mặt hàng ĐÚNG LÚC tạo phiếu chờ nhập (ở đây)
+     — không mất thông tin gì, chỉ dời thời điểm bung để bảng "Dòng hàng" lúc đối chiếu không ngập
+     dòng lẫn lộn nhiều hóa đơn. Dòng KHÔNG có _quoteLines (phiếu thường, không import chi tiết) giữ
+     nguyên hành vi cũ 100%. */
+  const expanded=[];
+  picked.forEach(r=>{
+    if(Array.isArray(r._quoteLines) && r._quoteLines.length){
+      r._quoteLines.forEach(it=>{
+        expanded.push({ apId:r.apId, desc:it.name||'', invoiceNo:r.invoiceNo||'', code:it.code||'',
+          unit:it.unit||'', qty:it.qty, orderedQty:it.qty, received:0, price:+it.price||0, srcCode:it.srcCode||'', fromQuote:true });
+      });
+    } else {
+      expanded.push(r);
+    }
+  });
   const lines=[];
   const _ov=_usiCanBatch();
-  for(const r of picked){
+  for(const r of expanded){
     const q=whUsiLineQty(r,_ov);   // v3.15.60: SL phiếu = SL đơn − đã nhập (thủ kho override được)
     if(q.err){ toast('Dòng "'+String(r.desc||'').slice(0,28)+'": '+q.err,'bad'); return; }
     lines.push({ code:String(r.code||'').trim(), name:(r.desc||'').slice(0,80), unit:String(r.unit||'').trim(),
@@ -75059,7 +75089,12 @@ function whGroupTrackingDocs(docs, payables){
   const groups={};
   (docs||[]).forEach(d=>{
     if(d.type!=='IN'||d.reversedById) return;
-    if(d.status!=='pending'&&d.status!=='confirmed') return;
+    /* v3.20.90 (Sếp: "thêm 1 trường: Chờ nhập kho"): trước đây lọc CHỈ nhận status pending/confirmed
+       — phiếu đã ở trạng thái 'received' (NV đã nhận hàng bằng mã tạm, Thủ kho CHƯA chốt PNK) bị loại
+       khỏi màn này HOÀN TOÀN, dù dòng badge "🏷 Đã nhận (mã tạm) — chờ áp mã" đã viết sẵn từ v3.20.48
+       cho đúng trạng thái này — không bao giờ hiện ra được vì phiếu chưa từng lọt tới đây. Nay nhận
+       thêm 'received'. */
+    if(d.status!=='pending'&&d.status!=='confirmed'&&d.status!=='received') return;
     const key=d.apBatchId||(d.apId?('ap:'+d.apId):'orphan');
     if(!groups[key]) groups[key]={key, docs:[], ordered:0, receivedConfirmed:0, receivedPending:0, partner:'', lastDate:''};
     const g=groups[key];
@@ -75080,10 +75115,11 @@ function whGroupTrackingDocs(docs, payables){
     g.ordered=ordered;
     g.docs.sort((a,b)=>String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
     g.state = g.docs.some(d=>d.status==='pending') ? 'pending'
+            : g.docs.some(d=>d.status==='received') ? 'received'
             : (g.ordered>g.receivedConfirmed ? 'short' : 'done');
     return g;
   }).sort((a,b)=>{
-    const w={pending:0, short:1, done:2};
+    const w={pending:0, received:1, short:2, done:3};
     return (w[a.state]-w[b.state]) || String(b.lastDate).localeCompare(String(a.lastDate));
   });
 }
@@ -75105,6 +75141,7 @@ function openStockInTracking(){
     </div>`:'';
   const cutoff=new Date(Date.now()-(_sitFilter.days||30)*864e5).toISOString().slice(0,10);
   const nPend=groups.reduce((n,g)=>n+g.docs.filter(d=>d.status==='pending').length,0);
+  const nRecv=groups.reduce((n,g)=>n+g.docs.filter(d=>d.status==='received').length,0);   /* v3.20.90: đếm phiếu "Chờ nhập kho" (đã nhận mã tạm, chưa chốt PNK) */
   const nShort=groups.filter(g=>g.state==='short').length;
   const nDone30=groups.reduce((n,g)=>n+g.docs.filter(d=>d.status==='confirmed'&&String(d.date||'')>=cutoff).length,0);
   const q=whNormName(_sitFilter.q);
@@ -75117,7 +75154,7 @@ function openStockInTracking(){
   const orphans=view.filter(g=>g.key==='orphan');
   view=view.filter(g=>g.key!=='orphan');
   const chip=(k,l)=>`<span onclick="_sitFilter.state='${k}';openStockInTracking()" style="cursor:pointer;font-size:11px;padding:3px 10px;border-radius:12px;${_sitFilter.state===k?'background:#2C2C2A;color:#fff':'border:1px solid var(--rule);color:var(--muted)'}">${l}</span>`;
-  const stBadge=st=>st==='pending'?'<span class="ds-need" style="color:var(--warn);font-size:10px">Chờ giao hàng</span>':(st==='short'?'<span class="ds-need" style="color:#1c5a8c;font-size:10px">Còn thiếu</span>':'<span class="ds-need" style="color:#1e7d44;font-size:10px">Nhập đủ</span>');
+  const stBadge=st=>st==='pending'?'<span class="ds-need" style="color:var(--warn);font-size:10px">Chờ giao hàng</span>':(st==='received'?'<span class="ds-need" style="color:#b8730a;font-size:10px">Chờ nhập kho</span>':(st==='short'?'<span class="ds-need" style="color:#1c5a8c;font-size:10px">Còn thiếu</span>':'<span class="ds-need" style="color:#1e7d44;font-size:10px">Nhập đủ</span>'));
   const gH=view.length? view.map(g=>{
     const firstAp=(g.docs.find(d=>d.apId)||{}).apId||'';
     /* v3.20.39 (Sếp 03/9 — "NV chỉ bấm Nhận hàng tại 1 nơi là màn này. 2 chỗ có Nhận hàng sao?" →
@@ -75135,7 +75172,7 @@ function openStockInTracking(){
       /* v3.20.48: thêm nhánh 'received' (đã Nhận hàng, mã tạm, chờ Thủ kho áp mã) — khác với 'pending'
          (chưa ai nhận gì) và 'confirmed' (PNK thật) — NV cũng cần thấy rõ 3 trạng thái này. */
       const st=d.status==='confirmed'?`<a href="#" onclick="event.preventDefault();event.stopPropagation();markPnkSeen('${esc(d.id)}');try{DocEngine.preview(_stockSpec(stockDocById('${esc(d.id)}'),{showValue:true}))}catch(e){stockDocPreview('${esc(d.id)}')}" style="color:#1e7d44;font-weight:600" title="Xem/in PNK — bản đầy đủ giá">${d.pnkSeen===false?'<span style="background:#c0392b;color:#fff;border-radius:8px;padding:0 5px;font-size:9px;margin-right:3px">MỚI</span>':''}✅ Đã có PNK — Xem/In</a>`
-        :(d.status==='received'?`<span style="color:#b8730a" title="Tồn kho đã tăng bằng mã tạm — đang chờ Thủ kho áp mã FAST chuẩn để chốt PNK">🏷 Đã nhận (mã tạm) — chờ áp mã</span>`
+        :(d.status==='received'?`<span style="color:#b8730a" title="Tồn kho đã tăng bằng mã tạm — đang chờ Thủ kho áp mã FAST chuẩn để chốt PNK" onclick="markReceivedSeen('${esc(d.id)}')">${d.receivedSeen===false?'<span style="background:#c0392b;color:#fff;border-radius:8px;padding:0 5px;font-size:9px;margin-right:3px">MỚI</span>':''}🏷 Đã nhận (mã tạm) — chờ áp mã</span>`
         :`<span style="color:var(--warn)">⏳ Chờ thủ kho/tàu</span>`);
       const totQ=(d.lines||[]).reduce((x,l)=>x+(+l.qty||0),0);
       /* v3.20.76 (Sếp — "Chỉ để 1 đường chuyển KT tại phiếu tạo ban đầu, không cần để chuyển tại
@@ -75183,13 +75220,14 @@ function openStockInTracking(){
   const oH='';
   openModal('📦 Theo dõi nhập kho',
     _whOrphanBanner+
-    `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:8px">
+    `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:8px">
        <div style="background:var(--rule);border-radius:6px;padding:6px 10px"><div style="font-size:10px;color:var(--muted)" title="Hàng chưa về — đơn đã tạo phiếu, đang chờ NCC giao">Chờ giao hàng</div><div style="font-size:18px;font-weight:600;color:var(--warn)">${nPend}</div></div>
+       <div style="background:var(--rule);border-radius:6px;padding:6px 10px"><div style="font-size:10px;color:var(--muted)" title="Hàng đã về, NV đã nhận bằng mã tạm — Thủ kho chưa chốt PNK">Chờ nhập kho</div><div style="font-size:18px;font-weight:600;color:#b8730a">${nRecv}</div></div>
        <div style="background:var(--rule);border-radius:6px;padding:6px 10px"><div style="font-size:10px;color:var(--muted)">Còn thiếu (đợt)</div><div style="font-size:18px;font-weight:600;color:#1c5a8c">${nShort}</div></div>
        <div style="background:var(--rule);border-radius:6px;padding:6px 10px"><div style="font-size:10px;color:var(--muted)">Đã nhập ${_sitFilter.days} ngày</div><div style="font-size:18px;font-weight:600;color:#1e7d44">${nDone30}</div></div>
      </div>
      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
-       ${chip('','Tất cả')}${chip('pending','Chờ giao hàng')}${chip('short','Còn thiếu')}${chip('done','Đã nhập')}
+       ${chip('','Tất cả')}${chip('pending','Chờ giao hàng')}${chip('received','Chờ nhập kho')}${chip('short','Còn thiếu')}${chip('done','Đã nhập')}
        <input value="${esc(_sitFilter.q)}" placeholder="Tìm NCC, số CT, số HĐ…" style="flex:1;min-width:120px;font-size:12px;padding:5px" onchange="_sitFilter.q=this.value;openStockInTracking()">
        <select style="font-size:12px;padding:5px" onchange="_sitFilter.days=+this.value;openStockInTracking()"><option value="30" ${_sitFilter.days===30?'selected':''}>30 ngày</option><option value="90" ${_sitFilter.days===90?'selected':''}>90 ngày</option><option value="3650" ${_sitFilter.days===3650?'selected':''}>Tất cả</option></select>
      </div>
@@ -75466,10 +75504,11 @@ async function _provQuoteReadPdfLines(file){
 function openStockInUnifiedFromQuote(apId, quoteLines, warehouseId){
   openStockInUnified(apId);
   if(_usiState && Array.isArray(quoteLines) && quoteLines.length){
-    _usiState.rows=whMergeQuoteRows(_usiState.rows, quoteLines, apId);
+    const _ap=(typeof AccountingService!=='undefined')?AccountingService.payableById(apId):null;
+    _usiState.rows=whMergeQuoteRows(_usiState.rows, quoteLines, apId, (_ap&&_ap.invoiceNo)||'');
     if(warehouseId) _usiState.warehouseId=warehouseId;
     _usiRender();
-    toast('✓ Đã tự điền '+quoteLines.length+' dòng từ báo giá — kiểm lại rồi bấm Gửi vào Chờ giao hàng','good');
+    toast('✓ Đã tự điền '+quoteLines.length+' dòng từ báo giá (gộp 1 dòng — kiểm lại rồi bấm Gửi vào Chờ giao hàng)','good');
   }
 }
 function whParseBbgn(text){
@@ -75738,6 +75777,14 @@ function markPnkSeen(id){
   try{
     const d=stockDocById(id); if(!d||d.pnkSeen) return;
     d.pnkSeen=true; try{ touchRecord(d); }catch(e){} saveState();
+    if(typeof renderInventory==='function') renderInventory();
+  }catch(e){}
+}
+/* v3.20.91: đánh dấu "đã xem" cho bước Nhận hàng (pending→received) — mirror markPnkSeen. */
+function markReceivedSeen(id){
+  try{
+    const d=stockDocById(id); if(!d||d.receivedSeen) return;
+    d.receivedSeen=true; try{ touchRecord(d); }catch(e){} saveState();
     if(typeof renderInventory==='function') renderInventory();
   }catch(e){}
 }
@@ -76751,6 +76798,12 @@ function whApplyVesselReceive(d, prep, qtys, by, now, prices){
      qua openConfirmInbound/_confSave). Đây KHÔNG còn là bước chốt cuối — chỉ là "Phiếu nhận hàng". */
   d.status='received'; d.receivedBy_=by; d.receivedAt_=now;
   d.vesselReceived=true; d.vesselReceivedAt=now; d.vesselReceivedBy=by;
+  /* v3.20.91 (Sếp: "cần có thông báo khi các phiếu chuyển trạng thái"): app chưa có hệ thống thông
+     báo theo từng NV (chỉ có theo tàu, pushVesselNotif) — dùng ĐÚNG cách nhẹ đã có sẵn từ v3.20.64
+     cho bước "có PNK" (đánh dấu "chưa xem" ngay tại phiếu, badge "MỚI") — áp dụng NỐT cho bước
+     chuyển pending→received (Nhận hàng) đang thiếu. Chỉ đánh dấu khi người NHẬN HÀNG khác người TẠO
+     phiếu (đúng ý "báo cho người khác biết"; tự tạo rồi tự nhận thì không cần báo lại chính mình). */
+  d.receivedSeen = (d.createdBy===by);
   return d;
 }
 function _vrSave(){
@@ -79615,12 +79668,16 @@ function renderInventory(){
     if(rb){ const nRecv=InventoryService.stockDocs().filter(d=>d.type==='IN'&&d.status==='received'&&(typeof stockCanAccessWarehouse!=='function'||stockCanAccessWarehouse(d.warehouseId))).length;
       rb.innerHTML = nRecv? `<span style="background:#b8730a;color:var(--paper-2);border-radius:9px;padding:1px 6px;font-size:10px;margin-left:2px">${nRecv}</span>` : ''; }
   }catch(e){}
-  /* v3.20.64 (Sếp — "Có PNK: hiện thông báo để NV tạo phiếu biết, xem = tắt"): badge tổng số phiếu
-     do CHÍNH mình tạo vừa có PNK mà mình CHƯA XEM — hiện ở nút "📦 Theo dõi nhập kho". */
+  /* v3.20.64/91 (Sếp — "Có PNK: hiện thông báo để NV tạo phiếu biết, xem = tắt" / "cần có thông báo
+     khi các phiếu chuyển trạng thái"): badge tổng số phiếu do CHÍNH mình tạo vừa CÓ THAY ĐỔI TRẠNG
+     THÁI mà mình CHƯA XEM — gồm cả 2 lần chuyển: pending→received (Nhận hàng) VÀ received/pending→
+     confirmed (có PNK) — hiện ở nút "📦 Theo dõi nhập kho". */
   try{
     const nb=document.getElementById('pnk-unseen-badge');
     if(nb){ const me=(typeof actorName==='function')?actorName():'';
-      const nNew=InventoryService.stockDocs().filter(d=>d.type==='IN'&&d.status==='confirmed'&&d.pnkSeen===false&&d.createdBy===me).length;   /* v3.20.67: chỉ tính pnkSeen===false thật (đã set), không tính undefined của phiếu cũ từ trước khi có tính năng này */
+      const nNewPnk=InventoryService.stockDocs().filter(d=>d.type==='IN'&&d.status==='confirmed'&&d.pnkSeen===false&&d.createdBy===me).length;   /* v3.20.67: chỉ tính pnkSeen===false thật (đã set), không tính undefined của phiếu cũ từ trước khi có tính năng này */
+      const nNewRecv=InventoryService.stockDocs().filter(d=>d.type==='IN'&&d.status==='received'&&d.receivedSeen===false&&d.createdBy===me).length;   /* v3.20.91: cùng luật — chỉ tính receivedSeen===false thật */
+      const nNew=nNewPnk+nNewRecv;
       nb.innerHTML = nNew? `<span style="background:#c0392b;color:#fff;border-radius:9px;padding:1px 6px;font-size:10px;margin-left:2px">${nNew}</span>` : ''; }
   }catch(e){}
 
