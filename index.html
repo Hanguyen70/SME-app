@@ -3840,7 +3840,7 @@ const WH_TYPES = {
    ============================================================ */
 
 const AUTH_KEY='seahorse_auth_v3';   // multi-user config
-const APP_VERSION='3.20.92';
+const APP_VERSION='3.20.94';
 /* HOTFIX 3.12.17-email: CHẶN TRIỆT ĐỂ gửi email TỰ ĐỘNG (mất kiểm soát — spam quota Google).
    Email phải do NV được phân quyền CHỦ ĐỘNG chọn gửi. Cờ này:
    (1) chặn auto-SCAN tạo email (hrmScanExpiries/vesselCertScanExpiries);
@@ -34159,7 +34159,33 @@ function _etCatGroupAdd(){
   commitMutation(()=>{ expTreeUpsert(L, name.trim()); },
     {action:'exptree_group_add', fields:['expenseTree'], onOk:()=>{ toast('✓ Đã thêm nhóm '+L+' · '+name.trim()+' (đồng bộ mọi máy) — thêm nhánh con bằng ＋ nhánh trên dòng nhóm','good'); try{ renderCatalog(); }catch(e){} }});
 }
-/* v3.18.84: mã LOẠI kế tiếp dưới nhánh cháu — THUẦN: O.01.10 + 001/002… theo max hiện có (kể cả loại lưu trữ, tránh trùng) */
+/* v3.20.94 (Sếp: "Đơn giản: app tạo 1 nhóm mới vật tư nhập kho?"): TỰ TẠO nhóm E — Vật tư nhập kho +
+   1 loại chi phí mặc định ngay dưới đó ("E.01 — Mua vật tư"), để NV chọn thẳng 1 cú click, không cần
+   tự gõ mã/tự tạo nhánh như mấy lượt trước (dễ gõ sai định dạng, dễ nhầm dropdown lọc theo mảng).
+   AN TOÀN — idempotent: đã có nhánh E và/hoặc đã có loại mã E.xx nào rồi thì GIỮ NGUYÊN, không tạo
+   trùng, chỉ báo lại tình trạng hiện có. */
+function _etSeedNhapKhoGroup(){
+  if(!isAdmin() && !(typeof canEditCatalog==='function' && canEditCatalog())){ toast('Chỉ Admin / Kế toán trưởng','bad'); return; }
+  const hadBranch=!!(typeof expTreeList==='function' && expTreeList().some(n=>n && String(n.code)==='E'));
+  const hasType=(S.expenseTypes||[]).some(t=>t && !t.archived && /^E\./i.test(String(t.treeCode||t.code||'')));
+  if(hadBranch && hasType){ toast('Nhóm E — Vật tư nhập kho đã có sẵn (kèm ít nhất 1 loại) — không cần tạo thêm','good'); try{ renderCatalog(); }catch(e){} return; }
+  commitMutation(()=>{
+    expTreeUpsert('E','Vật tư nhập kho');
+    if(!hasType){
+      Store._apply('expenseTypes', {
+        id:'ET-E.01-'+uid().slice(-4),
+        code:'E.01', label:'Mua vật tư', group:'E', icon:'📦', isPO:true,
+        treeCode:'E.01',
+        hint:'Loại chung cho phiếu Mua vật tư — chi tiết mặt hàng nhập sau, ở bước Nhập kho riêng',
+        createdAt:new Date().toISOString(), createdBy:actorName()
+      });
+    }
+  },{action:'etype_seed_stock_group', fields:['expenseTree','expenseTypes'], onOk:()=>{
+    toast('✓ Đã tạo nhóm E — Vật tư nhập kho'+(hasType?'':' + loại E.01 · Mua vật tư')+' — chọn được ngay trong dropdown Loại chi phí','good');
+    try{ renderCatalog(); }catch(e){}
+    setTimeout(()=>{ try{ _etCatReveal('E.01'); }catch(e){} },120);
+  }});
+}
 function etypeNextCode(chau){
   chau=String(chau||'').trim().toUpperCase(); if(!chau) return '';
   let max=0; (S.expenseTypes||[]).forEach(t=>{ const c=String((t&&t.code)||'').toUpperCase(); if(c.indexOf(chau+'.')!==0) return; const rest=c.slice(chau.length+1); if(/^\d+$/.test(rest)){ const v=parseInt(rest,10); if(v>max) max=v; } });
@@ -35150,7 +35176,7 @@ function renderCatalog(){
         </tr>`;
       };
       /* v3.18.71: nút ＋ Nhóm (admin) — chữ cái cấp 1 mới = nhóm hệ thống mới, màu app tự gán */
-      if(adminMode) h += `<tr><td colspan="${colspan}" style="padding:4px 12px"><button class="btn-sec" style="font-size:11px;padding:2px 8px" onclick="_etCatGroupAdd()" title="Thêm nhóm chi phí mới = một chữ cái cấp 1 (vd S · Khảo sát)">＋ Nhóm</button> <button class="btn-sec" style="font-size:11px;padding:2px 8px" onclick="openExpenseTreeManager()" title="v3.18.89 (Sếp 26/8): Bảng tên nhánh — toàn bộ mã nhánh (chữ cái › con › cháu) và tên; sửa/xóa nhánh tại đây">🌳 Bảng tên nhánh</button> <span style="font-size:10.5px;color:var(--muted)">Cây bên dưới vẽ từ Bảng tên nhánh + các loại đang có; nhánh chưa có loại vẫn hiện (0 loại).</span></td></tr>`;
+      if(adminMode) h += `<tr><td colspan="${colspan}" style="padding:4px 12px"><button class="btn-sec" style="font-size:11px;padding:2px 8px" onclick="_etCatGroupAdd()" title="Thêm nhóm chi phí mới = một chữ cái cấp 1 (vd S · Khảo sát)">＋ Nhóm</button> <button class="btn-sec" style="font-size:11px;padding:2px 8px" onclick="openExpenseTreeManager()" title="v3.18.89 (Sếp 26/8): Bảng tên nhánh — toàn bộ mã nhánh (chữ cái › con › cháu) và tên; sửa/xóa nhánh tại đây">🌳 Bảng tên nhánh</button> <button class="btn-sec" style="font-size:11px;padding:2px 8px" onclick="_etSeedNhapKhoGroup()" title="v3.20.94: tự tạo nhóm E — Vật tư nhập kho + 1 loại mặc định (E.01 — Mua vật tư) trong 1 cú bấm, không cần tự gõ mã. Bấm lại vô hại nếu đã có sẵn.">📦 Tạo nhóm Vật tư nhập kho</button> <span style="font-size:10.5px;color:var(--muted)">Cây bên dưới vẽ từ Bảng tên nhánh + các loại đang có; nhánh chưa có loại vẫn hiện (0 loại).</span></td></tr>`;
       /* v3.18.84: nhánh lạc cấp (≥4 cấp) do tạo nhầm bằng ＋ nhánh — danh mục không vẽ được → cảnh báo + lối xử lý */
       if(adminMode){ const stray=(typeof _etCatStrayBranches==='function')?_etCatStrayBranches():[]; if(stray.length) h += `<tr><td colspan="${colspan}" style="padding:6px 12px;font-size:12px;background:rgba(192,57,43,.07)">⚠ ${stray.length} mã trong Bảng tên nhánh có 4 cấp trở lên (mã 4 cấp là LOẠI chi phí, không phải nhánh) nên danh mục không hiện: ${stray.map(n=>`<span style="white-space:nowrap;margin-right:8px"><b>${esc(n.code)}</b> ${esc(n.name||'')} <button class="btn-sec" style="font-size:10.5px;padding:1px 6px" onclick="_etCatStrayToType('${esc(String(n.code))}')" title="Mở form Thêm loại với mã + tên điền sẵn">➕ tạo loại</button> <button class="icon-btn danger" style="font-size:10.5px" onclick="_etCatStrayDelete('${esc(String(n.code))}')" title="Xóa nhánh lạc cấp">🗑</button></span>`).join('')}</td></tr>`; }
       order.forEach(gk => {
@@ -54269,6 +54295,11 @@ function _renderBatchRow(u, isAp, kind){
     <td style="line-height:1.5">${statusCell}</td>
     <td><div class="row-actions">
       ${(kind==='ap' && a.status==='approved' && a.rem>0.0001)?`<button class="icon-btn good" title="Chi tiền CẢ PHIẾU — 1 form ghi chi (phiếu lương: bắt buộc chi ĐỦ tổng còn lại)" onclick="apBatchPayOne('${batchId}')">💵</button>`:''}
+      ${/* v3.20.93 (Sếp: "chưa có nút nhập kho tại phiếu nhiều dòng"): hàng GỘP (nhiều dòng) trước
+           đây thiếu hẳn nút 📦 mà hàng đơn dòng đã có sẵn (dòng ~1719/75247) — dùng ĐÚNG hàm
+           stockInFromAp(apId) hiện có, truyền id của DÒNG ĐẦU trong batch là đủ vì hàm này tự gom
+           MỌI dòng cùng batchId qua whCollectApBatch() — không cần viết lại gì, chỉ thiếu đường gọi. */''}
+      ${(kind==='ap' && first.id)?`<button class="icon-btn" style="color:#1c5a8c" title="Tạo phiếu nhập kho từ hóa đơn này (đường nhập kho, độc lập ký duyệt thanh toán — nhận nhiều đợt được)" onclick="event.stopPropagation();stockInFromAp('${esc(first.id)}')">📦</button>`:''}
       <button class="icon-btn" title="Xem / sửa / duyệt cả phiếu" onclick="openBatchDetail('${kind}','${batchId}')">👁</button>
     </div></td>
   </tr>`;
